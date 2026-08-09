@@ -4359,7 +4359,7 @@ paths:
       tags:
         - Feed Config
       operationId: listFeedConfigExperiment
-      summary: List a park's hand-authored experiment sheds.
+      summary: List hand-authored experiment sheds, for one park or the whole tenant.
       description: >-
         Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park.
         absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as
@@ -4371,7 +4371,13 @@ paths:
       parameters:
         - name: park_id
           in: query
-          required: true
+          required: false
+          description: >-
+            Narrow to one park. ABSENT returns every authored experiment cell in the tenant, across
+            both parks -- this read is deliberately the one exception to the park-scoped rule on this
+            screen, because an experiment cell carries its own park while a ration rate, a session
+            split and a dispatch clock are park-OWNED and have no cross-park meaning. A company-wide
+            caller must be able to see all authored experiments rather than one park's silently.
           schema:
             type: string
             format: uuid
@@ -4429,6 +4435,88 @@ paths:
       responses:
         "200":
           description: The authored edit's outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-config/pens:
+    get:
+      tags:
+        - Feed Config
+      operationId: listFeedConfigPens
+      summary: List a park's operational locations (sheds and their pens).
+      description: >-
+        Returns every active shed in the park, and every pen of a subdivided shed, each flagged with
+        whether it already carries experiment configuration. This is the experiment enroller's
+        candidate source. It cannot be derived from the experiment list (that only knows locations
+        already enrolled) nor from the shed list (one enrolled pen makes the whole building look
+        enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads
+        the location/partition catalog and NO per-animal table, so a pen holding zero animals is
+        still listed -- usually the pen about to be filled and configured first.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/FeedConfigLimit"
+        - $ref: "#/components/parameters/FeedConfigOffset"
+      responses:
+        "200":
+          description: One bounded page of the park's operational locations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigPenPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /feed-config/experiment/batch:
+    post:
+      tags:
+        - Feed Config
+      operationId: upsertFeedConfigExperimentBatch
+      summary: Author every feed item of one pen atomically.
+      description: >-
+        Authors the complete set of absolute-kg quantities for ONE pen in a single transaction. The
+        whole set commits or none of it does, and that is a safety property rather than a
+        convenience: a pen's authored cells are the COMPLETE list of what it is fed -- the planner
+        does not fall back to the ration grid for a missing item -- so a partly-applied enrolment
+        leaves the pen ON the experiment workflow fed only the items that committed, on a sheet that
+        looks complete. The experiment arm and head count are carried once for the pen, never per
+        item. A feed item named twice is rejected rather than de-duplicated, because the two cells
+        collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an
+        item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a
+        rejected request, never an instruction to feed nothing.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertFeedConfigExperimentBatchRequest"
+      responses:
+        "200":
+          description: The authored enrolment's outcome.
           content:
             application/json:
               schema:
@@ -9689,6 +9777,7 @@ components:
       required:
         - experiment_config_id
         - park_id
+        - park_name
         - shed_id
         - shed_name
         - operational_location_display
@@ -9703,6 +9792,11 @@ components:
         park_id:
           type: string
           format: uuid
+        park_name:
+          type: string
+          description: >-
+            The park this cell belongs to. Carried because the list may span BOTH parks; the shed name
+            cannot stand in for it, since Castro, Gandhi and Yashoda each exist in both parks.
         shed_id:
           type: string
           format: uuid
@@ -9766,6 +9860,120 @@ components:
           type: integer
         has_more:
           type: boolean
+    FeedConfigPen:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - shed_id
+        - shed_name
+        - operational_location_display
+        - has_experiment_config
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          description: >-
+            The pen's HUMAN label ('Part 3', '2'). Absent means the shed is undivided. Never the
+            normalized matching key ('3') and never the 'whole' sentinel.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed location label ("Mandela 1 - Part 3"). Rendered verbatim; clients never
+            rejoin the shed name and partition themselves.
+        has_experiment_config:
+          type: boolean
+          description: >-
+            Whether this pen already carries at least one authored experiment cell. Computed against
+            the same (shed_id, partition) natural key the experiment table is unique on, so the
+            enroller's candidate filter cannot disagree with what a write would land on.
+    FeedConfigPenPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - limit
+        - offset
+        - has_more
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedConfigPen"
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+    UpsertFeedConfigExperimentBatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - shed_id
+        - experiment_category
+        - items
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned
+            shed writes the shed-wide row instead of the pen, creating a phantom whole-shed row
+            beside the real pens. Absent means an undivided shed.
+        experiment_category:
+          type: string
+          minLength: 1
+          description: >-
+            The experiment ARM, carried ONCE for the pen rather than per item. Per-item copies would
+            let one pen hold two arms, with the display picking whichever row sorted first.
+        head_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: >-
+            INFORMATIONAL population for the pen. Never multiplied into any absolute_kg. Carried once
+            for the pen. Null records "not recorded", which stays distinct from an authored 0.
+        items:
+          type: array
+          minItems: 1
+          description: >-
+            The authored cells. At least one -- an empty batch would enrol the pen onto the
+            experiment workflow with nothing authored, which the planner reads as "fed nothing".
+          items:
+            $ref: "#/components/schemas/UpsertFeedConfigExperimentBatchItem"
+    UpsertFeedConfigExperimentBatchItem:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_item
+        - absolute_kg
+      properties:
+        feed_item:
+          type: string
+          minLength: 1
+        absolute_kg:
+          type: number
+          minimum: 0
+          multipleOf: 0.001
+          description: >-
+            Authored ABSOLUTE kg for the whole pen of this item. An explicit 0 is accepted (an arm
+            that deliberately gets none of it); a negative or over-precise value is rejected with a
+            field error. An item the author cleared must be omitted from the array entirely.
     CreateFeedConfigFeedItemRequest:
       type: object
       additionalProperties: false

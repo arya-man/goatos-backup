@@ -419,9 +419,16 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedConfigSessionTemplates", Method: "GET", Pattern: "/feed-config/session-templates", Permissions: []string{FeedConfigRead}},
 	{OperationID: "listFeedConfigSchedule", Method: "GET", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigRead}},
 	{OperationID: "listFeedConfigShedFactors", Method: "GET", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigRead}},
+	// The experiment enroller's candidate source: the park's operational locations (each shed, and
+	// each pen of a subdivided shed). A READ of authored location config, so FeedConfigRead -- the
+	// same permission the screen's other reads carry.
+	{OperationID: "listFeedConfigPens", Method: "GET", Pattern: "/feed-config/pens", Permissions: []string{FeedConfigRead}},
 	{OperationID: "upsertFeedConfigRationRate", Method: "POST", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "createFeedConfigFeedItem", Method: "POST", Pattern: "/feed-config/feed-items", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
+	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
+	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.
+	{OperationID: "upsertFeedConfigExperimentBatch", Method: "POST", Pattern: "/feed-config/experiment/batch", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigSchedule", Method: "POST", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigWrite}},
 
 	// The EXPERIMENT half of the same authored surface, on the same two permissions.

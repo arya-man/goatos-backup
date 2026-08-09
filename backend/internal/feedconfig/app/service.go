@@ -246,13 +246,38 @@ func (s *Service) ListShedFactors(ctx context.Context, tenantID, parkID, shedID,
 // rather than deleted, so its authored quantities survive; hiding them by default would force an
 // operator restoring a shed to re-key every figure from the workbook, and would also make a shed
 // that someone withdrew by mistake invisible on the screen that owns that decision.
+// ListPens returns the park's operational locations for the experiment enroller: every active shed,
+// and every pen of a subdivided shed, flagged with whether it already carries experiment config.
+//
+// park_id is REQUIRED for the same reason it is on every other read here -- the ration grid, the
+// session split and the dispatch clock are all park-scoped, and a tenant-wide location list would be
+// an unbounded read with no screen behind it.
+func (s *Service) ListPens(ctx context.Context, tenantID, parkID string, limit, offset *int32) (domain.PenPage, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return domain.PenPage{}, ErrMissingTenant
+	}
+	if strings.TrimSpace(parkID) == "" {
+		return domain.PenPage{}, ErrMissingPark
+	}
+	page, err := resolvePage(limit, offset)
+	if err != nil {
+		return domain.PenPage{}, err
+	}
+	return s.repo.ListPens(ctx, domain.PenQuery{
+		TenantID: tenantID,
+		ParkID:   strings.TrimSpace(parkID),
+		Page:     page,
+	})
+}
+
 func (s *Service) ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ExperimentConfigPage{}, ErrMissingTenant
 	}
-	if strings.TrimSpace(parkID) == "" {
-		return domain.ExperimentConfigPage{}, ErrMissingPark
-	}
+	// park_id is OPTIONAL on THIS read alone. Every other read here is park-owned, but an experiment
+	// cell carries its own park, so an absent park means "the whole tenant's authored experiments" --
+	// which is what a company-wide scope must be able to show. Without this the screen silently
+	// rendered one park's pens and called it everything.
 	// Same reasoning as applies_to and workflow above: an unrecognised status filter must not quietly
 	// widen the result. Here it matters more than usual, because the two statuses mean two DIFFERENT
 	// WORKFLOWS, and a screen that showed retired rows while claiming to show active ones would
@@ -636,6 +661,101 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 		AbsoluteKg:         kg,
 		HeadCount:          headCount,
 		ExperimentCategory: category,
+	})
+}
+
+// ExperimentBatchCellInput is one authored feed item inside a batch enrolment.
+//
+// AbsoluteKg is a *string for the same absent-vs-zero reason as the single-cell write. A cell the
+// author left BLANK must not be in this slice at all; a cell that is here and carries nil is an
+// error, not an instruction to feed nothing.
+type ExperimentBatchCellInput struct {
+	FeedItemLabel string
+	AbsoluteKg    *string
+}
+
+// UpsertExperimentConfigBatchInput authors every feed item of ONE pen in one atomic write.
+type UpsertExperimentConfigBatchInput struct {
+	TenantID           string
+	ActorRef           string
+	ParkID             string
+	ShedID             string
+	PartitionLabel     string
+	ExperimentCategory string
+	HeadCount          *int32
+	Cells              []ExperimentBatchCellInput
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// UpsertExperimentConfigBatch validates and applies a whole pen's authored quantities atomically.
+//
+// Every cell is validated BEFORE the transaction opens. A batch that would reject its fourth cell
+// must not have written its first three: the point of this endpoint is that a pen is never left
+// half-authored, and validating inside the loop that writes would make the guarantee depend on
+// rollback rather than on never having started.
+func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExperimentConfigBatchInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	category, err := domain.RequireNonBlank("experiment_category", in.ExperimentCategory)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	// An empty batch is a caller mistake, not a no-op: it would enrol a pen onto the experiment
+	// workflow with nothing authored, which the planner reads as "fed nothing".
+	if len(in.Cells) == 0 {
+		return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrMissingField}
+	}
+	headCount, err := domain.ValidateHeadCount("head_count", in.HeadCount)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+
+	// Duplicate feed items are rejected rather than de-duplicated. Two cells naming the same item
+	// carry two different authored quantities; inside one INSERT they race and the survivor is
+	// arbitrary, so silently keeping one would store a number the author did not choose. Compared on
+	// the NORMALIZED key, because that is what the unique index collapses them on.
+	seen := make(map[string]struct{}, len(in.Cells))
+	cells := make([]domain.ExperimentBatchCell, 0, len(in.Cells))
+	for _, cell := range in.Cells {
+		item, err := domain.RequireNonBlank("feed_item", cell.FeedItemLabel)
+		if err != nil {
+			return domain.WriteResult{}, err
+		}
+		key := domain.NormalizeFeedItemKey(item)
+		if _, dup := seen[key]; dup {
+			return domain.WriteResult{}, &domain.FieldError{Field: "items", Reason: domain.ErrDuplicateFeedItem}
+		}
+		seen[key] = struct{}{}
+		if cell.AbsoluteKg == nil {
+			return domain.WriteResult{}, &domain.FieldError{Field: "absolute_kg", Reason: domain.ErrMissingField}
+		}
+		kg, err := domain.NormalizeDecimal("absolute_kg", *cell.AbsoluteKg, absoluteKgScale, true)
+		if err != nil {
+			return domain.WriteResult{}, err
+		}
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: kg})
+	}
+
+	return s.repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+		WriteIdentity:      identity,
+		ParkID:             parkID,
+		ShedID:             shedID,
+		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
+		ExperimentCategory: category,
+		HeadCount:          headCount,
+		Cells:              cells,
 	})
 }
 

@@ -54,6 +54,15 @@ const (
 	scheduleRoute         = "/feed-config/schedule"
 	shedFactorsRoute      = "/feed-config/shed-factors"
 	experimentRoute       = "/feed-config/experiment"
+	// pensRoute is the enroller's candidate source: the park's operational locations. It is its own
+	// route rather than a flag on the shed list because a pen, not a shed, is what an experiment is
+	// authored against.
+	pensRoute = "/feed-config/pens"
+	// experimentBatchRoute authors EVERY feed item of one pen atomically. A separate route from
+	// experimentRoute because the guarantee differs: the single-cell write corrects one number, while
+	// this one is all-or-nothing across a set precisely so a pen is never left half-authored (and so
+	// silently underfed, since a pen's authored cells ARE the complete list of what it is fed).
+	experimentBatchRoute = "/feed-config/experiment/batch"
 	// experimentShedStatusRoute is a SEPARATE route from experimentRoute, not a status field on the
 	// cell write. The two are different acts: one authors a quantity, the other changes WHICH
 	// WORKFLOW feeds the shed. Keeping them apart means the workflow switch is an explicit request an
@@ -67,6 +76,7 @@ const (
 	upsertShedFactorCommand    = "feedconfig.shed_factor.upsert"
 	upsertScheduleCommand      = "feedconfig.schedule_config.upsert"
 	upsertExperimentCommand    = "feedconfig.experiment_config.upsert"
+	upsertExperimentBatchCmd   = "feedconfig.experiment_config.upsert_batch"
 	setExperimentShedStatusCmd = "feedconfig.experiment_config.set_shed_status"
 
 	maxBodyBytes = 1 << 20
@@ -83,12 +93,14 @@ type Service interface {
 	ListScheduleConfig(ctx context.Context, tenantID, parkID, workflow string, limit, offset *int32) (domain.ScheduleConfigPage, error)
 	ListShedFactors(ctx context.Context, tenantID, parkID, shedID, feedItem string, limit, offset *int32) (domain.ShedFactorPage, error)
 	ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error)
+	ListPens(ctx context.Context, tenantID, parkID string, limit, offset *int32) (domain.PenPage, error)
 
 	UpsertRationRate(ctx context.Context, in feedconfigapp.UpsertRationRateInput) (domain.WriteResult, error)
 	CreateFeedItem(ctx context.Context, in feedconfigapp.CreateFeedItemInput) (domain.WriteResult, error)
 	UpsertShedFactor(ctx context.Context, in feedconfigapp.UpsertShedFactorInput) (domain.WriteResult, error)
 	UpsertScheduleConfig(ctx context.Context, in feedconfigapp.UpsertScheduleConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfig(ctx context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error)
+	UpsertExperimentConfigBatch(ctx context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error)
 	SetExperimentShedStatus(ctx context.Context, in feedconfigapp.SetExperimentShedStatusInput) (domain.WriteResult, error)
 }
 
@@ -113,12 +125,14 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+scheduleRoute, h.ListScheduleConfig)
 	mux.HandleFunc("GET "+shedFactorsRoute, h.ListShedFactors)
 	mux.HandleFunc("GET "+experimentRoute, h.ListExperimentConfig)
+	mux.HandleFunc("GET "+pensRoute, h.ListPens)
 
 	mux.HandleFunc("POST "+rationRatesRoute, h.UpsertRationRate)
 	mux.HandleFunc("POST "+feedItemsRoute, h.CreateFeedItem)
 	mux.HandleFunc("POST "+shedFactorsRoute, h.UpsertShedFactor)
 	mux.HandleFunc("POST "+scheduleRoute, h.UpsertScheduleConfig)
 	mux.HandleFunc("POST "+experimentRoute, h.UpsertExperimentConfig)
+	mux.HandleFunc("POST "+experimentBatchRoute, h.UpsertExperimentConfigBatch)
 	mux.HandleFunc("POST "+experimentShedStatusRoute, h.SetExperimentShedStatus)
 }
 
@@ -268,6 +282,26 @@ func (h *Handler) ListExperimentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	page, err := h.service.ListExperimentConfig(r.Context(), tenantID, q.Get("park_id"), q.Get("shed_id"), q.Get("status"), limit, offset)
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
+// ListPens serves the park's operational-location catalog: every active shed and every pen of a
+// subdivided shed, each flagged with whether it already carries experiment configuration.
+func (h *Handler) ListPens(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	limit, offset, err := pageParams(r.URL.Query())
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_paging", err.Error(), nil)
+		return
+	}
+	page, err := h.service.ListPens(r.Context(), tenantID, r.URL.Query().Get("park_id"), limit, offset)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -498,6 +532,88 @@ func (h *Handler) UpsertScheduleConfig(w http.ResponseWriter, r *http.Request) {
 		TransportTimeProvided: req.TransportTime != nil,
 		IdempotencyKey:        key,
 		RequestFingerprint:    fingerprint,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
+}
+
+// upsertExperimentBatchRequest authors every feed item of ONE pen in one atomic write.
+//
+// The pen's arm and head count sit at the TOP LEVEL, not on each item: they describe the pen, and
+// per-item copies would let one pen carry two arms with the display picking whichever row sorted
+// first. Each item carries only what varies -- the feed item and its absolute kg.
+//
+// AbsoluteKg stays a *json.Number per item for the same absent-vs-zero reason as the single-cell
+// write. A field the author cleared must be OMITTED FROM items entirely; sending it with a null kg
+// is a rejected request, never an instruction to feed nothing.
+type upsertExperimentBatchRequest struct {
+	ParkID             string                     `json:"park_id"`
+	ShedID             string                     `json:"shed_id"`
+	PartitionLabel     string                     `json:"partition_label"`
+	ExperimentCategory string                     `json:"experiment_category"`
+	HeadCount          *int32                     `json:"head_count"`
+	Items              []upsertExperimentBatchRow `json:"items"`
+}
+
+type upsertExperimentBatchRow struct {
+	FeedItem   string       `json:"feed_item"`
+	AbsoluteKg *json.Number `json:"absolute_kg"`
+}
+
+func (h *Handler) UpsertExperimentConfigBatch(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req upsertExperimentBatchRequest
+	if !h.decode(w, r, &req, "UpsertFeedConfigExperimentBatchRequest") {
+		return
+	}
+	req.ParkID = strings.TrimSpace(req.ParkID)
+	req.ShedID = strings.TrimSpace(req.ShedID)
+	req.PartitionLabel = strings.TrimSpace(req.PartitionLabel)
+	req.ExperimentCategory = strings.TrimSpace(req.ExperimentCategory)
+	for i := range req.Items {
+		req.Items[i].FeedItem = strings.TrimSpace(req.Items[i].FeedItem)
+	}
+
+	// Fingerprinted AFTER trimming and over the whole body including the item slice, so a retry of
+	// the same enrolment replays and a retry that changed ONE cell's kg is correctly a conflict
+	// rather than a silent second authoring.
+	fingerprint, err := requestFingerprint(tenantID, upsertExperimentBatchCmd, experimentBatchRoute, req)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+
+	cells := make([]feedconfigapp.ExperimentBatchCellInput, 0, len(req.Items))
+	for _, item := range req.Items {
+		cell := feedconfigapp.ExperimentBatchCellInput{FeedItemLabel: item.FeedItem}
+		if item.AbsoluteKg != nil {
+			kg := item.AbsoluteKg.String()
+			cell.AbsoluteKg = &kg
+		}
+		cells = append(cells, cell)
+	}
+
+	result, err := h.service.UpsertExperimentConfigBatch(r.Context(), feedconfigapp.UpsertExperimentConfigBatchInput{
+		TenantID:           tenantID,
+		ActorRef:           h.actor(r),
+		ParkID:             req.ParkID,
+		ShedID:             req.ShedID,
+		PartitionLabel:     req.PartitionLabel,
+		ExperimentCategory: req.ExperimentCategory,
+		HeadCount:          req.HeadCount,
+		Cells:              cells,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, err)

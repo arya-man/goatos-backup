@@ -34,6 +34,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -60,6 +61,10 @@ var (
 	// absolute kg and 'retired' returns it to the per-head ration grid, so there is no safe default
 	// to fall back to.
 	ErrInvalidExperimentStatus = errors.New("feedconfig: status must be 'active' or 'retired'")
+	// ErrDuplicateFeedItem guards a batch that names one feed item twice. The two cells carry two
+	// authored quantities and collapse onto ONE row under the natural key, so keeping either one
+	// silently stores a number the author did not choose. Rejected rather than de-duplicated.
+	ErrDuplicateFeedItem = errors.New("feedconfig: feed item appears more than once in one write")
 )
 
 // Workflows recognised by feed_schedule_config. Mirrors the migration's CHECK constraint; a value
@@ -327,7 +332,11 @@ type ShedFactorPage struct {
 type ExperimentConfig struct {
 	ExperimentConfigID string `json:"experiment_config_id"`
 	ParkID             string `json:"park_id"`
-	ShedID             string `json:"shed_id"`
+	// ParkName is carried because this list may span BOTH parks when the caller asks for a
+	// company-wide view. The shed name cannot stand in for it: Castro, Gandhi and Yashoda each exist
+	// in both parks, so a cross-park row labelled by shed alone is ambiguous.
+	ParkName string `json:"park_name"`
+	ShedID   string `json:"shed_id"`
 	// ShedName and PartitionLabel are the two halves of the ground location, and they must always
 	// travel together. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not
 	// identify a row: Mandela 1 holds ten pens, each with its own arm, head count and quantities.
@@ -368,6 +377,88 @@ type ExperimentConfigPage struct {
 	Limit   int32              `json:"limit"`
 	Offset  int32              `json:"offset"`
 	HasMore bool               `json:"has_more"`
+}
+
+// ExperimentBatchCell is one authored feed item inside a batch enrolment.
+type ExperimentBatchCell struct {
+	FeedItemLabel string
+	// AbsoluteKg is an exact decimal string, already normalized. Same absent-vs-zero contract as the
+	// single-cell write: a cell the author left blank is NOT in this slice at all, and a cell that IS
+	// here carries a real authored number, which may legitimately be "0".
+	AbsoluteKg string
+}
+
+// UpsertExperimentConfigBatchCommand authors EVERY feed item of one pen in a single transaction.
+//
+// WHY THIS IS ATOMIC AND NOT N SINGLE-CELL WRITES. Membership in feed_experiment_config IS what puts
+// a pen on the experiment workflow, and ExperimentPlanner treats the pen's authored cells as the
+// COMPLETE list of what it is fed -- it does not fall back to the ration grid for a missing item. So
+// a partly-applied enrolment does not leave the pen unconfigured and loud; it leaves the pen ON the
+// experiment, fed only the items that happened to commit, on a sheet that looks complete. That is a
+// silent underfeed of live animals, which is why the whole set commits or none of it does.
+//
+// The pen's arm and head count are carried once, not per cell: they describe the PEN, and letting
+// them vary per cell is how a pen ends up with two arms and the display picks whichever row sorted
+// first.
+type UpsertExperimentConfigBatchCommand struct {
+	WriteIdentity
+	ParkID string
+	ShedID string
+	// PartitionLabel names WHICH PEN. Empty is legitimate (an undivided shed) and authors the
+	// shed-wide row; on a partitioned shed an empty label is the defect that quietly creates a
+	// phantom whole-shed row beside the real pens.
+	PartitionLabel     string
+	ExperimentCategory string
+	HeadCount          *int32
+	// Cells is the authored set, at least one. Duplicate feed items are rejected before this point:
+	// two cells normalizing to the same key would race each other inside one statement and the
+	// survivor would be arbitrary.
+	Cells []ExperimentBatchCell
+}
+
+// Pen is ONE operational location in a park: a physical shed plus, when the shed is subdivided, the
+// pen within it. It is the catalog the experiment enroller offers, and it exists because the
+// experiment table cannot supply that list itself.
+//
+// WHY A SEPARATE READ AND NOT A DISTINCT OVER feed_experiment_config. The enroller's whole job is to
+// offer a location that has NO experiment rows yet, so deriving the list from the experiment table
+// can only ever return locations that are already enrolled. Deriving it from the SHED list is the
+// bug this replaces: CBE's Godel 1 holds ten pens of which seven were enrolled, and a shed-keyed
+// candidate list saw "Godel 1 is already an experiment shed" and hid the other three -- Part 8 could
+// not be enrolled from the screen at all, and the only route was a hand-written database write.
+//
+// A pen with ZERO animals is still a real pen and is still offered. The catalog is the locations /
+// shed_partitions truth, never a per-goat table: deriving it from goat placement hides an empty pen,
+// and an empty pen is exactly the one an operator is about to move animals into and wants configured
+// first. This read touches no per-animal table.
+type Pen struct {
+	ParkID   string `json:"park_id"`
+	ShedID   string `json:"shed_id"`
+	ShedName string `json:"shed_name"`
+	// PartitionLabel is the HUMAN label ('Part 3', '2'), never the normalized matching key ('3') and
+	// never the 'whole' sentinel. Empty means the shed is undivided.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is composed by the backend via oploc, so this list reads identically
+	// to the experiment table it feeds and to every other surface.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// HasExperimentConfig reports whether this pen already has at least one authored experiment cell.
+	// Computed here, next to the catalog, rather than left to the client to infer by matching names:
+	// name-matching across a partitioned shed is exactly the keying mistake this whole area keeps
+	// making, and the pen's identity is (shed_id, partition) which only the backend holds reliably.
+	HasExperimentConfig bool `json:"has_experiment_config"`
+}
+
+type PenQuery struct {
+	TenantID string
+	ParkID   string
+	Page     Page
+}
+
+type PenPage struct {
+	Items   []Pen `json:"items"`
+	Limit   int32 `json:"limit"`
+	Offset  int32 `json:"offset"`
+	HasMore bool  `json:"has_more"`
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +637,19 @@ func fieldErr(field string, reason error, detail string) error {
 //
 // An empty string is a MISSING field, not a zero. The distinction is the whole safety rule of this
 // module.
+// NormalizeFeedItemKey is the Go twin of the Postgres `feed_config_norm` function: trim, casefold,
+// collapse runs of whitespace/underscore/hyphen to a single underscore.
+//
+// It exists so a duplicate inside ONE batch is caught by the same rule the unique index would apply
+// -- "RGS Concentrate" and "rgs  concentrate" are one cell, and rejecting them here is what keeps
+// the write from racing two quantities onto one row. It must stay in step with the SQL function; the
+// two are checked against each other in the repository's Postgres tests.
+func NormalizeFeedItemKey(raw string) string {
+	return feedItemKeySeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(raw)), "_")
+}
+
+var feedItemKeySeparators = regexp.MustCompile(`[\s_-]+`)
+
 func NormalizeDecimal(field, raw string, scale int, allowZero bool) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

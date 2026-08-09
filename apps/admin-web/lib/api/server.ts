@@ -903,7 +903,12 @@ export async function upsertFeedConfigRationRate(
  * very screen that owns that decision.
  */
 export async function listFeedConfigExperiment(params: {
-  park_id: string;
+  /**
+   * OPTIONAL on this read alone. Omitted means every authored experiment cell in the tenant, across
+   * both parks -- the company-wide view. Every other /feed-config read stays park-scoped because it
+   * is park-OWNED; an experiment cell carries its own park, so it can be listed tenant-wide.
+   */
+  park_id?: string;
   shed_id?: string;
   status?: "active" | "retired";
   limit?: number;

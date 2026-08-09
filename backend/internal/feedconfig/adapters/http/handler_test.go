@@ -25,6 +25,8 @@ type fakeService struct {
 
 	feedItemInput feedconfigapp.CreateFeedItemInput
 
+	lastExperimentBatch feedconfigapp.UpsertExperimentConfigBatchInput
+
 	experimentInput       feedconfigapp.UpsertExperimentConfigInput
 	experimentStatusInput feedconfigapp.SetExperimentShedStatusInput
 
@@ -57,6 +59,15 @@ func (f *fakeService) ListShedFactors(context.Context, string, string, string, s
 
 func (f *fakeService) ListExperimentConfig(context.Context, string, string, string, string, *int32, *int32) (domain.ExperimentConfigPage, error) {
 	return domain.ExperimentConfigPage{}, f.err
+}
+
+func (f *fakeService) ListPens(context.Context, string, string, *int32, *int32) (domain.PenPage, error) {
+	return domain.PenPage{}, f.err
+}
+
+func (f *fakeService) UpsertExperimentConfigBatch(_ context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error) {
+	f.lastExperimentBatch = in
+	return domain.WriteResult{}, f.err
 }
 
 func (f *fakeService) UpsertExperimentConfig(_ context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error) {

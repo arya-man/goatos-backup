@@ -1721,7 +1721,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a park's hand-authored experiment sheds.
+         * List hand-authored experiment sheds, for one park or the whole tenant.
          * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them.
          */
         get: operations["listFeedConfigExperiment"];
@@ -1731,6 +1731,46 @@ export interface paths {
          * @description Authors the absolute kg for one (park, shed, feed_item). absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Authoring a shed's FIRST cell is what enrols it onto the experiment workflow, and any write forces the row back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
          */
         post: operations["upsertFeedConfigExperiment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/pens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a park's operational locations (sheds and their pens).
+         * @description Returns every active shed in the park, and every pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
+         */
+        get: operations["listFeedConfigPens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/experiment/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Author every feed item of one pen atomically.
+         * @description Authors the complete set of absolute-kg quantities for ONE pen in a single transaction. The whole set commits or none of it does, and that is a safety property rather than a convenience: a pen's authored cells are the COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a missing item -- so a partly-applied enrolment leaves the pen ON the experiment workflow fed only the items that committed, on a sheet that looks complete. The experiment arm and head count are carried once for the pen, never per item. A feed item named twice is rejected rather than de-duplicated, because the two cells collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a rejected request, never an instruction to feed nothing.
+         */
+        post: operations["upsertFeedConfigExperimentBatch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3813,6 +3853,8 @@ export interface components {
             experiment_config_id: string;
             /** Format: uuid */
             park_id: string;
+            /** @description The park this cell belongs to. Carried because the list may span BOTH parks; the shed name cannot stand in for it, since Castro, Gandhi and Yashoda each exist in both parks. */
+            park_name: string;
             /** Format: uuid */
             shed_id: string;
             /** @description Display name of the physical shed, without the pen. */
@@ -3839,6 +3881,44 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+        };
+        FeedConfigPen: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description The pen's HUMAN label ('Part 3', '2'). Absent means the shed is undivided. Never the normalized matching key ('3') and never the 'whole' sentinel. */
+            partition_label?: string;
+            /** @description Backend-composed location label ("Mandela 1 - Part 3"). Rendered verbatim; clients never rejoin the shed name and partition themselves. */
+            operational_location_display: string;
+            /** @description Whether this pen already carries at least one authored experiment cell. Computed against the same (shed_id, partition) natural key the experiment table is unique on, so the enroller's candidate filter cannot disagree with what a write would land on. */
+            has_experiment_config: boolean;
+        };
+        FeedConfigPenPage: {
+            items: components["schemas"]["FeedConfigPen"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        UpsertFeedConfigExperimentBatchRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            /** @description WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned shed writes the shed-wide row instead of the pen, creating a phantom whole-shed row beside the real pens. Absent means an undivided shed. */
+            partition_label?: string | null;
+            /** @description The experiment ARM, carried ONCE for the pen rather than per item. Per-item copies would let one pen hold two arms, with the display picking whichever row sorted first. */
+            experiment_category: string;
+            /** @description INFORMATIONAL population for the pen. Never multiplied into any absolute_kg. Carried once for the pen. Null records "not recorded", which stays distinct from an authored 0. */
+            head_count?: number | null;
+            /** @description The authored cells. At least one -- an empty batch would enrol the pen onto the experiment workflow with nothing authored, which the planner reads as "fed nothing". */
+            items: components["schemas"]["UpsertFeedConfigExperimentBatchItem"][];
+        };
+        UpsertFeedConfigExperimentBatchItem: {
+            feed_item: string;
+            /** @description Authored ABSOLUTE kg for the whole pen of this item. An explicit 0 is accepted (an arm that deliberately gets none of it); a negative or over-precise value is rejected with a field error. An item the author cleared must be omitted from the array entirely. */
+            absolute_kg: number;
         };
         CreateFeedConfigFeedItemRequest: {
             /** @description The item's name, as it will appear on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Compared against the catalog on the same normalization the storage key uses, so a name differing only in case or surrounding whitespace is the SAME item and is rejected as a duplicate rather than added twice. */
@@ -12120,8 +12200,9 @@ export interface operations {
     };
     listFeedConfigExperiment: {
         parameters: {
-            query: {
-                park_id: string;
+            query?: {
+                /** @description Narrow to one park. ABSENT returns every authored experiment cell in the tenant, across both parks -- this read is deliberately the one exception to the park-scoped rule on this screen, because an experiment cell carries its own park while a ration rate, a session split and a dispatch clock are park-OWNED and have no cross-park meaning. A company-wide caller must be able to see all authored experiments rather than one park's silently. */
+                park_id?: string;
                 shed_id?: string;
                 /** @description Narrow to one status. Absent returns BOTH active and retired rows. */
                 status?: "active" | "retired";
@@ -12167,6 +12248,68 @@ export interface operations {
         };
         responses: {
             /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedConfigPens: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of the park's operational locations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigPenPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    upsertFeedConfigExperimentBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored enrolment's outcome. */
             200: {
                 headers: {
                     [name: string]: unknown;

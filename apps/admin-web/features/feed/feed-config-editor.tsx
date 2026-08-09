@@ -301,6 +301,124 @@ export function ExperimentCellEditor({
 }
 
 /**
+ * Author a feed item this pen does NOT yet have a cell for.
+ *
+ * WHY THIS EXISTS AS ITS OWN CONTROL. ExperimentCellEditor edits an existing cell and
+ * ExperimentShedEnroller only offers sheds with no experiment rows at all, so a pen that was already
+ * on the experiment had no way to gain a SIXTH feed item -- the only route was a hand-written
+ * database write. That is also why a partly-experimental shed could not have another of its pens
+ * enrolled: the enroller filters on shed_id, so one enrolled pen hid the rest of the building.
+ *
+ * It posts to the SAME single-cell upsert the editor uses. That write already inserts when no row
+ * exists for (shed, pen, item), so nothing new is needed on the write path -- and because one cell
+ * is one transaction, a failure here leaves the pen exactly as it was rather than half-authored.
+ *
+ * The item list is the catalog MINUS what the pen already has. Offering an authored item would make
+ * this control a second, unlabelled way to overwrite a quantity that the row's own Edit button owns.
+ * A pen holding every catalog item therefore has nothing to add, and says so rather than rendering
+ * an empty select that looks broken.
+ *
+ * The arm and head count are prefilled from the pen and sent back, because the write authors the
+ * whole row: leaving them blank would reject (the arm is required) or record "not recorded" over a
+ * population the pen already had.
+ */
+export function ExperimentCellAdder({
+  pageContract,
+  action,
+  parkId,
+  shedId,
+  partitionLabel,
+  experimentCategory,
+  headCount,
+  availableItems,
+}: {
+  pageContract: AdminUiPageContract;
+  action: SaveAction;
+  parkId: string;
+  shedId: string;
+  /** The pen gaining the item; empty for an undivided shed. */
+  partitionLabel: string;
+  /** Carried from the pen's existing rows so the new cell joins the same arm. */
+  experimentCategory: string;
+  /** Absent means the population was not recorded — never rendered or sent as 0. */
+  headCount?: number | null;
+  /** Catalog items with no authored cell on THIS pen. Empty means there is nothing to add. */
+  availableItems: string[];
+}) {
+  if (availableItems.length === 0) {
+    return <span className="small muted">{copy(pageContract, "empty.experiment_items_authored")}</span>;
+  }
+  // Pen-scoped id for the same reason ExperimentCellEditor's is: one shed renders one of these per
+  // pen, and a shared id points every label at the first pen's control.
+  const fieldId = `exp-add-${shedId}-${partitionLabel}`;
+  return (
+    <FeedConfigFormShell
+      pageContract={pageContract}
+      action={action}
+      editLabel={copy(pageContract, "action.add_experiment_item")}
+      openLabel={copy(pageContract, "label.experiment_absolute_kg_note")}
+    >
+      <input type="hidden" name="park_id" value={parkId} />
+      <input type="hidden" name="shed_id" value={shedId} />
+      <input type="hidden" name="partition_label" value={partitionLabel} />
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor={`${fieldId}-item`}>{copy(pageContract, "filter.feed_item_label")}</label>
+        <select id={`${fieldId}-item`} name="feed_item" defaultValue="">
+          {availableItems.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
+        <input
+          id={`${fieldId}-kg`}
+          name="absolute_kg"
+          type="text"
+          inputMode="decimal"
+          // Uncontrolled and blank: a new cell has no prior value, and a cleared box must stay
+          // cleared so the server rejects it rather than authoring 0 kg for a pen nobody costed.
+          defaultValue=""
+          aria-describedby={`${fieldId}-kg-hint`}
+        />
+        <div id={`${fieldId}-kg-hint`} className="small muted" style={{ marginTop: 4 }}>
+          {copy(pageContract, "reason.experiment_blank_is_not_zero")}
+        </div>
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor={`${fieldId}-arm`}>{copy(pageContract, "label.experiment_category")}</label>
+        <input
+          id={`${fieldId}-arm`}
+          name="experiment_category"
+          type="text"
+          defaultValue={experimentCategory}
+          aria-describedby={`${fieldId}-arm-hint`}
+        />
+        <div id={`${fieldId}-arm-hint`} className="small muted" style={{ marginTop: 4 }}>
+          {copy(pageContract, "label.experiment_category_note")}
+        </div>
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor={`${fieldId}-count`}>{copy(pageContract, "label.experiment_head_count")}</label>
+        <input
+          id={`${fieldId}-count`}
+          name="head_count"
+          type="text"
+          inputMode="numeric"
+          defaultValue={headCount ?? ""}
+          aria-describedby={`${fieldId}-count-hint`}
+        />
+        <div id={`${fieldId}-count-hint`} className="small muted" style={{ marginTop: 4 }}>
+          {copy(pageContract, "label.experiment_head_count_note")}
+        </div>
+      </div>
+    </FeedConfigFormShell>
+  );
+}
+
+/**
  * The workflow switch: move a whole shed onto the experiment, or return it to the ration grid.
  *
  * Deliberately NOT a checkbox or a toggle. This control changes what a shed's animals are fed, so it
