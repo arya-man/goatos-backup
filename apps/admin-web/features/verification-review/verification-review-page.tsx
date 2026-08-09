@@ -144,7 +144,7 @@ export async function VerificationReviewPage({
                   <option value="">{copy(pageContract, "filter.all_sheds")}</option>
                   {sheds.map((option) => (
                     <option key={option.id} value={option.id}>
-                      {option.label}
+                      {option.operational_location_display || option.label}
                     </option>
                   ))}
                 </select>

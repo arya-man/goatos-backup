@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -256,6 +257,7 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 		cursorCapturedAt = params.Cursor.CapturedAt
 		cursorItemID = params.Cursor.ItemID
 	}
+	filterShedID, filterPartition := splitShedFilter(params.ShedID)
 	// projection-review: producer grain is verification_items(item_id); the consumer matches that
 	// same item_id grain. Operator/verifier LATERAL, shed, and park label joins are each
 	// 0..1, so no joined side multiplies a queue row. This query computes no numerator/denominator.
@@ -308,6 +310,7 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
   AND ($14 = '' OR vi.park_id = $14::uuid)
   AND ($15 = '' OR vi.shed_id = $15::uuid)
+  AND ($19 = '' OR `+shedPartitionPredicate+` = $19)
   AND ($16::timestamptz IS NULL OR vi.captured_at >= $16::timestamptz)
   AND ($17::timestamptz IS NULL OR vi.captured_at < $17::timestamptz)
   AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
@@ -341,9 +344,10 @@ LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
-		params.ParkID, params.ShedID,
+		params.ParkID, filterShedID,
 		params.CapturedFrom, params.CapturedBefore,
 		params.AwaitingApplicationOnly,
+		filterPartition,
 	)
 	if err != nil {
 		return nil, err
@@ -364,6 +368,7 @@ func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.Li
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	options := domain.QueueFilterOptions{}
+	filterShedID, filterPartition := splitShedFilter(params.ShedID)
 
 	// For multi-category queries (verifier lens "All evidence" across authorized categories),
 	// use Categories slice instead of single Category. Single Category takes precedence for
@@ -413,9 +418,18 @@ ORDER BY label, vi.park_id::text`,
 	}
 
 	shedRows, err := r.pool.Query(ctx, `
-SELECT vi.shed_id::text, COALESCE(shed_loc.name, vi.shed_id::text) AS label
+SELECT
+  vi.shed_id::text,
+  COALESCE(shed_loc.name, vi.shed_id::text) AS shed_label,
+  COALESCE(MAX(sp.partition_label), MAX(NULLIF(btrim(vi.partition_label), ''))) AS partition_label,
+  `+shedPartitionPredicate+` AS partition_key
 FROM verification_items vi
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = vi.tenant_id
+ AND sp.shed_id = vi.shed_id
+ AND sp.normalized_label = `+shedPartitionPredicate+`
+ AND sp.status = 'active'
 WHERE vi.tenant_id = $1::uuid
   AND vi.shed_id IS NOT NULL
   AND ($2 = '' OR vi.status = $2)
@@ -428,8 +442,8 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
   AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
-GROUP BY vi.shed_id, shed_loc.name
-ORDER BY label, vi.shed_id::text`,
+GROUP BY vi.shed_id, shed_loc.name, `+shedPartitionPredicate+`
+ORDER BY shed_label, partition_key, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
@@ -439,11 +453,21 @@ ORDER BY label, vi.shed_id::text`,
 	}
 	defer shedRows.Close()
 	for shedRows.Next() {
-		var id, label string
-		if err := shedRows.Scan(&id, &label); err != nil {
+		var id, shedLabel, partitionKey string
+		var partitionLabel *string
+		if err := shedRows.Scan(&id, &shedLabel, &partitionLabel, &partitionKey); err != nil {
 			return options, err
 		}
-		options.Sheds = append(options.Sheds, domain.LocationFilterOption{ID: id, Label: label})
+		loc := oploc.OperationalLocation{ShedID: id, ShedName: shedLabel}
+		if partitionLabel != nil {
+			loc.PartitionLabel = *partitionLabel
+		}
+		options.Sheds = append(options.Sheds, domain.LocationFilterOption{
+			ID:                         id + "#" + partitionKey,
+			Label:                      loc.Display(),
+			PartitionLabel:             partitionLabel,
+			OperationalLocationDisplay: loc.Display(),
+		})
 	}
 	if err := shedRows.Err(); err != nil {
 		return options, err
@@ -479,10 +503,11 @@ WHERE vi.tenant_id = $1::uuid
   AND ($8 = '' OR vi.shed_id = $8::uuid)
   AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
   AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
+  AND ($11 = '' OR `+shedPartitionPredicate+` = $11)
 GROUP BY vi.status`,
 		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID,
-		params.CapturedFrom, params.CapturedBefore,
+		params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID,
+		params.CapturedFrom, params.CapturedBefore, filterPartition,
 	)
 	if err != nil {
 		return options, err
@@ -520,10 +545,12 @@ SELECT EXISTS (
     AND ($7 = '' OR vi.park_id = $7::uuid)
     AND ($8 = '' OR vi.shed_id = $8::uuid)
     AND vi.captured_at < $9::timestamptz
+    AND ($10 = '' OR `+shedPartitionPredicate+` = $10)
   LIMIT 1
 )`,
 			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-			params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID, params.MissedBefore,
+			params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID, params.MissedBefore,
+			filterPartition,
 		).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err

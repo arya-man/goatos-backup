@@ -161,6 +161,32 @@ class VerificationRepositoryPaginationTest {
     }
 
     @Test
+    fun `sibling partition filters are cached in separate scopes`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = { request ->
+                VerificationQueueResponseDto(items = listOf(item(request.shedId.orEmpty())))
+            }
+            repository.refreshQueue(category = "vaccine", shedId = "shed-1#1", limit = PAGE_SIZE).getOrThrow()
+            repository.refreshQueue(category = "vaccine", shedId = "shed-1#2", limit = PAGE_SIZE).getOrThrow()
+
+            val partitionOne = repository.observeQueue(
+                category = "vaccine",
+                shedId = "shed-1#1",
+                limit = PAGE_SIZE,
+            ).first().data!!
+            val partitionTwo = repository.observeQueue(
+                category = "vaccine",
+                shedId = "shed-1#2",
+                limit = PAGE_SIZE,
+            ).first().data!!
+
+            assertEquals("shed-1#1", partitionOne.items.single().itemId)
+            assertEquals("shed-1#2", partitionTwo.items.single().itemId)
+            assertEquals(listOf("shed-1#1", "shed-1#2"), requests.map { it.shedId })
+        }
+    }
+
+    @Test
     fun `stale cursor is rejected before network and cache stays intact`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = { numberedPage(it.cursor) }

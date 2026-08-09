@@ -280,8 +280,10 @@ type VaccinationBatchClosure struct {
 }
 
 type LocationFilterOption struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID                         string  `json:"id"`
+	Label                      string  `json:"label"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display,omitempty"`
 }
 
 // QueuePageOption is one backend-defined page tab within the selected verifier drawer module.
@@ -341,8 +343,8 @@ type QueueFilterOptions struct {
 // rejected), unique key (tenant_id, item_id) — one row per verification item;
 // group_key=status; join_cardinality=none — the count query reads a single table, no joined side
 // to fan out; pagination=whole-filter, no LIMIT/OFFSET/cursor, independent of the queue page's
-// keyset window; scope=tenant_id + category + vertical + module + park_id + shed_id + captured_at
-// window, identical to the queue page's own predicates minus status. Disjointness: pending,
+// keyset window; scope=tenant_id + category + vertical + module + park_id + shed_id + partition +
+// captured_at window, identical to the queue page's own predicates minus status. Disjointness: pending,
 // approved, and rejected are mutually exclusive values of the single `status` column (CHECK-
 // constrained to pending/approved/rejected/withdrawn, withdrawn excluded by the count query) — a
 // verification_items row is in exactly one bucket, so the three counts partition (never overlap)

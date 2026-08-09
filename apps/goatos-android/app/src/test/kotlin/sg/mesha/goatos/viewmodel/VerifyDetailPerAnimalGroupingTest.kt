@@ -158,6 +158,43 @@ class VerifyDetailPerAnimalGroupingTest {
     }
 
     @Test
+    fun `detail group does not include items from a sibling partition`() = runTest(dispatcher) {
+        val items = listOf("1", "2").flatMap { partition ->
+            (1..2).map { goat ->
+                VerificationQueueItem(
+                    itemId = "partition-$partition-goat-$goat",
+                    category = "vaccination_proof",
+                    status = VerificationStatus.PENDING,
+                    rowVersion = goat,
+                    subjectLabel = "Goat $goat",
+                    shedId = "shed-castro",
+                    partitionLabel = partition,
+                    operationalLocationDisplay = "Castro - $partition",
+                    evidenceAvailable = true,
+                    source = VerificationSourceRef(
+                        refType = "vaccination_goat",
+                        taskId = "task-1",
+                        submissionId = "submission-$partition",
+                    ),
+                    media = listOf(
+                        VerificationMediaItem(
+                            proofId = "proof-$partition-$goat",
+                            downloadUrl = "/proof-$partition-$goat.mp4",
+                            mimeType = "video/mp4",
+                        ),
+                    ),
+                )
+            }
+        }
+        val partitionOneGroup = items.first().verificationGroupKey()
+        val vm = viewModel(groupId = partitionOneGroup, repo = GroupingRepository(items))
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(setOf("partition-1-goat-1", "partition-1-goat-2"), vm.state.value.entries.map { it.itemId }.toSet())
+    }
+
+    @Test
     fun `rejecting with an empty reason is refused`() = runTest(dispatcher) {
         val sync = GroupingSyncRepository()
         val vm = viewModel(groupId = "submission-shed-1", repo = GroupingRepository(fiveGoatItems()), sync = sync)

@@ -107,8 +107,8 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	if params.ParkID != "" && !uuidutil.IsUUIDString(params.ParkID) {
 		return QueueResult{}, BadRequest("invalid_park", "park_id must be a UUID")
 	}
-	if params.ShedID != "" && !uuidutil.IsUUIDString(params.ShedID) {
-		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID")
+	if params.ShedID != "" && !validShedFilter(params.ShedID) {
+		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID or an operational-location filter key")
 	}
 	todayStart := biztime.BusinessDayStart(s.now())
 	params.MissedBefore = &todayStart
@@ -203,6 +203,18 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	options.BusinessTimezone = biztime.DefaultTimezone
 	options.MissedOnly = params.MissedOnly
 	return QueueResult{Items: s.resolveMedia(ctx, params.TenantID, items), FilterOptions: options, NextCursor: next}, nil
+}
+
+func validShedFilter(raw string) bool {
+	shedID, partition, hasPartition := strings.Cut(strings.TrimSpace(raw), "#")
+	if !uuidutil.IsUUIDString(strings.TrimSpace(shedID)) {
+		return false
+	}
+	if !hasPartition {
+		return true
+	}
+	partition = strings.TrimSpace(partition)
+	return partition != "" && !strings.Contains(partition, "#")
 }
 
 // actionTypeOptions returns every registered verification page as a stable, cross-module filter

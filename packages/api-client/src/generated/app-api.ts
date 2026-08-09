@@ -8136,9 +8136,13 @@ export interface components {
             status?: components["schemas"]["VerificationItemStatus"];
         };
         VerificationLocationOption: {
-            /** Format: uuid */
+            /** @description Park options use a UUID. Shed options use an opaque operational-location filter key: `<shed UUID>#<normalized partition>`. */
             id: string;
             label: string;
+            /** @description Raw backend-owned partition label; omitted for an undivided shed. */
+            partition_label?: string;
+            /** @description Backend-composed location display. Clients render this verbatim. */
+            operational_location_display?: string;
         };
         VerificationDriveClosure: {
             /** Format: uuid */
@@ -13249,6 +13253,7 @@ export interface operations {
                 /** @description When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status. */
                 missed?: boolean;
                 park_id?: string;
+                /** @description Opaque shed filter key returned by filter_options.sheds. Partitioned locations use `<shed UUID>#<normalized partition>`; a bare shed UUID remains supported and selects every partition of that physical shed. */
                 shed_id?: string;
                 cursor?: string;
                 /** @description Defaults to 20, capped at 100. */
@@ -13312,6 +13317,9 @@ export interface operations {
         parameters: {
             query?: {
                 category?: string;
+                park_id?: string;
+                /** @description Opaque shed filter key returned by filter_options.sheds. Partitioned locations use `<shed UUID>#<normalized partition>`; a bare shed UUID selects every partition. */
+                shed_id?: string;
                 cursor?: string;
                 limit?: number;
             };
