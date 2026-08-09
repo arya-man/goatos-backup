@@ -9250,7 +9250,9 @@ components:
         head_count:
           type: integer
           format: int64
-          description: The shed's projected head count, summed across its ration grains.
+          description: >-
+            The operational pen's projected or informational head count. An undivided shed is its
+            single pen; never interpret a partitioned row as the building-wide count.
         items:
           type: array
           description: >-
