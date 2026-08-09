@@ -20,6 +20,9 @@ DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
 DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
 DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
 
+ALTER TABLE public.weighing_campaign_sheds
+  ADD COLUMN IF NOT EXISTS partition_label text;
+
 WITH alias_matches AS (
   SELECT
     wcs.campaign_shed_id,
@@ -40,7 +43,10 @@ WITH alias_matches AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
-  WHERE lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+  WHERE (
+      lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+      OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+    )
     AND wcs.status NOT IN ('canceled', 'closed', 'completed')
 )
 UPDATE public.weighing_campaign_sheds wcs

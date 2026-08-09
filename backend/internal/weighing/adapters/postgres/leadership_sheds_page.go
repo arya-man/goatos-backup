@@ -94,7 +94,7 @@ func (r *Repository) ListLeadershipSheds(ctx context.Context, tenantID string, p
 		createdAt       time.Time
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT wc.campaign_id::text, cs.campaign_shed_id::text, cs.display_name,
+SELECT wc.campaign_id::text, cs.campaign_shed_id::text, cs.display_name, COALESCE(cs.partition_label, ''),
        COALESCE(cs.operator_user_id::text, ''), cs.weighing_category, cs.status,
        COALESCE(cs.expected_animal_count, 0),
        COALESCE(park.name, ''),
@@ -136,12 +136,13 @@ LIMIT $6`,
 		var item domain.LeadershipShedVideos
 		var key keyRow
 		var periodStart, periodEnd string
-		if err := rows.Scan(&item.CampaignID, &item.CampaignShedID, &item.ShedName,
+		if err := rows.Scan(&item.CampaignID, &item.CampaignShedID, &item.ShedName, &item.PartitionLabel,
 			&item.OperatorUserID, &item.WeighingCategory, &item.Status, &item.EstimatedAnimalCount,
 			&item.ParkName, &item.WeighDate, &item.OperatorDisplayName,
 			&periodStart, &periodEnd, &key.createdAt); err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
+		applyLeadershipShedPartitionDisplay(&item)
 		item.PeriodLabel = periodLabel(periodStart, periodEnd)
 		item.Individual = []domain.Observation{}
 		item.MaxShedVideos = domain.MaxShedProofArtifacts

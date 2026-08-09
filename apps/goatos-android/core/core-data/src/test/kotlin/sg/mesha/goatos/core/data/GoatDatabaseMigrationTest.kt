@@ -64,6 +64,38 @@ class GoatDatabaseMigrationTest {
         )
     }
 
+    @Test
+    fun `migration 35 to 36 makes weighing planner shed cache partition keyed`() {
+        helper.createDatabase(DB_NAME, 35).apply {
+            execSQL(
+                "INSERT INTO `weighing_planner_shed_row` " +
+                    "(`queryKey`, `locationId`, `parkId`, `parkName`, `sortIndex`, `shedJson`, `existingCampaignJson`, `updatedAt`) " +
+                    "VALUES ('2026-08-10|park-1', 'castro-parent', 'park-1', 'CPT', 0, '{}', NULL, 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, CURRENT_VERSION, true, MIGRATION_35_36)
+        db.query("PRAGMA table_info(`weighing_planner_shed_row`)").use { cursor ->
+            val primaryKeyColumns = mutableListOf<String>()
+            while (cursor.moveToNext()) {
+                if (cursor.getInt(5) > 0) {
+                    primaryKeyColumns += cursor.getString(1)
+                }
+            }
+            assertEquals(
+                listOf("queryKey", "locationId", "partitionKey"),
+                primaryKeyColumns,
+            )
+        }
+        db.query("SELECT `partitionKey`, `shedJson` FROM `weighing_planner_shed_row` WHERE `queryKey`='2026-08-10|park-1' AND `locationId`='castro-parent'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+            assertEquals("{}", cursor.getString(1))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -113,6 +145,10 @@ class GoatDatabaseMigrationTest {
         MIGRATION_29_30.migrate(db)
         MIGRATION_30_31.migrate(db)
         MIGRATION_31_32.migrate(db)
+        MIGRATION_32_33.migrate(db)
+        MIGRATION_33_34.migrate(db)
+        MIGRATION_34_35.migrate(db)
+        MIGRATION_35_36.migrate(db)
         return db
     }
 
@@ -131,7 +167,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 32
+        const val CURRENT_VERSION = 36
     }
 }
 

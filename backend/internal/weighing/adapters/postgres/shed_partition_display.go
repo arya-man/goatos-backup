@@ -50,12 +50,31 @@ func applyShedPartitionDisplayWithStoredLabel(shed *domain.CampaignShed, storedP
 	if partition == "" {
 		return
 	}
+	parent := parentShedNameFromStoredPartitionDisplay(shed.DisplayName, shed.ParentShedName, partition)
+	shed.ParentShedName = parent
 	shed.PartitionLabel = partition
 	shed.OperationalLocationDisplay = oploc.OperationalLocation{
 		ShedID:         shed.LocationID,
-		ShedName:       shed.ParentShedName,
+		ShedName:       parent,
 		PartitionLabel: partition,
 	}.Display()
+}
+
+func parentShedNameFromStoredPartitionDisplay(displayName, parsedParent, partition string) string {
+	display := strings.TrimSpace(displayName)
+	partition = strings.TrimSpace(partition)
+	for _, suffix := range []string{" - " + partition, " " + partition} {
+		if partition != "" && strings.HasSuffix(display, suffix) {
+			parent := strings.TrimSpace(strings.TrimSuffix(display, suffix))
+			if parent != "" {
+				return parent
+			}
+		}
+	}
+	if strings.TrimSpace(parsedParent) != "" {
+		return strings.TrimSpace(parsedParent)
+	}
+	return display
 }
 
 // applyPlannerShedPartitionDisplay is the PlannerShed twin of applyShedPartitionDisplay.
@@ -91,13 +110,33 @@ func operationalLocationDisplay(shedID, shedName, partitionLabel string) string 
 	}.Display()
 }
 
+func matchesOperationalLocationDisplay(candidate, shedID, shedName, partitionLabel string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return false
+	}
+	if strings.EqualFold(candidate, operationalLocationDisplay(shedID, shedName, partitionLabel)) {
+		return true
+	}
+	partition := strings.TrimSpace(partitionLabel)
+	if partition == "" {
+		return false
+	}
+	return strings.EqualFold(candidate, strings.Join([]string{strings.TrimSpace(shedName), partition}, " "))
+}
+
 // applyLeadershipShedPartitionDisplay is the LeadershipShedVideos twin of
 // applyShedPartitionDisplay. It exists because the OpenAPI schema marks
 // operational_location_display REQUIRED on WeighingShedVideos: a required field the
 // backend never emits is a contract the client cannot rely on, and that exact shape
 // (schema declares it, Go never populates it) has shipped on this branch more than once.
 func applyLeadershipShedPartitionDisplay(shed *domain.LeadershipShedVideos) {
-	parent, partition := splitShedPartitionName(shed.ShedName)
+	parent, parsedPartition := splitShedPartitionName(shed.ShedName)
+	partition := strings.TrimSpace(shed.PartitionLabel)
+	if partition == "" {
+		partition = parsedPartition
+	}
+	parent = parentShedNameFromStoredPartitionDisplay(shed.ShedName, parent, partition)
 	shed.PartitionLabel = partition
 	shed.OperationalLocationDisplay = oploc.OperationalLocation{
 		ShedName:       parent,

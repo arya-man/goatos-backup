@@ -128,7 +128,7 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 		},
 		{
 			name:                               "numeric partition format",
-			displayName:                        "Castro 2",
+			displayName:                        "Castro - 2",
 			expectedPartitionLabel:             "2",
 			expectedParentShedName:             "Castro",
 			expectedOperationalLocationDisplay: "Castro - 2",
@@ -203,12 +203,15 @@ func TestPartitionLabelPersistedInDatabase(t *testing.T) {
 ON CONFLICT DO NOTHING`, tenantID)
 	mustExec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
-	castroParentID, castroPartID := uuid.NewString(), uuid.NewString()
+	castroParentID, castroPartID, duplicateParentID, duplicatePartID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Castro', 'active'),
-       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 2', 'inactive')`, tenantID, castroParentID, castroPartID, parkID)
+       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 2', 'inactive'),
+       ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Mandela', 'active'),
+       ($1::uuid, $6::uuid, $4::uuid, 'shed', 'Mandela 2', 'inactive')`, tenantID, castroParentID, castroPartID, parkID, duplicateParentID, duplicatePartID)
 	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias')`, tenantID, castroParentID)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
+       ($1::uuid, $3::uuid, '2', '2', 'active', 'location_alias')`, tenantID, castroParentID, duplicateParentID)
 	operatorID := uuid.NewString()
 	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
@@ -242,6 +245,9 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 		t.Fatal("expected at least one shed")
 	}
 	shed := campaign.Sheds[0]
+	if shed.LocationID != castroParentID {
+		t.Fatalf("canonical location_id = %q, want requested alias to resolve to Castro parent %q, not another shed sharing partition label 2", shed.LocationID, castroParentID)
+	}
 	campaignShedID := shed.CampaignShedID
 
 	// Retrieve the campaign and verify partition_label is persisted

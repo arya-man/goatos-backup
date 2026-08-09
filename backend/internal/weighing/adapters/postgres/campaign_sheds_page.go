@@ -157,7 +157,7 @@ SELECT
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name,
-  cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+  COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
@@ -181,11 +181,13 @@ LIMIT $5`, tenantID, campaignID,
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
+		var partitionLabel string
 		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName,
-			&shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status,
+			&partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status,
 			&shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.CampaignShedPage{}, err
 		}
+		applyShedPartitionDisplayWithStoredLabel(&shed, partitionLabel)
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
 		page.Items = append(page.Items, shed)
 	}
