@@ -658,6 +658,10 @@ export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperi
 export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"];
 export type SetFeedConfigExperimentShedStatusRequest =
   AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
+export type FeedConfigPenPage = AppApiComponents["schemas"]["FeedConfigPenPage"];
+export type FeedConfigPen = AppApiComponents["schemas"]["FeedConfigPen"];
+export type UpsertFeedConfigExperimentBatchRequest =
+  AppApiComponents["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
 
 export type HealthConfigProtocolPage = AppApiComponents["schemas"]["HealthConfigProtocolPage"];
 export type HealthConfigProtocolRow = AppApiComponents["schemas"]["HealthConfigProtocolRow"];
@@ -930,6 +934,58 @@ export async function listFeedConfigExperiment(params: {
 // row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with
 // roughly twice the authored quantity. There is deliberately no optional variant this function could
 // turn into 0. `head_count` may be null ("not recorded") but must never be invented.
+/**
+ * The park's PEN CATALOG — every operational location a quantity may be authored against.
+ *
+ * The authoritative answer to "what can I enrol?", and deliberately not derived from the experiment
+ * cell list. Deriving it from those rows made two things impossible: a pen that already has some
+ * cells looked like it had them ALL (so a new pen of an enrolled shed was unreachable — the Godel 1
+ * - Part 8 case), and a pen whose cells happened to fall on another page of the paginated read
+ * looked unconfigured. This reads the locations/shed_partitions catalog instead, so a pen holding
+ * zero animals is still listed and still authorable, and each row states for itself whether it is
+ * already configured.
+ */
+export async function listFeedConfigPens(params: {
+  park_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<ApiResult<FeedConfigPenPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigPenPage>("/feed-config/pens", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Author EVERY feed item of one pen in a single atomic write.
+ *
+ * One request, one transaction, one row in the idempotency ledger: either the pen gets all of its
+ * quantities or it gets none. Enrolling through N single-cell posts could half-succeed and leave a
+ * pen enrolled (membership is the workflow flag) while being fed a subset of what was entered —
+ * which is worse than not enrolling it at all.
+ */
+export async function upsertFeedConfigExperimentBatch(
+  body: UpsertFeedConfigExperimentBatchRequest,
+  idempotencyKey = `feed-experiment-batch-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/experiment/batch", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function upsertFeedConfigExperiment(
   body: UpsertFeedConfigExperimentRequest,
   idempotencyKey = `feed-experiment-${randomUUID()}`,

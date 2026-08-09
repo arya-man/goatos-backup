@@ -700,7 +700,11 @@ func (h *Handler) UpsertExperimentConfig(w http.ResponseWriter, r *http.Request)
 type setExperimentShedStatusRequest struct {
 	ParkID string `json:"park_id"`
 	ShedID string `json:"shed_id"`
-	Status string `json:"status"`
+	// PartitionLabel names the PEN being switched -- required for a subdivided shed, blank for an
+	// undivided one. It is part of the request fingerprint, so two pens of one shed are two
+	// different writes and cannot collapse onto each other as an idempotent replay.
+	PartitionLabel string `json:"partition_label"`
+	Status         string `json:"status"`
 }
 
 func (h *Handler) SetExperimentShedStatus(w http.ResponseWriter, r *http.Request) {
@@ -718,6 +722,7 @@ func (h *Handler) SetExperimentShedStatus(w http.ResponseWriter, r *http.Request
 	}
 	req.ParkID = strings.TrimSpace(req.ParkID)
 	req.ShedID = strings.TrimSpace(req.ShedID)
+	req.PartitionLabel = strings.TrimSpace(req.PartitionLabel)
 	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
 
 	fingerprint, err := requestFingerprint(tenantID, setExperimentShedStatusCmd, experimentShedStatusRoute, req)
@@ -730,6 +735,7 @@ func (h *Handler) SetExperimentShedStatus(w http.ResponseWriter, r *http.Request
 		ActorRef:           h.actor(r),
 		ParkID:             req.ParkID,
 		ShedID:             req.ShedID,
+		PartitionLabel:     req.PartitionLabel,
 		Status:             req.Status,
 		IdempotencyKey:     key,
 		RequestFingerprint: fingerprint,
@@ -855,6 +861,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		h.writeError(w, r, http.StatusNotFound, "park_not_found", "park not found in this tenant", nil)
 	case errors.Is(err, ports.ErrShedNotFound):
 		h.writeError(w, r, http.StatusNotFound, "shed_not_found", "shed not found in this tenant", nil)
+	case errors.Is(err, ports.ErrPartitionNotFound):
+		h.writeError(w, r, http.StatusNotFound, "partition_not_found",
+			"partition not found in this shed", nil)
+	case errors.Is(err, ports.ErrPartitionRequired):
+		h.writeError(w, r, http.StatusBadRequest, "partition_required",
+			"this shed is divided into partitions, so the partition must be named", nil)
 	case errors.Is(err, feedconfigapp.ErrMissingTenant):
 		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
 	case errors.Is(err, feedconfigapp.ErrMissingIdempotencyKey):

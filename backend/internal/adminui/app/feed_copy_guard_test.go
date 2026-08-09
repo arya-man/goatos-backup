@@ -207,13 +207,17 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"label.experiment_active", "label.experiment_active_note",
 			"label.experiment_retired", "label.experiment_retired_note",
 			"label.experiment_not_dated_note",
-			"action.add_experiment_shed", "action.add_experiment_item", "action.edit_experiment_cell",
+			"action.add_experiment_pen", "action.add_experiment_item", "action.edit_experiment_cell",
 			"action.withdraw_experiment_shed", "action.restore_experiment_shed",
 			"action.experiment_saved", "action.experiment_switched",
 			"reason.experiment_blank_is_not_zero", "reason.experiment_switch_consequence",
 			"empty.experiment", "empty.experiment_filtered", "empty.experiment_candidates",
 			"empty.experiment_items_authored",
 			"notice.park_scope_fallback",
+			// The pen enroller (one atomic write for a pen and every feed item of it) and the
+			// company-wide scope chip.
+			"filter.pen_label", "label.experiment_enrol_items", "label.experiment_enrol_items_note",
+			"label.all_parks", "reason.experiment_enrol_park",
 			"state.experiment_unavailable",
 		},
 	}
