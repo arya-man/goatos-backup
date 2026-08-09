@@ -100,7 +100,8 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		return ports.CompletePackingResult{}, ErrPackingEnqueuerNotWired
 	}
 
-	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID)
+	// Write path: the route already clamped the park to the caller's grant. See CompleteDistribution.
+	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID, nil)
 	if err != nil {
 		return ports.CompletePackingResult{}, err
 	}

@@ -851,3 +851,89 @@ func TestPreviewAllowsTodayAndFutureBusinessDate(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Park filter vocabulary vs. the caller's own scope
+// ---------------------------------------------------------------------------
+
+const testParkB = "00000000-0000-4000-8000-000000003002"
+
+// twoParkService is a tenant with TWO parks, so "the whole catalog" and "the caller's own park" are
+// distinguishable answers. A single-park fixture cannot fail this test.
+func twoParkService() (*Service, *fakeConfigRepo) {
+	service, config, _ := newTestService()
+	config.parks = []ports.Park{{ParkID: testPark, Label: "CPT"}, {ParkID: testParkB, Label: "CBE"}}
+	return service, config
+}
+
+// TestFeedFiltersOfferOnlyTheCallersAuthorizedParks is the fix for the defect where a park-scoped
+// operator's farm dropdown listed EVERY active park in the tenant. The route already clamps a
+// REQUESTED park to the caller's grant (403 park_scope_forbidden), so the extra options were dead
+// choices: picking one produced an error rather than a sheet. An option a principal cannot open must
+// not be offered at all -- a dropdown is a statement about what this person may do.
+func TestFeedFiltersOfferOnlyTheCallersAuthorizedParks(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	preview, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testPark},
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	packing, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testPark},
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	for name, got := range map[string][]domain.FeedFilterPark{
+		"preview": preview.Filters.Parks,
+		"packing": packing.Filters.Parks,
+	} {
+		if len(got) != 1 || got[0].ParkID != testPark {
+			t.Fatalf("%s parks = %+v, want only the caller's authorized park %q", name, got, testPark)
+		}
+	}
+}
+
+// TestFeedFiltersOfferEveryParkForATenantWideCaller is the other half: a CEO/director holding a
+// tenant-wide grant reaches the service with NO authorized-park list (the resolver returns an empty
+// set for tenant-wide scope), and must still see the whole catalog. Without this, the narrowing
+// above would silently blank leadership's own farm picker.
+func TestFeedFiltersOfferEveryParkForATenantWideCaller(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if len(page.Filters.Parks) != 2 {
+		t.Fatalf("tenant-wide parks = %+v, want the whole catalog (2 parks)", page.Filters.Parks)
+	}
+}
+
+// TestDefaultParkIsChosenFromTheCallersAuthorizedParks closes the sibling gap in the default-park
+// pick. resolveParkID defaulted an omitted park_id to the tenant's FIRST park, which for an operator
+// scoped to the second park is a park they may not read -- the caller would be served, and would
+// then be shown, someone else's farm.
+func TestDefaultParkIsChosenFromTheCallersAuthorizedParks(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testParkB},
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if page.Filters.ServedParkID != testParkB {
+		t.Fatalf("served park = %q, want the caller's own park %q, never the tenant's first park", page.Filters.ServedParkID, testParkB)
+	}
+}
