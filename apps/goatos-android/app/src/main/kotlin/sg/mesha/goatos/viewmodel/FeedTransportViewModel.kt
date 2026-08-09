@@ -285,7 +285,7 @@ private fun parseFeedTransportShedFilterKey(key: String): Pair<String, String> {
     if (key.isBlank()) return "" to ""
     val parts = key.split("\u001f", limit = 2)
     val partition = parts.getOrElse(1) { "" }
-    return parts[0] to if (partition == "whole") "" else partition
+    return parts[0] to partition
 }
 
 /**

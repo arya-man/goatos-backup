@@ -495,6 +495,10 @@ class ShedsViewModel @Inject constructor(
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
+        val operationalLocationCount = rowsForSelectedDay
+            .map { it.shedId to executionPartitionKey(it.partitionLabel ?: it.partition) }
+            .distinct()
+            .size
         val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
             DayCarry(
                 totalRemaining = day.totalRemaining,
@@ -514,10 +518,10 @@ class ShedsViewModel @Inject constructor(
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
-            shedCount = shedRows.size,
+            shedCount = operationalLocationCount,
             dueCount = if (pageComplete) totals.open else 0,
             doneCount = if (pageComplete) totalsEffectiveDone else 0,
-            shedCountLabel = "${shedRows.size} sheds",
+            shedCountLabel = "$operationalLocationCount sheds",
             dueLabel = if (pageComplete) "${totals.open} open" else "More rows available",
             dayProgressLabel = if (pageComplete) percentLabel(totalsEffectiveDone, totals.target) else "",
             dayProgressFraction = if (pageComplete) fraction(totalsEffectiveDone, totals.target) else 0f,

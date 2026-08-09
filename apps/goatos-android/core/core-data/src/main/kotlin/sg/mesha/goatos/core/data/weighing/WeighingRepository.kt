@@ -2881,7 +2881,7 @@ private fun operationalWeighingLocationLabel(shedName: String?, partitionLabel: 
     val partition = partitionLabel?.trim().orEmpty()
     if (partition.isBlank() || partition.equals("whole", ignoreCase = true)) return shed
     if (shed.isBlank()) return partition
-    if (shed.contains(partition, ignoreCase = true)) return shed
+    if (shed.endsWith(" - $partition", ignoreCase = true)) return shed
     return "$shed - $partition"
 }
 

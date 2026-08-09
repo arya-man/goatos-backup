@@ -1445,6 +1445,19 @@ paths:
         at the animal level; this summary reports whether the shed is ready to acknowledge.
       parameters:
         - $ref: "#/components/parameters/TaskId"
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional operational shed id for partition-scoped shed completion summaries.
+        - name: partition_label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional partition label for partitioned sheds; blank/omitted means whole shed.
       responses:
         "200":
           description: Shed completion summary.

@@ -390,10 +390,13 @@ function CalendarEventDrawerPanel({
 
   // Footer "Open drive" (shed execution) vs "Open workflow", from the event's link keys → app routes.
   const shedId = driveShedId(event);
+  const partition = eventPartitionLabel(event)?.trim();
   const driveHref = shedId
     ? scopeHref(
-        driveExecutionPath(shedId, eventPartitionLabel(event)),
+        driveExecutionPath(shedId),
         scope,
+        {},
+        partition ? { partition_label: partition } : {},
       )
     : undefined;
   const workflowHref = hasWorkflowLink(event)
@@ -783,7 +786,7 @@ function CalendarEventDrawerPanel({
                 {linkRow.map((l) => (
                   <Link
                     key={l.key}
-                    href={scopeHref(l.appPath, scope)}
+                    href={scopeHref(l.appPath, scope, {}, l.query ?? {})}
                     className={`tag t-${l.tone}`}
                   >
                     {l.label}

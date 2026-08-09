@@ -6,9 +6,13 @@
 -- so the history row must snapshot the source/destination partition at write time; otherwise a
 -- later goat_shed_partitions update can relabel old moves.
 
+SET lock_timeout = '5s';
+
 ALTER TABLE public.goat_location_history
   ADD COLUMN IF NOT EXISTS from_partition_label text,
   ADD COLUMN IF NOT EXISTS to_partition_label text;
+
+RESET lock_timeout;
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS goat_location_history_tenant_from_partition_idx
   ON public.goat_location_history (tenant_id, from_location_id, COALESCE(from_partition_label, ''), occurred_at DESC)
@@ -22,6 +26,10 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS goat_location_history_tenant_to_partitio
 DROP INDEX CONCURRENTLY IF EXISTS public.goat_location_history_tenant_to_partition_idx;
 DROP INDEX CONCURRENTLY IF EXISTS public.goat_location_history_tenant_from_partition_idx;
 
+SET lock_timeout = '5s';
+
 ALTER TABLE public.goat_location_history
   DROP COLUMN IF EXISTS to_partition_label,
   DROP COLUMN IF EXISTS from_partition_label;
+
+RESET lock_timeout;
