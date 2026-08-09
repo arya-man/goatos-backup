@@ -173,7 +173,7 @@ func expandOperationalLocationDims(dims []string) []string {
 	}
 	for _, dim := range dims {
 		out = append(out, dim)
-		if dim == "shed_label" && !hasPartition {
+		if (dim == "shed_label" || dim == "shed") && !hasPartition {
 			out = append(out, "partition_label")
 			hasPartition = true
 		}

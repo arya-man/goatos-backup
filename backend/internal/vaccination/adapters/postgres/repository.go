@@ -1887,7 +1887,11 @@ eligible AS (
   WHERE oi.tenant_id = $1
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (NOT $3::boolean OR g.shed_id = $4)
-    AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 -- expected counts animals in this shed's batch that STILL need vaccination. The exclusion set
 -- MUST match RecordCompletionsFromSubmission's obligation filter exactly ('completed', 'waived',
@@ -1950,6 +1954,11 @@ verification_pending AS (
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
     AND (NOT $3::boolean OR vi.shed_id = $4)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 shed_submission_state AS (
   SELECT CASE ss.state
@@ -2090,7 +2099,11 @@ JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id
 WHERE oi.tenant_id = $1
   AND (NOT $3::boolean OR g.shed_id = $4)
-  AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
+  AND (
+    $5::text = ''
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+  )
 ORDER BY oi.obligation_id`, tenant, task, hasShed, shed, partitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: shed completion round facts: %w", err)
@@ -2160,7 +2173,11 @@ LEFT JOIN LATERAL (
 WHERE oi.tenant_id = $1
   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
   AND (NOT $3::boolean OR g.shed_id = $4)
-  AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
+  AND (
+    $5::text = ''
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+  )
 GROUP BY 1
 ORDER BY 1
 LIMIT 50`, tenant, task, shed.Valid, shed, partitionLabel)
