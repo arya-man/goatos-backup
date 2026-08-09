@@ -65,6 +65,7 @@ import sg.mesha.goatos.feature.counts.ShiftingActionsScreen
 import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingStatusUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingUiState
+import sg.mesha.goatos.feature.counts.ShiftingStateTone
 import sg.mesha.goatos.feature.counts.ShiftingPreviousDateUi
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
@@ -546,6 +547,7 @@ class ScreenshotTest {
                         animalCount = 12,
                         approvedAtLabel = "2026-07-22",
                         actionStateLabel = "Approved",
+                        actionStateTone = ShiftingStateTone.Neutral,
                         primaryActionKey = "execute",
                     ),
                     ShiftingPendingRowUi(
@@ -557,6 +559,23 @@ class ScreenshotTest {
                         animalCount = 1,
                         approvedAtLabel = "2026-07-22",
                         actionStateLabel = "Completed",
+                        actionStateTone = ShiftingStateTone.Done,
+                        primaryActionKey = "none",
+                    ),
+                    // An UNAPPROVED movement (approve-first, maintainer decision 2026-08-09). The
+                    // golden had no such row, so the state this screen now spends most of its time
+                    // showing a raiser was never rendered: not tappable, no video progress, and the
+                    // waiting pill carrying the whole reason the card does not respond to a tap.
+                    ShiftingPendingRowUi(
+                        shiftingEventId = "move-3",
+                        sourceLabel = "Shed A · Weaners",
+                        destinationLabel = "Shed B · Kids",
+                        priority = "High",
+                        category = "Breeding",
+                        animalCount = 4,
+                        approvedAtLabel = "",
+                        actionStateLabel = "Awaiting Park Head approval",
+                        actionStateTone = ShiftingStateTone.Waiting,
                         primaryActionKey = "none",
                     ),
                 ),
