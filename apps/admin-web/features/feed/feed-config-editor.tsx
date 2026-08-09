@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Pencil } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -30,6 +30,16 @@ import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState }
 type SaveActionResult = Promise<FeedConfigActionResult>;
 type SaveAction = (formData: FormData) => SaveActionResult;
 
+/**
+ * How long a success confirmation stays on screen once the form has closed, in ms.
+ *
+ * It clears itself so the confirmation cannot become permanent furniture: these controls live in
+ * table cells, and a message that never goes away would grow the row of every combination the
+ * operator has ever touched in this tab. A REJECTION is not on a timer — it stays inside the still
+ * open form until the operator fixes the value, because it is the instruction for what to do next.
+ */
+const SUCCESS_NOTICE_MS = 8000;
+
 function FeedConfigFormShell({
   pageContract,
   action,
@@ -50,6 +60,15 @@ function FeedConfigFormShell({
   // directly so the retry/replay behavior does not require mounting this component.
   const [idem, setIdem] = useState<AuthoringIdempotencyState>(CLOSED_STATE);
 
+  // Drop the confirmation after a while. Keyed on the result object identity, so each new success
+  // restarts the clock and the timer is cancelled if the operator reopens the form first.
+  const settled = result !== null && result.ok && !idem.open;
+  useEffect(() => {
+    if (!settled) return undefined;
+    const timer = setTimeout(() => setResult(null), SUCCESS_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [settled, result]);
+
   function handleOpen() {
     setResult(null);
     setIdem(openIntent(() => crypto.randomUUID()));
@@ -62,15 +81,43 @@ function FeedConfigFormShell({
       const outcome = await action(formData);
       setResult(outcome);
       setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
+      // A CONFIRMED write ENDS the editing intent, so the form closes — the same rule the sibling
+      // authoring screen (/health/config) already follows, and three things depend on it:
+      //
+      //  1. The operator sees the write. The server action revalidates this route, so the row or
+      //     the catalog behind the form is already showing the new value; an open form sitting on
+      //     top of it, still holding the text that was typed, reads as "nothing happened" and is
+      //     what sent people to the browser reload button.
+      //  2. The screen stops disagreeing with the server. The inputs are UNCONTROLLED, so they keep
+      //     the characters that were typed rather than the value that was stored — after saving
+      //     "4.5" the form said 4.5 while the table said 4.500. Closing drops the stale copy; the
+      //     next open is rendered from the refreshed server props.
+      //  3. A stray second Apply cannot write again. The key rotates on success, so a resubmit of
+      //     the SAME still-filled form is not an idempotent replay — it is a second, real write.
+      //
+      // A rejection deliberately does NOT close: nothing was written, the values are still the
+      // operator's to fix, and the same key must be reused for that retry.
+      if (outcome.ok) setIdem(CLOSED_STATE);
     });
   }
 
   if (!idem.open) {
-    return (
+    const openButton = (
       <button type="button" className="btn sm" onClick={handleOpen} title={openLabel}>
         <Pencil className="ic" aria-hidden="true" />
         {editLabel}
       </button>
+    );
+    // Nothing has been saved from this control yet — render exactly the bare button, so the closed
+    // state stays byte-identical to what every table cell and section header lays out today.
+    if (!result) return openButton;
+    return (
+      <span
+        style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: 6, maxWidth: 220 }}
+      >
+        {openButton}
+        <Outcome result={result} pageContract={pageContract} />
+      </span>
     );
   }
 
@@ -86,16 +133,50 @@ function FeedConfigFormShell({
           {copy(pageContract, "action.cancel")}
         </button>
       </div>
-      {/* The blank-is-not-zero rejection is the important one to show: it is the message that tells
-          an operator that clearing a field leaves the combination BLOCKED, and that feeding nothing
-          requires typing an explicit 0. Every message resolves through the page contract. */}
-      {result ? (
-        <div className={result.ok ? "small" : "small"} style={{ color: result.ok ? "var(--brand-d)" : "var(--danger)" }}>
-          {copy(pageContract, result.messageKey)}
-          {result.detail ? <div className="muted">{result.detail}</div> : null}
-        </div>
-      ) : null}
+      <Outcome result={result} pageContract={pageContract} />
     </form>
+  );
+}
+
+/**
+ * The outcome of the last submit, in the contract's own words.
+ *
+ * The blank-is-not-zero rejection is the important one to show: it is the message that tells an
+ * operator that clearing a field leaves the combination BLOCKED, and that feeding nothing requires
+ * typing an explicit 0. Every message resolves through the page contract — this component never
+ * composes visible prose of its own.
+ *
+ * It renders in BOTH states of the shell: inside the still-open form for a rejection, and beside
+ * the closed control for a success, so a confirmed write is confirmed OUT LOUD rather than only by
+ * a number changing somewhere else on a long screen.
+ */
+function Outcome({
+  result,
+  pageContract,
+}: {
+  result: FeedConfigActionResult | null;
+  pageContract: AdminUiPageContract;
+}) {
+  if (!result) return null;
+  return (
+    <div
+      className="small"
+      style={{
+        color: result.ok ? "var(--brand-d)" : "var(--danger)",
+        lineHeight: 1.5,
+        // These messages are SENTENCES, and they render inside the feed tables, whose cells are
+        // `nowrap` (failure mode 4b — short business values must never shred into character
+        // columns). Left at the table's default, "Saved. This pen is fed the absolute kg authored
+        // here…" ran one line off the right edge and was clipped. A sentence-shaped message wraps;
+        // the width cap is what keeps it from widening the column instead.
+        whiteSpace: "normal",
+        overflowWrap: "break-word",
+        maxWidth: 220,
+      }}
+    >
+      {copy(pageContract, result.messageKey)}
+      {result.detail ? <div className="muted">{result.detail}</div> : null}
+    </div>
   );
 }
 

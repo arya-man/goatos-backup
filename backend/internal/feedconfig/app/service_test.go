@@ -428,7 +428,7 @@ func TestPagingIsBoundedAndNeverSilentlyClamped(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
-			page, err := svc.ListRationRates(context.Background(), "tenant", "park", "", "", "", tc.limit, tc.offset)
+			page, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{ParkID: "park", Limit: tc.limit, Offset: tc.offset})
 			if tc.wantErr {
 				if !errors.Is(err, ErrInvalidPaging) {
 					t.Fatalf("error = %v, want ErrInvalidPaging", err)
@@ -450,7 +450,7 @@ func TestPagingIsBoundedAndNeverSilentlyClamped(t *testing.T) {
 // interleave rows under identical labels with no way to tell them apart.
 func TestListRationRatesRequiresPark(t *testing.T) {
 	svc := pinnedService(&fakeRepo{})
-	if _, err := svc.ListRationRates(context.Background(), "tenant", "  ", "", "", "", nil, nil); !errors.Is(err, ErrMissingPark) {
+	if _, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{ParkID: "  "}); !errors.Is(err, ErrMissingPark) {
 		t.Fatalf("error = %v, want ErrMissingPark", err)
 	}
 }
@@ -480,6 +480,139 @@ func TestListFiltersAreValidatedNotIgnored(t *testing.T) {
 	}
 	if repo.lastSchedQuery.Workflow != "" {
 		t.Fatalf("workflow = %q, want empty (no filter)", repo.lastSchedQuery.Workflow)
+	}
+}
+
+// TestGramsComparisonIsValidatedAsAPair proves the grams filter is accepted only as a complete,
+// well-formed (operator, value) pair -- and REJECTED, never defaulted, otherwise.
+//
+// The defect this forbids is quiet, which is why it is pinned: every possible fallback for a
+// missing half answers a different question than the one the operator asked. A default operator
+// silently reinterprets the value they typed; a default value silently reinterprets the operator
+// they picked; and an unrecognised operator that degrades to "no filter" shows the WHOLE grid to
+// someone who asked to narrow it. On this screen a wrong row set is a wrong feeding decision.
+func TestGramsComparisonIsValidatedAsAPair(t *testing.T) {
+	tests := []struct {
+		name    string
+		op      string
+		value   string
+		wantErr bool
+		// wantCompare is the comparison the repository should receive; nil means "no filter".
+		wantCompare *domain.GramsComparison
+	}{
+		{name: "neither half is no filter", wantCompare: nil},
+		{name: "the common case: more than zero", op: "gt", value: "0", wantCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"}},
+		{name: "exactly zero isolates the authored zeros", op: "eq", value: "0", wantCompare: &domain.GramsComparison{Op: domain.GramsOpEquals, Value: "0"}},
+		{name: "exact decimals survive verbatim", op: "lte", value: "149.995", wantCompare: &domain.GramsComparison{Op: domain.GramsOpAtMost, Value: "149.995"}},
+		{name: "operator without a value is rejected", op: "gt", wantErr: true},
+		{name: "value without an operator is rejected", value: "0", wantErr: true},
+		{name: "unknown operator is rejected, not ignored", op: "approximately", value: "0", wantErr: true},
+		{name: "non-numeric value is rejected", op: "gt", value: "lots", wantErr: true},
+		{name: "float notation is rejected as inexact", op: "gt", value: "1e3", wantErr: true},
+		{name: "more than three decimals is rejected", op: "gt", value: "0.0001", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			_, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
+				ParkID: "park", GramsOp: tc.op, GramsValue: tc.value,
+			})
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidFilter) {
+					t.Fatalf("error = %v, want ErrInvalidFilter", err)
+				}
+				// A rejected filter must not reach the database at all: a query that ran and
+				// returned rows would be answering the malformed question.
+				if repo.lastRateQuery.ParkID != "" {
+					t.Fatalf("repository was queried for a rejected filter: %+v", repo.lastRateQuery)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := repo.lastRateQuery.GramsCompare
+			if tc.wantCompare == nil {
+				if got != nil {
+					t.Fatalf("comparison = %+v, want nil (no filter)", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("comparison = nil, want a filter")
+			}
+			if got.Op != tc.wantCompare.Op || got.Value != tc.wantCompare.Value {
+				t.Fatalf("comparison = %+v, want %+v", got, tc.wantCompare)
+			}
+		})
+	}
+}
+
+// TestFeedItemSetIsAMatchSetNotAMatchNothing pins the nil-vs-empty distinction the SQL depends on.
+//
+// An empty text[] bound into `= ANY(...)` matches NO rows. If a set of blanks collapsed to an empty
+// slice instead of nil, a filter nobody applied would blank the grid -- and an empty ration grid
+// reads on this screen as "every shed resolving here is BLOCKED", which is a statement about the
+// farm rather than about the filter.
+func TestFeedItemSetIsAMatchSetNotAMatchNothing(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "no items is no filter", in: nil, want: nil},
+		{name: "blanks alone collapse to no filter", in: []string{"", "  "}, want: nil},
+		{name: "one item narrows to it", in: []string{"Hybrid"}, want: []string{"Hybrid"}},
+		{name: "several items are a set", in: []string{"Hybrid", "COFS"}, want: []string{"Hybrid", "COFS"}},
+		{name: "blanks are dropped from a real set", in: []string{"Hybrid", " ", "COFS"}, want: []string{"Hybrid", "COFS"}},
+		{name: "values are trimmed", in: []string{"  Hybrid "}, want: []string{"Hybrid"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			svc := pinnedService(repo)
+			if _, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
+				ParkID: "park", FeedItems: tc.in,
+			}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := repo.lastRateQuery.FeedItems
+			if len(got) != len(tc.want) {
+				t.Fatalf("feed items = %#v, want %#v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("feed items = %#v, want %#v", got, tc.want)
+				}
+			}
+			if tc.want == nil && got != nil {
+				t.Fatalf("feed items = %#v, want nil so the SQL reads it as no filter", got)
+			}
+		})
+	}
+}
+
+// TestBreedAndRationGroupAreSeparateFilters proves the two are carried independently rather than
+// one being folded into the other.
+//
+// They land on the same column but ask different questions: a ration group is a group, and a breed
+// resolves INTO one many-to-one (Beetal and Sirohi share "Beetal/Sirohi"). Folding breed into
+// ration_group here would make "show me what a Sirohi eats" silently match nothing, because no
+// group is named "Sirohi".
+func TestBreedAndRationGroupAreSeparateFilters(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+	if _, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
+		ParkID: "park", Breed: " Sirohi ", RationGroup: " Beetal/Sirohi ",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.lastRateQuery.Breed != "Sirohi" {
+		t.Fatalf("breed = %q, want %q", repo.lastRateQuery.Breed, "Sirohi")
+	}
+	if repo.lastRateQuery.RationGroup != "Beetal/Sirohi" {
+		t.Fatalf("ration group = %q, want %q", repo.lastRateQuery.RationGroup, "Beetal/Sirohi")
 	}
 }
 
@@ -685,7 +818,7 @@ func TestSetExperimentShedStatusRequiresAnExplicitStatus(t *testing.T) {
 // status filter must therefore stay empty (meaning BOTH) rather than being defaulted to 'active'.
 func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
 	repo := &fakeRepo{}
-	if _, err := pinnedService(repo).ListExperimentConfig(context.Background(), "tenant", "park", "", "", nil, nil); err != nil {
+	if _, err := pinnedService(repo).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: "park"}); err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
 	if repo.lastExperimentQuery.Status != "" {
@@ -696,7 +829,7 @@ func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
 	// widen the result to both statuses for a caller who asked for one, and the two statuses are two
 	// different feeding regimes.
 	repo2 := &fakeRepo{}
-	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", "park", "", "paused", nil, nil); err == nil {
+	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: "park", Status: "paused"}); err == nil {
 		t.Fatal("unrecognised status filter was accepted; it must be rejected rather than ignored")
 	}
 }

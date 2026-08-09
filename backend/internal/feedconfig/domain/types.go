@@ -155,9 +155,77 @@ type RationRateQuery struct {
 	ParkID   string
 	// Optional narrowing filters. Empty means "no filter" -- never "match empty".
 	RationGroup string
-	ShedTag     string
-	FeedItem    string
-	Page        Page
+	// Breed narrows by BREED rather than by the group a breed resolves to, and the two are not the
+	// same filter even though they land on the same column.
+	//
+	// feed_ration_groups is a breed -> ration-group MAP, and the mapping is many-to-one: Beetal and
+	// Sirohi both resolve to the one group "Beetal/Sirohi". So filtering on RationGroup asks "show
+	// the rows of this group" and cannot express "show what a Sirohi eats", which is the question an
+	// operator actually has. This resolves the breed to its group first and filters on that.
+	//
+	// A breed that maps to nothing returns NO rows rather than every row -- an unknown breed is not
+	// "no filter". And no breed maps to the "Kid" group ON PURPOSE: kids resolve to one group by age
+	// band and their breed is deliberately ignored, so a breed filter correctly excludes kid rates
+	// rather than pretending a kid rate belongs to a breed.
+	Breed   string
+	ShedTag string
+	// FeedItems is a SET: empty means "no filter", one or more means "any of these". It is plural
+	// because the grid's whole job is comparing what several items cost across groups and tags, and
+	// a single-valued filter forces that comparison to be done one reload at a time.
+	FeedItems []string
+	// GramsCompare narrows by the authored rate itself ("more than 0", "exactly 0"). Nil means no
+	// filter; it is a POINTER rather than a zero-valued struct because 0 is a legitimate comparison
+	// value here, so an empty struct cannot be distinguished from "compare against zero".
+	GramsCompare *GramsComparison
+	Page         Page
+}
+
+// GramsOp is a comparison an author can apply to grams_per_head.
+//
+// A closed enum, never a raw operator string from the client: the value is interpolated into SQL
+// comparison semantics, and an open string would be both an injection surface and a silent
+// no-match when a client sent something the backend did not understand.
+type GramsOp string
+
+const (
+	GramsOpGreaterThan GramsOp = "gt"
+	GramsOpAtLeast     GramsOp = "gte"
+	GramsOpEquals      GramsOp = "eq"
+	GramsOpAtMost      GramsOp = "lte"
+	GramsOpLessThan    GramsOp = "lt"
+	GramsOpNotEqualTo  GramsOp = "neq"
+)
+
+// GramsComparison is a validated (operator, value) pair.
+//
+// Value stays a DECIMAL STRING for the same reason RationRate.GramsPerHead does: numeric(12,3) is
+// exact and a float round-trip is not. Comparing an authored 149.995 against a float-parsed filter
+// value is how a row that should match stops matching.
+type GramsComparison struct {
+	Op    GramsOp
+	Value string
+}
+
+// ParseGramsOp maps a wire token to the enum. `ok` is false for anything else, including "" --
+// callers must reject an unrecognized operator rather than fall back to one, because every possible
+// fallback silently answers a different question than the one that was asked.
+func ParseGramsOp(raw string) (GramsOp, bool) {
+	switch GramsOp(strings.TrimSpace(raw)) {
+	case GramsOpGreaterThan:
+		return GramsOpGreaterThan, true
+	case GramsOpAtLeast:
+		return GramsOpAtLeast, true
+	case GramsOpEquals:
+		return GramsOpEquals, true
+	case GramsOpAtMost:
+		return GramsOpAtMost, true
+	case GramsOpLessThan:
+		return GramsOpLessThan, true
+	case GramsOpNotEqualTo:
+		return GramsOpNotEqualTo, true
+	default:
+		return "", false
+	}
 }
 
 type RationRatePage struct {
@@ -369,7 +437,16 @@ type ExperimentConfigQuery struct {
 	// screen wants: a withdrawn shed's authored quantities must stay visible so it can be restored
 	// without re-keying them from the workbook.
 	Status string
-	Page   Page
+	// FeedItems is a SET, matching RationRateQuery.FeedItems: empty is "no filter", one or more is
+	// "any of these".
+	FeedItems []string
+	// ExperimentCategory narrows to one ARM ("Sheep M NEW"). Matched on the normalized key like every
+	// other feed-config label, so casing and separator differences resolve the same way.
+	ExperimentCategory string
+	// KgCompare narrows by the authored absolute kg. Nil means no filter; a pointer for the same
+	// reason RationRateQuery.GramsCompare is one -- 0 is a legitimate value to compare against.
+	KgCompare *GramsComparison
+	Page      Page
 }
 
 type ExperimentConfigPage struct {
