@@ -449,7 +449,7 @@ SELECT count(*) FROM feed_experiment_config WHERE tenant_id = $1::uuid AND shed_
 // TestExperimentConfigPagingKeepsAPensCellsTogether proves that the public page unit is a PEN,
 // not an individual feed-item cell. Splitting one pen across pages lets the admin UI construct a
 // plausible but incomplete set of available items and can overwrite a cell from the later page.
-func TestExperimentConfigPagingKeepsAPensCellsTogether(t *testing.T) {
+func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
@@ -460,6 +460,12 @@ func TestExperimentConfigPagingKeepsAPensCellsTogether(t *testing.T) {
 	}
 	enrollExperimentPen(t, ctx, repo, "pen-page-a", fcPennedShed, fcPenA, "Arm A", nil, pageCells)
 	enrollExperimentPen(t, ctx, repo, "pen-page-b", fcPennedShed, fcPenB, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "2.000"}})
+	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: "pen-page-retire-b", RequestFingerprint: "fp-pen-page-retire-b"},
+		ParkID:        fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenB, Status: domain.ExperimentStatusRetired,
+	}); err != nil {
+		t.Fatalf("retire second page pen: %v", err)
+	}
 
 	first, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1},
@@ -490,6 +496,18 @@ func TestExperimentConfigPagingKeepsAPensCellsTogether(t *testing.T) {
 	}
 	if second.HasMore {
 		t.Fatalf("second page has_more = true, want end of pen catalog")
+	}
+	if second.Items[0].Status != domain.ExperimentStatusRetired {
+		t.Fatalf("second page status = %q, want retired", second.Items[0].Status)
+	}
+	retiredOnly, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, ParkID: fcPark, Status: domain.ExperimentStatusRetired, Page: domain.Page{Limit: 1},
+	})
+	if err != nil {
+		t.Fatalf("retired-only page: %v", err)
+	}
+	if len(retiredOnly.Items) != 1 || retiredOnly.Items[0].PartitionLabel != fcPenB || retiredOnly.HasMore {
+		t.Fatalf("retired-only page = %#v, want only complete retired pen B", retiredOnly)
 	}
 }
 

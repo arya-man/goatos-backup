@@ -409,6 +409,7 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	//
 	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
 	const query = `
+-- projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, and status filters; group_key=(park_id,shed_id,partition_key) operational pen; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key and each location join is 0:1; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count; scope=tenant is mandatory with optional exact park/shed/status filters repeated on returned cells
 WITH ranked_pens AS (
   SELECT p.*,
          row_number() OVER (
