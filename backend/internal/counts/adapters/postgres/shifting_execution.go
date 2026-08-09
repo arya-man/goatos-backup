@@ -1083,8 +1083,10 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
  count(*) FILTER (WHERE verification_state='rejected' AND event_status NOT IN ('canceled', 'pending')),
  count(*) FILTER (WHERE event_status='applied' AND verification_state <> 'rejected')
 FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3
+  AND ($5::uuid IS NULL OR se.source_park_id = $5::uuid)
+  AND ($6::uuid IS NULL OR se.source_shed_id = $6::uuid)
   AND `+shiftingActionsVisibleSQL("$4"),
-			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC()).Scan(
+			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID).Scan(
 			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
 			&page.StatusCounts.Rework, &page.StatusCounts.Completed); err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting actions summary: %w", err)
@@ -1095,9 +1097,11 @@ FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_
 FROM shifting_events se
 WHERE tenant_id=$1::uuid AND event_status <> 'canceled'
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
+  AND ($4::uuid IS NULL OR se.source_park_id = $4::uuid)
+  AND ($5::uuid IS NULL OR se.source_shed_id = $5::uuid)
   AND `+shiftingActionsVisibleSQL("$3")+`
 GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
-ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC())
+ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC(), sourceParkID, sourceShedID)
 		if err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting previous dates: %w", err)
 		}
