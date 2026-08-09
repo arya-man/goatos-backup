@@ -113,8 +113,13 @@ type CompleteShiftingInput struct {
 	RequestFingerprint string
 }
 
-// Complete records the operator gate and mandatory evidence. If Park Head approval already exists,
-// the repository atomically applies the movement now; otherwise approval will apply it later.
+// Complete records the operator gate and mandatory evidence, and the repository atomically applies
+// the movement.
+//
+// Park Head approval must already exist (maintainer decision 2026-08-09): an unapproved movement is
+// refused with ports.ErrShiftingNotAuthorized and writes nothing. The service does not pre-check
+// that itself -- the authorization is read under the shifting row lock in the repository, so a
+// check here would be a second, racier copy of the same rule.
 func (s *ShiftingExecutionService) Complete(
 	ctx context.Context, in CompleteShiftingInput,
 ) (domain.ShiftingExecutionResult, bool, error) {
@@ -263,6 +268,9 @@ func (s *ShiftingExecutionService) ListPendingExecution(
 		Status:       status,
 		PageSize:     pageSize,
 		Cursor:       decoded,
+		// The ACTIONS LEAD TIME is evaluated against the service's business clock, not the
+		// database's, so one clock owns business time across the module.
+		Now: s.now(),
 	})
 }
 

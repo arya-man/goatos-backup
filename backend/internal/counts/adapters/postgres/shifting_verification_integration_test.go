@@ -266,7 +266,16 @@ func TestHighPriorityShiftingRejectsChangedFeedConfig(t *testing.T) {
 	repo := newRealIdentityApprovalRepo(t, pool)
 	goatID := "00000000-0000-4000-8000-00000000d008"
 	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
-	eventID, _ := submitShiftingApproval(t, ctx, repo, "verify-high-stale", []string{goatID})
+	eventID, approvalID := submitShiftingApproval(t, ctx, repo, "verify-high-stale", []string{goatID})
+	// APPROVE first, like every sibling high-priority test. This one used to skip approval and still
+	// reach the feed-config check, because the feed checks ran ahead of the approval check -- so it
+	// was really asserting the stale-fingerprint rule on a movement no park head had authorized,
+	// which approve-first (maintainer decision 2026-08-09) refuses outright. Approving puts the test
+	// back on the production path it means to cover: a legitimately approved high-priority movement
+	// whose feed config changed between the operator's read and their submit.
+	if _, _, err := approveShifting(repo, ctx, "verify-high-stale", approvalID, eventID, []string{goatID}); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
 	seedHighPriorityShiftingFeedConfig(t, ctx, pool, goatID, eventID)
 	requirements, err := loadShiftingFeedRequirements(ctx, pool, countsTenant, []string{eventID}, time.Now())
 	if err != nil {
@@ -291,9 +300,16 @@ WHERE tenant_id=$1::uuid AND park_id=$2::uuid`, countsTenant, countsPark); err !
 	}
 }
 
-// TestShiftingCompletionBeforeApprovalDoesNotMove proves that operator completion can arrive first:
-// the movement remains pending with completion stamps, and nothing relocates until Park Head approval.
-func TestShiftingCompletionBeforeApprovalDoesNotMove(t *testing.T) {
+// TestShiftingCompletionBeforeApprovalWritesNothing pins APPROVE-FIRST (maintainer decision
+// 2026-08-09) on the evidence side.
+//
+// This test previously asserted the OPPOSITE, under the retired 2026-07-28 rule: completion could
+// arrive first, the movement kept its video while sitting pending, and approval applied the move
+// later. That is exactly the shape being retired -- an operator could burn the mandatory video (and
+// on a high-priority move, all three) on a movement a park head then rejected, and a verifier could
+// be handed evidence for a move nobody authorized. A refused completion must therefore leave NO
+// proof, NO completion stamp, and NO event behind.
+func TestShiftingCompletionBeforeApprovalWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	repo := newRealIdentityApprovalRepo(t, pool)
@@ -305,28 +321,22 @@ func TestShiftingCompletionBeforeApprovalDoesNotMove(t *testing.T) {
 
 	shiftingEventID, _ := submitShiftingApproval(t, ctx, repo, "verify-submit", goatIDs)
 
-	result, replayed, err := submitShiftingForVerification(repo, ctx, "verify-submit", shiftingEventID, "")
-	if err != nil {
-		t.Fatalf("submit for verification: %v", err)
-	}
-	if replayed {
-		t.Fatalf("first submit reported replayed=true, want a fresh submission")
-	}
-	if result.EventStatus != domain.ShiftingEventStatusPending {
-		t.Fatalf("event_status=%q, want %q", result.EventStatus, domain.ShiftingEventStatusPending)
+	if _, _, err := submitShiftingForVerification(repo, ctx, "verify-submit", shiftingEventID, ""); !errors.Is(err, ports.ErrShiftingNotAuthorized) {
+		t.Fatalf("completion before approval: err=%v, want ErrShiftingNotAuthorized", err)
 	}
 
-	// The pending row carries the completion video and has no applied stamp.
+	// The row is untouched: still pending, still unverified, and carrying no video or applied stamp.
 	var (
 		eventStatus string
 		verifState  string
 		proofRef    *string
+		completedAt *time.Time
 		appliedAt   *time.Time
 	)
 	if err := pool.QueryRow(ctx, `
-SELECT event_status, verification_state, proof_ref, applied_at
+SELECT event_status, verification_state, proof_ref, completed_at, applied_at
 FROM shifting_events WHERE shifting_event_id = $1::uuid`, shiftingEventID).
-		Scan(&eventStatus, &verifState, &proofRef, &appliedAt); err != nil {
+		Scan(&eventStatus, &verifState, &proofRef, &completedAt, &appliedAt); err != nil {
 		t.Fatalf("read shifting event: %v", err)
 	}
 	if eventStatus != domain.ShiftingEventStatusPending {
@@ -335,18 +345,21 @@ FROM shifting_events WHERE shifting_event_id = $1::uuid`, shiftingEventID).
 	if verifState != "unverified" {
 		t.Fatalf("verification_state=%q, want unverified", verifState)
 	}
-	if proofRef == nil || *proofRef == "" {
-		t.Fatalf("proof_ref=%v, want the operator's video id stored", proofRef)
+	if proofRef != nil {
+		t.Fatalf("proof_ref=%v after a refused completion, want NULL -- a verifier must not be handed "+
+			"evidence for a movement no park head approved", *proofRef)
+	}
+	if completedAt != nil {
+		t.Fatalf("completed_at=%v after a refused completion, want NULL", completedAt)
 	}
 	if appliedAt != nil {
-		t.Fatalf("applied_at=%v before approval, want NULL", appliedAt)
+		t.Fatalf("applied_at=%v after a refused completion, want NULL", appliedAt)
 	}
 
 	// NOTHING relocated: the animal is still at the source shed, and no location.changed event/outbox
 	// row exists.
 	if got := goatShed(t, ctx, pool, goatA); got != countsShedA {
-		t.Fatalf("goat shed=%s after completion, want it STILL at source %s until Park Head approval",
-			got, countsShedA)
+		t.Fatalf("goat shed=%s after a refused completion, want it STILL at source %s", got, countsShedA)
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_type = 'goat.location.changed'`,

@@ -988,8 +988,14 @@ func shiftingEventForApproval(key string) domain.ShiftingEvent {
 		SourceShedID:            strPtr(countsShedA),
 		DestinationParkID:       countsPark,
 		DestinationShedID:       countsShedB,
-		RaisedAt:                time.Now().In(biztime.DefaultLocation()),
-		EffectiveAt:             time.Now().In(biztime.DefaultLocation()),
+		// Raised two days ago so the shared fixture is past the ACTIONS LEAD TIME (maintainer
+		// decision 2026-08-09): a LOW-priority movement -- which this fixture is -- does not enter
+		// the operator's work list until the day after its raise day, or the one after that when it
+		// was raised past 13:30 IST. Leaving this at "now" would make every queue test's visibility
+		// depend on the hour the suite happened to run. The lead time itself is proven directly by
+		// TestListPendingExecutionAppliesTheActionsLeadTime and by the counts/domain unit tests.
+		RaisedAt:    time.Now().In(biztime.DefaultLocation()).AddDate(0, 0, -2),
+		EffectiveAt: time.Now().In(biztime.DefaultLocation()).AddDate(0, 0, -2),
 		// These are the defaults counts/app.Service applies; this helper writes through the
 		// repository directly, so it must set them itself. They are also the premise of the test:
 		// a reported movement starts PENDING, and approval is what authorizes it.
