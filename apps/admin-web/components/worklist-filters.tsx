@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -14,6 +16,44 @@ export type WorklistFilterField =
       value: string;
       options: WorklistFilterOption[];
       allowAll?: boolean;
+      disabledReason?: string;
+    }
+  | {
+      /**
+       * A multi-valued select. Each pick is APPENDED to the URL as a repeated parameter, and shows
+       * as a removable chip beside the control.
+       *
+       * Repeated parameters rather than one comma-joined value, all the way down to the backend: a
+       * feed item is free text and may legitimately contain the delimiter, so any joined encoding
+       * has a value it silently corrupts.
+       */
+      kind: "multiselect";
+      param: string;
+      label: string;
+      values: string[];
+      options: WorklistFilterOption[];
+      /** Optional hint rendered under the control, e.g. "pick more than one to compare". */
+      note?: string;
+      disabledReason?: string;
+    }
+  | {
+      /**
+       * A numeric comparison: an operator picked from a backend-declared set, plus a value the
+       * author types. The two halves are ONE filter and travel together — clearing either clears
+       * both, because the backend rejects half a comparison rather than inventing the other half.
+       */
+      kind: "compare";
+      /** The operator parameter (e.g. `fc_grams_op`). */
+      param: string;
+      /** The value parameter (e.g. `fc_grams_value`). */
+      valueParam: string;
+      label: string;
+      op: string;
+      value: string;
+      /** The comparison vocabulary, from the page contract's option group. */
+      options: WorklistFilterOption[];
+      valueAriaLabel: string;
+      note?: string;
       disabledReason?: string;
     }
   | {
@@ -43,8 +83,26 @@ export function WorklistFilters({
   const routerSearchParams = useSearchParams();
   const current = routerSearchParams?.toString() ?? "";
   const allLabel = copy(pageContract, "filter.all_option");
-  const clearable = fields.filter((field) => field.kind === "select" && field.allowAll !== false);
-  const hasAnyFilter = clearable.some((field) => field.value !== "");
+  // Resolved ONLY when a multi-select is actually on the bar. `copy` throws on a key the contract
+  // does not carry, and this component is shared by pages that have no multi-valued filter and
+  // therefore no reason to declare the key.
+  const applyLabel = fields.some((field) => field.kind === "multiselect" || field.kind === "compare")
+    ? copy(pageContract, "filter.apply")
+    : "";
+  const clearable = fields.filter(
+    (field) =>
+      (field.kind === "select" && field.allowAll !== false) ||
+      field.kind === "multiselect" ||
+      field.kind === "compare",
+  );
+  const hasAnyFilter = clearable.some((field) => {
+    if (field.kind === "multiselect") return field.values.length > 0;
+    // A comparison counts as applied when EITHER half is set, so a half-filled one can still be
+    // cleared — the backend rejects half a comparison, and a control the operator cannot reset
+    // would leave the page stuck on an error.
+    if (field.kind === "compare") return field.op !== "" || field.value !== "";
+    return field.kind === "select" && field.value !== "";
+  });
 
   function push(next: URLSearchParams) {
     next.delete(pageParam);
@@ -59,9 +117,39 @@ export function WorklistFilters({
     push(next);
   }
 
+  /** Replaces every occurrence of `param` with `values`, so the URL carries the set exactly. */
+  function applyMultiFilter(param: string, values: string[]) {
+    const next = new URLSearchParams(current);
+    next.delete(param);
+    for (const value of values) if (value) next.append(param, value);
+    push(next);
+  }
+
+  /**
+   * Writes both halves of a comparison at once.
+   *
+   * Never one half at a time: a request carrying an operator with no value is a 400, so setting
+   * them in two pushes would send the page through a guaranteed error state on the way to a valid
+   * one. Clearing either half clears both, for the same reason.
+   */
+  function applyCompare(opParam: string, valueParam: string, op: string, value: string) {
+    const next = new URLSearchParams(current);
+    if (op && value) {
+      next.set(opParam, op);
+      next.set(valueParam, value);
+    } else {
+      next.delete(opParam);
+      next.delete(valueParam);
+    }
+    push(next);
+  }
+
   function clearAll() {
     const next = new URLSearchParams(current);
-    for (const field of clearable) next.delete(field.param);
+    for (const field of clearable) {
+      next.delete(field.param);
+      if (field.kind === "compare") next.delete(field.valueParam);
+    }
     push(next);
   }
 
@@ -72,7 +160,24 @@ export function WorklistFilters({
       role="group"
       aria-label={copy(pageContract, "filter.bar_aria")}
     >
-      {fields.map((field) => (
+      {fields.map((field) =>
+        field.kind === "multiselect" ? (
+          <MultiSelectFilter
+            key={field.param}
+            field={field}
+            allLabel={allLabel}
+            applyLabel={applyLabel}
+            onChange={(values) => applyMultiFilter(field.param, values)}
+          />
+        ) : field.kind === "compare" ? (
+          <CompareFilter
+            key={field.param}
+            field={field}
+            allLabel={allLabel}
+            applyLabel={applyLabel}
+            onChange={(op, value) => applyCompare(field.param, field.valueParam, op, value)}
+          />
+        ) : (
         <label key={field.param} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
           <span className="muted">{field.label}</span>
           {field.kind === "date" ? (
@@ -107,12 +212,324 @@ export function WorklistFilters({
             </select>
           )}
         </label>
-      ))}
+        ),
+      )}
       {hasAnyFilter ? (
         <button type="button" className="btn sm" onClick={clearAll}>
           {copy(pageContract, "filter.clear_all")}
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A multi-valued filter: one dropdown button that opens a CHECKBOX LIST.
+ *
+ * Not a native `<select multiple>`, which renders as a scrolling list box several rows tall (it
+ * does not fit a one-line filter bar) and needs a modifier key to pick a second value — an
+ * interaction most operators never find, so a "multi" filter stays single-valued in practice.
+ *
+ * The trigger states the selection rather than making the reader count chips: the single chosen
+ * label when there is one, and "N selected" beyond that. The panel is CLIENT-LOCAL overlay state —
+ * opening it must not navigate or re-run the server component; only ticking a box does, because
+ * only that changes what is being asked for.
+ */
+function MultiSelectFilter({
+  field,
+  allLabel,
+  applyLabel,
+  onChange,
+}: {
+  field: Extract<WorklistFilterField, { kind: "multiselect" }>;
+  allLabel: string;
+  applyLabel: string;
+  onChange: (values: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapper = useRef<HTMLSpanElement | null>(null);
+  // Ticks are STAGED here and committed by Apply.
+  //
+  // Not applied per tick: every apply rewrites the URL and re-renders this server-rendered page, so
+  // choosing four items would run four full page renders and show the operator three intermediate
+  // result sets they never asked to see. Staging also makes the panel undoable — closing it without
+  // applying leaves the grid exactly as it was.
+  const [draft, setDraft] = useState<string[]>(field.values);
+  const disabled = Boolean(field.disabledReason);
+
+  // Re-sync the staged set when the applied one changes underneath (Apply, Clear all, back/forward),
+  // adjusting during render rather than in an effect so there is no cascading re-render.
+  const [lastApplied, setLastApplied] = useState(field.values.join(" "));
+  const appliedKey = field.values.join(" ");
+  if (lastApplied !== appliedKey) {
+    setLastApplied(appliedKey);
+    setDraft(field.values);
+  }
+  const chosen = new Set(draft);
+
+  // Close on an outside click or Escape — the two ways every popover on this screen closes. The
+  // listeners are attached only while the panel is open, so a page full of these costs nothing.
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointerDown(event: MouseEvent) {
+      if (wrapper.current && !wrapper.current.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const summary =
+    field.values.length === 0
+      ? allLabel
+      : field.values.length === 1
+        ? (field.options.find((option) => option.value === field.values[0])?.label ?? field.values[0])
+        : `${field.values.length} selected`;
+
+  function toggle(value: string) {
+    setDraft((current) =>
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+    );
+  }
+
+  function apply() {
+    setOpen(false);
+    // Same set as is already applied: closing is the whole action, and pushing an identical URL
+    // would re-render the page for no change.
+    if (draft.join(" ") === appliedKey) return;
+    onChange(draft);
+  }
+
+  return (
+    <span
+      ref={wrapper}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, position: "relative" }}
+    >
+      <span className="muted">{field.label}</span>
+      <button
+        type="button"
+        className="tsize"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={field.label}
+        disabled={disabled}
+        // Hover, not inline: see CompareFilter for why these notes are no longer printed on the bar.
+        title={field.disabledReason ?? field.note}
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.5 : 1,
+          minWidth: 120,
+          justifyContent: "space-between",
+        }}
+      >
+        <span>{summary}</span>
+        <ChevronDown className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
+      </button>
+      {open ? (
+        <div
+          className="card"
+          role="group"
+          aria-label={field.label}
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 40,
+            minWidth: 220,
+            // Capped and scrollable: the feed vocabulary is a dozen items today and grows with the
+            // workbook, and a panel that grows without limit would run off the bottom of the screen.
+            maxHeight: 260,
+            overflowY: "auto",
+            padding: "8px 4px",
+          }}
+        >
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+            {field.options.map((option) => (
+              <label
+                key={option.value}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={chosen.has(option.value)}
+                  onChange={() => toggle(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          {/* Apply sits OUTSIDE the scrolling list, so it stays reachable however long the
+              vocabulary grows. */}
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              padding: "8px 10px 2px",
+              borderTop: "1px solid var(--line)",
+              marginTop: 6,
+            }}
+          >
+            <button type="button" className="btn sm p" onClick={apply}>
+              {applyLabel}
+            </button>
+            {draft.length > 0 ? (
+              <button type="button" className="btn sm" onClick={() => setDraft([])}>
+                {allLabel}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * A numeric comparison filter: an operator select plus a value box.
+ *
+ * Applied on APPLY or Enter, never on each keystroke and never on blur. Every apply rewrites the URL
+ * and re-runs the server component, so a per-keystroke filter would fire a request for "1", "12",
+ * "125" on the way to "1250" — three server renders of a page this heavy, for answers nobody wanted.
+ * Blur is nearly as bad and worse to reason about: tabbing past a half-typed box would apply it.
+ *
+ * Both halves are sent together (see applyCompare): the backend rejects half a comparison rather
+ * than inventing the other half, so an operator picked before a value is typed simply waits.
+ *
+ * Setting the operator back to All is the one immediate action, because it is unambiguous: there is
+ * no comparison left to assemble, so making the reader press Apply to turn a filter OFF would be
+ * ceremony.
+ */
+function CompareFilter({
+  field,
+  allLabel,
+  applyLabel,
+  onChange,
+}: {
+  field: Extract<WorklistFilterField, { kind: "compare" }>;
+  allLabel: string;
+  applyLabel: string;
+  onChange: (op: string, value: string) => void;
+}) {
+  // BOTH halves are held locally while they are being assembled, and only a COMPLETE pair is
+  // written to the URL.
+  //
+  // Holding only the value was a deadlock, and a silent one: picking an operator committed
+  // (op, "") which `applyCompare` treats as incomplete and clears, so the operator select bounced
+  // straight back to blank; then typing a value committed ("", value), which cleared again. Neither
+  // half could ever be set first, so the filter could not be applied at all. Assembling locally is
+  // what lets the operator fill the two boxes in either order.
+  const [opDraft, setOpDraft] = useState(field.op);
+  const [valueDraft, setValueDraft] = useState(field.value);
+  const disabled = Boolean(field.disabledReason);
+
+  // Re-sync when the URL changes underneath (Clear all, back/forward, a link carrying its own
+  // filters), by ADJUSTING STATE DURING RENDER rather than in an effect.
+  //
+  // The effect version triggers a cascading render — React renders the stale drafts, commits, then
+  // re-renders — which the lint rule `react-hooks/set-state-in-effect` flags for real reasons: on a
+  // filter bar it means one frame of the old value flashing in the box. Comparing against the last
+  // applied pair is React's documented pattern for "reset state when a prop changes", and it keeps
+  // a draft the operator is still typing from being stomped, because only a change in the APPLIED
+  // values resets it.
+  const [lastApplied, setLastApplied] = useState({ op: field.op, value: field.value });
+  if (lastApplied.op !== field.op || lastApplied.value !== field.value) {
+    setLastApplied({ op: field.op, value: field.value });
+    setOpDraft(field.op);
+    setValueDraft(field.value);
+  }
+
+  /** Writes the pair only when it is complete, and clears when either half is emptied. */
+  function commit(nextOp: string, nextValue: string) {
+    const trimmed = nextValue.trim();
+    const complete = nextOp !== "" && trimmed !== "";
+    const applied = field.op !== "" || field.value !== "";
+    if (!complete) {
+      // Nothing to apply yet. Only touch the URL if a filter IS applied and one half was just
+      // cleared, which is how the operator turns this filter off.
+      if (applied) onChange("", "");
+      return;
+    }
+    if (nextOp === field.op && trimmed === field.value) return;
+    onChange(nextOp, trimmed);
+  }
+
+  const staged = opDraft !== field.op || valueDraft.trim() !== field.value;
+
+  return (
+    <span
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+      // The explanation lives on hover rather than beside the control. Printed inline it was three
+      // lines of prose wedged between two filters, which pushed the bar to three rows and made the
+      // controls themselves harder to find than the note explaining them.
+      title={field.note}
+    >
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="muted">{field.label}</span>
+        <select
+          className="tsize"
+          value={opDraft}
+          aria-label={field.label}
+          disabled={disabled}
+          title={field.disabledReason ?? field.note}
+          style={disabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+          onChange={(event) => {
+            setOpDraft(event.target.value);
+            // Only "All" acts immediately — it clears. Any real operator waits for Apply, because
+            // the value half is not filled in yet.
+            if (event.target.value === "") commit("", valueDraft);
+          }}
+        >
+          <option value="">{allLabel}</option>
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <input
+        className="tsize"
+        // text + inputMode, not type="number": a number input reports an out-of-range or malformed
+        // value as "" in some browsers, which would turn a typo into a cleared filter. The same
+        // reasoning as the authoring inputs on this screen.
+        type="text"
+        inputMode="decimal"
+        value={valueDraft}
+        aria-label={field.valueAriaLabel}
+        disabled={disabled}
+        style={{ width: 72, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
+        onChange={(event) => setValueDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(opDraft, valueDraft);
+          }
+        }}
+      />
+      {/* Shown only while there is something to apply, so a bar of these does not read as a row of
+          buttons waiting to be pressed. Enter in the value box does the same thing. */}
+      {staged && !disabled ? (
+        <button type="button" className="btn sm p" onClick={() => commit(opDraft, valueDraft)}>
+          {applyLabel}
+        </button>
+      ) : null}
+    </span>
   );
 }

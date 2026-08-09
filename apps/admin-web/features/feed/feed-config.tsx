@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
-import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigExperiment } from "@/lib/api/server";
 import {
   firstAuthRequiredError,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import type { RouteSearchParams } from "@/lib/search-params";
+import { all, one, type RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
@@ -79,6 +79,27 @@ const PEN_CATALOG_PAGE_SIZE = 200;
 // "filter only shows what's on the current grid page" bug this replaces. Bounded config, not a herd
 // scan: the backend caps these catalogs and reports has_more.
 const VOCAB_PAGE_SIZE = 200;
+
+/**
+ * The comparison operators the feed-config reads accept. Mirrors the `grams_op` / `kg_op` enum in
+ * the OpenAPI contract, and the `feed_grams_compare` option group the controls are labelled from.
+ */
+type CompareOp = "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+
+/**
+ * Narrows a URL-supplied operator, PASSING AN UNRECOGNISED ONE THROUGH rather than dropping it.
+ *
+ * Dropping would silently widen the result: a hand-edited `?fc_grams_op=roughly` would quietly show
+ * the whole grid to someone who asked to narrow it, with nothing on screen saying the filter was
+ * ignored. Forwarded, the backend rejects it and the section renders its error band — which is the
+ * honest outcome, and the one the surface-API-errors rule requires.
+ *
+ * Blank is different and IS dropped: no operator means no filter, which is a real state the
+ * controls produce every time an operator clears one.
+ */
+function asCompareOp(raw: string): CompareOp | undefined {
+  return raw === "" ? undefined : (raw as CompareOp);
+}
 
 /** In-force (`valid_to` absent) vs superseded by a later edit. */
 function EffectiveWindow({
@@ -232,9 +253,23 @@ export async function FeedConfigPage({
 
   const locations = await getCensusLocations();
   const scope = resolveFeedScope(sp, "fc_park", "fc_date", locations.parks);
-  const rationGroupFilter = (sp.fc_group as string | undefined) || "";
-  const shedTagFilter = (sp.fc_tag as string | undefined) || "";
-  const feedItemFilter = (sp.fc_item as string | undefined) || "";
+  const rationGroupFilter = one(sp, "fc_group") || "";
+  const breedFilter = one(sp, "fc_breed") || "";
+  const shedTagFilter = one(sp, "fc_tag") || "";
+  // A SET, read with `all` because the parameter repeats. `one` would keep the first pick and
+  // silently drop the rest, showing a narrower grid than the chips say is applied.
+  const feedItemFilter = all(sp, "fc_item");
+  const gramsOpFilter = one(sp, "fc_grams_op") || "";
+  const gramsValueFilter = one(sp, "fc_grams_value") || "";
+
+  // Experiment section filters, on their OWN params. The two sections page independently (see the
+  // offsets below) and must filter independently for the same reason: they hold different row
+  // counts and incompatible units, so one section's narrowing must not silently reshape the other.
+  const experimentItemFilter = all(sp, "fc_exp_item");
+  const experimentArmFilter = one(sp, "fc_exp_arm") || "";
+  const experimentStatusFilter = one(sp, "fc_exp_status") || "";
+  const experimentKgOpFilter = one(sp, "fc_exp_kg_op") || "";
+  const experimentKgValueFilter = one(sp, "fc_exp_kg_value") || "";
 
   const gridPageSizes = tablePageSizes(pageContract, "ration-grid");
   const gridLimit = feedLimit(sp, "fc_limit", gridPageSizes, DEFAULT_PAGE_SIZE);
@@ -273,8 +308,14 @@ export async function FeedConfigPage({
       ? listFeedConfigRationRates({
           park_id: scope.parkId,
           ration_group: rationGroupFilter || undefined,
+          breed: breedFilter || undefined,
           shed_tag: shedTagFilter || undefined,
-          feed_item: feedItemFilter || undefined,
+          feed_item: feedItemFilter,
+          // Both halves or neither: the backend rejects a lone half rather than defaulting it, so a
+          // partly-filled control sends nothing at all and the grid stays unfiltered until the pair
+          // is complete.
+          grams_op: asCompareOp(gramsOpFilter),
+          grams_value: gramsValueFilter || undefined,
           limit: gridLimit,
           offset: gridOffset,
         })
@@ -286,12 +327,19 @@ export async function FeedConfigPage({
     // can be seen and restored, and so an accidental withdrawal is not invisible on the screen that
     // owns the decision. One bounded page — the live parks author 17 sheds x 5 items each.
     scope.parkId
-      ? listFeedConfigExperiment(
-          experimentAllParks
-            // park_id omitted entirely -- the backend reads that as "every park".
-            ? { limit: experimentLimit, offset: experimentOffset }
-            : { park_id: scope.parkId, limit: experimentLimit, offset: experimentOffset },
-        )
+      ? listFeedConfigExperiment({
+          // park_id omitted entirely in all-parks mode -- the backend reads that as "every park".
+          ...(experimentAllParks ? {} : { park_id: scope.parkId }),
+          limit: experimentLimit,
+          offset: experimentOffset,
+          feed_item: experimentItemFilter,
+          experiment_category: experimentArmFilter || undefined,
+          status: experimentStatusFilter === "active" || experimentStatusFilter === "retired"
+            ? experimentStatusFilter
+            : undefined,
+          kg_op: asCompareOp(experimentKgOpFilter),
+          kg_value: experimentKgValueFilter || undefined,
+        })
       : Promise.resolve(null),
     // The PEN CATALOG, for the enrol control's candidate list.
     //
@@ -406,12 +454,29 @@ export async function FeedConfigPage({
   const rationGroupOptions = rationGroups
     ? toOptions(uniqueSorted(rationGroups.items.map((group) => group.ration_group)))
     : toOptions(uniqueSorted(gridRows.map((row) => row.ration_group)));
+  // Real BREEDS, from the same breed -> ration-group map the backend resolves the filter through, so
+  // every option is one the query can answer. Deduplicated and sorted by breed rather than by group:
+  // Beetal and Sirohi are two options that happen to return the same rows, and collapsing them would
+  // put the operator back to picking a group. There is no grid-derived fallback -- the grid carries
+  // GROUP labels, and offering "Beetal/Sirohi" or "Kid" as a breed is the mislabelling this filter
+  // exists to avoid; if the map cannot be read the control is simply empty.
+  const breedOptions = toOptions(uniqueSorted((rationGroups?.items ?? []).map((group) => group.breed)));
+  // The arms present on the CURRENT experiment page. See the field definition for why this is
+  // page-derived rather than a catalog read.
+  const experimentArmOptions = toOptions(
+    uniqueSorted(experimentRows.map((row) => row.experiment_category).filter(Boolean)),
+  );
   const shedTagOptions = shedTags
     ? toOptions(dedupe(byDisplayOrder(shedTags.items).map((tag) => tag.shed_tag)))
     : toOptions(uniqueSorted(gridRows.map((row) => row.shed_tag)));
   const feedItemOptions = feedItems
     ? toOptions(dedupe(byDisplayOrder(feedItems.items).map((item) => item.feed_item)))
     : toOptions(uniqueSorted(gridRows.map((row) => row.feed_item)));
+
+  const compareOptions = optionGroup(pageContract, "feed_grams_compare").map((option) => ({
+    value: option.key,
+    label: option.label,
+  }));
 
   const filterFields: FeedFilterField[] = [
     {
@@ -422,6 +487,17 @@ export async function FeedConfigPage({
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
       options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+    },
+    // BREED, not ration group. The options are real breeds from the breed -> ration-group map, so
+    // picking Sirohi finds the Beetal/Sirohi rows -- a question the group filter cannot express,
+    // because no group is named Sirohi. The grid's own column keeps showing the GROUP, which is what
+    // the row actually is; the note under the control explains the relationship.
+    {
+      kind: "select",
+      param: "fc_breed",
+      label: copy(pageContract, "filter.breed_label"),
+      value: breedFilter,
+      options: breedOptions,
     },
     {
       kind: "select",
@@ -438,11 +514,69 @@ export async function FeedConfigPage({
       options: shedTagOptions,
     },
     {
-      kind: "select",
+      kind: "multiselect",
       param: "fc_item",
       label: copy(pageContract, "filter.feed_item_label"),
-      value: feedItemFilter,
+      values: feedItemFilter,
       options: feedItemOptions,
+      note: copy(pageContract, "filter.feed_item_note"),
+    },
+    {
+      kind: "compare",
+      param: "fc_grams_op",
+      valueParam: "fc_grams_value",
+      label: copy(pageContract, "filter.grams_label"),
+      op: gramsOpFilter,
+      value: gramsValueFilter,
+      options: compareOptions,
+      valueAriaLabel: copy(pageContract, "filter.grams_value_aria"),
+      note: copy(pageContract, "filter.grams_note"),
+    },
+  ];
+
+  // The experiment section's own bar. Same controls, different params and different units: this
+  // section's quantity is an ABSOLUTE PEN TOTAL in kg, so its comparison is labelled and named apart
+  // from the grid's per-head grams.
+  const experimentFilterFields: FeedFilterField[] = [
+    {
+      kind: "multiselect",
+      param: "fc_exp_item",
+      label: copy(pageContract, "filter.feed_item_label"),
+      values: experimentItemFilter,
+      options: feedItemOptions,
+    },
+    {
+      kind: "select",
+      param: "fc_exp_arm",
+      label: copy(pageContract, "filter.experiment_arm_label"),
+      value: experimentArmFilter,
+      // The arms in scope, from the rows themselves: an arm is free prose authored per pen
+      // ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80"), not a catalog, so there is no
+      // vocabulary endpoint to read. That makes this list page-derived and therefore incomplete when
+      // the section is paged -- which is why it sits beside the arm the operator can already see
+      // rather than claiming to be every arm in the tenant.
+      options: experimentArmOptions,
+    },
+    {
+      kind: "select",
+      param: "fc_exp_status",
+      label: copy(pageContract, "filter.status_label"),
+      value: experimentStatusFilter,
+      options: optionGroup(pageContract, "feed_config_status").map((option) => ({
+        value: option.key,
+        label: option.label,
+      })),
+    },
+    {
+      kind: "compare",
+      param: "fc_exp_kg_op",
+      valueParam: "fc_exp_kg_value",
+      label: copy(pageContract, "filter.kg_label"),
+      op: experimentKgOpFilter,
+      value: experimentKgValueFilter,
+      options: compareOptions,
+      valueAriaLabel: copy(pageContract, "filter.kg_value_aria"),
+      note: copy(pageContract, "filter.experiment_note"),
     },
   ];
 
@@ -790,6 +924,15 @@ export async function FeedConfigPage({
             feedItems={catalogItems}
           />
         </div>
+
+        {/* The section's own filter bar, on its own params. It pages independently of the ration
+            grid above and holds a different unit, so it narrows independently too. */}
+        <FeedFilters
+          basePath={PAGE_PATH}
+          pageParam="fc_exp_offset"
+          fields={experimentFilterFields}
+          pageContract={pageContract}
+        />
 
         <div
           className="bd feed-scroll"

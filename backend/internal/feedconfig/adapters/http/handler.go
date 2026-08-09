@@ -85,14 +85,14 @@ const (
 // Service is the slice of feedconfig/app.Service this handler needs. *feedconfigapp.Service
 // satisfies it.
 type Service interface {
-	ListRationRates(ctx context.Context, tenantID, parkID, rationGroup, shedTag, feedItem string, limit, offset *int32) (domain.RationRatePage, error)
+	ListRationRates(ctx context.Context, tenantID string, f feedconfigapp.RationRateFilter) (domain.RationRatePage, error)
 	ListRationGroups(ctx context.Context, tenantID string, limit, offset *int32) (domain.RationGroupPage, error)
 	ListShedTags(ctx context.Context, tenantID, appliesTo string, limit, offset *int32) (domain.ShedTagPage, error)
 	ListFeedItems(ctx context.Context, tenantID string, limit, offset *int32) (domain.FeedItemPage, error)
 	ListSessionTemplates(ctx context.Context, tenantID, parkID string, limit, offset *int32) (domain.SessionTemplatePage, error)
 	ListScheduleConfig(ctx context.Context, tenantID, parkID, workflow string, limit, offset *int32) (domain.ScheduleConfigPage, error)
 	ListShedFactors(ctx context.Context, tenantID, parkID, shedID, feedItem string, limit, offset *int32) (domain.ShedFactorPage, error)
-	ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error)
+	ListExperimentConfig(ctx context.Context, tenantID string, f feedconfigapp.ExperimentConfigFilter) (domain.ExperimentConfigPage, error)
 	ListPens(ctx context.Context, tenantID, parkID string, limit, offset *int32) (domain.PenPage, error)
 
 	UpsertRationRate(ctx context.Context, in feedconfigapp.UpsertRationRateInput) (domain.WriteResult, error)
@@ -151,8 +151,20 @@ func (h *Handler) ListRationRates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	page, err := h.service.ListRationRates(r.Context(), tenantID, q.Get("park_id"),
-		q.Get("ration_group"), q.Get("shed_tag"), q.Get("feed_item"), limit, offset)
+	page, err := h.service.ListRationRates(r.Context(), tenantID, feedconfigapp.RationRateFilter{
+		ParkID:      q.Get("park_id"),
+		RationGroup: q.Get("ration_group"),
+		Breed:       q.Get("breed"),
+		ShedTag:     q.Get("shed_tag"),
+		// q["feed_item"], not q.Get("feed_item"): the parameter repeats
+		// (?feed_item=Hybrid&feed_item=COFS). Get returns only the FIRST value, which would silently
+		// drop every item after the first and show a narrower grid than the operator asked for.
+		FeedItems:  q["feed_item"],
+		GramsOp:    q.Get("grams_op"),
+		GramsValue: q.Get("grams_value"),
+		Limit:      limit,
+		Offset:     offset,
+	})
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -281,7 +293,18 @@ func (h *Handler) ListExperimentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	page, err := h.service.ListExperimentConfig(r.Context(), tenantID, q.Get("park_id"), q.Get("shed_id"), q.Get("status"), limit, offset)
+	page, err := h.service.ListExperimentConfig(r.Context(), tenantID, feedconfigapp.ExperimentConfigFilter{
+		ParkID: q.Get("park_id"),
+		ShedID: q.Get("shed_id"),
+		Status: q.Get("status"),
+		// Repeatable, same as the ration grid's. q.Get would keep only the first item.
+		FeedItems:          q["feed_item"],
+		ExperimentCategory: q.Get("experiment_category"),
+		KgOp:               q.Get("kg_op"),
+		KgValue:            q.Get("kg_value"),
+		Limit:              limit,
+		Offset:             offset,
+	})
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -881,6 +904,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		errors.Is(err, feedconfigapp.ErrMissingPark),
 		errors.Is(err, feedconfigapp.ErrMissingActor):
 		h.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+	case errors.Is(err, feedconfigapp.ErrInvalidFilter):
+		// 400 and its own code, never an empty 200. A malformed filter that returned no rows would
+		// render as "no rates are configured for this scope" -- which on this screen means the sheds
+		// resolving to it are BLOCKED and will not be fed. A filter the caller got wrong must not be
+		// reported as a fact about the farm.
+		h.writeError(w, r, http.StatusBadRequest, "invalid_filter", err.Error(), nil)
 	case errors.As(err, &fieldErr):
 		// Field errors carry the offending input name so the UI can attach the message to it. This is
 		// the "validate or reject" surface: the author sees WHICH value was refused and why, rather

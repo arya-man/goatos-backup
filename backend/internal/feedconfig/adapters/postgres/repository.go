@@ -98,13 +98,44 @@ WHERE tenant_id = $1::uuid
   AND valid_to IS NULL
   AND ($3::text IS NULL OR ration_group_key = feed_config_norm($3))
   AND ($4::text IS NULL OR shed_tag_key = feed_config_norm($4))
-  AND ($5::text IS NULL OR feed_item_key = feed_config_norm($5))
+  -- Feed items are a SET. The stored key stays BARE on the left of the comparison so the
+  -- natural-key index is still usable; it is the BOUND ARRAY that is normalized, element by
+  -- element, rather than wrapping the column in feed_config_norm() (which would be the
+  -- non-SARGable, column-side-function shape the scale rules ban).
+  AND ($5::text[] IS NULL OR feed_item_key = ANY (
+        SELECT feed_config_norm(item) FROM unnest($5::text[]) AS t(item)))
+  -- Breed resolves through the breed -> ration-group map BEFORE it touches this table, because a
+  -- breed is not a group: Beetal and Sirohi both live in "Beetal/Sirohi". The subquery hits
+  -- feed_ration_groups_natural_key_uidx (tenant_id, breed_key) and returns at most one row; a breed
+  -- that maps to nothing yields NULL, so the predicate is NULL and NO rows match -- an unknown
+  -- breed must narrow to nothing, never widen to everything.
+  AND ($6::text IS NULL OR ration_group_key = (
+        SELECT g.ration_group_key FROM feed_ration_groups g
+        WHERE g.tenant_id = $1::uuid AND g.breed_key = feed_config_norm($6)))
+  -- The authored rate itself. The operator is a CLOSED ENUM validated in the service, so this CASE
+  -- is exhaustive over the values that can reach it; an unrecognized one cannot arrive here, and
+  -- the comparison is done in numeric so an exact decimal string is never float-compared.
+  AND ($7::text IS NULL OR CASE $7::text
+        WHEN 'gt'  THEN grams_per_head >  $8::numeric
+        WHEN 'gte' THEN grams_per_head >= $8::numeric
+        WHEN 'eq'  THEN grams_per_head =  $8::numeric
+        WHEN 'lte' THEN grams_per_head <= $8::numeric
+        WHEN 'lt'  THEN grams_per_head <  $8::numeric
+        WHEN 'neq' THEN grams_per_head <> $8::numeric
+      END)
 ORDER BY ration_group_label, shed_tag_label, feed_item_label, ration_rate_id
-LIMIT $6 OFFSET $7`
+LIMIT $9 OFFSET $10`
 
+	var gramsOp, gramsValue *string
+	if q.GramsCompare != nil {
+		op := string(q.GramsCompare.Op)
+		value := q.GramsCompare.Value
+		gramsOp, gramsValue = &op, &value
+	}
 	rows, err := r.pool.Query(ctx, query,
 		q.TenantID, q.ParkID,
-		nullIfEmpty(q.RationGroup), nullIfEmpty(q.ShedTag), nullIfEmpty(q.FeedItem),
+		nullIfEmpty(q.RationGroup), nullIfEmpty(q.ShedTag), nullIfEmptySlice(q.FeedItems),
+		nullIfEmpty(q.Breed), gramsOp, gramsValue,
 		q.Page.Limit+1, q.Page.Offset)
 	if err != nil {
 		return domain.RationRatePage{}, fmt.Errorf("feedconfig: list ration rates: %w", err)
@@ -408,8 +439,31 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	// by shed/partition/item beneath it so a single-park read is byte-identical to what it was.
 	//
 	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
-	const query = `
--- projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, and status filters; group_key=(park_id,shed_id,partition_key) operational pen; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key and each location join is 0:1; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count; scope=tenant is mandatory with optional exact park/shed/status filters repeated on returned cells
+	// The cell-level predicate, written ONCE and interpolated into both places it must hold.
+	//
+	// It has to appear twice: in the pen-ranking CTE, so a pen with no matching cell is not counted
+	// or paged; and in the final select, so only the matching cells of a surviving pen come back.
+	// Writing it out twice by hand is how the two drift, and the failure mode is silent and
+	// off-by-a-page -- the ranked pen count would include pens the outer select then returns no rows
+	// for, so `has_more` and the page would disagree about how many pens exist.
+	//
+	// A CONST fragment, never caller input: every value is a bind parameter, and only the shape is
+	// interpolated.
+	const experimentCellPredicate = `
+      AND ($7::text[] IS NULL OR c.feed_item_key = ANY (
+            SELECT feed_config_norm(item) FROM unnest($7::text[]) AS t(item)))
+      AND ($8::text IS NULL OR feed_config_norm(c.experiment_category) = feed_config_norm($8))
+      AND ($9::text IS NULL OR CASE $9::text
+            WHEN 'gt'  THEN c.absolute_kg >  $10::numeric
+            WHEN 'gte' THEN c.absolute_kg >= $10::numeric
+            WHEN 'eq'  THEN c.absolute_kg =  $10::numeric
+            WHEN 'lte' THEN c.absolute_kg <= $10::numeric
+            WHEN 'lt'  THEN c.absolute_kg <  $10::numeric
+            WHEN 'neq' THEN c.absolute_kg <> $10::numeric
+          END)`
+
+	// projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, status, feed-item, arm and absolute-kg filters; group_key=(park_id,shed_id,partition_key) operational pen; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key and each location join is 0:1; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count; scope=tenant is mandatory with optional exact park/shed/status filters and cell-level feed-item/arm/kg filters applied IDENTICALLY (one shared const predicate) to the pen membership set and to the returned cells, so the paged pen count and the returned rows range over the same key set
+	query := `
 WITH ranked_pens AS (
   SELECT p.*,
          row_number() OVER (
@@ -428,7 +482,7 @@ WITH ranked_pens AS (
     WHERE c.tenant_id = $1::uuid
       AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
       AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
-      AND ($4::text IS NULL OR c.status = $4::text)
+      AND ($4::text IS NULL OR c.status = $4::text)` + experimentCellPredicate + `
   ) p
 ), page_pens AS (
   SELECT *, pen_count > ($6::bigint + $5::bigint) AS has_more
@@ -458,11 +512,18 @@ LEFT JOIN locations shed
 WHERE c.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
   AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
-  AND ($4::text IS NULL OR c.status = $4::text)
+  AND ($4::text IS NULL OR c.status = $4::text)` + experimentCellPredicate + `
 ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 
+	var kgOp, kgValue *string
+	if q.KgCompare != nil {
+		op := string(q.KgCompare.Op)
+		value := q.KgCompare.Value
+		kgOp, kgValue = &op, &value
+	}
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
-		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset)
+		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset,
+		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue)
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
@@ -1632,6 +1693,17 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// nullIfEmptySlice keeps "no filter" distinguishable from "match nothing".
+//
+// An empty text[] bound into `= ANY(...)` matches NO rows, which on a filter that was never applied
+// would blank the grid; NULL is what the `$n IS NULL OR ...` guard reads as "this filter is off".
+func nullIfEmptySlice(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
 }
 
 func derefString(s *string) string {
