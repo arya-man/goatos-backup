@@ -1,444 +1,457 @@
 [
- {
-  "farm": "CBE",
-  "shed": "Castro 1",
-  "count": 64.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 62.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 16.0
+  {
+    "farm": "CBE",
+    "shed": "Castro 1",
+    "count": 63.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 74.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 18.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Castro 2",
+    "count": 74.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 86.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 22.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Castro 3",
+    "count": 65.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 46.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 12.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 2 - Part 3",
+    "count": 9.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 12.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 2 - Part 4",
+    "count": 10.0,
+    "category": "Goat F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 11.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 3.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 2 - Part 5",
+    "count": 10.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 12.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 1",
+    "count": 18.0,
+    "category": "B+S Goat F OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 18.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 6.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 2",
+    "count": 7.0,
+    "category": "Sheep F OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 6.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 3",
+    "count": 10.0,
+    "category": "M+O Goat F OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 10.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 4",
+    "count": 15.0,
+    "category": "B+S Goat F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 16.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 5",
+    "count": 9.0,
+    "category": "Sheep F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 8.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 6",
+    "count": 9.0,
+    "category": "M+O Goat F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 10.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Yashoda 1",
+    "count": 6.0,
+    "category": "M+O Goat M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 6.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Yashoda 2",
+    "count": 18.0,
+    "category": "B+S Goat M OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 18.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 6.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Yashoda 3",
+    "count": 11.0,
+    "category": "M+O Goat M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 12.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Yashoda 4",
+    "count": 17.0,
+    "category": "B+S Goat M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 18.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 6.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Castro 1",
+    "count": 31.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 33.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 7.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Castro 2",
+    "count": 32.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 22.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 6.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Godel 2 - Part 1",
+    "count": 38.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 40.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 8.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Godel 2 - Part 2",
+    "count": 39.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 26.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 7.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 1",
+    "count": 10.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 14.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 2",
+    "count": 11.0,
+    "category": "Sheep F OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 3.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 7.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 3",
+    "count": 10.0,
+    "category": "Sheep M OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 8.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 4",
+    "count": 10.0,
+    "category": "B+S Goat M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 12.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 5",
+    "count": 15.0,
+    "category": "Sheep F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 12.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 6",
+    "count": 8.0,
+    "category": "B+S Goat F OLD",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 8.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 7",
+    "count": 7.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 10.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 2.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 8",
+    "count": 15.0,
+    "category": "B+S Goat F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 16.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 9",
+    "count": 10.0,
+    "category": "Sheep M NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 12.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 1 - Part 10",
+    "count": 13.0,
+    "category": "B+S Goat F NEW",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 14.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 7",
+    "count": 7.0,
+    "category": "Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 4.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 6.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 2 - Part 4",
+    "count": 11.0,
+    "category": "Goat M NEW (assumed) - warmup 20:80",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 4.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 8.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 2 - Part 5",
+    "count": 17.0,
+    "category": "Goat M NEW (assumed) - warmup 20:80",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 6.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 12.0
+    }
+  },
+  {
+    "farm": "CPT",
+    "shed": "Mandela 2 - Part 6",
+    "count": 12.0,
+    "category": "Goat M NEW (assumed) - warmup 20:80",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 0.0,
+      "Mesha Concentrate Sheep (kg)": 4.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 8.0
+    }
+  },
+  {
+    "farm": "CBE",
+    "shed": "Godel 1 - Part 8",
+    "count": 5.0,
+    "category": "Mixed Goat M",
+    "kg": {
+      "Mesha Concentrate Goat (kg)": 4.0,
+      "Mesha Concentrate Sheep (kg)": 0.0,
+      "RGS Concentrate (kg)": 0.0,
+      "Vijay Concentrate (kg)": 0.0,
+      "Dry Masoor Bhusa (kg)": 4.0
+    }
   }
- },
- {
-  "farm": "CBE",
-  "shed": "Castro 2",
-  "count": 75.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 50.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 14.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Castro 3",
-  "count": 66.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 44.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 12.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 2 - Part 3",
-  "count": 9.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 10.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 2 - Part 4",
-  "count": 12.0,
-  "category": "Goat F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 12.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 2 - Part 5",
-  "count": 10.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 10.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 1",
-  "count": 22.0,
-  "category": "B+S Goat F OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 20.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 6.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 2",
-  "count": 7.0,
-  "category": "Sheep F OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 6.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 3",
-  "count": 25.0,
-  "category": "M+O Goat F OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 22.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 6.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 4",
-  "count": 13.0,
-  "category": "B+S Goat F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 12.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 5",
-  "count": 8.0,
-  "category": "Sheep F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 6.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 6",
-  "count": 18.0,
-  "category": "M+O Goat F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 18.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Yashoda 1",
-  "count": 5.0,
-  "category": "M+O Goat M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 6.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Yashoda 2",
-  "count": 18.0,
-  "category": "B+S Goat M OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 18.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Yashoda 3",
-  "count": 12.0,
-  "category": "M+O Goat M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 12.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Yashoda 4",
-  "count": 20.0,
-  "category": "B+S Goat M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 20.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 6.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Castro 1",
-  "count": 32.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 22.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 6.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Castro 2",
-  "count": 31.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 22.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 6.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Godel 2 - Part 1",
-  "count": 38.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 26.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 8.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Godel 2 - Part 2",
-  "count": 39.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 26.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 8.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 1",
-  "count": 10.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 10.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 2",
-  "count": 7.0,
-  "category": "Sheep F OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 6.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 3",
-  "count": 10.0,
-  "category": "Sheep M OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 8.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 4",
-  "count": 10.0,
-  "category": "B+S Goat M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 10.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 5",
-  "count": 8.0,
-  "category": "Sheep F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 6.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 6",
-  "count": 11.0,
-  "category": "B+S Goat F OLD",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 10.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 7",
-  "count": 7.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 8.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 8",
-  "count": 15.0,
-  "category": "B+S Goat F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 14.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 9",
-  "count": 10.0,
-  "category": "Sheep M NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 8.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 2.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 1 - Part 10",
-  "count": 15.0,
-  "category": "B+S Goat F NEW",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 14.0,
-   "Mesha Concentrate Sheep (kg)": 0.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 4.0
-  }
- },
- {
-  "farm": "CBE",
-  "shed": "Godel 1 - Part 7",
-  "count": 15.0,
-  "category": "Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 4.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 14.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 2 - Part 4",
-  "count": 11.0,
-  "category": "Goat M NEW (assumed) - warmup 20:80",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 4.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 10.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 2 - Part 5",
-  "count": 13.0,
-  "category": "Goat M NEW (assumed) - warmup 20:80",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 4.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 12.0
-  }
- },
- {
-  "farm": "CPT",
-  "shed": "Mandela 2 - Part 6",
-  "count": 16.0,
-  "category": "Goat M NEW (assumed) - warmup 20:80",
-  "kg": {
-   "Mesha Concentrate Goat (kg)": 0.0,
-   "Mesha Concentrate Sheep (kg)": 4.0,
-   "RGS Concentrate (kg)": 0.0,
-   "Vijay Concentrate (kg)": 0.0,
-   "Dry Masoor Bhusa (kg)": 14.0
-  }
- }
 ]
