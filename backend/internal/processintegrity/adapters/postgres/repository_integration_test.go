@@ -106,6 +106,78 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	}
 }
 
+func TestListRowsKeepsPartitionsAsOperationalLocationGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	const (
+		partitionGoat       = "71000000-0000-4000-8000-000000000180"
+		partitionObligation = "71000000-0000-4000-8000-000000000181"
+	)
+	execPI(t, ctx, pool, "base goat partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '1', 'Process Shed - 1')`,
+		piTenant, piGoat, piShed)
+	execPI(t, ctx, pool, "partition sibling goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		partitionGoat, piTenant, piParty, piShed, piPark)
+	execPI(t, ctx, pool, "partition sibling location",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '2', 'Process Shed - 2')`,
+		piTenant, partitionGoat, piShed)
+	execPI(t, ctx, pool, "partition sibling obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, sop_task_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'goat', $7, 'shed', $8,
+		   TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'pi-partition-sibling', 1)`,
+		partitionObligation, piTenant, piVersion, piRule, piBatch, piTask, partitionGoat, piShed)
+
+	dayStart := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
+	repo := NewRepository(pool, 5*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:         piTenant,
+		AsOf:             time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueAfter:         &dayStart,
+		DueBefore:        dayStart,
+		Limit:            10,
+		IncludeCompleted: true,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	if len(result.Rows) != 2 || result.TotalCount != 2 {
+		t.Fatalf("partition rows=%d total=%d, want 2 distinct operational locations: %#v", len(result.Rows), result.TotalCount, result.Rows)
+	}
+
+	byPartition := make(map[string]domain.Row, len(result.Rows))
+	for _, row := range result.Rows {
+		if row.PartitionLabel == nil {
+			t.Fatalf("partitioned row lost partition label: %#v", row)
+		}
+		byPartition[*row.PartitionLabel] = row
+	}
+	for _, want := range []string{"1", "2"} {
+		row, ok := byPartition[want]
+		if !ok {
+			t.Fatalf("partition %s missing from rows: %#v", want, result.Rows)
+		}
+		if row.ExpectedCount != 1 {
+			t.Fatalf("partition %s expected_count=%d, want 1", want, row.ExpectedCount)
+		}
+		if row.OperationalLocationDisplay != "Process Shed - "+want {
+			t.Fatalf("partition %s display=%q", want, row.OperationalLocationDisplay)
+		}
+		if !strings.Contains(row.RowID, ":partition:"+want+":") {
+			t.Fatalf("partition %s row identity=%q", want, row.RowID)
+		}
+	}
+}
+
 func TestProtocolAdherenceLatestDriveScopeUsesRepositoryAggregate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

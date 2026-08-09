@@ -4934,8 +4934,8 @@ export interface components {
             deferred_count: number;
             review_count: number;
             shed_labels: string[];
-            /** @description Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed partition (multi-partition or non-partitioned). NOT YET EMITTED: no backend query populates this field today (backend/internal/calendar/domain.CalendarEvent has no ShedPartitionLabels field, and no SQL in backend/internal/calendar/adapters/postgres builds a shed_partition_labels key), so this property is deliberately optional rather than required until that wiring lands. Do not mark it required again without also adding the Go field and the SQL projection in the same change (see P2-13 in the partition-catalog session review). */
-            shed_partition_labels?: (string | null)[];
+            /** @description Index-parallel to shed_labels. The raw stored partition label is emitted when the entry is partitioned; an empty string means the physical shed is not partitioned. Repeated shed_labels with different partition labels are distinct operational locations and count separately in shed_count. */
+            shed_partition_labels: (string | null)[];
             vaccine_labels: string[];
             /** Format: uuid */
             protocol_id: string | null;
@@ -4971,12 +4971,12 @@ export interface components {
              * @description Drive due date
              */
             due_date: string;
-            /** @description Number of unique sheds in the drive */
+            /** @description Number of unique operational locations (physical shed plus optional partition) in the drive */
             shed_count: number;
-            /** @description Number of sheds where all obligations are completed */
+            /** @description Number of operational locations where all obligations are completed or submitted */
             sheds_completed: number;
-            /** @description Per-shed animal counts for this drive. */
-            sheds?: components["schemas"]["DriveShedSummary"][];
+            /** @description Per-operational-location animal counts for this drive. */
+            sheds: components["schemas"]["DriveShedSummary"][];
             /** @description List of vaccine names involved in the drive */
             vaccine_labels: string[];
             /** @description Total obligations in the drive (completed + due + overdue + deferred) */
@@ -5024,7 +5024,7 @@ export interface components {
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            operational_location_display: string;
             total_animals: number;
         };
         CalendarPresentationQuery: {
@@ -5339,7 +5339,7 @@ export interface components {
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
             partition_label?: string | null;
             /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operational_location_display?: string;
+            operational_location_display: string;
             shed_name: string;
             /** Format: uuid */
             cohort_id?: string;
@@ -5436,7 +5436,7 @@ export interface components {
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            operational_location_display: string;
             expected: string;
             actual: string;
             gap: string;
@@ -5488,7 +5488,7 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operational_location_display?: string;
+            operational_location_display: string;
             shed_name: string;
             partition_label?: string | null;
             drive_name?: string;

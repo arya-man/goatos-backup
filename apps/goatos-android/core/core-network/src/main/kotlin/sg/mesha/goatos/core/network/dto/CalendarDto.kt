@@ -88,6 +88,15 @@ data class CalendarDateMarkerDto(
  * `drive_summary`; the screen falls back to the legacy tiles in that case.
  */
 @Serializable
+data class DriveShedSummaryDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("total_animals") val totalAnimals: Int = 0,
+)
+
+@Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
     @SerialName("drive_name") val driveName: String = "",
@@ -96,6 +105,7 @@ data class DriveSummaryDto(
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,
+    @SerialName("sheds") val sheds: List<DriveShedSummaryDto> = emptyList(),
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("total_count") val totalCount: Int = 0,
     @SerialName("completed_count") val completedCount: Int = 0,

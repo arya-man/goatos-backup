@@ -56,6 +56,7 @@ data class CalendarDriveSummary(
     val dueDateLabel: String = "",
     val shedCount: Int = 0,
     val shedsCompleted: Int = 0,
+    val locations: List<CalendarDriveLocationSummary> = emptyList(),
     val vaccineLabels: List<String> = emptyList(),
     val totalCount: Int = 0,
     val completedCount: Int = 0,
@@ -81,6 +82,14 @@ data class CalendarDriveSummary(
     val progressTotal: Int? = null,
     val progressPct: Int? = null,
     val ownerLabel: String = "",
+)
+
+data class CalendarDriveLocationSummary(
+    val shedId: String,
+    val shedName: String,
+    val partitionLabel: String?,
+    val operationalLocationDisplay: String,
+    val totalAnimals: Int,
 )
 
 /**

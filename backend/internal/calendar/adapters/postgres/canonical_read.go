@@ -907,6 +907,14 @@ obligation_drive_membership AS (
     loc.park_id,
     loc.park_code,
     loc.shed_id,
+    COALESCE(
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
+      END,
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(exact_assignment.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(exact_assignment.partition_label)
+      END
+    ) AS partition_label,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
     -- The ORIGINAL scheduled business date, BEFORE the "keeps showing on the current date until
     -- CLOSED" rollover below rewrites membership_at to today. Grouping and display must use the
@@ -967,6 +975,18 @@ obligation_drive_membership AS (
    AND oi.target_type = 'goat'
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  -- Exact assignment membership is 1:0..1 per obligation. It preserves the operational
+  -- partition on historical rows whose canonical goat partition has not been backfilled yet.
+  LEFT JOIN vaccination_drive_assignment_members exact_member
+    ON exact_member.tenant_id = oi.tenant_id
+   AND exact_member.obligation_id = oi.obligation_id
+  LEFT JOIN vaccination_drive_assignments exact_assignment
+    ON exact_assignment.tenant_id = exact_member.tenant_id
+   AND exact_assignment.assignment_id = exact_member.assignment_id
   CROSS JOIN LATERAL (
     SELECT
       CASE
@@ -1137,11 +1157,12 @@ obligation_drive_vaccine_labels AS (
 obligation_drive_shed_complete AS (
   SELECT park_id, due_date, count(*)::int AS sheds_completed
   FROM (
-    SELECT park_id, due_date, shed_id
+    SELECT park_id, due_date, shed_id, partition_label
     FROM obligation_drive_membership
     WHERE shed_id IS NOT NULL
-    GROUP BY park_id, due_date, shed_id
-    -- A shed is DONE when the operator has finished every animal in it -- completed OR submitted
+    GROUP BY park_id, due_date, shed_id, partition_label
+    -- An operational location is DONE when the operator has finished every animal in it --
+    -- completed OR submitted. Sibling partitions of one physical shed complete independently.
     -- for verification. Requiring status='completed' alone meant a shed whose every animal was
     -- vaccinated and whose proof was submitted still read "0 of 4 sheds done" until a verifier
     -- cleared it, which is the same "done means verified" redefinition corrected in
@@ -1187,19 +1208,24 @@ obligation_drive_shed_animals AS (
   SELECT
     per_shed.park_id,
     per_shed.due_date,
+    count(*)::int AS shed_count,
+    array_agg(per_shed.shed_name ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text)::text[] AS shed_labels,
+    array_agg(COALESCE(per_shed.partition_label, '') ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text)::text[] AS shed_partition_labels,
     jsonb_agg(
       jsonb_build_object(
         'shed_id', per_shed.shed_id::text,
         'shed_name', per_shed.shed_name,
+        'partition_label', per_shed.partition_label,
         'total_animals', per_shed.total_animals
       )
-      ORDER BY per_shed.shed_name, per_shed.shed_id::text
+      ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text
     ) AS sheds
   FROM (
     SELECT
       m.park_id,
       m.due_date,
       m.shed_id,
+      m.partition_label,
       COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text) AS shed_name,
       count(DISTINCT m.animal_id) FILTER (WHERE m.animal_id IS NOT NULL)::int AS total_animals
     FROM obligation_drive_membership m
@@ -1207,7 +1233,7 @@ obligation_drive_shed_animals AS (
       ON l.tenant_id = $1::uuid
      AND l.location_id = m.shed_id
     WHERE m.shed_id IS NOT NULL
-    GROUP BY m.park_id, m.due_date, m.shed_id, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
+    GROUP BY m.park_id, m.due_date, m.shed_id, m.partition_label, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
   ) per_shed
   GROUP BY per_shed.park_id, per_shed.due_date
 ),
@@ -1354,7 +1380,7 @@ obligation_drive_summary AS (
         WHERE m.currently_rejected
           AND m.status <> 'completed'
       )::int AS rejected_count,
-      count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
+      count(DISTINCT (m.shed_id, COALESCE(m.partition_label, 'whole'))) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
     WHERE current_setting('goatos.include_drive_summary', true) = 'true'
@@ -1460,8 +1486,8 @@ park_drive_events AS (
     'vaccination_drive'::text AS event_type,
     'pc'::text AS owner_key,
     CASE WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive' ELSE 'Vaccination drive' END AS title,
-    cardinality(shed_meta.labels)::text ||
-      CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
+    COALESCE(location_meta.shed_count, cardinality(shed_meta.labels))::text ||
+      CASE WHEN COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
       cardinality(vaccine_meta.labels)::text ||
       CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
@@ -1552,8 +1578,8 @@ park_drive_events AS (
         'owner', 'PC',
         'target_count', grouped.target_count,
         'summary_primary', COALESCE(eff_state.due_count, grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(eff_state.due_count, grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
-        'summary_secondary', cardinality(shed_meta.labels)::text ||
-          CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
+        'summary_secondary', COALESCE(location_meta.shed_count, cardinality(shed_meta.labels))::text ||
+          CASE WHEN COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
           cardinality(vaccine_meta.labels)::text ||
           CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END,
         'summary_tertiary', CASE
@@ -1562,7 +1588,7 @@ park_drive_events AS (
           WHEN cardinality(vaccine_meta.labels) = 2 THEN vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2]
           ELSE vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2] || ' +' || (cardinality(vaccine_meta.labels) - 2)::text || ' more'
         END,
-        'shed_count', cardinality(shed_meta.labels),
+        'shed_count', COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)),
         'vaccine_count', cardinality(vaccine_meta.labels),
         'drive_count', grouped.drive_count,
         'catch_up_count', COALESCE(grouped.catch_up_count, 0),
@@ -1574,7 +1600,11 @@ park_drive_events AS (
         -- target_count/scheduled_count/deferred_count, which are work counts, and sourced from
         -- the batch status rather than the submission truth the card's own status uses.
         'review_count', COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0),
-        'shed_labels', to_jsonb(shed_meta.labels),
+        'shed_labels', to_jsonb(COALESCE(location_meta.shed_labels, shed_meta.labels)),
+        'shed_partition_labels', to_jsonb(COALESCE(
+          location_meta.shed_partition_labels,
+          array_fill(''::text, ARRAY[cardinality(shed_meta.labels)])
+        )),
         'vaccine_labels', to_jsonb(vaccine_meta.labels)
       ),
       'source_and_rule', jsonb_build_object('business_date', grouped.due_day, 'source_event_ids', grouped.source_event_ids),
@@ -1657,6 +1687,9 @@ park_drive_events AS (
   LEFT JOIN obligation_drive_summary obl_summary
     ON obl_summary.park_id IS NOT DISTINCT FROM grouped.park_id
     AND obl_summary.due_date = grouped.due_day::date
+  LEFT JOIN obligation_drive_shed_animals location_meta
+    ON location_meta.park_id IS NOT DISTINCT FROM grouped.park_id
+    AND location_meta.due_date = grouped.due_day::date
   CROSS JOIN LATERAL (
     SELECT COALESCE(array_agg(DISTINCT label ORDER BY label), ARRAY[]::text[]) AS labels
     FROM drive_sources source
@@ -2022,6 +2055,7 @@ canonical_selected AS (
          COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
          COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+         ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END)) AS shed_partition_labels,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
          CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
   FROM source_events
@@ -2067,7 +2101,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        primary_notification_channel, escalation_state, system, cross_cutting, links,
        aggregated, all_day, summary_primary, summary_secondary, summary_tertiary,
        shed_count, vaccine_count, drive_count, catch_up_count, scheduled_count,
-       deferred_count, review_count, shed_labels, vaccine_labels, drive_summary
+       deferred_count, review_count, shed_labels, shed_partition_labels, vaccine_labels, drive_summary
 FROM canonical_selected
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
@@ -2098,6 +2132,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
        COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END)) AS shed_partition_labels,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
        CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary,
        detail
