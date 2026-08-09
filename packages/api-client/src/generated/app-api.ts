@@ -3513,10 +3513,11 @@ export interface components {
             message?: string;
             workflows: components["schemas"]["FeedDirectionWorkflowLifecycle"][];
         };
-        /** @description Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response was actually generated for. A client renders its farm/shed pickers from this and holds no location list of its own. Bounded by physical infrastructure (parks and one park's shed catalog), never by herd size. served_park_id equals the requested park_id, or — when the request omitted park_id — the default park the server selected. */
+        /** @description Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response was actually generated for. A client renders its farm/shed pickers from this and holds no location list of its own. Bounded by physical infrastructure (parks and one park's shed catalog), never by herd size. served_park_id equals the requested park_id, or — when the request omitted park_id — the default park the server selected from the caller's own authorized parks. */
         FeedDirectionFilterOptions: {
-            /** @description The park id this response was generated for (the requested park, or the defaulted first park). */
+            /** @description The park id this response was generated for (the requested park, or the caller's defaulted first authorized park). */
             served_park_id: string;
+            /** @description The parks THIS CALLER may open, not the tenant catalog. A park-scoped operator receives only their own park; a tenant-wide principal receives every active park. The route refuses a park outside the caller's scope (403 park_scope_forbidden), so an option that is not listed here could never have been selected successfully. */
             parks: components["schemas"]["FeedDirectionFilterPark"][];
             sheds: components["schemas"]["FeedDirectionFilterShed"][];
             /** @description The served park's active feeding-session split (session 1, session 2, …), in display order — the backend-owned vocabulary the client renders its session picker from. The client sends session_no back as the `session` query param. */
