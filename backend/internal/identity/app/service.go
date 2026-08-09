@@ -401,6 +401,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrPartitionNotInShed) {
 		return BadRequest("invalid_partition_label", "that partition does not exist in the selected shed")
 	}
+	if errors.Is(err, ports.ErrPartitionRequired) {
+		return BadRequest("partition_label_required", "partition_label is required for the selected shed")
+	}
 	if errors.Is(err, ports.ErrInvalidChronology) {
 		return BadRequest("invalid_chronology", "dob must be on or before entry_date")
 	}

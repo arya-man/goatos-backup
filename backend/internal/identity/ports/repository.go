@@ -19,6 +19,11 @@ var (
 	ErrInvalidCursor         = errors.New("invalid pagination cursor")
 	ErrGuardrailRequired     = errors.New("identity critical transition requires guardrail")
 	ErrInvalidChronology     = errors.New("identity dob must be on or before entry_date")
+	// ErrPartitionRequired: Admin animal creation targeted a shed that has active catalog
+	// partitions without naming one. A parent shed is not an animal's ground location once that
+	// shed is subdivided, so the write must fail instead of silently placing the animal at shed
+	// grain.
+	ErrPartitionRequired = errors.New("identity partition_label is required for a partitioned shed")
 	// ErrPartitionNotInShed: a create/placement named a partition_label that does not exist in
 	// shed_partitions for that shed. Rejected rather than stored, so a typo can never put an
 	// animal in a pen that is not real; a shed-level placement omits the field instead.
@@ -312,7 +317,13 @@ type ValidateAdminGoatCreateCommand struct {
 	ParkCode             *string
 	ShedID               *string
 	ShedCode             *string
-	ManagementStage      *string
+	PartitionLabel       *string
+	// RequirePartitionGrain is enabled by the Admin single-create and bulk-import routes. The same
+	// identity constructor is also used by the Counts birth approval path, whose partition contract
+	// is owned separately; keeping this flag explicit prevents an Admin-only repair from changing
+	// that workflow accidentally.
+	RequirePartitionGrain bool
+	ManagementStage       *string
 	// BirthDamRef is the operator-scanned mother RFID at submit time, or the already-resolved
 	// canonical mother UUID when a pending approval is applied.
 	BirthDamRef *string
@@ -324,6 +335,7 @@ type AdminGoatCreateValidation struct {
 	FarmID           *string
 	ParkID           string
 	ShedID           string
+	PartitionLabel   *string
 	DamGoatID        *string
 	Conflicts        []domain.FieldError
 	Warnings         []domain.Warning
@@ -342,21 +354,24 @@ type CreateAdminGoatCommand struct {
 	FarmID               *string
 	ParkID               string
 	ShedID               string
-	// PartitionLabel is the pen within ShedID, or nil for a shed-level placement. nil is the
-	// pre-2026-08-06 behaviour and stays the default, so callers that never set it are unchanged.
-	// When set, the repository validates it against shed_partitions and upserts
-	// goat_shed_partitions inside the same transaction as the goats insert.
-	PartitionLabel  *string
-	Species         string
-	Breed           *string
-	Sex             string
-	DOB             *time.Time
-	DOBEstimated    bool
-	OriginType      string
-	EntryDate       time.Time
-	ManagementStage *string
-	HealthStatus    *string
-	WeightKg        *float64
+	// PartitionLabel is the canonical HUMAN catalog label for the pen within ShedID. Admin writes
+	// set RequirePartitionGrain, making this mandatory whenever the shed has active partitions and
+	// nil only for a genuinely non-partitioned shed. Other internal callers retain their existing
+	// explicit contract until their owning module supplies the flag.
+	PartitionLabel *string
+	// RequirePartitionGrain rechecks the Admin placement rule inside the write transaction after
+	// read-only validation, so a catalog change cannot turn a valid preview into a bare-shed write.
+	RequirePartitionGrain bool
+	Species               string
+	Breed                 *string
+	Sex                   string
+	DOB                   *time.Time
+	DOBEstimated          bool
+	OriginType            string
+	EntryDate             time.Time
+	ManagementStage       *string
+	HealthStatus          *string
+	WeightKg              *float64
 	// DamID is canonical after ValidateAdminGoatCreate; it is never a copied RFID in a persisted
 	// birth relationship or emitted goat.created payload.
 	DamID      *string

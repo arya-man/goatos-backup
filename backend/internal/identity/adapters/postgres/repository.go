@@ -93,9 +93,6 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 	if err != nil {
 		return nil, err
 	}
-	if err := r.applyPassportPartition(ctx, tenantID, summary.GoatID, &summary.LocationPath); err != nil {
-		return nil, err
-	}
 	return &domain.GoatPassport{
 		GoatID:           summary.GoatID,
 		DisplayID:        summary.DisplayID,
@@ -107,30 +104,6 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 		MergedIntoGoatID: mergedInto,
 		RowVersion:       rowVersion,
 	}, nil
-}
-
-// applyPassportPartition looks up the goat's partition (a lightweight PK lookup, not a table scan)
-// and recomposes LocationPath.Display through oploc, for the Goat Passport read path
-// (GetGoatByID/GetGoatByDisplayID) which sources its base row from the sqlc-generated queries in
-// ./sqlc that predate goat_shed_partitions.
-func (r *Repository) applyPassportPartition(ctx context.Context, tenantID, goatID string, loc *domain.LocationPath) error {
-	var partitionLabel, sourceShedName sql.NullString
-	err := r.pool.QueryRow(ctx, `
-SELECT
-  CASE WHEN partition_label IS NULL OR lower(btrim(partition_label)) = 'whole' THEN '' ELSE partition_label END,
-  COALESCE(source_shed_name, '')
-FROM goat_shed_partitions
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(&partitionLabel, &sourceShedName)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// No partition row for this animal: the bare shed/park label seeded by the caller is
-		// already the correct operational location, so there is nothing to compose.
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("identity: load goat partition: %w", err)
-	}
-	applyLocationPartition(loc, partitionLabel, sourceShedName)
-	return nil
 }
 
 func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
@@ -533,6 +506,8 @@ type sqlcGoatRow struct {
 	CohortID           string
 	CohortCode         string
 	CohortName         string
+	PartitionLabel     string
+	SourceShedName     string
 	WeightKg           *float64
 	Species            string
 	MergedIntoGoatID   string
@@ -555,9 +530,19 @@ func sqlcGoatRowFromID(row identitydb.GetGoatByIDRow) sqlcGoatRow {
 		HealthStatus:       row.HealthStatus,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
+		FarmCode:           row.FarmCode,
+		FarmName:           row.FarmName,
 		ParkID:             row.ParkID,
+		ParkCode:           row.ParkCode,
+		ParkName:           row.ParkName,
 		ShedID:             row.ShedID,
+		ShedCode:           row.ShedCode,
+		ShedName:           row.ShedName,
 		CohortID:           row.CohortID,
+		CohortCode:         row.CohortCode,
+		CohortName:         row.CohortName,
+		PartitionLabel:     row.PartitionLabel,
+		SourceShedName:     row.SourceShedName,
 		Species:            row.Species,
 		MergedIntoGoatID:   row.MergedIntoGoatID,
 		RowVersion:         row.RowVersion,
@@ -580,9 +565,19 @@ func sqlcGoatRowFromDisplayID(row identitydb.GetGoatByDisplayIDRow) sqlcGoatRow 
 		HealthStatus:       row.HealthStatus,
 		LocationDisplay:    row.LocationDisplay,
 		FarmID:             row.FarmID,
+		FarmCode:           row.FarmCode,
+		FarmName:           row.FarmName,
 		ParkID:             row.ParkID,
+		ParkCode:           row.ParkCode,
+		ParkName:           row.ParkName,
 		ShedID:             row.ShedID,
+		ShedCode:           row.ShedCode,
+		ShedName:           row.ShedName,
 		CohortID:           row.CohortID,
+		CohortCode:         row.CohortCode,
+		CohortName:         row.CohortName,
+		PartitionLabel:     row.PartitionLabel,
+		SourceShedName:     row.SourceShedName,
 		Species:            row.Species,
 		MergedIntoGoatID:   row.MergedIntoGoatID,
 		RowVersion:         row.RowVersion,
@@ -625,6 +620,11 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		Warnings:         []domain.Warning{},
 		MergedIntoGoatID: nonEmptyStringPtr(row.MergedIntoGoatID),
 	}
+	applyLocationPartition(
+		&summary.LocationPath,
+		sql.NullString{String: row.PartitionLabel, Valid: strings.TrimSpace(row.PartitionLabel) != ""},
+		sql.NullString{String: row.SourceShedName, Valid: strings.TrimSpace(row.SourceShedName) != ""},
+	)
 	return summary, row.Species, nonEmptyStringPtr(row.MergedIntoGoatID), int(row.RowVersion)
 }
 
