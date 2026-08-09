@@ -46,4 +46,4 @@ func splitShedFilter(raw string) (shedID string, partitionKey string) {
 //
 // The parameter is applied as a no-op when empty so a bare-uuid filter (or no
 // filter at all) matches every partition.
-const shedPartitionPredicate = `regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')`
+const shedPartitionPredicate = `regexp_replace(lower(COALESCE(NULLIF(btrim(vi.partition_label), ''), 'whole')), '^part[[:space:]]+', '')`

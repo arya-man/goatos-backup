@@ -30,6 +30,99 @@ func newTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	return tenantID
 }
 
+func TestListQueueKeepsSiblingPartitionsSeparate_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	var parkID, shedID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, 'park', 'verification-partition-park', 'North Park', 'active')
+RETURNING location_id::text`, tenantID).Scan(&parkID); err != nil {
+		t.Fatalf("insert park: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', 'verification-partition-shed', 'Castro', 'active')
+RETURNING location_id::text`, tenantID, parkID).Scan(&shedID); err != nil {
+		t.Fatalf("insert shed: %v", err)
+	}
+
+	for _, partition := range []string{"1", "2"} {
+		created, err := repo.CreateItem(ctx, domain.CreateItem{
+			TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:         domain.SourceRef{Module: "vaccination", RefType: "vaccination_goat", RefID: tenantID},
+			MediaRefs:      []string{"proof-partition-" + partition},
+			ParkID:         &parkID,
+			ShedID:         &shedID,
+			PartitionLabel: &partition,
+			CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+			IdempotencyKey: "verification-partition-" + partition,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem(partition=%s): %v", partition, err)
+		}
+		if !created.Created {
+			t.Fatalf("CreateItem(partition=%s) did not create a row", partition)
+		}
+	}
+
+	options, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{TenantID: tenantID})
+	if err != nil {
+		t.Fatalf("ListQueueFilterOptions: %v", err)
+	}
+	if len(options.Sheds) != 2 {
+		t.Fatalf("shed options = %+v, want one option per partition", options.Sheds)
+	}
+	for index, partition := range []string{"1", "2"} {
+		option := options.Sheds[index]
+		if option.ID != shedID+"#"+partition {
+			t.Fatalf("option[%d].ID = %q, want %q", index, option.ID, shedID+"#"+partition)
+		}
+		if option.PartitionLabel == nil || *option.PartitionLabel != partition {
+			t.Fatalf("option[%d].PartitionLabel = %v, want %q", index, option.PartitionLabel, partition)
+		}
+		if option.Label != "Castro - "+partition || option.OperationalLocationDisplay != "Castro - "+partition {
+			t.Fatalf("option[%d] display = %+v", index, option)
+		}
+	}
+
+	partitionRows, err := repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		ShedID:   shedID + "#1",
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue(partition 1): %v", err)
+	}
+	if len(partitionRows) != 1 || partitionRows[0].PartitionLabel == nil || *partitionRows[0].PartitionLabel != "1" {
+		t.Fatalf("partition rows = %+v, want only partition 1", partitionRows)
+	}
+
+	wholeShedRows, err := repo.ListQueue(ctx, ports.ListQueueParams{TenantID: tenantID, ShedID: shedID, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListQueue(bare shed UUID): %v", err)
+	}
+	if len(wholeShedRows) != 2 {
+		t.Fatalf("bare shed UUID returned %d rows, want both partitions", len(wholeShedRows))
+	}
+
+	partitionOptions, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		ShedID:   shedID + "#2",
+	})
+	if err != nil {
+		t.Fatalf("ListQueueFilterOptions(partition 2): %v", err)
+	}
+	if partitionOptions.Counts.Pending != 1 {
+		t.Fatalf("partition 2 pending count = %d, want 1", partitionOptions.Counts.Pending)
+	}
+}
+
 func TestCreateItemIsIdempotentOnReplay_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

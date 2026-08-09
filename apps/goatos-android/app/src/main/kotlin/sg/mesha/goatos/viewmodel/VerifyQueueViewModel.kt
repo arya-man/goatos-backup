@@ -268,7 +268,13 @@ class VerifyQueueViewModel @Inject constructor(
             hasMissed = filterOptions?.hasMissed ?: false,
             parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, scope.parkId),
             selectedParkId = scope.parkId,
-            shedOptions = locationOptions("All sheds", resource.data?.filterOptions?.sheds.orEmpty().map { it.id to it.label }, scope.shedId),
+            shedOptions = locationOptions(
+                "All sheds",
+                resource.data?.filterOptions?.sheds.orEmpty().map {
+                    it.id to (it.operationalLocationDisplay?.takeIf(String::isNotBlank) ?: it.label)
+                },
+                scope.shedId,
+            ),
             selectedShedId = scope.shedId,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
@@ -636,6 +642,7 @@ class VerifyQueueViewModel @Inject constructor(
             subtitle = subtitle,
             scopeType = VerifyScopeType.INDIVIDUAL,
             shedId = representative.shedId,
+            partitionLabel = representative.partitionLabel,
             shedLabel = shedLabel.orEmpty(),
             animalLabel = "",
             weightLabel = "",
@@ -678,6 +685,7 @@ class VerifyQueueViewModel @Inject constructor(
             subtitle = subtitle,
             scopeType = scopeType,
             shedId = shedId,
+            partitionLabel = partitionLabel,
             shedLabel = displayShedLabel ?: subjectLabel.orEmpty(),
             animalLabel = when (scopeType) {
                 VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
@@ -773,18 +781,31 @@ internal fun humanizeCategory(category: String): String =
  * sent back: the original card kept its rejected animal forever and the redo appeared as a
  * separate one-goat card, so the verifier could never see the shed as a whole.
  *
- * `taskId` + `shedId` are stable across redos (both survive a new submission), so the redone
- * animal lands back on the shed it belongs to. `submissionId` remains the fallback for items that
- * carry no task/shed, and `itemId` the last resort — a group of exactly itself, which renders and
- * is judged exactly as a single item always was.
+ * `taskId` + `shedId` + normalized partition are stable across redos (all survive a new
+ * submission), so the redone animal lands back on the operational location it belongs to without
+ * merging sibling partitions. `submissionId` remains the fallback for items that carry no
+ * task/shed, and `itemId` the last resort — a group of exactly itself, which renders and is judged
+ * exactly as a single item always was.
  */
 internal fun VerificationQueueItem.verificationGroupKey(): String {
     val taskID = source.taskId?.takeIf { it.isNotBlank() }
     val shedID = shedId?.takeIf { it.isNotBlank() }
     if (taskID != null && shedID != null) {
-        return "task:$taskID|shed:$shedID"
+        return "task:$taskID|shed:$shedID|partition:${verificationPartitionKey()}"
     }
-    return source.submissionId?.takeIf { it.isNotBlank() } ?: itemId
+    val submissionID = source.submissionId?.takeIf { it.isNotBlank() }
+    if (submissionID != null && shedID != null) {
+        return "submission:$submissionID|shed:$shedID|partition:${verificationPartitionKey()}"
+    }
+    return submissionID ?: itemId
+}
+
+private val verificationPartPrefix = Regex("^part\\s+", RegexOption.IGNORE_CASE)
+
+internal fun VerificationQueueItem.verificationPartitionKey(): String {
+    val raw = partitionLabel?.trim().orEmpty()
+    if (raw.isBlank() || raw.equals("whole", ignoreCase = true)) return "whole"
+    return raw.lowercase().replaceFirst(verificationPartPrefix, "").trim()
 }
 
 internal fun statusTone(status: String): VerifyTone = when (status) {

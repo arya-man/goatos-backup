@@ -5892,9 +5892,12 @@ paths:
         - name: shed_id
           in: query
           required: false
+          description: >-
+            Opaque shed filter key returned by filter_options.sheds. Partitioned locations use
+            `<shed UUID>#<normalized partition>`; a bare shed UUID remains supported and selects
+            every partition of that physical shed.
           schema:
             type: string
-            format: uuid
         - name: cursor
           in: query
           required: false
@@ -5998,6 +6001,20 @@ paths:
           schema:
             type: string
             maxLength: 120
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          description: >-
+            Opaque shed filter key returned by filter_options.sheds. Partitioned locations use
+            `<shed UUID>#<normalized partition>`; a bare shed UUID selects every partition.
+          schema:
+            type: string
         - name: cursor
           in: query
           required: false
@@ -21326,9 +21343,17 @@ components:
       properties:
         id:
           type: string
-          format: uuid
+          description: >-
+            Park options use a UUID. Shed options use an opaque operational-location filter key:
+            `<shed UUID>#<normalized partition>`.
         label:
           type: string
+        partition_label:
+          type: string
+          description: Raw backend-owned partition label; omitted for an undivided shed.
+        operational_location_display:
+          type: string
+          description: Backend-composed location display. Clients render this verbatim.
     VerificationDriveClosure:
       type: object
       additionalProperties: false

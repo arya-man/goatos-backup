@@ -606,6 +606,35 @@ func TestListQueueRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestListQueueAcceptsPartitionGrainShedFilter(t *testing.T) {
+	svc, _ := newTestService()
+	shedID := "00000000-0000-4000-8000-000000000102"
+
+	if _, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant,
+		ShedID:   shedID + "#Part 3",
+	}); err != nil {
+		t.Fatalf("ListQueue() rejected partition-grain shed filter: %v", err)
+	}
+}
+
+func TestListQueueRejectsMalformedPartitionGrainShedFilter(t *testing.T) {
+	svc, _ := newTestService()
+	shedID := "00000000-0000-4000-8000-000000000102"
+	for _, filter := range []string{
+		"#3",
+		shedID + "#",
+		shedID + "#1#2",
+		"not-a-uuid#1",
+	} {
+		_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, ShedID: filter})
+		var appErr *Error
+		if !errors.As(err, &appErr) || appErr.Code != "invalid_shed" {
+			t.Fatalf("ListQueue(shed_id=%q) err = %v, want invalid_shed", filter, err)
+		}
+	}
+}
+
 func TestListQueueFiltersOneIndiaBusinessDateAndReturnsSecondaryTabs(t *testing.T) {
 	svc, _ := newTestService()
 	svc.now = func() time.Time { return time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC) }

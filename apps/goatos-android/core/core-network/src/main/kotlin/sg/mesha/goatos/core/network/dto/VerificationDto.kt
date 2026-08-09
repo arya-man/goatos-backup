@@ -135,6 +135,8 @@ data class VerificationStatusOptionDto(
 data class VerificationLocationOptionDto(
     @SerialName("id") val id: String = "",
     @SerialName("label") val label: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String? = null,
 )
 
 @Serializable
