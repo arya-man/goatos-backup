@@ -5,7 +5,6 @@ import (
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
@@ -18,9 +17,10 @@ func NewTransport(v verificationCreator) *TransportEnqueuer {
 var _ feeddirectionapp.FeedTransportVerificationEnqueuer = (*TransportEnqueuer)(nil)
 
 func (e *TransportEnqueuer) EnqueueFeedTransportVerification(ctx context.Context, in feeddirectionapp.FeedTransportVerificationEnqueueRequest) error {
-	loc := oploc.OperationalLocation{ShedName: in.ShedName, PartitionLabel: in.PartitionLabel}
-	locDisplay := loc.Display()
-	label := "Feed transport · " + locDisplay
+	// NO subject label: a transport item is one shed's daily task, and the card already renders that
+	// shed from its own location fields. Composing "Feed transport · <shed>" here printed the shed a
+	// SECOND time on every card, beside the category chip that already says Feed Transport.
+	label := ""
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{TenantID: in.TenantID, Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed, Category: feeddirectiondomain.VerificationCategoryTransport, SubjectLabel: ptrIfSet(label), Source: verificationdomain.SourceRef{Module: feeddirectiondomain.VerificationModuleFeed, RefType: feeddirectiondomain.VerificationRefTypeTransport, RefID: in.AttemptID}, MediaRefs: []string{in.ProofRef}, OperatorID: ptrIfSet(in.OperatorID), ShedID: ptrIfSet(in.ShedID), ParkID: ptrIfSet(in.ParkID), CapturedAt: in.CapturedAt, IdempotencyKey: in.IdempotencyKey})
 	return err
 }
