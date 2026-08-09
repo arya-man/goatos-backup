@@ -49,6 +49,7 @@ record_failure() { # name
   fail=1
 }
 declare -a FAILED_JOBS
+ci_step_cache_dir="$(git rev-parse --git-path goatos-ci-step-cache 2>/dev/null || echo .git/goatos-ci-step-cache)"
 
 fast_local_ci_enabled() {
   case "${GOATOS_FAST_LOCAL_CI:-0}" in
@@ -86,6 +87,50 @@ declare -a TIMINGS
 record_timing() { # name, status, seconds
   TIMINGS+=("$3	$1	$2")
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$sha" "$1" "$2" "$3" >>"$timings_file" 2>/dev/null || true
+}
+
+step_cache_enabled() {
+  ci_trace_only && return 1
+  case "${GOATOS_CI_STEP_CACHE:-1}" in
+    0|false|FALSE|False) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+step_cache_key() { # name, command...
+  local name="$1"; shift
+  {
+    printf 'sha=%s\n' "$sha"
+    printf 'base=%s\n' "$ci_base_sha"
+    printf 'job=%s\n' "$current_job"
+    printf 'step=%s\n' "$name"
+    printf 'cmd=%q' "$@"
+    printf '\nstatus:\n'
+    git status --porcelain --untracked-files=all 2>/dev/null || true
+  } | shasum -a 256 | awk '{print $1}'
+}
+
+step_cached() { # name, command...
+  local name="$1"; shift
+  if step_cache_enabled; then
+    local key marker before_failures
+    key="$(step_cache_key "$name" "$@")"
+    marker="${ci_step_cache_dir}/${key}.pass"
+    if [ -f "$marker" ]; then
+      echo "── ci-local: ${name} (cached pass for this SHA/worktree)"
+      RESULTS+=("PASS  ${name} (cached)")
+      record_timing "$name" PASS 0
+      return 0
+    fi
+    before_failures="${#FAILURES[@]}"
+    step "$name" "$@"
+    if [ "${#FAILURES[@]}" -eq "$before_failures" ]; then
+      mkdir -p "$ci_step_cache_dir" 2>/dev/null || true
+      printf '%s\t%s\t%s\n' "$sha" "$current_job" "$name" >"$marker" 2>/dev/null || true
+    fi
+    return 0
+  fi
+  step "$name" "$@"
 }
 
 step() { # name, command...
@@ -562,6 +607,11 @@ run_android() {
 
   current_job="android"
   run_android_guards
+  if [ "$fail" -ne 0 ]; then
+    echo "── ci-local: android Gradle checks SKIPPED because Android static guards are already red"
+    RESULTS+=("SKIP  android Gradle checks (static guards failed)")
+    return
+  fi
   local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   # A trace run must reach the screenshot branch even on a machine with no
@@ -594,11 +644,25 @@ run_android() {
   # task actions). It is BEHAVIOURAL: the same failure a real build would hit.
   # It is not folded into the compile steps below, because those pass
   # --no-configuration-cache and so are structurally blind to this defect class.
-  step "android config-cache guard self-test" bash tools/ci/check-gradle-config-cache.test.sh
-  step "android config-cache guard" bash tools/ci/check-gradle-config-cache.sh
+  step_cached "android config-cache guard self-test" bash tools/ci/check-gradle-config-cache.test.sh
+  step_cached "android config-cache guard" bash tools/ci/check-gradle-config-cache.sh
+  if [ "$fail" -ne 0 ]; then
+    echo "── ci-local: android Gradle compile/screenshots/benchmark SKIPPED because Android config-cache checks are already red"
+    RESULTS+=("SKIP  android Gradle compile/screenshots/benchmark (config-cache checks failed)")
+    gradle_lock_clear_trap
+    gradle_lock_release
+    return
+  fi
   if fast_local_ci_enabled; then
     echo "── ci-local: android FAST mode enabled (Gradle daemon + combined tasks; no landing receipt)"
-    step "android fast compile/unit/lint" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --console=plain'
+    step_cached "android fast compile/unit/lint" bash -c 'cd apps/goatos-android && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --console=plain'
+    if [ "$fail" -ne 0 ]; then
+      echo "── ci-local: android screenshots/benchmark SKIPPED because compile/unit/lint is already red"
+      RESULTS+=("SKIP  android screenshots/benchmark (compile/unit/lint failed)")
+      gradle_lock_clear_trap
+      gradle_lock_release
+      return
+    fi
     case "${GOATOS_RUN_ANDROID_SCREENSHOTS:-0}" in
       1|true|TRUE|True)
         screenshots_ran="yes"
@@ -620,7 +684,7 @@ run_android() {
         ;;
     esac
     if changed_since_base | grep -Eq '(^apps/goatos-android/(benchmark|buildSrc)/|^apps/goatos-android/.+\.gradle\.kts$|^apps/goatos-android/settings\.gradle\.kts$)'; then
-      step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --console=plain'
+      step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --console=plain'
     else
       echo "── ci-local: android benchmark compile SKIPPED by GOATOS_FAST_LOCAL_CI=1 (no Android build/benchmark diff)"
       RESULTS+=("SKIP  android benchmark compile (GOATOS_FAST_LOCAL_CI=1)")
@@ -646,13 +710,20 @@ run_android() {
   # Failure semantics are unchanged: Gradle stops at the first failing task, just
   # as the three sequential steps did. Adding --continue would report all three in
   # one pass (a strictly stronger gate) but is a separate decision.
-  step "android :app compile+unit+lint" bash -c 'cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  step_cached "android :app compile+unit+lint" bash -c 'cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  if [ "$fail" -ne 0 ]; then
+    echo "── ci-local: android screenshots/benchmark SKIPPED because compile/unit/lint is already red"
+    RESULTS+=("SKIP  android screenshots/benchmark (compile/unit/lint failed)")
+    gradle_lock_clear_trap
+    gradle_lock_release
+    return
+  fi
   # Paparazzi is OPT-IN. The default landing run — the run that writes the push
   # receipt — does not run it, and the receipt records that fact.
   case "${GOATOS_RUN_ANDROID_SCREENSHOTS:-0}" in
     1|true|TRUE|True)
       screenshots_ran="yes"
-      step "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+      step_cached "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
       ;;
     *)
       if android_ui_diff_detected; then
@@ -679,7 +750,12 @@ run_android() {
       fi
       ;;
   esac
-  step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  if changed_since_base | grep -Eq '(^apps/goatos-android/(benchmark|buildSrc)/|^apps/goatos-android/.+\.gradle\.kts$|^apps/goatos-android/settings\.gradle\.kts$)'; then
+    step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  else
+    echo "── ci-local: android benchmark compile SKIPPED (no Android build/benchmark diff)"
+    RESULTS+=("SKIP  android benchmark compile (no Android build/benchmark diff)")
+  fi
   gradle_lock_clear_trap
   gradle_lock_release
 }
