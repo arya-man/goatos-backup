@@ -132,6 +132,7 @@ func (s *Service) CreateAdminGoat(ctx context.Context, input CreateAdminGoatInpu
 	if len(fieldErrors) > 0 {
 		return nil, BadRequest("invalid_goat_create", fieldErrors[0].Message)
 	}
+	cmd.RequirePartitionGrain = true
 	raw, err := json.Marshal(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("goat create request normalization failed: %w", err)
@@ -181,6 +182,7 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 	for i := range rows {
 		rowNumber := rows[i].RowNumber
 		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, input.TenantID, "", "", input.TraceID, &rows[i].Request)
+		cmd.RequirePartitionGrain = true
 		result := domain.AdminGoatBulkRowResult{
 			RowNumber:        rowNumber,
 			Decision:         "create",
@@ -284,6 +286,7 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 			continue
 		}
 		normalized, cmd, fieldErrors, err := s.normalizeAdminGoatCreate(ctx, tenantID, actorID, clientKey, input.TraceID, request)
+		cmd.RequirePartitionGrain = true
 		rowResult.Normalized = normalized
 		if err != nil {
 			rowResult.Decision = "requires_review"
@@ -554,19 +557,21 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 
 func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, normalized *domain.AdminGoatCreateRequest, cmd *ports.CreateAdminGoatCommand) ([]domain.FieldError, []domain.Warning, error) {
 	validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
-		TenantID:             cmd.TenantID,
-		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
-		RequestHash:          cmd.RequestHash,
-		Identifiers:          cmd.Identifiers,
-		FarmID:               normalized.FarmID,
-		FarmCode:             normalized.FarmCode,
-		ParkID:               normalized.ParkID,
-		ParkCode:             normalized.ParkCode,
-		ShedID:               normalized.ShedID,
-		ShedCode:             normalized.ShedCode,
-		ManagementStage:      normalized.ManagementStage,
-		BirthDamRef:          birthDamRef(normalized),
-		Species:              normalized.Species,
+		TenantID:              cmd.TenantID,
+		StoredIdempotencyKey:  cmd.StoredIdempotencyKey,
+		RequestHash:           cmd.RequestHash,
+		Identifiers:           cmd.Identifiers,
+		FarmID:                normalized.FarmID,
+		FarmCode:              normalized.FarmCode,
+		ParkID:                normalized.ParkID,
+		ParkCode:              normalized.ParkCode,
+		ShedID:                normalized.ShedID,
+		ShedCode:              normalized.ShedCode,
+		PartitionLabel:        normalized.PartitionLabel,
+		RequirePartitionGrain: cmd.RequirePartitionGrain,
+		ManagementStage:       normalized.ManagementStage,
+		BirthDamRef:           birthDamRef(normalized),
+		Species:               normalized.Species,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -578,9 +583,10 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 	cmd.FarmID = validation.FarmID
 	cmd.ParkID = validation.ParkID
 	cmd.ShedID = validation.ShedID
-	// Carried verbatim; the repository checks it against the shed's real partitions inside the
-	// create transaction. Nil stays nil, so a shed-level create behaves exactly as before.
-	cmd.PartitionLabel = normalized.PartitionLabel
+	// The repository returns the catalog's HUMAN label, so preview, commit, storage, events and the
+	// immediate response all carry the same value ("Part 3", never the matching key "3").
+	normalized.PartitionLabel = validation.PartitionLabel
+	cmd.PartitionLabel = validation.PartitionLabel
 	if normalized.OriginType == "birth" {
 		cmd.DamID = validation.DamGoatID
 	}
@@ -735,6 +741,7 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 			ParkCode:           optionalCSV(rec, headers, "park"),
 			ShedID:             optionalCSV(rec, headers, "shed_id"),
 			ShedCode:           optionalCSV(rec, headers, "shed"),
+			PartitionLabel:     optionalCSV(rec, headers, "partition_label"),
 			Breed:              optionalCSV(rec, headers, "breed"),
 			ManagementStage:    optionalCSV(rec, headers, "management_stage"),
 			ReproductiveStatus: optionalCSV(rec, headers, "reproductive_status"),
@@ -1085,6 +1092,8 @@ func normalizeHeader(value string) string {
 		return "animal_identifier_2"
 	case "management_stage", "managementstage", "animal_stage", "animalstage", "stage":
 		return "management_stage"
+	case "partition", "partition_label", "partitionlabel", "pen", "pen_label", "penlabel":
+		return "partition_label"
 	case "reproductive_status", "reproductivestatus", "repro_status", "reprostatus":
 		return "reproductive_status"
 	case "weightkg", "weight_kg":

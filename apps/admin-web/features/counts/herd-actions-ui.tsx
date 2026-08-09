@@ -346,6 +346,10 @@ function RegisterGoatDrawer({
               ))}
             </select>
           </div>
+          <div className="fld" style={{ flex: 1, minWidth: 160 }}>
+            <label htmlFor="rg_partition">{copy(pageContract, "field.partition_label", "Partition")}</label>
+            <input id="rg_partition" name="partition_label" placeholder="Part 3" />
+          </div>
         </Row>
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
@@ -540,7 +544,11 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const [committed, setCommitted] = useState<AdminGoatBulkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const bulkColumns = optionGroup(pageContract, "herd_import_columns").map((column) => column.label);
+  const configuredBulkColumns = optionGroup(pageContract, "herd_import_columns").map((column) => column.label);
+  const partitionColumn = copy(pageContract, "field.partition_label", "Partition");
+  const bulkColumns = configuredBulkColumns.some((column) => column.toLowerCase().includes("partition"))
+    ? configuredBulkColumns
+    : [...configuredBulkColumns, partitionColumn];
 
   function reset() {
     setCsv("");

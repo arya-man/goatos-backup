@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -403,6 +404,59 @@ func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
 	if len(repo.createAdminGoatCmds) != 1 {
 		t.Fatalf("create calls = %d, want 1", len(repo.createAdminGoatCmds))
 	}
+	if !got.RequirePartitionGrain || !repo.createAdminGoatCmds[0].RequirePartitionGrain {
+		t.Fatal("Admin single-create must require partition grain during validation and commit")
+	}
+}
+
+func TestCreateAdminGoatPreservesCanonicalPartitionLabel(t *testing.T) {
+	requested := "3"
+	canonical := "Part 3"
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel == nil || *cmd.PartitionLabel != requested {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.PartitionLabel = &canonical
+			return validation, nil
+		},
+	}
+	request := validAdminGoatCreateRequest("PARTITION-CANONICAL")
+	request.PartitionLabel = &requested
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewService(repo).CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-partition-canonical",
+		TraceID:        testTrace,
+		RawBody:        raw,
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat: %v", err)
+	}
+	if len(repo.createAdminGoatCmds) != 1 || repo.createAdminGoatCmds[0].PartitionLabel == nil || *repo.createAdminGoatCmds[0].PartitionLabel != canonical {
+		t.Fatalf("create partition = %#v, want canonical %q", repo.createAdminGoatCmds, canonical)
+	}
+}
+
+func TestCreateAdminGoatMapsWriteTimePartitionRequirement(t *testing.T) {
+	repo := &fakeRepo{createAdminGoatErr: ports.ErrPartitionRequired}
+	_, err := NewService(repo).CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-partition-race",
+		TraceID:        testTrace,
+		RawBody:        validAdminGoatCreateRaw("PARTITION-RACE"),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "partition_label_required" {
+		t.Fatalf("partition requirement error = %v, want partition_label_required 400", err)
+	}
 }
 
 func TestCreateAdminGoatAllowsMissingAnimalIdentifier2(t *testing.T) {
@@ -630,6 +684,9 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	if repo.createAdminGoatCmds[0].ClientIdempotencyKey != wantRowKey {
 		t.Fatalf("row key = %q, want %q", repo.createAdminGoatCmds[0].ClientIdempotencyKey, wantRowKey)
 	}
+	if !repo.createAdminGoatCmds[0].RequirePartitionGrain {
+		t.Fatal("Admin bulk commit must recheck partition grain")
+	}
 
 	input.RawBody = validAdminGoatBulkCommitRaw("BULK-CHANGED")
 	second, err := svc.CommitAdminGoatBulkImport(context.Background(), input)
@@ -786,6 +843,61 @@ func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 1 || repo.validateAdminGoatCreateCmds[0].ParkCode == nil || *repo.validateAdminGoatCreateCmds[0].ParkCode != "CBE" {
 		t.Fatalf("validation command did not receive park code: %#v", repo.validateAdminGoatCreateCmds)
+	}
+}
+
+func TestPreviewAdminGoatBulkRequiresAndCanonicalizesPartition(t *testing.T) {
+	canonical := "Part 3"
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel == nil || *cmd.PartitionLabel != "3" {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.PartitionLabel = &canonical
+			return validation, nil
+		},
+	}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	csv := "Animal ID 1,Species,Park,Shed,Partition,Sex,DOB,Origin,Management stage,Entry date\nA1-PART-001,goat,CBE,K1,3,female,2026-06-01,procured,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 1 || len(resp.Rows) != 1 || resp.Rows[0].Normalized == nil || resp.Rows[0].Normalized.PartitionLabel == nil || *resp.Rows[0].Normalized.PartitionLabel != canonical {
+		t.Fatalf("partition preview = %#v, want canonical %q", resp, canonical)
+	}
+}
+
+func TestPreviewAdminGoatBulkFlagsMissingPartitionForPartitionedShed(t *testing.T) {
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel != nil {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.Conflicts = append(validation.Conflicts, domain.FieldError{
+				Field: "partition_label", Code: "required", Message: "partition_label is required because the selected shed has active partitions",
+			})
+			return validation, nil
+		},
+	}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	csv := "Animal ID 1,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-PART-MISSING,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 0 || resp.Summary.RequiresReview != 1 || len(resp.Rows) != 1 || len(resp.Rows[0].Errors) != 1 || resp.Rows[0].Errors[0].Field != "partition_label" || resp.Rows[0].Errors[0].Code != "required" {
+		t.Fatalf("missing partition preview = %#v", resp)
 	}
 }
 
@@ -1582,6 +1694,7 @@ func defaultAdminGoatCreateValidation(cmd ports.ValidateAdminGoatCreateCommand) 
 		FarmID:           cmd.FarmID,
 		ParkID:           parkID,
 		ShedID:           shedID,
+		PartitionLabel:   cmd.PartitionLabel,
 	}
 	if cmd.BirthDamRef != nil {
 		damID := goatA

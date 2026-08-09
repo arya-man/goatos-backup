@@ -2014,7 +2014,7 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
-            /** @description The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. Optional and additive: omitting it preserves the previous shed-level behaviour exactly. Validated against the shed's real partitions when present; never the "whole" sentinel. */
+            /** @description The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in the active shed_partitions catalog for that shed. Required when the resolved shed has one or more active partitions; omit it only for a genuinely non-partitioned shed. The service accepts a normalized alias such as "3" but preserves and returns the catalog's human label such as "Part 3". Never the "whole" sentinel. */
             partition_label?: string | null;
             breed?: string;
             /** @enum {string} */

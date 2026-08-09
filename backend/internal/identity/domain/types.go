@@ -220,12 +220,11 @@ type AdminGoatCreateRequest struct {
 	ParkCode    *string `json:"park_code,omitempty"`
 	ShedID      *string `json:"shed_id,omitempty"`
 	ShedCode    *string `json:"shed_code,omitempty"`
-	// PartitionLabel is the pen within ShedID this animal is placed into ('1', 'Part 3'). Optional
-	// and additive: nil reproduces the pre-2026-08-06 behaviour exactly (shed-level placement, no
-	// goat_shed_partitions row), so existing callers are unaffected. When present it is validated
-	// against the shed's real partitions and persisted in the SAME transaction as the goat insert
-	// -- the create path previously had no partition concept at all, which is why a birth into
-	// "Godel 1 - 3" could only ever be stored as "Godel 1".
+	// PartitionLabel is the pen within ShedID this animal is placed into ('1', 'Part 3'). Admin
+	// single-create and bulk import require it when the resolved shed has active catalog partitions;
+	// a genuinely non-partitioned shed leaves it nil. The repository resolves aliases such as "3"
+	// to the catalog's HUMAN label (for example "Part 3") and persists it in the SAME transaction as
+	// the goat insert.
 	PartitionLabel  *string `json:"partition_label,omitempty"`
 	Breed           *string `json:"breed,omitempty"`
 	Sex             string  `json:"sex"`
