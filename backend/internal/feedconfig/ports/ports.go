@@ -23,6 +23,24 @@ var (
 	// ErrShedNotFound is the shed equivalent, for shed-factor writes.
 	ErrShedNotFound = errors.New("feedconfig: shed not found")
 
+	// ErrPartitionNotFound is returned when the addressed pen is not in the shed's own
+	// shed_partitions catalog, or when a label is supplied for a shed that has no pens at all.
+	//
+	// Fails CLOSED for the same reason as the two above, one level finer: the write path used to
+	// validate the park and the shed and then take the pen on trust, so a typo authored quantities
+	// against a pen that exists nowhere. No operational location resolves to it, so the direction
+	// generator never reads those rows -- the author sees a saved kg that will never be fed.
+	ErrPartitionNotFound = errors.New("feedconfig: partition not found in shed")
+
+	// ErrPartitionRequired is returned when a SUBDIVIDED shed is addressed without naming a pen.
+	//
+	// Distinct from ErrPartitionNotFound because the fix is different and the caller should say so:
+	// this is a missing choice, not a wrong one. A subdivided shed has no whole-shed operational
+	// location, so a blank label there is the caller failing to say which pen -- and it would
+	// otherwise author a phantom 'whole' row sitting beside the real pens, invisible to every
+	// screen that lists them.
+	ErrPartitionRequired = errors.New("feedconfig: partition required for a subdivided shed")
+
 	// ErrFeedItemExists is returned when a catalog entry with the same normalized label is already
 	// present in the tenant.
 	//
