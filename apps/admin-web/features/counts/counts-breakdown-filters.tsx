@@ -57,9 +57,20 @@ export function CountsBreakdownFilters({
   const fieldValue = (field: BreakdownFilterField) => optimisticValues?.[field.param] ?? field.value;
   const hasAnyFilter = fields.some((field) => fieldValue(field) !== "");
 
+  function effectiveParams() {
+    const next = new URLSearchParams(current);
+    if (!optimisticValues) return next;
+    for (const field of fields) {
+      const value = optimisticValues[field.param] ?? "";
+      if (value) next.set(field.param, value);
+      else next.delete(field.param);
+    }
+    return next;
+  }
+
   function applyFilter(param: string, value: string) {
     setOptimistic({ from: current, values: { ...serverValues, ...optimisticValues, [param]: value } });
-    const next = new URLSearchParams(current);
+    const next = effectiveParams();
     // A filter change must reset paging, or the operator lands on an offset that no longer
     // exists in the newly-filtered result set and sees an empty page.
     next.delete("bd_page");
@@ -77,7 +88,7 @@ export function CountsBreakdownFilters({
       for (const field of fields) nextValues[field.param] = "";
       return { from: current, values: nextValues };
     });
-    const next = new URLSearchParams(current);
+    const next = effectiveParams();
     next.delete("bd_page");
     for (const field of fields) next.delete(field.param);
     const qs = next.toString();
