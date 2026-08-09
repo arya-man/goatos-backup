@@ -1745,8 +1745,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a park's operational locations (sheds and their pens).
-         * @description Returns every active shed in the park, and every pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
+         * List operational locations (sheds and their pens).
+         * @description Returns every active shed in scope, and every pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
          */
         get: operations["listFeedConfigPens"];
         put?: never;
@@ -3952,8 +3952,10 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description The PEN being switched, spelled as the shed's own catalog spells it ("2", "Part 3"). Required for a subdivided shed; omitted or blank for an undivided one, and validated against shed_partitions either way. Without it this switch was shed-wide while the screen above it was already pen-grouped, so a control captioned "Return Godel 1 - Part 3" retired all ten Godel 1 pens and dropped nine of them back to the per-head grid. */
+            partition_label?: string;
             /**
-             * @description REQUIRED with no default. This field decides which planner feeds the shed, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
+             * @description REQUIRED with no default. This field decides which planner feeds the pen, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
              * @enum {string}
              */
             status: "active" | "retired";
@@ -12275,8 +12277,9 @@ export interface operations {
     };
     listFeedConfigPens: {
         parameters: {
-            query: {
-                park_id: string;
+            query?: {
+                /** @description Omitted means every park in the tenant, matching listFeedConfigExperiment. The enroller needs that when the top bar reads company-wide: the experiment table spans both parks in that mode, so a park-locked candidate list would offer nothing for the other park's rows. Every returned pen carries its own park_id. */
+                park_id?: string;
                 /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
                 limit?: components["parameters"]["FeedConfigLimit"];
                 /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */

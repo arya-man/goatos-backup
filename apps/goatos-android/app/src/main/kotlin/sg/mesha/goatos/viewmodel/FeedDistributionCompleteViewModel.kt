@@ -76,10 +76,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The shed-PEN-session partitions ordering for BOTH proofs AND the completion, so the proofs
-    // drain strictly before the gated completion that references them. The PEN is part of this key:
-    // see feedCaptureGroupKey for what sharing it across a shed's pens did to the field.
-    private val groupKey = feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow)
+    // The day-shed-PEN-session partitions ordering for BOTH proofs AND the completion, so the
+    // proofs drain strictly before the gated completion that references them. The PEN and the DAY
+    // are both part of this key: see feedCaptureGroupKey for what dropping either did to the field.
+    private val groupKey =
+        feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate)
 
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-distribution-video")
     private val waterKey = DraftIdempotencyKey(savedStateHandle, KEY_WATER_IDEMPOTENCY, "feed-distribution-water")
