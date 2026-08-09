@@ -38,7 +38,8 @@ const replayBaseline = new Set([
 const sourceExtension = /\.(?:js|jsx|mjs|ts|tsx)$/;
 const testExtension = /\.test\.(?:js|mjs|ts|tsx)$/;
 const fixedWaitRe = /\bpage\.waitForTimeout\s*\(|new\s+Promise\s*\([^;\n]*\bsetTimeout\s*\(/g;
-const routerNavigationRe = /\brouter\.(?:replace|push)\s*\(/g;
+const routerNavigationRe = /\brouter\.(?:replace|push)\s*\(/;
+const routerNavigationAllRe = /\brouter\.(?:replace|push)\s*\(/g;
 const selectBlockRe = /<select\b[\s\S]*?<\/select>/g;
 
 function finding(file, message) {
@@ -189,7 +190,7 @@ function urlSelectResponsivenessFindings(file, source) {
   if (!/<select\b/.test(source) || !/\bonChange=/.test(source)) return [];
 
   const findings = [];
-  const routerWrites = [...source.matchAll(routerNavigationRe)];
+  const routerWrites = [...source.matchAll(routerNavigationAllRe)];
   const unwrappedRouterWrite = routerWrites.some((match) => {
     const before = source.slice(Math.max(0, match.index - 120), match.index);
     return !/\bstartTransition\s*\(\s*(?:async\s*)?\(\s*\)\s*=>[\s\S]*$/.test(before);
@@ -203,9 +204,10 @@ function urlSelectResponsivenessFindings(file, source) {
     /\bfieldValue\s*\(/.test(source);
   const staleSelect = [...source.matchAll(selectBlockRe)].some((match) => {
     const block = match[0];
+    const selectTag = block.match(/^<select\b[^>]*>/)?.[0] ?? "";
     return /\bonChange=/.test(block) &&
-      /\bvalue=\{\s*(?:field\.value|driveBatchId|pageSize|props\.\w+|[A-Za-z_$][\w$]*\.value)\s*(?:\?\?|[?:}]|$)/.test(block) &&
-      !/\bvalue=\{\s*(?:fieldValue\s*\(|selected[A-Z]\w*|effective[A-Z]\w*|optimistic[A-Z]\w*)/.test(block);
+      /\bvalue=\{\s*(?:field\.value|driveBatchId|pageSize|props\.\w+|[A-Za-z_$][\w$]*\.value)\s*(?:\?\?|[?:}]|$)/.test(selectTag) &&
+      !/\bvalue=\{\s*(?:fieldValue\s*\(|selected[A-Z]\w*|effective[A-Z]\w*|optimistic[A-Z]\w*)/.test(selectTag);
   });
 
   if (!hasTransition) {
@@ -258,9 +260,11 @@ function selfTest() {
   const staleUrlSelect = '"use client";\nimport { useRouter, useSearchParams } from "next/navigation";\nexport function Bad({ value }) { const router = useRouter(); const sp = useSearchParams(); return <select value={value} onChange={(event) => router.replace(`?x=${event.target.value}`)} />; }\n';
   const responsiveUrlSelect = '"use client";\nimport { useState, useTransition } from "react";\nimport { useRouter, useSearchParams } from "next/navigation";\nexport function Good({ value }) { const router = useRouter(); const sp = useSearchParams(); const [isPending, startTransition] = useTransition(); const [optimistic, setOptimistic] = useState(null); const selectedValue = optimistic ?? value; return <select value={selectedValue} onChange={(event) => { setOptimistic(event.target.value); startTransition(() => router.replace(`?x=${event.target.value}`)); }} />; }\n';
   const siblingStaleSelect = '"use client";\nimport { useState, useTransition } from "react";\nimport { useRouter, useSearchParams } from "next/navigation";\nexport function Mixed({ value, other }) { const router = useRouter(); const sp = useSearchParams(); const [isPending, startTransition] = useTransition(); const [optimistic, setOptimistic] = useState(null); const selectedValue = optimistic ?? value; return <><select value={selectedValue} onChange={(event) => { setOptimistic(event.target.value); startTransition(() => router.replace(`?x=${event.target.value}`)); }}><option /></select><select value={other.value} onChange={(event) => { startTransition(() => router.replace(`?y=${event.target.value}`)); }}><option /></select></>; }\n';
+  const firstWriteUnwrapped = '"use client";\nimport { useState, useTransition } from "react";\nimport { useRouter, useSearchParams } from "next/navigation";\nexport function FirstBad({ value }) { const router = useRouter(); const sp = useSearchParams(); const [isPending, startTransition] = useTransition(); const [optimistic, setOptimistic] = useState(null); const selectedValue = optimistic ?? value; return <><select value={selectedValue} onChange={(event) => { setOptimistic(event.target.value); router.replace(`?x=${event.target.value}`); }}><option /></select><button onClick={() => startTransition(() => router.replace(\"?ok=1\"))}>ok</button></>; }\n';
   assert.ok(urlSelectResponsivenessFindings(`${adminRoot}/features/bad-filter.tsx`, staleUrlSelect).length >= 2);
   assert.equal(urlSelectResponsivenessFindings(`${adminRoot}/features/good-filter.tsx`, responsiveUrlSelect).length, 0);
   assert.ok(urlSelectResponsivenessFindings(`${adminRoot}/features/mixed-filter.tsx`, siblingStaleSelect).length > 0);
+  assert.ok(urlSelectResponsivenessFindings(`${adminRoot}/features/first-bad-filter.tsx`, firstWriteUnwrapped).length > 0);
   assert.equal(routeErrorFindings('"use client";\nexport default ({error, reset}) => <AdminRouteError error={error} reset={reset} />;').length, 0);
   assert.ok(routeErrorFindings('export default ({error}) => <div>{error.message}</div>;').length > 0);
   console.log("frontend-foundations guard: self-test passed");
