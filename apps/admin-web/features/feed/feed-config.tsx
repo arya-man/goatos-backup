@@ -44,6 +44,7 @@ import {
   ScheduleEditor,
   ShedFactorEditor,
 } from "./feed-config-editor";
+import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 
 // Feed -> Feed Config. The authored input the daily generation reads: the ration grid, the per-shed
 // factors, the park's session split, and the dispatch clock.
@@ -66,13 +67,9 @@ import {
 const PAGE_PATH = "/feed/config";
 const DEFAULT_PAGE_SIZE = 10;
 const SECONDARY_PAGE_SIZE = 25;
-// The experiment section groups its rows by shed, so its page must hold whole sheds rather than a
-// screenful of cells: at 5 items per shed, 100 rows is 20 sheds. It is still a bounded page (the
-// backend caps at 200 and reports has_more), not a drain — the live parks author 17 sheds each.
-const EXPERIMENT_PAGE_SIZE = 100;
-// Both parks at once: 35 pens x 5 items = 175 rows today, so a 100-row page would cut the second
-// park in half. 200 is the contract's largest declared option and the backend's own cap.
-const EXPERIMENT_ALL_PARKS_PAGE_SIZE = 200;
+// Experiment pages count complete pens, not their individual feed-item cells.
+const EXPERIMENT_PAGE_SIZE = 10;
+const EXPERIMENT_ALL_PARKS_PAGE_SIZE = 25;
 // The pen catalog is authored infrastructure, not herd data: two live parks hold ~20 sheds and ~40
 // pens each, so one bounded page covers the tenant with room to spare. It cannot grow with animals.
 const PEN_CATALOG_PAGE_SIZE = 200;
@@ -133,8 +130,8 @@ type ExperimentShedGroup = {
   /** INFORMATIONAL population. Null means not recorded — never rendered or sent as 0. */
   headCount: number | null;
   /**
-   * True when ANY of the shed's rows is active, which is exactly ExperimentPlanner.Applies' rule.
-   * The whole-shed status write keeps the rows in step, so a mixed shed is not a state this UI can
+   * True when ANY of the pen's rows is active, which is exactly ExperimentPlanner.Applies' rule.
+   * The complete-pen status write keeps the rows in step, so a mixed pen is not a state this UI can
    * create; deriving it this way rather than reading row[0] means a legacy mixed shed still reports
    * the workflow that would actually feed it.
    */
@@ -785,6 +782,7 @@ export async function FeedConfigPage({
               In company-wide mode it offers BOTH parks and makes the reader pick one, rather than
               silently enrolling into the fallback park the table is no longer scoped to. */}
           <ExperimentPenEnroller
+            key={experimentEnrollerScopeKey(experimentAllParks ? locations.parks : parkScopedParks)}
             pageContract={pageContract}
             action={enrolExperimentPen}
             parks={experimentAllParks ? locations.parks.map((park) => ({ id: park.id, name: park.name })) : parkScopedParks}
@@ -990,13 +988,13 @@ export async function FeedConfigPage({
         {/* The experiment section paginates too. It had no pager while the ration grid above did, so
             a park whose pens hold more cells than one page silently lost the overflow — and because
             an experiment pen that is missing from this screen is still FED, a truncated list reads
-            as "these are all the experiment sheds" when it is not. rowCount is the flat cell count,
-            which is what the backend paged; the pens above are a grouping of those same rows. */}
+            as "these are all the experiment sheds" when it is not. The backend pages complete pens,
+            so rowCount uses the grouped pen count as well. */}
         <FeedPager
           pageContract={pageContract}
           offset={experimentOffset}
           limit={experimentLimit}
-          rowCount={experimentRows.length}
+          rowCount={experimentSheds.length}
           hasMore={experiment?.has_more ?? false}
           noun={copy(pageContract, "table.experiment.noun")}
           pageSizeOptions={experimentPageSizes}

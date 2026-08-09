@@ -317,8 +317,8 @@ type ShedFactorPage struct {
 	HasMore bool         `json:"has_more"`
 }
 
-// ExperimentConfig is one authored cell of an EXPERIMENT shed: the absolute kg of one feed item that
-// the whole shed is fed.
+// ExperimentConfig is one authored cell of an EXPERIMENT operational pen: the absolute kg of one
+// feed item that pen is fed (an undivided shed is represented as its single whole-shed pen).
 //
 // ABSOLUTE KG IS A SHED TOTAL, NOT A PER-HEAD RATE. That is the one distinction between this type
 // and RationRate that must never blur. HeadCount travels with it as INFORMATIONAL context -- the
@@ -388,7 +388,7 @@ type ExperimentBatchCell struct {
 	AbsoluteKg string
 }
 
-// UpsertExperimentConfigBatchCommand authors EVERY feed item of one pen in a single transaction.
+// UpsertExperimentConfigBatchCommand enrolls EVERY feed item of one unconfigured pen atomically.
 //
 // WHY THIS IS ATOMIC AND NOT N SINGLE-CELL WRITES. Membership in feed_experiment_config IS what puts
 // a pen on the experiment workflow, and ExperimentPlanner treats the pen's authored cells as the
