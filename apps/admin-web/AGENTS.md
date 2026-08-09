@@ -66,6 +66,17 @@ this boundary in local CI for both Claude and Codex.
 > anti-pattern. The static `GOATOS_BEARER_TOKEN` is only a fallback. Restart for
 > code/build reasons, not to refresh an expired token.
 
+## URL-Driven Filter Responsiveness
+
+Server-filtered worklists may keep filter state in the URL, but the operator
+must never see a selected value bounce back to an old server prop while the App
+Router refresh is pending. Prefer `WorklistFilters`. Any client component that
+combines `useSearchParams`, a native `<select>`, and `router.push` /
+`router.replace` must wrap the navigation in `useTransition` and render an
+optimistic selected value immediately. Run `make frontend-foundations-guard`
+after touching these controls; it includes the stale-select regression that hit
+Feed Config.
+
 Operational hygiene when you do restart/rebuild (so a restart is clean, not
 destructive):
 

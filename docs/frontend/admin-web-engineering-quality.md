@@ -102,6 +102,30 @@ backend contract owns business truth, RBAC, labels, options, and commands.
   and field/global error state. Double-submit protection does not replace
   backend idempotency.
 
+### URL-Driven Filters
+
+URL-backed filters are allowed only when the URL is the shareable/readable source
+of truth for the server read. They still must feel local to the operator.
+
+- Prefer the shared `WorklistFilters` component for server-filtered worklists.
+- A native `<select>` that writes `router.push`/`router.replace` from
+  `useSearchParams` must use `useTransition` and render an optimistic selected
+  value immediately. Never let a select keep showing the previous server prop
+  while the route refresh is pending.
+- A filter change resets only the relevant page/cursor parameter and preserves
+  scope/date/park params. It must not trigger unrelated fanout or overlay
+  navigation.
+- Multi-select and comparison filters stage local draft state and commit the
+  complete query in one navigation. Do not send half-complete comparison params
+  or one server render per checkbox tick.
+- Search inputs may submit on Enter/Apply, but page-size and single-select
+  filters must update their visible value synchronously.
+
+`make frontend-foundations-guard` enforces the URL-writing select rule with an
+adversarial stale-select fixture. This guard exists because the Feed Config
+filter bar reached staging showing `All` after an operator selected
+`Non-Pregnant` while the server-rendered page was still refreshing.
+
 ## TypeScript And Node
 
 - `strict`, `noEmit`, and `isolatedModules` stay enabled. Do not weaken the
