@@ -8,6 +8,9 @@ Source review snapshot: `97e2b462cc4cc39e78b3c99209a09f739c3d2e31`
 Fresh-main counter-review snapshot:
 `4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`
 
+Final counter-review correction snapshot:
+`07640ad5388ffb6ed87701ea7f4f522c92fb3e82`
+
 Companion bug queue:
 [current whole-project remediation ledger](../repo-audits/current-whole-project-remediation-ledger.md)
 
@@ -391,6 +394,14 @@ policy decision is recorded in its canonical source.
   are immutable.
 - Supply owner and due/window at work creation. Vaccination bulk SOP creation
   currently supplies neither and must be repaired.
+- Before K2 cutover, repair the current person-display fallbacks in
+  `apps/admin-web/features/people/positions-panel.tsx` and
+  `apps/admin-web/features/people/timetable-panel.tsx`: missing
+  `person_display_name` must render an explicit unassigned/data-integrity state,
+  and an unresolved seat must not count toward named-person availability or
+  capacity. Never substitute `position_title` or `position_code` as the
+  owner/person name. Inventory sibling owner/person fallbacks and add
+  fail-honest regressions.
 - Persist Vaccination's stable campaign/epic identity and shadow-backfill its
   epic/batch/work-unit/leaf ancestry before any K2 read cutover. K3 may activate
   rollup later, but it must not add parents after ancestry becomes immutable.
@@ -621,14 +632,18 @@ build the task kernel in staged, shadowed, reversible vertical slices.
 ## Fresh-main adjudication of the 68 proposed improvements
 
 The later 68-item review was counter-checked on fresh `origin/main` at
-`4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`: **48 accepted, 14 partially
-accepted/narrowed, and 6 rejected**. Accepted duplicates were merged into one
-owning instruction rather than counted as separate implementation work.
+`4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`, with the final disputed claims
+rechecked at `07640ad5388ffb6ed87701ea7f4f522c92fb3e82`: **48 accepted, 15
+partially accepted/narrowed, and 5 rejected**. Accepted duplicates were merged
+into one owning instruction rather than counted as separate implementation
+work.
 
 The important accepted common ground now encoded in this plan is:
 
-- gate historical repair on current actionable state; persist future
-  no-recipient/unclaimed outcomes; repair the new `KERN-012` role constraint;
+- apply one transactional current-state/source-version actionability fence to
+  recovery and new missed events, persist every branch outcome, fail closed
+  again immediately before external delivery, and repair the new `KERN-012`
+  role constraint;
 - explicitly cut over and retire the live legacy escalation lane, and reuse the
   existing dispatcher with fail-closed pre-send run/step fencing;
 - make roster authority, resolver purity, member/device separation, identity
@@ -651,6 +666,8 @@ The main rejected or narrowed points were also material:
   capabilities, not the same authoritative seam;
 - Health verification categories are currently reserved/non-producing, so they
   get a future-producer gate rather than a current defect ID;
+- the People roster/timetable position-title fallback is a narrowed
+  display-integrity repair before owner cutover, not a new stable defect ID;
 - K0 already serializes shared kernel primitives and already gates `MOB-001`;
   those claims were not duplicated.
 
