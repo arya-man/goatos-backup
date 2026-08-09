@@ -29,6 +29,13 @@ class MeshaNavIconTest {
     }
 
     @Test
+    fun feedShortTabKeysUseDistinctOperationalIcons() {
+        assertSame(MeshaIcons.Feed, MeshaIcons.forNavKey("direction"))
+        assertSame(MeshaIcons.Package, MeshaIcons.forNavKey("packing"))
+        assertSame(MeshaIcons.Truck, MeshaIcons.forNavKey("transport"))
+    }
+
+    @Test
     fun milkPreparationAndFeedingUseDistinctMilkIcons() {
         val preparationIcon = MeshaIcons.forNavKey("milk_preparation")
         val feedingIcon = MeshaIcons.forNavKey("milk_feeding")
