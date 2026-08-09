@@ -30,6 +30,8 @@ type fakeRepo struct {
 	lastExperiment       domain.UpsertExperimentConfigCommand
 	lastExperimentStatus domain.SetExperimentShedStatusCommand
 	lastExperimentQuery  domain.ExperimentConfigQuery
+	lastPenQuery         domain.PenQuery
+	lastExperimentBatch  domain.UpsertExperimentConfigBatchCommand
 
 	result domain.WriteResult
 	err    error
@@ -73,6 +75,16 @@ func (f *fakeRepo) ListShedFactors(_ context.Context, q domain.ShedFactorQuery) 
 func (f *fakeRepo) ListExperimentConfig(_ context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error) {
 	f.lastExperimentQuery = q
 	return domain.ExperimentConfigPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+}
+
+func (f *fakeRepo) UpsertExperimentConfigBatch(_ context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error) {
+	f.lastExperimentBatch = cmd
+	return domain.WriteResult{Kind: domain.WriteKindExperimentConfig, Outcome: domain.OutcomeInserted}, f.err
+}
+
+func (f *fakeRepo) ListPens(_ context.Context, q domain.PenQuery) (domain.PenPage, error) {
+	f.lastPenQuery = q
+	return domain.PenPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
 }
 
 func (f *fakeRepo) UpsertExperimentConfig(_ context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error) {

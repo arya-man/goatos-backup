@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -393,10 +394,24 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded LIMIT/OFFSET over one park's hand-authored experiment sheds (17 sheds x 5 items per live park); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
+	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
+	//
+	// park_id is OPTIONAL here, unlike every other read on this screen. The ration grid, the session
+	// split and the dispatch clock are park-OWNED and have no cross-park meaning, but an experiment
+	// cell already carries its own park_id, so the authored inventory can legitimately be listed for
+	// the whole tenant. That is what lets a company-wide scope show all 35 pens instead of silently
+	// showing one park's 17 -- the defect this widening fixes.
+	//
+	// The park is JOINED for its name, not composed client-side, because a cross-park list must say
+	// which park each row belongs to and the shed NAME cannot carry that (Castro, Gandhi and Yashoda
+	// each exist in both parks -- keying or labelling on the name alone merges them).
+	//
+	// ORDER BY leads with park so a cross-park page groups rather than interleaves, and still sorts
+	// by shed/partition/item beneath it so a single-park read is byte-identical to what it was.
 	const query = `
 SELECT c.experiment_config_id::text,
        c.park_id::text,
+       COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
        c.shed_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
        COALESCE(c.partition_label, '') AS partition_label,
@@ -409,14 +424,17 @@ FROM feed_experiment_config c
 LEFT JOIN locations shed
        ON shed.tenant_id = c.tenant_id
       AND shed.location_id = c.shed_id
+LEFT JOIN locations park
+       ON park.tenant_id = c.tenant_id
+      AND park.location_id = c.park_id
 WHERE c.tenant_id = $1::uuid
-  AND c.park_id = $2::uuid
+  AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
   AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
   AND ($4::text IS NULL OR c.status = $4::text)
-ORDER BY c.shed_id, c.partition_key, c.feed_item_key, c.experiment_config_id
+ORDER BY park.name, park.location_id, c.shed_id, c.partition_key, c.feed_item_key, c.experiment_config_id
 LIMIT $5 OFFSET $6`
 
-	rows, err := r.pool.Query(ctx, query, q.TenantID, q.ParkID,
+	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
 		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit+1, q.Page.Offset)
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
@@ -429,7 +447,7 @@ LIMIT $5 OFFSET $6`
 		// head_count stays a pointer all the way to the wire: NULL means the population was not
 		// recorded alongside the quantity, and rendering that as 0 would state the shed is empty.
 		var headCount *int32
-		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ShedID,
+		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ParkName, &item.ShedID,
 			&item.ShedName, &item.PartitionLabel, &item.FeedItemLabel,
 			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status); err != nil {
 			return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: scan experiment config: %w", err)
@@ -451,6 +469,169 @@ LIMIT $5 OFFSET $6`
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
+	}
+	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
+	return out, nil
+}
+
+// UpsertExperimentConfigBatch authors every feed item of ONE pen in a single statement inside a
+// single transaction.
+//
+// ONE STATEMENT, NOT A LOOP. The cells are passed as parallel arrays and expanded with UNNEST, so N
+// authored items cost one round trip rather than N (the banned n-plus-one shape), and every cell
+// lands or none does. The two arrays are built from the SAME ordered slice in the caller, so index i
+// is always the same cell in both -- building one from a filtered copy and the other from the
+// original is the parallel-array grain bug that silently pairs a quantity with the wrong feed item.
+//
+// ON CONFLICT targets the natural key's own columns, INCLUDING the two GENERATED ones
+// (partition_key, feed_item_key). They are not inserted -- Postgres computes them -- but naming them
+// as the conflict target is what makes the upsert land on the same row the unique index protects.
+// Targeting (tenant, park, shed, feed_item_key) alone would collapse every pen of a partitioned shed
+// onto one row, which is exactly what migration 000122 widened the key to prevent.
+//
+// status is forced back to 'active' on conflict for the same reason the single-cell write does it: a
+// quantity stored on a retired row is a number nothing reads, so re-authoring a cell is an
+// unambiguous statement that this pen is on the experiment workflow.
+func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindExperimentConfig, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
+			return writeEffect{}, err
+		}
+		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
+
+		items := make([]string, 0, len(cmd.Cells))
+		kgs := make([]string, 0, len(cmd.Cells))
+		for _, cell := range cmd.Cells {
+			items = append(items, cell.FeedItemLabel)
+			kgs = append(kgs, cell.AbsoluteKg)
+		}
+
+		// RETURNING every affected row id, ordered by the generated feed_item_key so the ledger's
+		// representative row is deterministic across replays rather than whichever row the executor
+		// happened to touch first.
+		rows, err := tx.Query(ctx, `
+INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label,
+                                    absolute_kg, head_count, experiment_category, status, created_by)
+SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
+       cell.kg::numeric, $5, $6, 'active', nullif($7,'')::uuid
+FROM unnest($8::text[], $9::text[]) AS cell(item, kg)
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, feed_item_key) DO UPDATE
+SET absolute_kg         = EXCLUDED.absolute_kg,
+    head_count          = EXCLUDED.head_count,
+    experiment_category = EXCLUDED.experiment_category,
+    status              = 'active',
+    updated_at          = now()
+RETURNING experiment_config_id::text, feed_item_key`,
+			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
+			cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, kgs)
+		if err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
+		}
+		defer rows.Close()
+
+		type touched struct{ id, key string }
+		written := make([]touched, 0, len(cmd.Cells))
+		for rows.Next() {
+			var t touched
+			if err := rows.Scan(&t.id, &t.key); err != nil {
+				return writeEffect{}, fmt.Errorf("feedconfig: scan batch experiment config: %w", err)
+			}
+			written = append(written, t)
+		}
+		if err := rows.Err(); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
+		}
+		// Every cell must have produced a row. A short count means a conflict target did not match
+		// what the caller believed it was addressing, and silently reporting success on a partial
+		// enrolment is precisely the underfeed this whole write exists to prevent.
+		if len(written) != len(cmd.Cells) {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert wrote %d of %d cells", len(written), len(cmd.Cells))
+		}
+		sort.Slice(written, func(i, j int) bool { return written[i].key < written[j].key })
+
+		// 'inserted' rather than a per-cell outcome: the ledger records one authoring ACT, and this
+		// act's meaning is "this pen's quantities are now these". The result row is the pen's
+		// lowest-keyed cell, which the constraint requires to be non-NULL for this outcome.
+		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: written[0].id}, nil
+	})
+}
+
+// ListPens returns every operational location in a park -- each shed, and each pen of a subdivided
+// shed -- flagged with whether it already carries experiment configuration.
+//
+// LEFT JOIN, not INNER. An undivided shed has no shed_partitions row at all and must still appear
+// exactly once, as itself; an INNER JOIN would silently drop every whole-shed location and leave the
+// enroller unable to offer them.
+//
+// partition_label is selected, NEVER normalized_label. They look interchangeable and are not:
+// 'Part 3' is the human label and '3' is the scrubbed matching key, and selecting the key renders
+// 'Mandela 2 - 3' to an operator. This is the defect that shipped, was fixed, and was reintroduced
+// hours later by a hand-written query in another module -- see AGENTS.md rule 5a.
+//
+// The experiment flag is an EXISTS correlated on (shed_id, partition_key), the same natural key the
+// experiment table is unique on, so it cannot disagree with what the enroller's filter should do.
+// Matching on shed_id alone is precisely the bug being fixed.
+//
+// No per-animal table is touched. A pen holding zero animals is real, is listed, and is usually the
+// one about to be filled -- deriving this catalog from goat placement is what hides it.
+func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// scale-guard:ignore: bounded LIMIT/OFFSET over ONE park's location catalog (two live parks hold ~20 sheds and ~40 pens each); the set is authored infrastructure and cannot grow with herd size. Served by the locations parent index and shed_partitions' own (tenant_id, shed_id) key.
+	const query = `
+SELECT shed.location_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
+       COALESCE(sp.partition_label, '') AS partition_label,
+       EXISTS (
+         SELECT 1 FROM feed_experiment_config e
+         WHERE e.tenant_id = shed.tenant_id
+           AND e.shed_id = shed.location_id
+           AND e.partition_key = CASE
+                 WHEN sp.partition_label IS NULL OR btrim(sp.partition_label) = '' THEN 'whole'
+                 ELSE feed_config_norm(sp.partition_label)
+               END
+       ) AS has_experiment_config
+FROM locations shed
+LEFT JOIN shed_partitions sp
+       ON sp.tenant_id = shed.tenant_id
+      AND sp.shed_id = shed.location_id
+WHERE shed.tenant_id = $1::uuid
+  AND shed.parent_location_id = $2::uuid
+  AND shed.location_type = 'shed'
+  AND shed.status = 'active'
+ORDER BY shed.display_order, shed.name, shed.location_id, sp.normalized_label NULLS FIRST
+LIMIT $3 OFFSET $4`
+
+	rows, err := r.pool.Query(ctx, query, q.TenantID, q.ParkID, q.Page.Limit+1, q.Page.Offset)
+	if err != nil {
+		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
+	}
+	defer rows.Close()
+
+	out := domain.PenPage{Items: []domain.Pen{}, Limit: q.Page.Limit, Offset: q.Page.Offset}
+	for rows.Next() {
+		item := domain.Pen{ParkID: q.ParkID}
+		if err := rows.Scan(&item.ShedID, &item.ShedName, &item.PartitionLabel, &item.HasExperimentConfig); err != nil {
+			return domain.PenPage{}, fmt.Errorf("feedconfig: scan pen: %w", err)
+		}
+		// Same composition as the experiment list, through oploc, so the enroller's option text and
+		// the table row it becomes are byte-identical. IsPartitioned also filters the 'whole'
+		// sentinel, which is a matching key and must never reach a client.
+		if !oploc.IsPartitioned(item.PartitionLabel) {
+			item.PartitionLabel = ""
+		}
+		item.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedID:         item.ShedID,
+			ShedName:       item.ShedName,
+			PartitionLabel: item.PartitionLabel,
+		}.Display()
+		out.Items = append(out.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
 	return out, nil

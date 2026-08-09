@@ -462,7 +462,13 @@ func pages() []domain.PageContract {
 				// labelled as such (see humanLabel and label.experiment_head_count_note).
 				// No valid_from/valid_to pair: unlike every other table on this page,
 				// feed_experiment_config is not effective-dated (migration 000006).
-				table("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id"),
+				// Page sizes 50/100/200, not the generic 5/10/25/50: rows here are grouped into PENS
+				// and a pen holds one row per authored feed item, so a screenful of cells is a
+				// fraction of a pen and a page that splits a pen is unreadable. 100 is the default
+				// (~20 pens at five items); 200 is the backend's own cap and exists because a pen may
+				// now carry as many cells as the catalog has items, so the row count grows with the
+				// feed vocabulary rather than with the shed count.
+				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id", []int{50, 100, 200}),
 				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "status"}, "session_template_id"),
 				// These are the three DISPATCH-CLOCK moments of a feed day, not session times. The
 				// table renders direction_time / correction_time / transport_time, so it must be
@@ -2628,6 +2634,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.experiment_retired_note":        "This shed has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
 			"label.experiment_not_dated_note":      "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
 			"action.add_experiment_shed":           "Move shed to experiment",
+			"action.add_experiment_item":           "Add feed item",
 			"action.edit_experiment_cell":          "Edit kg",
 			"action.withdraw_experiment_shed":      "Return shed to normal grid",
 			"action.restore_experiment_shed":       "Return shed to experiment",
@@ -2638,7 +2645,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.experiment":                     "No experiment sheds authored for this park. Every shed in it is fed from the ration grid above.",
 			"empty.experiment_filtered":            "No experiment sheds match these filters.",
 			"empty.experiment_candidates":          "Every shed in this park is already listed as an experiment shed.",
-			"state.experiment_unavailable":         "Experiment sheds unavailable",
+			// Shown on a pen whose every catalog item already has an authored cell. Distinct from
+			// empty.experiment_candidates, which is about SHEDS not yet on the experiment workflow.
+			"empty.experiment_items_authored": "Every feed item is already authored for this pen. Edit a kg above to change one.",
+			// The park this page is reading, when nothing chose it. /feed/config is single-park by
+			// construction -- a ration grid, a session split and a dispatch clock are all park-scoped
+			// -- so a company-wide top-bar scope cannot be honoured here and one park is shown instead.
+			// Without this the screen silently reads the alphabetically first park and says nothing.
+			"notice.park_scope_fallback":   "Experiment sheds below show BOTH parks. The ration grid, shed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
+			"state.experiment_unavailable": "Experiment sheds unavailable",
 			// ---- feed items (the catalog) -----------------------------------------------------
 			// Copy for the vocabulary section. Its job is to keep ONE fact un-missable: adding an
 			// item authors no quantity, so a new item feeds nothing until a rate names it. Someone

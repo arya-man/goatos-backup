@@ -34,6 +34,7 @@ import {
 } from "./feed-config-actions";
 import {
   ExperimentCellEditor,
+  ExperimentCellAdder,
   ExperimentShedEnroller,
   ExperimentShedSwitch,
   FeedItemCreator,
@@ -67,6 +68,9 @@ const SECONDARY_PAGE_SIZE = 25;
 // screenful of cells: at 5 items per shed, 100 rows is 20 sheds. It is still a bounded page (the
 // backend caps at 200 and reports has_more), not a drain — the live parks author 17 sheds each.
 const EXPERIMENT_PAGE_SIZE = 100;
+// Both parks at once: 35 pens x 5 items = 175 rows today, so a 100-row page would cut the second
+// park in half. 200 is the contract's largest declared option and the backend's own cap.
+const EXPERIMENT_ALL_PARKS_PAGE_SIZE = 200;
 // The authored feed vocabulary (ration groups, shed tags, feed items) backs the FILTER dropdowns,
 // so the whole catalog must arrive in one bounded page — a screenful-sized limit would silently
 // truncate it (there are already 31 shed tags, past SECONDARY_PAGE_SIZE) and reintroduce the very
@@ -113,6 +117,8 @@ function EffectiveWindow({
 type ExperimentShedGroup = {
   shedId: string;
   parkId: string;
+  /** Backend-supplied park name. Rendered as its own column because the list may span both parks. */
+  parkName: string;
   /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
   partitionLabel: string;
   /** Server-composed "Mandela 1 - Part 3". Shown verbatim -- never rejoined here. */
@@ -152,6 +158,7 @@ function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShed
       byPen.set(key, {
         shedId: row.shed_id,
         parkId: row.park_id,
+        parkName: row.park_name,
         partitionLabel,
         locationDisplay: row.operational_location_display,
         category: row.experiment_category,
@@ -168,6 +175,25 @@ function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShed
     existing.headCount = existing.headCount ?? row.head_count ?? null;
   }
   return Array.from(byPen.values());
+}
+
+/**
+ * The feed-config join key, mirroring Postgres `feed_config_norm`: trim, casefold, collapse runs of
+ * whitespace/underscore/hyphen to one underscore.
+ *
+ * Used ONLY to decide which catalog items a pen may still be offered. The database's generated
+ * `feed_item_key` remains the authority on identity — if this ever drifts, the worst outcome is that
+ * the Add control offers an item the pen already has, and the upsert then corrects that cell instead
+ * of inserting a duplicate (the natural key forbids one). It is not used to write, compare
+ * quantities, or decide what a shed is fed.
+ */
+function normalizeFeedItemKey(label: string): string {
+  return label.trim().toLowerCase().replace(/[\s_-]+/g, "_");
+}
+
+/** The feed items this pen already has an authored cell for, as normalized keys. */
+function authoredItemKeys(pen: ExperimentShedGroup): Set<string> {
+  return new Set(pen.rows.map((row) => normalizeFeedItemKey(row.feed_item)));
 }
 
 function SectionError({
@@ -211,6 +237,22 @@ export async function FeedConfigPage({
   const gridPageSizes = tablePageSizes(pageContract, "ration-grid");
   const gridLimit = feedLimit(sp, "fc_limit", gridPageSizes, DEFAULT_PAGE_SIZE);
   const gridOffset = feedOffset(sp, "fc_offset");
+  // The experiment section paginates on its OWN params. It shares the page with the ration grid but
+  // not the grid's cursor: one park holds ~17 pens x 5 items here against thousands of grid rows, so
+  // a shared offset would scroll one section by the other's page. EXPERIMENT_PAGE_SIZE is the
+  // default rather than the only choice — a pen can now hold as many cells as the catalog has items,
+  // so the row count grows with the vocabulary and the reader needs a bigger page available.
+  const experimentPageSizes = tablePageSizes(pageContract, "experiment-config");
+  // ALL PARKS is a real mode for this ONE section. Nobody picked a park (the top bar is company-wide
+  // and the page carries no park param), and unlike the ration grid an experiment cell knows its own
+  // park -- so the honest answer to "show me all parks" is every authored pen in the tenant, not one
+  // park's silently. The other three sections stay park-scoped because they are park-OWNED.
+  const experimentAllParks = scope.parkSource === "fallback";
+  // A cross-park page holds both parks' pens (175 rows today against one park's 90), so the default
+  // page size steps up to the contract's largest option in that mode. Still bounded, still paged.
+  const experimentDefaultSize = experimentAllParks ? EXPERIMENT_ALL_PARKS_PAGE_SIZE : EXPERIMENT_PAGE_SIZE;
+  const experimentLimit = feedLimit(sp, "fc_exp_limit", experimentPageSizes, experimentDefaultSize);
+  const experimentOffset = feedOffset(sp, "fc_exp_offset");
 
   // Six independent authored surfaces, fetched concurrently — no serial await, and no draining of
   // any of them: each is one bounded page.
@@ -241,7 +283,12 @@ export async function FeedConfigPage({
     // can be seen and restored, and so an accidental withdrawal is not invisible on the screen that
     // owns the decision. One bounded page — the live parks author 17 sheds x 5 items each.
     scope.parkId
-      ? listFeedConfigExperiment({ park_id: scope.parkId, limit: EXPERIMENT_PAGE_SIZE })
+      ? listFeedConfigExperiment(
+          experimentAllParks
+            // park_id omitted entirely -- the backend reads that as "every park".
+            ? { limit: experimentLimit, offset: experimentOffset }
+            : { park_id: scope.parkId, limit: experimentLimit, offset: experimentOffset },
+        )
       : Promise.resolve(null),
     // The tenant's feed vocabulary, for the enrol control's item picker. It comes from the catalog
     // endpoint rather than a local list: feed items are live module-owned data, and hardcoding them
@@ -298,6 +345,9 @@ export async function FeedConfigPage({
   const feedItemCols = tableLabels(pageContract, "feed-items");
 
   const shedNameById = new Map(locations.sheds.map((shed) => [shed.id, shed.name]));
+  // The park being read, by name. Live data from the locations master — never composed from a code
+  // or an id, and blank only when the master returned no parks at all.
+  const parkName = locations.parks.find((park) => park.id === scope.parkId)?.name ?? "";
   const hasGridFilter = Boolean(rationGroupFilter || shedTagFilter || feedItemFilter);
 
   const gridRows = rates?.items ?? [];
@@ -380,6 +430,17 @@ export async function FeedConfigPage({
         </div>
         <div className="sp" style={{ flex: 1 }} />
       </div>
+
+      {/* Nobody chose this park — the top bar is company-wide and the page has no park param, so the
+          first park in the locations master was read. Said out loud because the alternative is a
+          screen that shows one park's sheds while the top bar reads company-wide, which is how a
+          whole park goes missing with no on-screen sign. Not an error: this page is single-park by
+          construction, so it is a notice rather than the .alert used for the split mismatch. */}
+      {scope.parkSource === "fallback" && parkName ? (
+        <div className="note" style={{ marginBottom: 16 }}>
+          {copy(pageContract, "notice.park_scope_fallback")} <b>{parkName}</b>
+        </div>
+      ) : null}
 
       <SectionError result={ratesResult} titleKey="state.ration_grid_unavailable" pageContract={pageContract} />
 
@@ -660,6 +721,16 @@ export async function FeedConfigPage({
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.experiment.title")}</h3>
+          {/* The park, on the section itself. Every row in this table belongs to ONE park and the
+              table deliberately carries no park column (see the ration grid above), so without this
+              chip the screen never states which park's sheds these are — and when the top bar reads
+              company-wide it silently shows one. The NAME is live data from the locations master;
+              the LABEL it is titled with stays backend-owned. */}
+          {parkName ? (
+            <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
+              {parkName}
+            </span>
+          ) : null}
           <span className="small muted">{copy(pageContract, "section.experiment.caption")}</span>
           <div className="sp" style={{ flex: 1 }} />
           {/* Enrolment lives in the section header, next to the list it changes. It authors the
@@ -732,6 +803,11 @@ export async function FeedConfigPage({
                       {/* One header row per PEN carrying its arm, head count and the workflow
                           switch, then one row per authored feed item beneath it. */}
                       <tr>
+                        {/* Park, as its own column. The section can now span BOTH parks, and the shed
+                            name cannot disambiguate them -- Castro, Gandhi and Yashoda each exist in
+                            both. Muted because in a single-park view it repeats the header chip; it
+                            is the cross-park view that needs it. */}
+                        <td className="muted">{shed.parkName}</td>
                         <td>
                           <b>{shedName}</b>
                         </td>
@@ -777,16 +853,33 @@ export async function FeedConfigPage({
                           </span>
                         </td>
                         <td>
-                          {/* The switch offers the OPPOSITE of the current state, so the button
-                              always names the change it makes rather than the state it is in. */}
-                          <ExperimentShedSwitch
-                            pageContract={pageContract}
-                            action={setExperimentShedStatus}
-                            parkId={shed.parkId}
-                            shedId={shed.shedId}
-                            shedName={shedName}
-                            targetStatus={shed.active ? "retired" : "active"}
-                          />
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                            {/* The switch offers the OPPOSITE of the current state, so the button
+                                always names the change it makes rather than the state it is in. */}
+                            <ExperimentShedSwitch
+                              pageContract={pageContract}
+                              action={setExperimentShedStatus}
+                              parkId={shed.parkId}
+                              shedId={shed.shedId}
+                              shedName={shedName}
+                              targetStatus={shed.active ? "retired" : "active"}
+                            />
+                            {/* Adding a feed item is a PEN-level act, so it sits on the pen's own
+                                header row beside the switch — not on a cell row, which is scoped to
+                                one item that already exists. */}
+                            <ExperimentCellAdder
+                              pageContract={pageContract}
+                              action={saveExperimentCell}
+                              parkId={shed.parkId}
+                              shedId={shed.shedId}
+                              partitionLabel={shed.partitionLabel}
+                              experimentCategory={shed.category}
+                              headCount={shed.headCount}
+                              availableItems={catalogItems.filter(
+                                (item) => !authoredItemKeys(shed).has(normalizeFeedItemKey(item)),
+                              )}
+                            />
+                          </div>
                         </td>
                       </tr>
                       {shed.rows.map((row) => {
@@ -796,6 +889,7 @@ export async function FeedConfigPage({
                         const authoredZero = isConfiguredZero(row.absolute_kg);
                         return (
                           <tr key={row.experiment_config_id}>
+                            <td />
                             <td />
                             <td />
                             <td />
@@ -844,6 +938,23 @@ export async function FeedConfigPage({
             </tbody>
           </table>
         </div>
+
+        {/* The experiment section paginates too. It had no pager while the ration grid above did, so
+            a park whose pens hold more cells than one page silently lost the overflow — and because
+            an experiment pen that is missing from this screen is still FED, a truncated list reads
+            as "these are all the experiment sheds" when it is not. rowCount is the flat cell count,
+            which is what the backend paged; the pens above are a grouping of those same rows. */}
+        <FeedPager
+          pageContract={pageContract}
+          offset={experimentOffset}
+          limit={experimentLimit}
+          rowCount={experimentRows.length}
+          hasMore={experiment?.has_more ?? false}
+          noun={copy(pageContract, "table.experiment.noun")}
+          pageSizeOptions={experimentPageSizes}
+          hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fc_exp_offset", String(next))}
+          hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fc_exp_limit", String(next))}
+        />
       </section>
       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.experiment.note")}</div>
       {/* Spelled out rather than implied, for the same reason the blocked-vs-zero note is above:

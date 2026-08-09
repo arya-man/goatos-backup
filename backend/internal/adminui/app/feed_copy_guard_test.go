@@ -207,11 +207,13 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"label.experiment_active", "label.experiment_active_note",
 			"label.experiment_retired", "label.experiment_retired_note",
 			"label.experiment_not_dated_note",
-			"action.add_experiment_shed", "action.edit_experiment_cell",
+			"action.add_experiment_shed", "action.add_experiment_item", "action.edit_experiment_cell",
 			"action.withdraw_experiment_shed", "action.restore_experiment_shed",
 			"action.experiment_saved", "action.experiment_switched",
 			"reason.experiment_blank_is_not_zero", "reason.experiment_switch_consequence",
 			"empty.experiment", "empty.experiment_filtered", "empty.experiment_candidates",
+			"empty.experiment_items_authored",
+			"notice.park_scope_fallback",
 			"state.experiment_unavailable",
 		},
 	}
@@ -311,8 +313,13 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		// table on this page — feed_experiment_config is not effective-dated (migration 000006), and
 		// declaring the columns anyway would render two permanently empty cells that read as a
 		// missing effective window rather than an absent concept.
+		// PARK LEADS THIS ONE, and it is the only feed table that carries it. park_id became OPTIONAL
+		// on GET /feed-config/experiment so a company-wide scope can show every authored pen instead of
+		// silently showing one park's — and a cross-park list MUST name the park, because the shed name
+		// cannot: Castro, Gandhi and Yashoda each exist in both parks. The ban below still holds for
+		// every other table here, all of which do require park_id.
 		{"feed-config", "experiment-config", []string{
-			"shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
+			"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
 		}},
 	} {
 		got := feedTableColumnKeys(t, tc.routeID, tc.tableID)
@@ -322,12 +329,18 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 				tc.routeID, tc.tableID, got, tc.want,
 			)
 		}
-		for _, key := range got {
-			if key == "park" {
-				t.Errorf(
-					"%s/%s declares a %q column, but this endpoint requires park_id and returns exactly one park — the column would repeat one value on every row and take the width the feed-item label needs",
-					tc.routeID, tc.tableID, key,
-				)
+		// The park-column ban applies to every table whose endpoint REQUIRES park_id: it would repeat
+		// one value on every row and take the width the feed-item label needs. experiment-config is
+		// exempt because its park_id is optional and the list can legitimately span both parks; that
+		// exemption is scoped by table id so it cannot leak to the four that are still park-owned.
+		if tc.tableID != "experiment-config" {
+			for _, key := range got {
+				if key == "park" {
+					t.Errorf(
+						"%s/%s declares a %q column, but this endpoint requires park_id and returns exactly one park — the column would repeat one value on every row and take the width the feed-item label needs",
+						tc.routeID, tc.tableID, key,
+					)
+				}
 			}
 		}
 	}

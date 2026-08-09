@@ -37,6 +37,15 @@ export type FeedScope = {
   parkId: string;
   /** True when the top bar owns the park, which makes the page's park control read-only. */
   parkLockedByTopBar: boolean;
+  /**
+   * Which precedence rung supplied `parkId`.
+   *
+   * "fallback" is the one the operator must be told about: the top bar is company-wide and the page
+   * has no park param, so this page picked the first park in the locations master on its own. The
+   * screen then shows ONE park while the top bar reads "All parks", which is how a whole park's
+   * sheds go missing without any on-screen sign.
+   */
+  parkSource: "top_bar" | "page" | "fallback";
   targetDate: string;
   /**
    * The inclusive feed-day window bounds, in Asia/Kolkata business dates. The date picker is bound to
@@ -97,6 +106,10 @@ export function resolveFeedScope(
   return {
     parkId: selected,
     parkLockedByTopBar: Boolean(topBarParkId),
+    // WHICH of the three precedence rungs actually supplied the park. Only "fallback" is silent:
+    // nobody chose that park, so the page must say so rather than let a company-wide top-bar scope
+    // read as "all parks shown" when exactly one park is being read.
+    parkSource: topBarParkId ? "top_bar" : pageParkId ? "page" : "fallback",
     targetDate,
     minDate: min,
     maxDate: max,

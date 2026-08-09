@@ -58,6 +58,16 @@ type Repository interface {
 	ListShedFactors(ctx context.Context, q domain.ShedFactorQuery) (domain.ShedFactorPage, error)
 	ListExperimentConfig(ctx context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error)
 
+	// ListPens returns the park's operational locations -- every shed, and every pen of a subdivided
+	// shed -- each flagged with whether it already carries experiment configuration.
+	//
+	// It is the enroller's candidate source. The experiment table cannot be that source (it only
+	// knows locations already enrolled) and the SHED list cannot either (one enrolled pen makes the
+	// whole building look enrolled, which is how Godel 1 - Part 8 became unreachable from the UI).
+	// Reads the locations / shed_partitions catalog and NO per-animal table, so a pen holding zero
+	// animals is still listed -- that is usually the pen about to be filled and configured.
+	ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error)
+
 	// UpsertRationRate authors one grid cell, effective-dated and never destructive:
 	//
 	//	no open row                     -> INSERT              (outcome 'inserted')
@@ -105,6 +115,14 @@ type Repository interface {
 	// while the trial runs, not a standing rule whose past values must stay reconstructable to
 	// explain an old feed sheet. The write ledger still records who changed what and when.
 	UpsertExperimentConfig(ctx context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error)
+
+	// UpsertExperimentConfigBatch authors EVERY feed item of one pen atomically.
+	//
+	// It is not a convenience wrapper around N single-cell writes. A pen's authored cells are the
+	// COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a
+	// missing item -- so a partly-applied enrolment silently underfeeds live animals on a sheet that
+	// looks complete. The whole set commits or none of it does.
+	UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error)
 
 	// SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal
 	// per-head ration grid, by flipping the status of every one of that shed's rows in one statement.
