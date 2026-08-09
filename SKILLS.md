@@ -215,16 +215,28 @@ context/README.md
 .agents/skills/goatos-build/SKILL.md
 ```
 
-For any request to fix, continue, or close the consolidated audit findings,
-also load both files before code changes:
+For any request to fix, continue, or close whole-project audit findings, load
+the current queue before code changes:
 
 ```text
-context/repo-audits/last-35-commits-consolidated-bug-ledger.md
-context/repo-audits/consolidated-ledger-defect-closure-program.md
+context/repo-audits/current-whole-project-remediation-ledger.md
 ```
 
-The first file is the live queue; the second defines the proof and CI bar for
-changing a row to fixed.
+That file is the current whole-project implementation queue and contains its
+own closure gate. The historical `last-35-commits-consolidated-bug-ledger.md`
+and `consolidated-ledger-defect-closure-program.md` remain authoritative only
+for work that explicitly names one of their older, separate IDs.
+
+The current ledger records its reviewed SHA. Before implementation, fetch fresh
+`origin/main`, re-adjudicate the selected IDs and migration tail, and treat the
+recorded SHA as evidence provenance rather than live status.
+
+For generic task hierarchy, ownership, Today/My Tasks, or escalation work, also
+load:
+
+```text
+context/execution/operational-task-kernel-remediation-plan.md
+```
 
 Then load only the needed reference:
 
