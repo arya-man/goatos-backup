@@ -72,9 +72,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The shed-session partitions ordering for BOTH the proof AND the completion, so the proof
-    // drains strictly before the gated completion that references it.
-    private val groupKey = "feed-pack:$shedId:$sessionNo:$workflow"
+    // The shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the proof
+    // drains strictly before the gated completion that references it. The PEN is part of this key:
+    // see feedCaptureGroupKey for what sharing it across a shed's pens did to the field.
+    private val groupKey = feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow)
 
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
 
