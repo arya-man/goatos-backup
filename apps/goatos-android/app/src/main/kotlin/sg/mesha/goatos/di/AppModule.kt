@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import sg.mesha.goatos.core.permissions.areNotificationsEnabled
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -599,7 +600,12 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun provideAppScope(crashReporter: CrashReporter): CoroutineScope {
+        val handler = CoroutineExceptionHandler { _, error ->
+            crashReporter.recordException(error, "app-scope background job failed")
+        }
+        return CoroutineScope(SupervisorJob() + Dispatchers.Default + handler)
+    }
 
     /** Single binding for the active flavor's API base URL — see [ApiBaseUrl]. */
     @Provides

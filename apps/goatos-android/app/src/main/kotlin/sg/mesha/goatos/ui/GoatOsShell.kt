@@ -59,7 +59,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
@@ -104,6 +106,7 @@ data class DrawerProfile(val name: String, val role: String, val initials: Strin
 class ShellModuleViewModel @Inject constructor(
     private val savedState: SavedStateHandle,
     private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     val selectedModuleKey: StateFlow<String?> = savedState.getStateFlow(KEY_SELECTED_MODULE, null)
@@ -125,6 +128,27 @@ class ShellModuleViewModel @Inject constructor(
             AnalyticsEvents.NOTIFICATION_PERMISSION_RESULT,
             mapOf(AnalyticsEvents.Params.REASON to if (granted) "granted" else "denied"),
         )
+    }
+
+    fun recordShellAction(action: String, route: String? = null) {
+        analytics.track(
+            AnalyticsEventsSession.SHELL_ACTION,
+            buildMap {
+                put(AnalyticsEventsSession.Params.SHELL_ACTION, action)
+                route?.let { put(AnalyticsEventsSession.Params.NAV_ROUTE, it.routeBase()) }
+            },
+        )
+    }
+
+    fun recordNavigationBlocked(reason: String, route: String) {
+        analytics.track(
+            AnalyticsEventsSession.NAVIGATION_BLOCKED,
+            mapOf(
+                AnalyticsEvents.Params.REASON to reason,
+                AnalyticsEventsSession.Params.NAV_ROUTE to route.routeBase(),
+            ),
+        )
+        crashReporter.log("navigation_blocked reason=$reason route=${route.routeBase()}")
     }
 
     /** Records the operator switching modules. No-ops when the module is already open. */
@@ -186,6 +210,11 @@ fun GoatOsShell(navState: NavState) {
     val profile by profileVm.state.collectAsStateWithLifecycle()
     var showLanguage by remember { mutableStateOf(false) }
 
+    // Which module the drawer has open — local UI selection, persisted across config change
+    // and process death (see ShellModuleViewModel). Also owns shared shell telemetry.
+    val moduleVm: ShellModuleViewModel = hiltViewModel()
+    val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
+
     // Bottom-nav roots are true role roots, not "return me to whatever child screen was last
     // under this tab" shortcuts. We used to save/restore tab state here; after camera/permission
     // interruptions that could resurrect a hosted child route as the operator landing page, which
@@ -204,6 +233,7 @@ fun GoatOsShell(navState: NavState) {
     val navigate: (String) -> Boolean = { href ->
         if (navController.graph.findNode(href) == null) {
             Log.w(TAG_SHELL, "nav_href_not_hosted route=$href — stale nav cache or newer backend")
+            moduleVm.recordNavigationBlocked("not_hosted", href)
             false
         } else if (navController.popBackStack(href, inclusive = false)) {
             // The tapped root is ALREADY on the back stack (the common case: leaving a sibling tab
@@ -230,10 +260,6 @@ fun GoatOsShell(navState: NavState) {
         }
     }
 
-    // Which module the drawer has open — local UI selection, persisted across config change
-    // and process death (see ShellModuleViewModel).
-    val moduleVm: ShellModuleViewModel = hiltViewModel()
-    val selectedModuleKey by moduleVm.selectedModuleKey.collectAsStateWithLifecycle()
     val visibleNavState = navState
     val canExecuteVaccination = visibleNavState.featureFlags["vaccination_execute"] == true
     // Backend-owned, never inferred. `weighing_execute` is compiled by the backend from
@@ -268,11 +294,13 @@ fun GoatOsShell(navState: NavState) {
         when {
             !hosted -> {
                 Log.w(TAG_SHELL, "push_route_not_hosted route=$route — landing on the default screen")
+                moduleVm.recordNavigationBlocked("push_not_hosted", route)
                 showUnavailableAlertNotice = true
                 navigate(startDestinationFor(visibleNavState))
             }
             !permitted -> {
                 Log.w(TAG_SHELL, "push_route_not_granted route=$route — landing on the default screen")
+                moduleVm.recordNavigationBlocked("push_not_granted", route)
                 showUnavailableAlertNotice = true
                 navigate(startDestinationFor(visibleNavState))
             }
@@ -301,13 +329,23 @@ fun GoatOsShell(navState: NavState) {
         onNavigate = navigate,
         drawerProfile = DrawerProfile(profile.name, profile.roleLabel, profile.initials),
         languageLabel = languageLabel(AppLocaleState.tag),
-        onOpenLanguage = { showLanguage = true },
-        onSignOut = profileVm::signOut,
+        onOpenLanguage = {
+            moduleVm.recordShellAction("language_open", backStackEntry?.destination?.route)
+            showLanguage = true
+        },
+        onSignOut = {
+            moduleVm.recordShellAction("sign_out", backStackEntry?.destination?.route)
+            profileVm.signOut()
+        },
+        onShellAction = { action, route -> moduleVm.recordShellAction(action, route) },
         selectedModuleKey = selectedModuleKey,
         onSelectModule = moduleVm::select,
     ) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
-        OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
+        OfflineBanner(visible = showOffline, onOpenDetails = {
+            moduleVm.recordShellAction("sync_sheet_open", backStackEntry?.destination?.route)
+            showSyncSheet = true
+        })
 
         // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
         // Blocks the app until all required permissions (based on role) are granted.
@@ -361,7 +399,11 @@ fun GoatOsShell(navState: NavState) {
     if (showLanguage) {
         LanguageSheet(
             current = AppLocaleState.tag,
-            onSelect = { code -> profileVm.setLanguage(code); showLanguage = false },
+            onSelect = { code ->
+                moduleVm.recordShellAction("language_select", backStackEntry?.destination?.route)
+                profileVm.setLanguage(code)
+                showLanguage = false
+            },
             onDismiss = { showLanguage = false },
         )
     }
@@ -386,6 +428,7 @@ fun GoatOsShellChrome(
     languageLabel: String = "English",
     onOpenLanguage: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    onShellAction: (String, String?) -> Unit = { _, _ -> },
     selectedModuleKey: String? = null,
     onSelectModule: (NavModule) -> Unit = {},
     content: @Composable () -> Unit,
@@ -470,6 +513,7 @@ fun GoatOsShellChrome(
                     },
                     onOpenAccount = {
                         scope.launch { drawerState.close() }
+                        onShellAction("account_open", currentRoute)
                         onNavigate("/you")
                     },
                     onSignOut = {
@@ -501,6 +545,7 @@ fun GoatOsShellChrome(
                             // route that is already current means the clearing effect never
                             // re-runs and every later tap on that tab is swallowed for good.
                             if (href != currentRoute && pendingNavTarget != href) {
+                                onShellAction("bottom_nav", href)
                                 pendingNavTarget = href
                                 if (!onNavigate(href)) pendingNavTarget = null
                             }

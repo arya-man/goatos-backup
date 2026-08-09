@@ -16,6 +16,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.sync.SyncEngine
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
@@ -39,6 +40,7 @@ class SyncWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val syncEngine: SyncEngine,
     private val syncWorkScheduler: SyncWorkScheduler,
+    private val crashReporter: CrashReporter,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         try {
@@ -55,7 +57,8 @@ class SyncWorker @AssistedInject constructor(
             if (syncEngine.drainOnce()) Result.success() else Result.retry()
         } catch (cancellation: CancellationException) {
             throw cancellation // honour WorkManager's own cancellation — never swallow it.
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            crashReporter.recordException(error, "sync worker drain failed")
             // Durable rows survive + are reclaimed next pass; let WorkManager reschedule.
             Result.retry()
         }

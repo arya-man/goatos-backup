@@ -78,6 +78,12 @@ object AnalyticsEventsSession {
      */
     const val ROUTE_EXITED_VIA_BACK = "route_exited_via_back"
 
+    /** A backend/cached/push navigation route could not be opened by this APK or this principal. */
+    const val NAVIGATION_BLOCKED = "navigation_blocked"
+
+    /** A shared shell control was tapped. [Params.SHELL_ACTION] is a bounded action name. */
+    const val SHELL_ACTION = "shell_action"
+
     /**
      * The login-time optional device-permission readiness card
      * ([sg.mesha.goatos.feature.auth.PermissionGateCard]) rendered with at least one required
@@ -123,5 +129,8 @@ object AnalyticsEventsSession {
          *  cache-fallback path succeeding; distinguishing it from an online load is the entire
          *  point of instrumenting it. */
         const val OFFLINE = "offline"
+
+        /** Coarse shell control/action name, e.g. `bottom_nav`, `language_open`, `sign_out`. */
+        const val SHELL_ACTION = "shell_action"
     }
 }

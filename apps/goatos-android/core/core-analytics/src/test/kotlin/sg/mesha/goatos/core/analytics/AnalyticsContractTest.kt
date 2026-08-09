@@ -30,6 +30,12 @@ class AnalyticsContractTest {
         assertEquals("password_reset_requested", AnalyticsEvents.PASSWORD_RESET_REQUESTED)
         assertEquals("password_reset_sent", AnalyticsEvents.PASSWORD_RESET_SENT)
         assertEquals("sign_out", AnalyticsEvents.SIGN_OUT)
+        assertEquals("feed_row_tapped", AnalyticsEvents.FEED_ROW_TAPPED)
+        assertEquals("feed_transport_viewed", AnalyticsEvents.FEED_TRANSPORT_VIEWED)
+        assertEquals("feed_transport_opened", AnalyticsEvents.FEED_TRANSPORT_OPENED)
+        assertEquals("feed_transport_video_captured", AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED)
+        assertEquals("feed_transport_submitted", AnalyticsEvents.FEED_TRANSPORT_SUBMITTED)
+        assertEquals("feed_transport_failure", AnalyticsEvents.FEED_TRANSPORT_FAILURE)
     }
 
     @Test
@@ -37,6 +43,7 @@ class AnalyticsContractTest {
         assertEquals("method", AnalyticsEvents.Params.METHOD)
         assertEquals("reason", AnalyticsEvents.Params.REASON)
         assertEquals("chrome", AnalyticsEvents.Params.CHROME)
+        assertEquals("session_no", AnalyticsEvents.Params.SESSION_NO)
         assertEquals("email", AnalyticsEvents.Params.EMAIL)
         assertEquals("auth_uid", AnalyticsEvents.Params.FIREBASE_UID)
         assertEquals("role", AnalyticsEvents.UserProps.ROLE)

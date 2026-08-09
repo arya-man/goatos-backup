@@ -149,8 +149,14 @@ class FeedPackingViewModel @Inject constructor(
             is FeedPackingEvent.SelectSession -> selectSession(event.sessionNo)
             is FeedPackingEvent.SelectStatus -> selectStatus(event.status)
             is FeedPackingEvent.SelectDate -> selectDate(event.date)
-            // Row-tap navigation is handled by the NavHost (opens the completion detail).
-            is FeedPackingEvent.OpenRow -> Unit
+            is FeedPackingEvent.OpenRow -> analytics.track(
+                AnalyticsEvents.FEED_ROW_TAPPED,
+                mapOf(
+                    AnalyticsEvents.Params.KIND to KIND_PACKING,
+                    AnalyticsEvents.Params.SHED_ID to event.shedId,
+                    AnalyticsEvents.Params.SESSION_NO to event.sessionNo.toString(),
+                ),
+            )
             FeedPackingEvent.ClearFilters -> clearFilters()
         }
     }
@@ -215,7 +221,9 @@ class FeedPackingViewModel @Inject constructor(
     // The feed day the selected PACKING day is for: packing day + 1 (a packer works today on the sheet
     // fed tomorrow). This is the day the backend keys on and the caption states.
     private fun feedDayIso(packingIso: String): String =
-        runCatching { LocalDate.parse(packingIso).plusDays(1).toString() }.getOrDefault(packingIso)
+        runCatching { LocalDate.parse(packingIso).plusDays(1).toString() }
+            .onFailure { crashReporter.recordException(it, "feed packing day parse failed") }
+            .getOrDefault(packingIso)
 
     // The oldest packing day the date bar may reach: today - PAST_WINDOW_DAYS.
     private fun minPackingDayIso(): String =
@@ -309,6 +317,7 @@ class FeedPackingViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
+        const val KIND_PACKING = "packing"
         // How far back the packing-day picker may browse historical sheets.
         const val PAST_WINDOW_DAYS = 30L
         const val TITLE = "Feed Packing"

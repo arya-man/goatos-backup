@@ -157,9 +157,14 @@ class FeedDirectionViewModel @Inject constructor(
             is FeedDirectionEvent.SelectSession -> selectSession(event.sessionNo)
             is FeedDirectionEvent.SelectStatus -> selectStatus(event.status)
             is FeedDirectionEvent.SelectDate -> selectDate(event.date)
-            // Row-tap navigation is handled by the NavHost (it opens the completion detail); the
-            // ViewModel has nothing to do here.
-            is FeedDirectionEvent.OpenRow -> Unit
+            is FeedDirectionEvent.OpenRow -> analytics.track(
+                AnalyticsEvents.FEED_ROW_TAPPED,
+                mapOf(
+                    AnalyticsEvents.Params.KIND to KIND_DIRECTION,
+                    AnalyticsEvents.Params.SHED_ID to event.shedId,
+                    AnalyticsEvents.Params.SESSION_NO to event.sessionNo.toString(),
+                ),
+            )
             FeedDirectionEvent.ClearFilters -> clearFilters()
         }
     }
@@ -332,6 +337,7 @@ class FeedDirectionViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
+        const val KIND_DIRECTION = "direction"
         const val TITLE = "Feed Direction"
         const val LOADING_MESSAGE = "Loading feed sheet…"
         const val EMPTY_MESSAGE = "No feed rows for this farm and day"
