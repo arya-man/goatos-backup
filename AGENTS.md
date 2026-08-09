@@ -1193,6 +1193,17 @@ Code navigation (graph-first):
 - Graph is the fast first pass for traversal; native Grep/Read is the fallback
   for graph blind spots. One graph query replaces many grep/read cycles when the
   question is graph-shaped.
+- Framework/library docs routing: for implementation, debugging, dependency
+  upgrades, or review that depends on third-party APIs/framework behavior, use
+  the local Context7 docs cache before relying on model memory. `make ai-setup`
+  and `make ai-doctor` run `tools/agent-docs/ensure-context7.sh`, which fetches
+  the Context7 key from Secret Manager when local Mesha `gcloud` auth is
+  available and registers Context7 MCP for Codex/Claude when those CLIs exist.
+  Query order is: repo code graph and Goat OS docs first; then local framework
+  docs under `agent-docs/context7/` or `.agent-docs/context7/`; then live
+  Context7 for missing/stale topics. Fetch narrow topic docs only (for example
+  "Next.js route handlers caching" or "Room migration testing"); never load
+  entire library documentation into the model context.
 - Setup is per-machine and agent-enforced on fresh clones: if `make ai-setup`
   has never run on this clone, the committed `ai-setup-guard` hook blocks the
   first real tool call with bootstrap instructions — run `make ai-setup` first,
@@ -1227,6 +1238,11 @@ Organization boundaries:
   `goatos-prod` projects.
 - Do not use Heva projects/orgs, Slice projects/orgs, or `hevaplatform` for
   Goat OS work.
+- Current active Goat OS agent/tooling project is `goatos-stg`. Do not create,
+  update, read, grant IAM on, or store agent/tooling secrets in `goatos-dev`
+  unless the user explicitly says `goatos-dev` in the same request. For Context7,
+  Gemini/Graphify, Claude/Codex bootstrap, and local agent docs, `goatos-stg`
+  is mandatory.
 - Do not modify or replace the legacy `goatos-sheets` project while creating
   Goat OS projects.
 - Before any cloud/GitHub command that creates, updates, deletes, grants IAM,

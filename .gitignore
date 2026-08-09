@@ -63,6 +63,13 @@ Screenshots/
 .codex-goatos-render/
 .codex-visual/
 .codex-exports/
+.agent-docs/context7/current/
+.agent-docs/context7/planned/
+.agent-docs/context7/graphify-out/
+.agent-docs/context7/manifest.json
+.agent-docs/context7/*.log
+.agent-docs/context7/logs/
+agent-docs/context7/
 .understand-anything/
 **/.claude/launch.json
 # local durable-store scratch (bulk-status worker / dev runtime state)

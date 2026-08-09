@@ -33,6 +33,8 @@ ai-setup:
 	fi
 	bash tools/agent-hooks/repowise-setup.sh
 	bash tools/agent-hooks/install-stg-push-guard.sh
+	bash tools/agent-docs/ensure-context7.sh
+	bash tools/agent-docs/sync-context7-docs.sh
 	$(MAKE) ai-doctor
 	@echo ""
 	@echo "AI setup ready. CRG/Graphify/repowise outputs are local generated artifacts and stay gitignored."
@@ -45,6 +47,7 @@ ai-setup:
 
 ai-doctor:
 	bash tools/agent-hooks/ai-doctor.sh
+	bash tools/agent-docs/ensure-context7.sh --doctor
 
 ai-rebuild: ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise
 
