@@ -498,8 +498,12 @@ stage_assigned AS (
 ),
 targets AS (
     SELECT g.goat_id, g.current_location_id AS from_location_id, g.park_id AS from_park_id,
-           g.shed_id AS from_shed_id, g.farm_id, COALESCE(g.management_stage, '') AS from_stage
+           g.shed_id AS from_shed_id, gsp.partition_label AS from_partition_label,
+           g.farm_id, COALESCE(g.management_stage, '') AS from_stage
     FROM goats g
+    LEFT JOIN goat_shed_partitions gsp
+      ON gsp.tenant_id = g.tenant_id
+     AND gsp.goat_id = g.goat_id
     WHERE g.tenant_id = $1::uuid
       AND g.goat_id = ANY($12::uuid[])
       AND g.merged_into_goat_id IS NULL
@@ -534,9 +538,11 @@ moved AS (
 ),
 history AS (
     INSERT INTO goat_location_history (
-        tenant_id, goat_id, from_location_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+        tenant_id, goat_id, from_location_id, from_partition_label, to_location_id, to_partition_label,
+        reason, occurred_at, actor_id, source_record_id
     )
-    SELECT $1::uuid, i.goat_id, i.from_location_id, $2::uuid, $5, $4::timestamptz, $6::uuid, $7
+    SELECT $1::uuid, i.goat_id, i.from_location_id, nullif(i.from_partition_label, ''),
+           $2::uuid, nullif($21::text, ''), $5, $4::timestamptz, $6::uuid, $7
     FROM identified i
 ),
 events AS (
@@ -581,8 +587,10 @@ events AS (
                 'from_location_id', i.from_location_id::text,
                 'from_park_id', i.from_park_id::text,
                 'from_shed_id', i.from_shed_id::text,
+                'from_partition_label', i.from_partition_label,
                 'to_park_id', $3::text,
                 'to_shed_id', $2::text,
+                'to_partition_label', nullif($21::text, ''),
                 'reason', $5::text,
                 'scope_type', 'shed',
                 'scope_id', $2::text
@@ -672,6 +680,7 @@ SELECT goat_id::text FROM moved`
 		stageEventIDs,               // $18
 		goatStageChangedEventType,   // $19
 		effectiveAgeBand,            // $20 (kid/adult band carried by that cohort tag; "" = leave as-is)
+		stringValue(cmd.DestinationPartitionLabel), // $21
 	)
 	if err != nil {
 		return nil, fmt.Errorf("identity: relocate goats: %w", err)

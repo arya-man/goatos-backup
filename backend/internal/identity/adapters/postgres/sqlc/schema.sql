@@ -6160,7 +6160,8 @@ CREATE TABLE public.goat_location_history (
     tenant_id uuid NOT NULL,
     goat_id uuid NOT NULL,
     from_location_id uuid,
-    to_location_id uuid NOT NULL,
+    from_partition_label text,
+    to_location_id uuid NOT NULL,    to_partition_label text,
     reason text,
     occurred_at timestamp with time zone NOT NULL,
     recorded_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -11750,6 +11751,7 @@ CREATE INDEX goat_location_history_goat_timeline_idx ON public.goat_location_his
 --
 
 CREATE INDEX goat_location_history_tenant_from_location_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, occurred_at DESC) WHERE (from_location_id IS NOT NULL);
+CREATE INDEX goat_location_history_tenant_from_partition_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, COALESCE(from_partition_label, '::text), occurred_at DESC) WHERE (from_location_id IS NOT NULL);
 
 
 --
@@ -11757,6 +11759,7 @@ CREATE INDEX goat_location_history_tenant_from_location_idx ON public.goat_locat
 --
 
 CREATE INDEX goat_location_history_tenant_to_location_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, occurred_at DESC);
+CREATE INDEX goat_location_history_tenant_to_partition_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, COALESCE(to_partition_label, '::text), occurred_at DESC);
 
 
 --

@@ -119,11 +119,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_open_date_partit
   INCLUDE (campaign_id, park_id, operator_user_id, weighing_category, status)
   WHERE status NOT IN ('canceled', 'closed', 'completed');
 
-DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
-DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
-DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
-DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
-
 -- +goose Down
 -- +goose NO TRANSACTION
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_campaign_location_uidx
