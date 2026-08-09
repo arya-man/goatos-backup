@@ -1788,7 +1788,7 @@ export interface paths {
         put?: never;
         /**
          * Switch one pen between the experiment workflow and the normal ration grid.
-         * @description Flips the status of EVERY authored experiment row of the addressed pen in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the pen the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). All cells of that pen flip atomically because a half-enrolled pen has no representable feed; sibling pens in the same shed are untouched. partition_label is required for a subdivided shed and blank for an undivided shed. The legacy path name is retained for compatibility. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a pen can be restored without re-keying them. A pen with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
+         * @description Flips the status of EVERY authored experiment row of the addressed pen in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the pen the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). All cells of that pen flip atomically because a half-enrolled pen has no representable feed; sibling pens in the same shed are untouched. partition_label is required for a subdivided shed and blank for an undivided shed. The legacy path name is retained for compatibility. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a pen can be restored without re-keying them. A pen with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one submits its complete item set through POST /feed-config/experiment/batch instead.
          */
         post: operations["setFeedConfigExperimentShedStatus"];
         delete?: never;
@@ -3423,7 +3423,7 @@ export interface components {
             breed: string;
             /** @description What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
             ration_group: string;
-            /** @description The trial group a hand-authored experiment shed is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the shed is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
+            /** @description The trial group a hand-authored experiment pen is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the pen is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
             experiment_arm: string;
             session_no: number;
             session_label: string;
@@ -3432,10 +3432,10 @@ export interface components {
              * @description Projected head count for this grain on the target date -- live herd plus the approved but unexecuted movements. Sex is summed away because it is not part of the ration key.
              */
             head_count: number;
-            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a shed total. Multiplying by head count there would overfeed the shed by a factor of its whole population, so this flag exists to stop exactly that. */
+            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a pen total. Multiplying by head count there would overfeed the pen by a factor of its whole population, so this flag exists to stop exactly that. */
             head_count_informational: boolean;
             /**
-             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per shed.
+             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per pen (an undivided shed is one pen).
              * @enum {string}
              */
             workflow: "normal" | "experiment";
@@ -3564,14 +3564,14 @@ export interface components {
             session_label: string;
             /** @enum {string} */
             workflow: "normal" | "experiment";
-            /** @description The trial group of a hand-authored experiment shed, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
+            /** @description The trial group of a hand-authored experiment pen, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
             experiment_arm: string;
             /**
              * Format: int64
              * @description The shed's projected head count, summed across its ration grains.
              */
             head_count: number;
-            /** @description SHED-level expected quantity per feed item, with the ration grains already summed, because a packer fills one bag per item per shed. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
+            /** @description Operational-pen expected quantity per feed item, with the ration grains already summed within that pen (an undivided shed is one pen), because a packer fills one bag per item per operational location. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
             items: components["schemas"]["FeedDirectionItemQuantity"][];
             /** @description Sum of the resolved items, as an exact decimal string. */
             total_kg: string;
@@ -3906,7 +3906,7 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned shed writes the shed-wide row instead of the pen, creating a phantom whole-shed row beside the real pens. Absent means an undivided shed. */
+            /** @description WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned shed is rejected rather than creating a phantom whole-shed row. Absent means an undivided shed. */
             partition_label?: string | null;
             /** @description The experiment ARM, carried ONCE for the pen rather than per item. Per-item copies would let one pen hold two arms, with the display picking whichever row sorted first. */
             experiment_category: string;
@@ -3944,7 +3944,7 @@ export interface components {
             absolute_kg: number;
             /** @description INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records "not recorded", which stays distinct from an authored 0. */
             head_count?: number | null;
-            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment shed -- the operator's only cue that these numbers are hand-entered rather than computed. */
+            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment pen -- the operator's only cue that these numbers are hand-entered rather than computed. */
             experiment_category: string;
         };
         SetFeedConfigExperimentShedStatusRequest: {
