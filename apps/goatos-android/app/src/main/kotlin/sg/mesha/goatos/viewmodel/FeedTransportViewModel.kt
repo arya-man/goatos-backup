@@ -146,17 +146,15 @@ class FeedTransportViewModel @Inject constructor(
             FeedTransportEvent.LoadMore -> loadMore()
             is FeedTransportEvent.SelectDate -> selectDate(event.date)
             is FeedTransportEvent.SelectPark -> selectPark(event.parkId)
-            is FeedTransportEvent.SelectShed -> {
-                updateQuery(query.value.copy(shedId = event.shedId))
+            is FeedTransportEvent.SelectShed -> if (updateQuery(query.value.copy(shedId = event.shedId))) {
                 trackFilter(DIMENSION_SHED, event.shedId)
             }
-            is FeedTransportEvent.SelectStatus -> {
-                updateQuery(query.value.copy(status = event.status))
+            is FeedTransportEvent.SelectStatus -> if (updateQuery(query.value.copy(status = event.status))) {
                 trackFilter(DIMENSION_STATUS, event.status)
             }
-            FeedTransportEvent.ClearFilters -> updateQuery(
-                query.value.copy(parkId = "", shedId = "", status = ""),
-            ).also { trackFilter(DIMENSION_ALL, "") }
+            FeedTransportEvent.ClearFilters -> if (updateQuery(query.value.copy(parkId = "", shedId = "", status = ""))) {
+                trackFilter(DIMENSION_ALL, "")
+            }
             is FeedTransportEvent.Open -> analytics.track(
                 AnalyticsEvents.FEED_ROW_TAPPED,
                 mapOf(
@@ -229,19 +227,22 @@ class FeedTransportViewModel @Inject constructor(
 
     private fun selectDate(date: LocalDate) {
         if (date.isAfter(LocalDate.parse(today))) return
-        updateQuery(query.value.copy(businessDate = date.toString()))
-        trackFilter(DIMENSION_DATE, date.toString())
+        if (updateQuery(query.value.copy(businessDate = date.toString()))) {
+            trackFilter(DIMENSION_DATE, date.toString())
+        }
     }
 
     private fun selectPark(parkId: String) {
-        updateQuery(query.value.copy(parkId = parkId, shedId = ""))
-        trackFilter(DIMENSION_FARM, parkId)
+        if (updateQuery(query.value.copy(parkId = parkId, shedId = ""))) {
+            trackFilter(DIMENSION_FARM, parkId)
+        }
     }
 
-    private fun updateQuery(next: FeedTransportQuery) {
-        if (next == query.value) return
+    private fun updateQuery(next: FeedTransportQuery): Boolean {
+        if (next == query.value) return false
         query.value = next
         refresh()
+        return true
     }
 
     private fun trackFilter(dimension: String, value: String) {
