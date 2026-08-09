@@ -7,6 +7,9 @@ Reviewed snapshot: `97e2b462cc4cc39e78b3c99209a09f739c3d2e31`
 Fresh-main counter-review snapshot:
 `4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`
 
+Final counter-review correction snapshot:
+`07640ad5388ffb6ed87701ea7f4f522c92fb3e82`
+
 Review date: 2026-08-09
 
 This is the current implementation queue for the whole-project audit. The
@@ -177,16 +180,19 @@ Implementation instructions:
    notifications, withdrawn-verifier notification, lock contention, migration
    interruption/rerun, and an upgrade from the current committed schema.
 7. Recover obligation misses by expected branch/person/route idempotency key,
-   not “any request exists for this obligation.” Before historical send, lock
-   and re-read canonical status, source version, successor, and rescope state.
-   Completed, canceled, waived, superseded, or otherwise no-longer-actionable
-   work records `since_resolved`/`superseded` and sends nothing. Reconcile the
-   current actionable named people and current routes separately for operator
-   and leadership, recording resolution basis/time; device churn makes an exact
-   historical device set unknowable. Persist `queued`, `no_recipient`,
-   `unclaimed_module`, `failed`, or the no-longer-actionable outcome per branch.
-   Replay retained DLQ events, then run a bounded keyset database repair for
-   older/partial events. Verify zero unresolved repair rows after deployment.
+   not “any request exists for this obligation.” Use the same actionability
+   fence for recovery and new events: lock and re-read canonical status, source
+   version, successor, and rescope state, then insert every notification request
+   and persist every operator/leadership branch outcome in that same database
+   transaction. Completed, canceled, waived, superseded, or otherwise
+   no-longer-actionable work records `since_resolved`/`superseded` and sends
+   nothing. Reconcile the current actionable named people and current routes
+   separately for operator and leadership, recording resolution basis/time;
+   device churn makes an exact historical device set unknowable. Persist
+   `queued`, `no_recipient`, `unclaimed_module`, `failed`, or the
+   no-longer-actionable outcome per branch. Replay retained DLQ events, then run
+   a bounded keyset database repair for older/partial events. Verify zero
+   unresolved repair rows after deployment.
 8. Recover withdrawn-verification failures separately: replay retained failed
    `verification.item.closed` events, then make and record an explicit policy
    choice for older rows—repair only still-actionable current recipients, or no
@@ -194,7 +200,11 @@ Implementation instructions:
    historical withdrawals blindly.
 9. Persist the same branch outcomes for new events, not only recovery. Give
    `no_recipient`, `unclaimed_module`, and `failed` an alert owner and bounded
-   reconciler; a warning log is not durable delivery evidence.
+   reconciler; a warning log is not durable delivery evidence. Immediately
+   before external delivery, fail closed by rechecking the canonical
+   actionability/source-version fence or an atomically maintained equivalent
+   suppression fence. A queued row is not permission to contact someone after
+   the work completed, canceled, waived, superseded, or rescoped.
 
 The restart-safe migration must also handle `canonical absent + validated v2`
 by renaming v2, and must fail closed on `canonical absent + unvalidated or
@@ -547,15 +557,15 @@ production repair were not run as part of this source-only ledger refresh.
 The 68-item external improvement review, produced from
 `b492146461ff1d5c4994a20f339daf69ce273630`, was then independently
 counter-checked against fresh `origin/main` at
-`4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`. The only commit after its source
-snapshot changed an admin-shell pending state, so the affected notification,
-roster, task, release, security, and module paths were re-read on the fresh SHA.
-Valid corrections are merged above and into the companion kernel plan; duplicate
-descriptions were merged into one owning batch, partial claims were narrowed,
-and unsupported preferences were not promoted to findings. The final
-claim-level scorecard is 48 accepted, 14 partially accepted/narrowed, and 6
-rejected. This update changes documentation only; it is not product-code or
-deployed-state closure proof.
+`4ec92c99e75fe83d27b50b4fcabad73be6cc1d6f`, with the final disputed claims
+rechecked at `07640ad5388ffb6ed87701ea7f4f522c92fb3e82`. The affected
+notification, roster, task, release, security, and module paths were re-read on
+those fresh SHAs. Valid corrections are merged above and into the companion
+kernel plan; duplicate descriptions were merged into one owning batch, partial
+claims were narrowed, and unsupported preferences were not promoted to
+findings. The final claim-level scorecard is 48 accepted, 15 partially
+accepted/narrowed, and 5 rejected. This update changes documentation only; it
+is not product-code or deployed-state closure proof.
 
 Known red controls at this snapshot:
 
