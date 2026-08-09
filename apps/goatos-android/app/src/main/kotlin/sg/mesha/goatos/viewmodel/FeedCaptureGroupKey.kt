@@ -1,7 +1,8 @@
 package sg.mesha.goatos.viewmodel
 
 /**
- * The identity of ONE feed capture flow: a shed's PEN, in one session, in one workflow.
+ * The identity of ONE feed capture flow: a shed's PEN, on one feed DAY, in one session, in one
+ * workflow.
  *
  * This key is load-bearing three times over, which is why it lives in one tested function instead
  * of being re-typed in each view model:
@@ -21,6 +22,14 @@ package sg.mesha.goatos.viewmodel
  * (`app.completedKey`) and the client's list `grainKey` — but the capture draft was keyed here, one
  * hop further on, and was missed.
  *
+ * [targetDate] is the SAME defect one dimension over, and it predates the pen fix rather than
+ * arriving with it: the key has never carried the feed day, so today's capture for a pen/session it
+ * already ran yesterday rehydrates YESTERDAY's committed draft — success screen, no filming
+ * possible — and its completion collapses on the backend as a replay of yesterday's. A feed task is
+ * created per shed per DAY, so the day is part of the task's identity and belongs in the key that
+ * claims to be that task's identity. Pass the row's own `target_date` (`YYYY-MM-DD`); it is already
+ * on the route and already sent in the request body.
+ *
  * [partitionLabel] is the raw pen from the row ("2", "Part 3"), blank for an undivided shed.
  *
  * NOTE ON NORMALIZATION: [partitionMatchToken] is a DEVICE-LOCAL token, not the backend's
@@ -36,7 +45,22 @@ internal fun feedCaptureGroupKey(
     partitionLabel: String,
     sessionNo: Int,
     workflow: String,
-): String = "$prefix:$shedId:${partitionMatchToken(partitionLabel)}:$sessionNo:$workflow"
+    targetDate: String,
+): String =
+    "$prefix:${dateToken(targetDate)}:$shedId:${partitionMatchToken(partitionLabel)}:$sessionNo:$workflow"
+
+/**
+ * The feed day as a key segment.
+ *
+ * Blank collapses to [UNDATED_TOKEN] rather than an empty segment, so a route that somehow omits the
+ * date still yields a well-formed key instead of one that reads `feed-pack::shed-x:...`. That is a
+ * degraded case, not a supported one — two undated opens on different days DO still share a key —
+ * but every real caller passes the row's `target_date`, and a missing one is a routing bug to fix at
+ * the route rather than something to paper over with a device clock read here. Reading the clock
+ * would be worse: it would key an in-progress capture to the day it happened to be opened, so a
+ * capture started before midnight would lose its draft when submitted after.
+ */
+private fun dateToken(targetDate: String): String = targetDate.trim().ifEmpty { UNDATED_TOKEN }
 
 /**
  * Device-local matching token for a pen: trimmed, lowercased, internal whitespace collapsed.
@@ -51,5 +75,7 @@ internal fun partitionMatchToken(partitionLabel: String): String {
 }
 
 private const val WHOLE_SHED_TOKEN = "whole"
+
+private const val UNDATED_TOKEN = "undated"
 
 private val WHITESPACE_RUN = Regex("\\s+")
