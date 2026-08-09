@@ -163,6 +163,18 @@ deploy() {
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
 
+  # Migrations can replace database arbiters used by the currently-running worker. Drain the
+  # old worker before migrating, then restore the fixed-size worker service on the new image below.
+  run gcloud run services update "$KERNEL_WORKER_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --min-instances=0 \
+    --max-instances=1 \
+    --cpu-throttling \
+    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=false" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_drain" \
+    --quiet
+
   run gcloud run jobs update "$MIGRATE_JOB" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
