@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
 import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
 import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingStatusUi
+import sg.mesha.goatos.feature.counts.ShiftingStateTone
 import sg.mesha.goatos.feature.counts.ShiftingPreviousDateUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingUiState
 import java.time.LocalDate
@@ -149,6 +150,16 @@ class ShiftingPendingViewModel @Inject constructor(
             eventStatus == "applied" && primaryActionKey == "execute" -> "Evidence rework"
             eventStatus == "applied" -> "Completed"
             else -> "Action required"
+        },
+        // Waiting is for a row the operator cannot clear by themselves: an unapproved movement
+        // (someone else must act first) or one whose evidence a verifier sent back. Both need to be
+        // read at a glance, and the unapproved one carries the whole explanation for why its card
+        // does not respond to a tap.
+        actionStateTone = when {
+            eventStatus == "pending" -> ShiftingStateTone.Waiting
+            eventStatus == "applied" && primaryActionKey == "execute" -> ShiftingStateTone.Waiting
+            eventStatus == "applied" -> ShiftingStateTone.Done
+            else -> ShiftingStateTone.Neutral
         },
     )
 
