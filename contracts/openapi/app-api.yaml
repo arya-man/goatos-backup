@@ -6756,9 +6756,17 @@ paths:
       operationId: listAppCountsShiftingPendingExecution
       summary: List shifting Actions from raise through execution and evidence rework.
       description: >-
-        The operator's Shifting Actions history: newly raised movements appear immediately, before
-        Park Head approval; authorized and evidence-rework movements remain actionable; completed
-        movements remain visible. Each row carries where the animals are/were,
+        The operator's Shifting Actions history. APPROVE FIRST: a newly raised movement is NOT in the
+        work list and is not actionable until a Park Head approves it — it is reachable only through
+        status=pending, which is read-only (`primary_action_key=none`, "Awaiting Park Head
+        approval"). status=all therefore EXCLUDES unapproved movements. Authorized and
+        evidence-rework movements are actionable; completed movements remain visible.
+        LEAD TIME: an approved movement awaiting operator work appears when it is DUE. High priority
+        is due the second it is approved. Low priority is planned work: raised before 13:30 IST it is
+        due the next day, raised at or after 13:30 IST the day after that. It stays filed under its
+        RAISED business date either way, so a held movement is simply absent until its due day. An
+        already-applied movement (completed, or in evidence rework) is history and is never held.
+        Each row carries where the animals are/were,
         where they are going, approval fields when present, plus the full animal_count and a preview of at
         most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full
         roster is deliberately NOT embedded in a list row; animals_truncated reports when the
@@ -6819,20 +6827,20 @@ paths:
       operationId: completeAppCountsShiftingEvent
       summary: Confirm a shifting happened and submit its mandatory live-camera evidence.
       description: >-
-        Records that an operator physically moved the animals AND uploaded the mandatory video proof
-        (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates.
-        If approval already exists, this request atomically relocates the animals and moves the count;
-        otherwise it keeps event_status='pending' with completion stamps and approval applies the move later.
-        Verification reviews the video afterward. Approval marks evidence verified; rejection creates
-        evidence rework and never rolls back goat location or census truth.
+        Records that an operator physically moved the animals AND uploaded the mandatory video proof.
+        APPROVE FIRST (maintainer decision 2026-08-09, superseding the 2026-07-28 order-free gates):
+        Park Head approval must already exist. This request atomically relocates the animals and
+        moves the count. Verification reviews the video afterward. Approval marks evidence verified;
+        rejection creates evidence rework and never rolls back goat location or census truth.
         Low priority requires proof_ref only. High priority embeds feed packing and feeding inside
         Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three
         are reviewed together in one Shifting verification item. The packing proof does not complete
         the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint
         returned by the pending-execution read; missing config blocks with 422 and changed config
         blocks with 409 so the server never guesses feed.
-        Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or
-        canceled movements are refused with 400 shifting_not_authorized.
+        Valid from event_status='authorized', and for evidence rework on an already-approved
+        movement. An UNAPPROVED (event_status='pending'), rejected, or canceled movement is refused
+        with 400 shifting_not_authorized and nothing is written.
         ANY operator holding counts.write may complete a movement, not only the operator who raised
         it: the person who witnesses the animals move is not reliably the person who typed the
         request.

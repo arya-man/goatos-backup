@@ -1,26 +1,67 @@
-# Shifting applies after Park Head approval and operator completion
+# Shifting applies after Park Head approval, then operator completion
 
-**Status:** Accepted — maintainer decision, 2026-07-28.
-**Supersedes:** the 2026-07-26 rule that made verifier approval the relocation/count gate.
+**Status:** Accepted — maintainer decision, 2026-08-09 (APPROVE-FIRST).
+**Supersedes:** the 2026-07-28 rule that made the two gates independent and order-free, which itself
+superseded the 2026-07-26 rule that made verifier approval the relocation/count gate.
 
 ## Decision
 
-A shifting has two independent business gates and one evidence-review track:
+A shifting has two ORDERED business gates and one evidence-review track:
 
 ```text
-raise -> pending -> visible in Android Actions immediately
+raise -> pending -> NOT in the operator's Actions work list
+                    (read-only under the Pending tab: "Awaiting Park Head approval")
 
-Park Head approval ─┐
-                    ├─ when BOTH exist -> APPLIED atomically
-operator completion ┘                    (goat shed/stage + census move)
+Park Head approval  -> authorized -> now in the work list, now executable (NOTHING MOVED YET)
+operator completion -> APPLIED atomically (goat shed/stage + census move)
 
 operator video -> generic Verification -> verified or evidence rework
                                       -> NEVER relocates or rolls back census
 ```
 
-- The Park Head is the approval authority.
-- Approval and completion may arrive in either order. The first fact is stored without relocating;
-  the transaction recording the second fact applies the move.
+- The Park Head is the approval authority, and approval comes FIRST. Every movement, low and high
+  priority alike.
+- An unapproved movement is invisible to the operator's work list (`status=all` excludes
+  `event_status='pending'`, and so does `status=rework`) and non-completable
+  (`ErrShiftingNotAuthorized`, writing no proof, no completion stamp, and no verification item). The
+  gate reads `authorization_state`, not `event_status`, because a legacy `pending_verification` row
+  can still be unapproved.
+- The raiser keeps visibility: the retained `pending` tab lists the movement read-only, with
+  `primary_action_key='none'`.
+- Why this replaced the order-free rule: an operator could burn the mandatory video — all THREE on a
+  high-priority move — on a movement the park head then rejected, and a verifier could be handed
+  evidence for a move nobody authorized.
+
+### Actions lead time
+
+An approved movement awaiting operator work enters Actions when it is DUE:
+
+| Priority | Raised | Due |
+|---|---|---|
+| High | any time | immediately, to the second |
+| Low | before 13:30 IST | next day, 00:00 IST |
+| Low | at or after 13:30 IST | day after next, 00:00 IST |
+
+High priority carries its own feed evidence, so nothing has to be prepared for it in advance. Low
+priority is planned work: the destination has to be fed and the feed sheet has a packing day, so a
+movement raised past the afternoon cutoff misses the next day's plan.
+
+- A held movement keeps its RAISED business date and is absent from the queue until due; it does not
+  move to a later date bucket. On its due day the operator pages back to the raise date, which is
+  what the previous-dates strip is for.
+- Anchored on RAISE time, so the due date a park head sees when approving is the one the operator
+  gets — and a late approval needs no special case, since `now` is already past the due instant.
+- Only `event_status='authorized'` rows are held. Applied movements (completed or in evidence
+  rework) are history and are never held; `pending` rows are never held either.
+- NOT an authority gate: completion is not blocked before the due date. The animals may genuinely
+  have walked today, and refusing to record a movement that happened would make the herd register lie.
+- **Actions queue only.** The feed-direction shifting projection keeps its 2026-07-27 rule — no lead
+  time, no priority branch, counting `authorized` + `pending_verification` immediately. Do not
+  collapse the two.
+
+Canonical rule: `counts/domain.ShiftingActionsDueFrom`, mirrored in SQL by
+`shiftingActionsVisibleSQL`, which the page query, the status counts, and the previous-dates strip
+all share so a tab badge cannot advertise work the tab hides.
 - Low-priority operator completion requires one live-camera shifting video in
   `shifting_events.proof_ref`; that existing flow is unchanged.
 - High-priority shifting embeds feed packing and feeding inside Shifting. It shows the exact
@@ -57,19 +98,22 @@ operator video -> generic Verification -> verified or evidence rework
 ## State transitions
 
 ```text
-pending --operator complete--> pending + completed_at/by/proof (approval absent; no move)
+pending --operator complete--> REFUSED, nothing written (ErrShiftingNotAuthorized)
 pending --Park Head approve--> authorized            (completion absent; no move)
 
-pending+completed --Park Head approve--> applied     (move/count now)
 authorized --operator complete--> applied             (move/count now)
+authorized --operator cancel--> canceled              (no move)
 
-pending/applied --verifier approve--> same event_status + verified
-pending/applied --verifier rework--> same event_status + rejected
-rejected evidence --operator re-shoot--> same movement state + unverified/new item
+applied --verifier approve--> applied + verified
+applied --verifier rework--> applied + rejected       (no rollback)
+rejected evidence --operator re-shoot--> applied + unverified/new item
 ```
 
-`pending_verification` remains only as a rollout-compatible status for rows created under the
-superseded rule; new completion-before-approval rows stay `pending` and use explicit completion stamps.
+`pending_verification`, and a `pending` row carrying completion stamps, remain only as
+rollout-compatible states for rows created under the superseded order-free rule. The
+approval-arrives-second apply branch in `authorizeShiftingEventInTx` exists solely to finish those
+in-flight rows and MUST NOT be read as permission to complete before approval — the completion path
+refuses that outright. New movements can no longer reach either state.
 
 ## Atomic writer and event spine
 
@@ -98,19 +142,28 @@ verdict handler once during rollout compatibility; new rows always apply at the 
 ## Actions read contract
 
 `GET /app/counts/shifting-events/pending-execution` is the bounded Android Actions read at
-`shifting_event` grain. It includes:
+`shifting_event` grain. The five buckets stay disjoint and every non-canceled row lands in exactly
+one, so nothing becomes unreachable:
 
-- `pending` with no proof — raised, awaiting approval and operator work;
-- `authorized` with no proof — approved, awaiting operator work; and
-- `verification_state='rejected'` — evidence rework, including an already-applied move.
+| `status` | Contains | Actionable |
+|---|---|---|
+| `all` | the operator's WORK LIST — everything except `pending` and `canceled` | per row |
+| `pending` | `event_status='pending'` — raised, awaiting Park Head approval | NO, read-only |
+| `authorized` | approved, awaiting operator work | yes |
+| `rework` | `verification_state='rejected'`, excluding `pending` and `canceled` | yes |
+| `completed` | `applied` and not in evidence rework | no |
+
+`primary_action_key` is backend-owned and is `none` for every `pending` row, so a client cannot make
+an unapproved movement executable by rendering it differently. Each bucket's whole-filter count in
+`status_counts` mirrors its page predicate exactly, so a tab's badge always equals what that tab
+lists.
 
 High-priority rows also carry one backend-owned `feed_requirement` at shifting-event grain: `ready`
 with fingerprint/stage/feed totals, or `blocked` with the exact reason. Quantity covers the full
 approved animal set, never the bounded animal preview.
 
-It excludes completed `pending` rows and ordinary `applied` rows while evidence review proceeds. The
-query is keyset-paginated by `(raised_at, shifting_event_id)`, limited to 20, and backed
-by the partial indexes in migration `000050_shifting_actions_index.sql`.
+The query is keyset-paginated by `(raised_at, shifting_event_id)`, limited to 20, and backed by the
+partial indexes in migration `000050_shifting_actions_index.sql`.
 
 ## Schema and rollout
 

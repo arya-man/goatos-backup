@@ -474,8 +474,8 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusNotFound, "shifting_event_not_found", "shifting event not found", err)
 	case errors.Is(err, ports.ErrShiftingNotAuthorized):
 		// 400, not 409: the caller addressed a movement that is in the wrong state for this
-		// transition (already rejected, canceled, or otherwise terminal). Pending approval is a
-		// valid completion state under the independent approval + completion gate.
+		// transition -- awaiting Park Head approval (approve-first, maintainer decision 2026-08-09),
+		// or already rejected, canceled, or otherwise terminal.
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)

@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -161,8 +164,10 @@ func TestCancelShiftingIsIdempotent(t *testing.T) {
 // State machine gating
 // ---------------------------------------------------------------------------
 
-// TestCompleteRejectsUnauthorizedStates pins that a pending request may record operator completion
-// but cannot relocate; canceled and unknown movements remain non-completable.
+// TestCompleteRejectsUnauthorizedStates pins that pending, canceled, and unknown movements are all
+// non-completable. Pending is the one that CHANGED: under the retired 2026-07-28 rule a raised
+// movement could record completion and wait for approval to apply it; approve-first (maintainer
+// decision 2026-08-09) refuses it outright.
 func TestCompleteRejectsUnauthorizedStates(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -173,13 +178,14 @@ func TestCompleteRejectsUnauthorizedStates(t *testing.T) {
 
 	// PENDING: raised but never approved.
 	pendingEventID, _ := submitShiftingApproval(t, ctx, repo, "gate-pending", []string{goatA})
-	if result, _, err := completeShifting(repo, ctx, "gate-pending", pendingEventID); err != nil {
-		t.Fatalf("recording completion before approval: %v", err)
-	} else if result.EventStatus != domain.ShiftingEventStatusPending {
-		t.Fatalf("status=%q after completion-only, want pending", result.EventStatus)
+	if _, _, err := completeShifting(repo, ctx, "gate-pending", pendingEventID); !errors.Is(err, ports.ErrShiftingNotAuthorized) {
+		t.Fatalf("completing a PENDING (unapproved) movement: err=%v, want ErrShiftingNotAuthorized", err)
 	}
 	if got := goatShed(t, ctx, pool, goatA); got != countsShedA {
 		t.Fatalf("goat shed=%s after a refused completion, want it untouched at %s", got, countsShedA)
+	}
+	if got := shiftingEventStatus(t, ctx, pool, pendingEventID); got != domain.ShiftingEventStatusPending {
+		t.Fatalf("event_status=%q after a refused completion, want it still pending", got)
 	}
 
 	// CANCELED: authorized, then retired.
@@ -198,6 +204,50 @@ func TestCompleteRejectsUnauthorizedStates(t *testing.T) {
 	// UNKNOWN id.
 	if _, _, err := completeShifting(repo, ctx, "gate-missing", "00000000-0000-4000-8000-0000000000ff"); !errors.Is(err, ports.ErrShiftingEventNotFound) {
 		t.Fatalf("completing an unknown movement: err=%v, want ErrShiftingEventNotFound", err)
+	}
+}
+
+// TestCompleteReportsNotAuthorizedBeforeFeedEvidenceOnAHighPriorityMovement pins ERROR PRECEDENCE.
+//
+// A HIGH-priority movement needs three videos and a feed-config fingerprint. If those checks run
+// before the approval check, an operator completing an unapproved high-priority movement is told to
+// "record the feed videos" when the real answer is "nobody has approved this yet" -- and the server
+// runs the whole feed-requirement resolution for a request it is about to refuse. The approval
+// answer must come first, and nothing may be written.
+func TestCompleteReportsNotAuthorizedBeforeFeedEvidenceOnAHighPriorityMovement(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatA := "00000000-0000-4000-8000-00000000d0a1"
+	seedApprovalGoat(t, ctx, pool, goatA, countsShedA)
+	eventID, _ := submitShiftingApproval(t, ctx, repo, "gate-high-unapproved", []string{goatA})
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET priority = 'high'
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, eventID); err != nil {
+		t.Fatalf("mark movement high priority: %v", err)
+	}
+
+	// No feed proofs and no fingerprint supplied -- the feed checks would all fire if they ran first.
+	_, _, err := repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+		TenantID:           countsTenant,
+		ShiftingEventID:    eventID,
+		CompletedByUserID:  countsOperator,
+		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		ProofRef:           "proof-artifact-high-unapproved",
+		IdempotencyKey:     "complete-high-unapproved",
+		RequestFingerprint: "complete-fp-high-unapproved",
+	})
+	if !errors.Is(err, ports.ErrShiftingNotAuthorized) {
+		t.Fatalf("completing an unapproved HIGH-priority movement: err=%v, want ErrShiftingNotAuthorized "+
+			"-- the operator must be told it is unapproved, not told to record feed videos", err)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM shifting_events
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND (proof_ref IS NOT NULL OR completed_at IS NOT NULL OR feed_requirement_snapshot IS NOT NULL)`,
+		countsTenant, eventID); got != 0 {
+		t.Fatalf("refused completion left %d row(s) carrying proof/completion/feed state, want 0", got)
 	}
 }
 
@@ -250,8 +300,9 @@ func TestCancelRejectsNonAuthorizedStates(t *testing.T) {
 // Pending-execution queue
 // ---------------------------------------------------------------------------
 
-// TestListPendingExecutionReturnsRaisedAndAuthorizedActions proves Actions includes newly raised and
-// approved work, but excludes applied and canceled movements.
+// TestListPendingExecutionReturnsOnlyAuthorizedRows proves the operator's work list ('all') carries
+// approved and completed movements and EXCLUDES both canceled and unapproved ones, and that the
+// whole-filter status counts agree with what each bucket actually lists.
 func TestListPendingExecutionReturnsOnlyAuthorizedRows(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -295,16 +346,17 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appl
 	if err != nil {
 		t.Fatalf("list pending execution: %v", err)
 	}
-	if len(page.Items) != 3 {
-		t.Fatalf("action rows=%d, want pending + authorized + completed", len(page.Items))
+	if len(page.Items) != 2 {
+		t.Fatalf("work-list rows=%d, want authorized + completed only -- an unapproved movement is "+
+			"not the operator's work (maintainer decision 2026-08-09)", len(page.Items))
 	}
 	var row domain.ShiftingExecutionRow
-	foundPending, foundAuthorized, foundCompleted := false, false, false
+	foundAuthorized, foundCompleted := false, false
 	var completedRow domain.ShiftingExecutionRow
 	for _, candidate := range page.Items {
 		switch candidate.ShiftingEventID {
 		case pendingEventID:
-			foundPending = true
+			t.Fatalf("work list included the UNAPPROVED movement %s", pendingEventID)
 		case authorizedEventID:
 			foundAuthorized = true
 			row = candidate
@@ -313,16 +365,34 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appl
 			completedRow = candidate
 		}
 	}
-	if !foundPending || !foundAuthorized || !foundCompleted {
-		t.Fatalf("actions did not include pending=%t authorized=%t completed=%t",
-			foundPending, foundAuthorized, foundCompleted)
+	if !foundAuthorized || !foundCompleted {
+		t.Fatalf("actions did not include authorized=%t completed=%t", foundAuthorized, foundCompleted)
+	}
+	// The unapproved movement is not lost -- it is reachable, read-only, under its own bucket.
+	pendingPage, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, Status: "pending",
+	})
+	if err != nil {
+		t.Fatalf("list pending bucket: %v", err)
+	}
+	if len(pendingPage.Items) != 1 || pendingPage.Items[0].ShiftingEventID != pendingEventID {
+		t.Fatalf("pending bucket=%v, want only the unapproved movement %s", pendingPage.Items, pendingEventID)
+	}
+	if got := pendingPage.Items[0].PrimaryActionKey; got != "none" {
+		t.Fatalf("pending primary_action_key=%q, want none", got)
 	}
 	if row.PrimaryActionKey != "execute" || completedRow.PrimaryActionKey != "none" {
 		t.Fatalf("primary actions authorized=%q completed=%q, want execute/none",
 			row.PrimaryActionKey, completedRow.PrimaryActionKey)
 	}
-	from := completedRow.RaisedAt.Add(-time.Second)
-	before := completedRow.RaisedAt.Add(time.Second)
+	// A window wide enough to hold every movement this test raised. It was previously RaisedAt±1s,
+	// which did NOT isolate the completed row -- the four fixture movements are all raised inside the
+	// same second -- so the "want all=1" assertion below could never hold and this test was red on
+	// main before this change. Widening the window makes it deterministic and lets it assert the
+	// thing the comment always claimed: the counts are WHOLE-FILTER aggregates, unaffected by the
+	// completed filter or by page size.
+	from := completedRow.RaisedAt.Add(-time.Hour)
+	before := completedRow.RaisedAt.Add(time.Hour)
 	completedPage, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
 		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, Status: "completed",
 	})
@@ -332,8 +402,13 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appl
 	if len(completedPage.Items) != 1 || completedPage.Items[0].ShiftingEventID != appliedEventID {
 		t.Fatalf("completed/date rows=%v, want only %s", completedPage.Items, appliedEventID)
 	}
-	if completedPage.StatusCounts.All != 1 || completedPage.StatusCounts.Completed != 1 {
-		t.Fatalf("whole-date status counts=%+v, want all=1 completed=1 independent of completed filter/page", completedPage.StatusCounts)
+	// Every bucket at once, so a tab's badge always equals what that tab lists: the four movements
+	// are pending / authorized / applied / canceled, and All counts the operator's work list only --
+	// authorized + applied, with the unapproved one carried by Pending and the canceled one nowhere.
+	wantCounts := domain.ShiftingActionStatusCounts{All: 2, Pending: 1, Authorized: 1, Rework: 0, Completed: 1}
+	if completedPage.StatusCounts != wantCounts {
+		t.Fatalf("whole-date status counts=%+v, want %+v independent of the completed filter and page size",
+			completedPage.StatusCounts, wantCounts)
 	}
 	for _, excluded := range []struct{ id, why string }{
 		{canceledEventID, "canceled"},
@@ -378,9 +453,291 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appl
 	}
 }
 
-// TestListPendingExecutionPaginatesByKeyset proves the queue pages at the mobile bound and that the
-// cursor walks forward without skipping or repeating a movement.
-func TestListPendingExecutionPaginatesByKeyset(t *testing.T) {
+// TestListPendingExecutionStatusBucketsAreDisjointAndTotal is the adversarial status matrix for the
+// approve-first bucket rule (maintainer decision 2026-08-09).
+//
+// It drives one movement into EVERY reachable status and proves three things at once: each bucket
+// lists exactly the rows it should, the buckets are disjoint AND total (no row is unreachable, which
+// is the failure mode of excluding 'pending' from 'all' carelessly), and every whole-filter
+// status_count equals the number of rows its own bucket lists — so a tab's badge can never disagree
+// with the tab.
+func TestListPendingExecutionStatusBucketsAreDisjointAndTotal(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	// Completions relocate into shed B, so it needs its cohort profile.
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+
+	pendingID, _ := func() (string, string) {
+		seedApprovalGoat(t, ctx, pool, "00000000-0000-4000-8000-00000000f001", countsShedA)
+		return submitShiftingApproval(t, ctx, repo, "matrix-pending", []string{"00000000-0000-4000-8000-00000000f001"})
+	}()
+	authorizedID := authorizedShifting(t, ctx, pool, repo, "matrix-authorized", []string{"00000000-0000-4000-8000-00000000f002"})
+
+	completedID := authorizedShifting(t, ctx, pool, repo, "matrix-completed", []string{"00000000-0000-4000-8000-00000000f003"})
+	if _, _, err := completeShifting(repo, ctx, "matrix-completed", completedID); err != nil {
+		t.Fatalf("complete matrix-completed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET verification_state = 'verified'
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, completedID); err != nil {
+		t.Fatalf("mark completed movement verified: %v", err)
+	}
+
+	reworkID := authorizedShifting(t, ctx, pool, repo, "matrix-rework", []string{"00000000-0000-4000-8000-00000000f004"})
+	if _, _, err := completeShifting(repo, ctx, "matrix-rework", reworkID); err != nil {
+		t.Fatalf("complete matrix-rework: %v", err)
+	}
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+		TenantID: countsTenant, ShiftingEventID: reworkID, VerifiedBy: countsApprover, Reason: "reshoot",
+	}); err != nil {
+		t.Fatalf("bounce matrix-rework: %v", err)
+	}
+
+	canceledID := authorizedShifting(t, ctx, pool, repo, "matrix-canceled", []string{"00000000-0000-4000-8000-00000000f005"})
+	if _, _, err := cancelShifting(repo, ctx, "matrix-canceled", canceledID, "abandoned"); err != nil {
+		t.Fatalf("cancel matrix-canceled: %v", err)
+	}
+
+	ids := func(page domain.ShiftingExecutionPage) []string {
+		out := make([]string, 0, len(page.Items))
+		for _, item := range page.Items {
+			out = append(out, item.ShiftingEventID)
+		}
+		sort.Strings(out)
+		return out
+	}
+	want := func(values ...string) []string { sort.Strings(values); return values }
+
+	for _, tc := range []struct {
+		status string
+		want   []string
+	}{
+		// 'all' is the operator's WORK LIST: no unapproved movement, no canceled movement.
+		{"all", want(authorizedID, completedID, reworkID)},
+		{"pending", want(pendingID)},
+		{"authorized", want(authorizedID)},
+		{"rework", want(reworkID)},
+		{"completed", want(completedID)},
+	} {
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Status: tc.status,
+		})
+		if err != nil {
+			t.Fatalf("list status=%s: %v", tc.status, err)
+		}
+		if got := ids(page); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("status=%s rows=%v, want %v", tc.status, got, tc.want)
+		}
+	}
+
+	// Disjoint AND total, for every movement that is VISIBLE: the four leaf buckets partition each
+	// one exactly once, so excluding 'pending' from the work list hid nothing.
+	//
+	// "Visible" is the honest qualifier and not a weasel word. An approved movement still inside its
+	// ACTIONS LEAD TIME is deliberately in NO bucket at all until it is due -- that is what "hide
+	// until due" means, and it is asserted directly by
+	// TestListPendingExecutionAppliesTheActionsLeadTime. Every movement in THIS test is past its lead
+	// time (the shared fixture raises two days back), so totality is a real claim here rather than a
+	// vacuous one.
+	seen := map[string]int{}
+	for _, status := range []string{"pending", "authorized", "rework", "completed"} {
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Status: status,
+		})
+		if err != nil {
+			t.Fatalf("list status=%s: %v", status, err)
+		}
+		for _, item := range page.Items {
+			seen[item.ShiftingEventID]++
+		}
+	}
+	for _, id := range []string{pendingID, authorizedID, completedID, reworkID} {
+		if seen[id] != 1 {
+			t.Fatalf("movement %s appears in %d leaf buckets, want exactly 1 (disjoint and total)", id, seen[id])
+		}
+	}
+	if seen[canceledID] != 0 {
+		t.Fatalf("canceled movement %s appears in %d buckets, want 0", canceledID, seen[canceledID])
+	}
+
+	// Every whole-filter count equals what its own bucket lists.
+	var raisedAt time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT raised_at FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		countsTenant, pendingID).Scan(&raisedAt); err != nil {
+		t.Fatalf("read raised_at: %v", err)
+	}
+	from, before := raisedAt.Add(-time.Hour), raisedAt.Add(time.Hour)
+	dated, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before,
+	})
+	if err != nil {
+		t.Fatalf("list dated: %v", err)
+	}
+	wantCounts := domain.ShiftingActionStatusCounts{All: 3, Pending: 1, Authorized: 1, Rework: 1, Completed: 1}
+	if dated.StatusCounts != wantCounts {
+		t.Fatalf("status_counts=%+v, want %+v -- each badge must equal what its tab lists",
+			dated.StatusCounts, wantCounts)
+	}
+}
+
+// TestListPendingExecutionAppliesTheActionsLeadTime is the adversarial date-shift case for the
+// ACTIONS LEAD TIME (maintainer decision 2026-08-09): high priority is work the second it is
+// approved, low priority is planned work that lands the next day, or the day after when it was
+// raised past 13:30 IST.
+//
+// Every instant here is FIXED, and the query's clock is pinned through ShiftingExecutionQuery.Now,
+// so the test asserts the rule rather than whatever time of day it happens to run at.
+func TestListPendingExecutionAppliesTheActionsLeadTime(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	ist := biztime.DefaultLocation()
+	at := func(day, hour, min int) time.Time {
+		return time.Date(2026, time.August, day, hour, min, 0, 0, ist)
+	}
+
+	// Three approved movements that differ ONLY in priority and raise time.
+	morning := authorizedShifting(t, ctx, pool, repo, "lead-morning", []string{"00000000-0000-4000-8000-00000000f201"})
+	afternoon := authorizedShifting(t, ctx, pool, repo, "lead-afternoon", []string{"00000000-0000-4000-8000-00000000f202"})
+	urgent := authorizedShifting(t, ctx, pool, repo, "lead-urgent", []string{"00000000-0000-4000-8000-00000000f203"})
+	setShiftingRaise := func(id, priority string, raisedAt time.Time) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET priority = $3, raised_at = $4::timestamptz
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, id, priority, raisedAt.UTC()); err != nil {
+			t.Fatalf("set raise for %s: %v", id, err)
+		}
+	}
+	setShiftingRaise(morning, "low", at(10, 9, 0))    // before 13:30 -> due 11 Aug
+	setShiftingRaise(afternoon, "low", at(10, 14, 0)) // after 13:30  -> due 12 Aug
+	setShiftingRaise(urgent, "high", at(10, 14, 0))   // high         -> due at once
+
+	visible := func(now time.Time) map[string]bool {
+		t.Helper()
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("list at %s: %v", now, err)
+		}
+		out := map[string]bool{}
+		for _, item := range page.Items {
+			out[item.ShiftingEventID] = true
+		}
+		return out
+	}
+
+	for _, tc := range []struct {
+		name                                   string
+		now                                    time.Time
+		wantMorning, wantAfternoon, wantUrgent bool
+	}{
+		// The moment all three are approved: only the urgent one is work.
+		{"same afternoon", at(10, 14, 1), false, false, true},
+		{"late that night", at(10, 23, 59), false, false, true},
+		// Next day: the before-cutoff movement lands. The after-cutoff one has not.
+		{"next day", at(11, 0, 0), true, false, true},
+		{"next day, late", at(11, 20, 0), true, false, true},
+		// Day after: everything is work.
+		{"day after next", at(12, 0, 0), true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := visible(tc.now)
+			if got[morning] != tc.wantMorning {
+				t.Fatalf("at %s low/before-cutoff visible=%t, want %t", tc.now, got[morning], tc.wantMorning)
+			}
+			if got[afternoon] != tc.wantAfternoon {
+				t.Fatalf("at %s low/after-cutoff visible=%t, want %t", tc.now, got[afternoon], tc.wantAfternoon)
+			}
+			if got[urgent] != tc.wantUrgent {
+				t.Fatalf("at %s HIGH priority visible=%t, want %t -- high priority waits for nothing",
+					tc.now, got[urgent], tc.wantUrgent)
+			}
+		})
+	}
+
+	// The status counts obey the same filter, so a tab badge never advertises work the tab hides.
+	from, before := at(10, 0, 0), at(11, 0, 0)
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, Now: at(10, 14, 1),
+	})
+	if err != nil {
+		t.Fatalf("list dated: %v", err)
+	}
+	if page.StatusCounts.Authorized != 1 || page.StatusCounts.All != 1 {
+		t.Fatalf("status_counts=%+v on the raise day, want all=1 authorized=1 -- only the high-priority "+
+			"movement is due, and the two low-priority ones must not be counted", page.StatusCounts)
+	}
+}
+
+// TestListPendingExecutionMultipleDimensionsDoNotInflateRowOrCount is the adversarial cardinality
+// case for the request/animal LATERAL joins: a movement naming many animals, with a SECOND approval
+// request attached to the same event, must still be ONE row carrying the true animal count. If the
+// request selector ever loses its LIMIT 1, or the animal preview joins onto the row instead of
+// through its own LATERAL, this row multiplies and the operator's queue double-counts work.
+func TestListPendingExecutionMultipleDimensionsDoNotInflateRowOrCount(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	movers := []string{
+		"00000000-0000-4000-8000-00000000f101",
+		"00000000-0000-4000-8000-00000000f102",
+		"00000000-0000-4000-8000-00000000f103",
+	}
+	eventID := authorizedShifting(t, ctx, pool, repo, "fanout", movers)
+
+	// A second, still-pending approval request against the SAME movement -- the many side the
+	// bounded LATERAL selector exists to collapse.
+	payload, err := json.Marshal(map[string]any{
+		"shifting_event_id":   eventID,
+		"destination_park_id": countsPark,
+		"destination_shed_id": countsShedB,
+		"goat_ids":            movers[:1],
+	})
+	if err != nil {
+		t.Fatalf("marshal duplicate payload: %v", err)
+	}
+	if _, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
+		TenantID:           countsTenant,
+		RequestType:        domain.ApprovalRequestTypeShifting,
+		Payload:            payload,
+		ShiftingEventID:    &eventID,
+		RaisedByUserID:     countsOperator,
+		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey:     "submit-fanout-dup",
+		RequestFingerprint: "submit-fp-fanout-dup",
+	}); err != nil {
+		t.Fatalf("create duplicate approval request: %v", err)
+	}
+
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{TenantID: countsTenant})
+	if err != nil {
+		t.Fatalf("list actions: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("rows=%d for ONE movement with 3 animals and 2 requests, want 1 -- a join is fanning out", len(page.Items))
+	}
+	// The count comes from the APPROVED request's full animal array, never from the bounded preview
+	// and never from the second, pending request.
+	if page.Items[0].AnimalCount != len(movers) {
+		t.Fatalf("animal_count=%d, want %d from the approved request's full animal set",
+			page.Items[0].AnimalCount, len(movers))
+	}
+	if len(page.Items[0].Animals) != len(movers) {
+		t.Fatalf("animals preview=%d, want %d (all three fit under the preview bound)",
+			len(page.Items[0].Animals), len(movers))
+	}
+}
+
+// TestListPendingExecutionPageBoundaryKeysetDoesNotSkipOrRepeat proves the queue pages at the mobile
+// bound and that the cursor walks forward across the page boundary without skipping or repeating a
+// movement.
+func TestListPendingExecutionPageBoundaryKeysetDoesNotSkipOrRepeat(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	repo := newRealIdentityApprovalRepo(t, pool)
@@ -443,7 +800,7 @@ func TestListPendingExecutionPaginatesByKeyset(t *testing.T) {
 
 // TestListPendingExecutionFiltersBySourcePark proves the optional park filter narrows to the park
 // the animals are currently standing in, and that omitting it returns every park.
-func TestListPendingExecutionFiltersBySourcePark(t *testing.T) {
+func TestListPendingExecutionParkScopeFiltersBySourcePark(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	repo := newRealIdentityApprovalRepo(t, pool)
