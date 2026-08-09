@@ -91,6 +91,10 @@ record_timing() { # name, status, seconds
 
 step_cache_enabled() {
   ci_trace_only && return 1
+  case "$only" in
+    auto|all) return 1 ;;
+  esac
+  [ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ] || return 1
   case "${GOATOS_CI_STEP_CACHE:-1}" in
     0|false|FALSE|False) return 1 ;;
     *) return 0 ;;
@@ -750,12 +754,7 @@ run_android() {
       fi
       ;;
   esac
-  if changed_since_base | grep -Eq '(^apps/goatos-android/(benchmark|buildSrc)/|^apps/goatos-android/.+\.gradle\.kts$|^apps/goatos-android/settings\.gradle\.kts$)'; then
-    step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
-  else
-    echo "── ci-local: android benchmark compile SKIPPED (no Android build/benchmark diff)"
-    RESULTS+=("SKIP  android benchmark compile (no Android build/benchmark diff)")
-  fi
+  step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
   gradle_lock_clear_trap
   gradle_lock_release
 }
