@@ -468,7 +468,7 @@ func pages() []domain.PageContract {
 				// (~20 pens at five items); 200 is the backend's own cap and exists because a pen may
 				// now carry as many cells as the catalog has items, so the row count grows with the
 				// feed vocabulary rather than with the shed count.
-				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id", []int{50, 100, 200}),
+				tableP("experiment-config", "Experiment sheds", "/feed-config/experiment", []string{"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status"}, "experiment_config_id", []int{10, 25, 50}),
 				table("session-template", "Session template", "/feed-config/session-templates", []string{"session_no", "session_label", "split_fraction", "status"}, "session_template_id"),
 				// These are the three DISPATCH-CLOCK moments of a feed day, not session times. The
 				// table renders direction_time / correction_time / transport_time, so it must be
@@ -2354,7 +2354,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.workflow_normal":              "Per-head (normal)",
 			"label.workflow_normal_note":         "Quantity is DERIVED: projected head count × the authored grams per head for this shed's ration group and tag × the shed factor. Change the ration grid to change what this shed is fed.",
 			"label.workflow_experiment":          "Absolute kg (experiment)",
-			"label.workflow_experiment_note":     "An experiment shed. Quantity is HAND-ENTERED as absolute kg for the whole shed and is not derived from the ration grid. Head count is shown for context only and is never multiplied into the quantity.",
+			"label.workflow_experiment_note":     "An experiment pen. Quantity is HAND-ENTERED as absolute kg for that pen and is not derived from the ration grid. An undivided shed is its single pen. Head count is shown for context only and is never multiplied into the quantity.",
 			"label.session_split":                "Session split",
 			"label.session_split_note":           "The day's quantity for this shed is divided across the park's sessions by the authored split; the session splits for a park add up to the whole day.",
 			"label.ok":                           "Planned",
@@ -2456,7 +2456,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.workflow_normal":          "Per-head (normal)",
 			"label.workflow_normal_note":     "Quantity derived from projected head count × the authored ration for this shed.",
 			"label.workflow_experiment":      "Absolute kg (experiment)",
-			"label.workflow_experiment_note": "Experiment shed: the quantity was hand-entered as absolute kg for the whole shed and is not per-head derived. Pack exactly this amount; do not scale it by head count.",
+			"label.workflow_experiment_note": "Experiment pen: the quantity was hand-entered as absolute kg for this pen and is not per-head derived. An undivided shed is its single pen. Pack exactly this amount; do not scale it by head count.",
 			"label.session_noun":             "session",
 			"label.ok":                       "Ready to pack",
 			"label.ok_note":                  "A quantity was computed and this line can be weighed out.",
@@ -2613,21 +2613,21 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.shed_factors.note":    "The third term of head count × grams per head × shed factor. A shed with no factor row is treated as 1.0; a factor of 0 must be authored deliberately.",
 			// ---- experiment sheds -------------------------------------------------------------
 			// Copy for the one section on this page that is NOT the ration grid's world. Its job is
-			// to keep two facts un-missable: absolute_kg is a shed TOTAL (never per head), and
-			// listing a shed here is what switches which workflow feeds it.
-			"section.experiment.title":             "Experiment sheds",
-			"section.experiment.aria":              "Hand-authored experiment sheds",
-			"section.experiment.caption":           "Sheds fed a hand-entered absolute kg instead of the ration grid above",
-			"section.experiment.note":              "These sheds are NOT computed from the ration grid. An operator hand-enters the absolute kg the whole shed receives of each item, so the head count shown here is context for that decision and is never multiplied in. While a shed is listed here, the rates and shed factors above have no effect on it.",
+			// to keep two facts un-missable: absolute_kg is a pen TOTAL (never per head), and
+			// listing a pen here is what switches which workflow feeds it.
+			"section.experiment.title":             "Experiment pens",
+			"section.experiment.aria":              "Hand-authored experiment pens",
+			"section.experiment.caption":           "Pens fed a hand-entered absolute kg instead of the ration grid above",
+			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the absolute kg that pen receives of each item, so the head count shown here is context for that decision and is never multiplied in. An undivided shed is its single pen. While a pen is listed here, the rates and shed factors above have no effect on it.",
 			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: a shed's other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
-			"table.experiment.aria":                "Experiment shed rows",
+			"table.experiment.aria":                "Experiment pen rows",
 			"table.experiment.noun":                "experiment row",
-			"label.experiment_absolute_kg":         "Absolute kg (whole shed)",
-			"label.experiment_absolute_kg_note":    "The total this shed receives of this item, already inclusive of every animal in it. It is NOT a per-head figure and is never multiplied by the head count.",
+			"label.experiment_absolute_kg":         "Absolute kg (this pen)",
+			"label.experiment_absolute_kg_note":    "The total this pen receives of this item, already inclusive of every animal in it. An undivided shed is its single pen. It is NOT a per-head figure and is never multiplied by the head count.",
 			"label.experiment_head_count":          "Head count (informational)",
-			"label.experiment_head_count_note":     "The population the quantity was authored against, recorded so the figure can be judged later. It is not a multiplier. On Feed Direction a head count IS multiplied by the ration rate; on an experiment row it is not, because the kg is already a shed total.",
+			"label.experiment_head_count_note":     "The population the quantity was authored against, recorded so the figure can be judged later. It is not a multiplier. On Feed Direction a head count IS multiplied by the ration rate; on an experiment row it is not, because the kg is already a pen total.",
 			"label.experiment_category":            "Experiment arm",
-			"label.experiment_category_note":       "Which arm of the trial this shed is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
+			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
 			"label.experiment_active":              "On experiment (absolute kg)",
 			"label.experiment_active_note":         "This pen is fed the absolute kg authored here. The ration grid, its shed factors, and its projected head count do not affect it.",
 			"label.experiment_retired":             "On the normal grid (per head)",
@@ -2640,10 +2640,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.restore_experiment_shed":       "Return this pen to the experiment",
 			"action.experiment_saved":              "Saved. This pen is fed the absolute kg authored here; its head count is not multiplied in.",
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
-			"reason.experiment_blank_is_not_zero":  "Leave the kg blank only if you do not intend to author this item for this shed. To feed none of it, enter an explicit 0. A cleared field is not zero.",
+			"reason.experiment_blank_is_not_zero":  "Leave the kg blank only if you do not intend to author this item for this pen. To feed none of it, enter an explicit 0. A cleared field is not zero.",
 			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the shed's other pens are untouched.",
-			"empty.experiment":                     "No experiment sheds authored for this park. Every shed in it is fed from the ration grid above.",
-			"empty.experiment_filtered":            "No experiment sheds match these filters.",
+			"empty.experiment":                     "No experiment pens authored for this park. Every operational pen in it is fed from the ration grid above.",
+			"empty.experiment_filtered":            "No experiment pens match these filters.",
 			"empty.experiment_candidates":          "Every pen in this park already has authored experiment quantities.",
 			// Shown on a pen whose every catalog item already has an authored cell. Distinct from
 			// empty.experiment_candidates, which is about SHEDS not yet on the experiment workflow.
@@ -2747,7 +2747,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.workflow_normal":            "Per-head (normal)",
 			"label.workflow_normal_note":       "Sheds fed from this grid: quantity = projected head count × grams per head × shed factor.",
 			"label.workflow_experiment":        "Absolute kg (experiment)",
-			"label.workflow_experiment_note":   "Experiment sheds bypass this grid entirely. An operator hand-enters absolute kg for the whole shed; head count is informational and is never multiplied in.",
+			"label.workflow_experiment_note":   "Experiment pens bypass this grid entirely. An operator hand-enters absolute kg for the pen; an undivided shed is its single pen. Head count is informational and is never multiplied in.",
 			"label.applies_to_kid":             "Kid course",
 			"label.applies_to_adult":           "Adult course",
 			"label.session_split_note":         "Share of the day's quantity this session carries.",
@@ -4705,12 +4705,12 @@ func feedOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
 			// Structural: a shed is fed EITHER from the ration grid (per-head derived) OR from
-			// feed_experiment_config (hand-entered absolute kg for the whole shed). There is no
+			// feed_experiment_config (hand-entered absolute kg for the operational pen). There is no
 			// third path, and the distinction changes what the number means.
 			ID: "feed_workflow",
 			Options: []domain.Option{
 				option("normal", "Per-head (normal)", "Quantity derived: projected head count × grams per head × shed factor", "ok"),
-				option("experiment", "Absolute kg (experiment)", "Hand-entered absolute kg for the whole shed; head count is informational and never multiplied in", "pur"),
+				option("experiment", "Absolute kg (experiment)", "Hand-entered absolute kg for the operational pen; an undivided shed is its single pen; head count is informational and never multiplied in", "pur"),
 			},
 		},
 		{
@@ -5586,7 +5586,7 @@ func humanLabel(key string) string {
 		//
 		// On Feed Direction, head_count IS a multiplier -- the first term of
 		// head count x grams per head x shed factor. On an experiment row it is not: absolute_kg is
-		// already the shed total, so multiplying by this number would overfeed the shed by a factor
+		// already the pen total, so multiplying by this number would overfeed the pen by a factor
 		// of its entire population. Overriding the shared "head_count" key would have carried this
 		// parenthetical onto Feed Direction and denied the multiplication that genuinely happens
 		// there. The header carries the warning, so the distinction does not depend on anyone

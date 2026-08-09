@@ -419,16 +419,16 @@ export function ExperimentCellAdder({
 }
 
 /**
- * The workflow switch: move a whole shed onto the experiment, or return it to the ration grid.
+ * The workflow switch: move one pen onto the experiment, or return it to the ration grid.
  *
- * Deliberately NOT a checkbox or a toggle. This control changes what a shed's animals are fed, so it
- * is a labelled button that states the direction of the change ("Move shed to experiment" /
- * "Return shed to normal grid") and carries the consequence in its hint. A toggle would read as a
+ * Deliberately NOT a checkbox or a toggle. This control changes what a pen's animals are fed, so it
+ * is a labelled button that states the direction of the change and carries the consequence in its
+ * hint. A toggle would read as a
  * view preference and could be flipped by a stray click with no statement of what it did.
  *
  * The target status is a hidden literal rather than something derived at submit time, so there is no
  * code path where an unparsed value could fall through to a default — both defaults would silently
- * re-plan the shed's feed.
+ * re-plan the pen's feed.
  */
 export function ExperimentShedSwitch({
   pageContract,

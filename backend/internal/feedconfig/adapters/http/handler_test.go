@@ -306,6 +306,8 @@ func TestServiceErrorStatusMapping(t *testing.T) {
 	}{
 		{name: "idempotency conflict", err: ports.ErrIdempotencyConflict, wantStatus: http.StatusConflict, wantCode: "idempotency_conflict"},
 		{name: "future dated open row", err: ports.ErrFutureDatedRow, wantStatus: http.StatusConflict, wantCode: "future_dated_config"},
+		{name: "experiment pen already configured", err: ports.ErrExperimentPenAlreadyConfigured, wantStatus: http.StatusConflict, wantCode: "experiment_pen_already_configured"},
+		{name: "experiment pen not configured", err: ports.ErrExperimentPenNotConfigured, wantStatus: http.StatusConflict, wantCode: "experiment_pen_not_configured"},
 		{name: "park not found", err: ports.ErrParkNotFound, wantStatus: http.StatusNotFound, wantCode: "park_not_found"},
 		{name: "shed not found", err: ports.ErrShedNotFound, wantStatus: http.StatusNotFound, wantCode: "shed_not_found"},
 		{name: "missing park", err: feedconfigapp.ErrMissingPark, wantStatus: http.StatusBadRequest, wantCode: "invalid_request"},
