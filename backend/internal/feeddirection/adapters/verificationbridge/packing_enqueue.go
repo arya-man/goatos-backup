@@ -3,6 +3,7 @@ package verificationbridge
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -59,10 +60,19 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 			RefType: feeddirectiondomain.VerificationRefTypePacking,
 			RefID:   in.CompletionID,
 		},
+		// What the verifier is judging the video AGAINST: the frozen ration for this pen-session, and
+		// the head count it was computed from. Composed by the producer (dumb-renderer rule) and
+		// rendered verbatim. Omitted when the sheet could not be read -- never a placeholder, which
+		// would read as "no feed expected" rather than "not known".
+		ContextRows: packingContextRows(in.RationSummary, in.HeadCountSummary),
 		// One media ref: the packing video.
-		MediaRefs:      []string{in.PackingProofRef},
-		OperatorID:     ptrIfSet(in.OperatorID),
-		ShedID:         ptrIfSet(in.ShedID),
+		MediaRefs:  []string{in.PackingProofRef},
+		OperatorID: ptrIfSet(in.OperatorID),
+		ShedID:     ptrIfSet(in.ShedID),
+		// The PEN as its own field, not only folded into the label. Packing composed the location
+		// into SubjectLabel and left this column NULL, so anything filtering or grouping by pen --
+		// as opposed to reading the display string -- missed every packing item.
+		PartitionLabel: ptrIfSet(in.PartitionLabel),
 		ParkID:         ptrIfSet(in.ParkID),
 		CapturedAt:     in.CapturedAt,
 		IdempotencyKey: in.IdempotencyKey,
@@ -78,4 +88,20 @@ func packingSubjectLabel(sessionNo int32) *string {
 	}
 	s := fmt.Sprintf("Session %d", sessionNo)
 	return &s
+}
+
+// packingContextRows is the verifier's "what was expected" block for a packing proof.
+//
+// A row is emitted only when its value is known: a blank ration means the issued sheet could not be
+// read, and rendering "Expected ration: —" would state that nothing was expected rather than that
+// nothing is known. Labels are farm language, composed here because the backend owns visible copy.
+func packingContextRows(rationSummary, headCountSummary string) []verificationdomain.ContextRow {
+	rows := make([]verificationdomain.ContextRow, 0, 2)
+	if strings.TrimSpace(rationSummary) != "" {
+		rows = append(rows, verificationdomain.ContextRow{Label: "Expected ration", Value: rationSummary})
+	}
+	if strings.TrimSpace(headCountSummary) != "" {
+		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this pen", Value: headCountSummary})
+	}
+	return rows
 }

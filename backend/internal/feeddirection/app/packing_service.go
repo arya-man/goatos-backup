@@ -49,6 +49,19 @@ type FeedPackingVerificationEnqueueRequest struct {
 	OperatorID      string
 	CapturedAt      time.Time
 	IdempotencyKey  string
+	// RationSummary is the FROZEN expected ration for this pen-session -- "Maize 12.5 kg · Soya 4 kg"
+	// -- carried onto the verifier's item so she can judge the video against what should have been
+	// packed. Without it the queue item carried the shed, pen, session, operator and clip and nothing
+	// about the feed, so a verifier could confirm a video EXISTED but not that the work was RIGHT
+	// (STG 2026-08-09).
+	//
+	// Read from the ISSUED sheet at submit time and stored on the item, so re-authoring the feed
+	// config afterwards cannot rewrite what the verifier is judging against. Blank when the sheet
+	// cannot be read: a completion must never fail because its decoration could not be composed.
+	RationSummary string
+	// HeadCountSummary is the pen's projected head count for that session, the denominator the
+	// ration was computed from. Blank when unknown.
+	HeadCountSummary string
 }
 
 // CompletePackingInput is the app-level packing completion request the HTTP handler builds from the
@@ -160,19 +173,22 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// idempotent on (completion_id + row_version), so a retry after a prior enqueue failure heals rather
 	// than duplicates: the completion is not "done" for the operator until the item is queued.
 	if result.NewlyPending {
+		ration, heads := s.packingExpectation(ctx, in)
 		if enqErr := s.packingEnqueuer.EnqueueFeedPackingVerification(ctx, FeedPackingVerificationEnqueueRequest{
-			TenantID:        in.TenantID,
-			CompletionID:    result.CompletionID,
-			ParkID:          in.ParkID,
-			ShedID:          in.ShedID,
-			ShedName:        result.ShedName,
-			PartitionLabel:  result.PartitionLabel,
-			SessionNo:       in.SessionNo,
-			Workflow:        in.Workflow,
-			TargetDate:      in.TargetDate,
-			PackingProofRef: in.PackingProofRef,
-			OperatorID:      strings.TrimSpace(in.CompletedBy),
-			CapturedAt:      s.now().UTC(),
+			TenantID:         in.TenantID,
+			CompletionID:     result.CompletionID,
+			ParkID:           in.ParkID,
+			ShedID:           in.ShedID,
+			ShedName:         result.ShedName,
+			PartitionLabel:   result.PartitionLabel,
+			SessionNo:        in.SessionNo,
+			Workflow:         in.Workflow,
+			TargetDate:       in.TargetDate,
+			PackingProofRef:  in.PackingProofRef,
+			OperatorID:       strings.TrimSpace(in.CompletedBy),
+			RationSummary:    ration,
+			HeadCountSummary: heads,
+			CapturedAt:       s.now().UTC(),
 			// Keyed to the completion + its row_version so a rework re-submit (row_version bumped) enqueues a
 			// fresh item while a retry of the same submit collapses onto one queue item.
 			IdempotencyKey: "feed-packing-verification:" + result.CompletionID + ":" + strconv.Itoa(int(result.RowVersion)),
@@ -181,4 +197,56 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		}
 	}
 	return result, nil
+}
+
+// packingExpectation reads the FROZEN issued sheet and composes what this pen-session was expected
+// to be packed with: the ration ("Maize 12.5 kg · Soya 4 kg") and the head count it was computed
+// from. Both are display strings for the verifier's screen (dumb-renderer rule).
+//
+// FAIL-OPEN, deliberately. A completion is the operator's work reaching the server; it must never
+// fail because a decoration could not be composed. An unreadable or never-issued sheet yields blank
+// strings and the item simply carries no expectation -- exactly the state every item was in before
+// this existed.
+//
+// It reads the same frozen rows the packing worklist serves, so the verifier sees byte-for-byte what
+// the packer was shown, and reads them ONCE per completion (a submit, not a list) bounded by the
+// park's sheds x sessions x items -- never by herd size.
+func (s *Service) packingExpectation(ctx context.Context, in CompletePackingInput) (ration string, heads string) {
+	if s.issues == nil {
+		return "", ""
+	}
+	feedDay := biztime.BusinessDate(in.TargetDate)
+	scopeRows, _, served, err := s.loadServedRows(ctx, in.TenantID, in.ParkID, feedDay, in.Workflow)
+	if err != nil || !served {
+		return "", ""
+	}
+	// Match on the SAME identity the completion is keyed by -- shed + pen + session -- with the pen
+	// normalized the way the natural key normalizes it, so "Part 3" and "part 3" are one pen.
+	wantPartition := domain.PartitionMatchKey(in.PartitionLabel)
+	for _, row := range domain.BuildPackingRows(scopeRows, domain.DistinctFeedItems(scopeRows)) {
+		if row.ShedID != in.ShedID || row.SessionNo != in.SessionNo {
+			continue
+		}
+		if domain.PartitionMatchKey(row.PartitionLabel) != wantPartition {
+			continue
+		}
+		parts := make([]string, 0, len(row.Items))
+		for _, item := range row.Items {
+			// A blocked item has no resolved quantity. Naming it without one still tells the
+			// verifier it was expected in the bag, which is more useful than dropping it silently.
+			if item.QuantityKg == nil {
+				parts = append(parts, item.FeedItem)
+				continue
+			}
+			parts = append(parts, item.FeedItem+" "+*item.QuantityKg+" kg")
+		}
+		if len(parts) > 0 {
+			ration = strings.Join(parts, " · ")
+		}
+		if row.HeadCount > 0 {
+			heads = strconv.FormatInt(row.HeadCount, 10)
+		}
+		return ration, heads
+	}
+	return "", ""
 }

@@ -81,7 +81,12 @@ type queueItemResponse struct {
 	// requested), shown to the verifier alongside the evidence. Distinct from SubjectLabel,
 	// which is system-composed identity.
 	SubjectNote *string `json:"subject_note,omitempty"`
-	Status      string  `json:"status"`
+	// ContextRows is what the reviewed work was EXPECTED to be -- for a feed packing proof, the
+	// frozen ration for that pen-session. Backend-composed label/value pairs in the producer's
+	// order; clients render them verbatim and never parse them. Always present (possibly empty)
+	// so a client can render the block unconditionally.
+	ContextRows []contextRowResponse `json:"context_rows"`
+	Status      string               `json:"status"`
 	// VerdictState is what this item is DOING, as opposed to Status, which is only what the
 	// verifier decided. "awaiting_review" | "applying" | "settled" -- see
 	// domain.VerdictState* for why the two are not the same thing. Clients must render
@@ -127,6 +132,23 @@ type queueListResponse struct {
 	TraceID       string                           `json:"trace_id"`
 }
 
+// contextRowResponse is one backend-composed "what was expected" line on the wire.
+type contextRowResponse struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// toContextRowResponses maps the domain rows to the wire, ALWAYS returning a non-nil slice so the
+// field marshals as [] rather than null -- a client rendering a list should not have to special-case
+// the empty producer.
+func toContextRowResponses(rows []domain.ContextRow) []contextRowResponse {
+	out := make([]contextRowResponse, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, contextRowResponse{Label: row.Label, Value: row.Value})
+	}
+	return out
+}
+
 func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 	var verifiedAt *string
 	if row.Item.VerifiedAt != nil {
@@ -166,6 +188,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		Category:                   row.Item.Category,
 		SubjectLabel:               row.Item.SubjectLabel,
 		SubjectNote:                row.Item.SubjectNote,
+		ContextRows:                toContextRowResponses(row.Item.ContextRows),
 		Status:                     row.Item.Status,
 		VerdictState:               row.Item.VerdictState(),
 		VerdictReason:              row.Item.VerdictReason,

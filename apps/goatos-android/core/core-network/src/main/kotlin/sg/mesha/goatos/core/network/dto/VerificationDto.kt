@@ -57,6 +57,13 @@ data class VerificationQueueItem(
     @SerialName("subject_label") val subjectLabel: String? = null,
     /** The raiser's own note about this work item (e.g. why a movement was requested). */
     @SerialName("subject_note") val subjectNote: String? = null,
+    /**
+     * What the reviewed work was EXPECTED to be -- for a feed packing proof, the frozen ration for
+     * that pen-session. Backend-composed label/value pairs in the producer's order, rendered
+     * VERBATIM: never parsed, reordered or re-labelled, and never switched on by label, because a
+     * producer may add rows at any time. Defaulted so an older payload still decodes.
+     */
+    @SerialName("context_rows") val contextRows: List<VerificationContextRowDto> = emptyList(),
     @SerialName("status") val status: String = "",
     @SerialName("captured_at") val capturedAt: String = "",
     @SerialName("row_version") val rowVersion: Int = 1,
@@ -197,3 +204,10 @@ object VerificationStatus {
     const val APPROVED = "approved"
     const val REJECTED = "rejected"
 }
+
+/** One backend-composed "what was expected" line on a verification item. */
+@Serializable
+data class VerificationContextRowDto(
+    @SerialName("label") val label: String = "",
+    @SerialName("value") val value: String = "",
+)
