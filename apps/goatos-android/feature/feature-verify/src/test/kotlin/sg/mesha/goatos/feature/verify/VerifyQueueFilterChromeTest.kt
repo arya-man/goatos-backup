@@ -19,20 +19,35 @@ import org.junit.Test
  */
 class VerifyQueueFilterChromeTest {
 
+    /**
+     * The options are PAGES WITHIN a module (Feed Direction / Feed Packing / Feed Transport), not
+     * modules. This assertion used to be inverted -- the chips were suppressed for anyone whose
+     * drawer listed modules, on the reasoning that the drawer already scoped the queue. That held
+     * only while every module registered exactly ONE page. Feed registers three, so a verifier with
+     * a drawer could reach feed distribution and NOTHING else: three packing videos sat pending and
+     * unreachable (2026-08-09).
+     */
     @Test
-    fun `module chips are suppressed when the drawer already lists the modules`() {
-        assertFalse(
-            "a verifier with a drawer must not see the same modules twice",
-            shouldShowCategoryFilter(drawerCarriesModules = true, optionCount = 2),
+    fun `page chips show with a drawer when the module has more than one page`() {
+        assertTrue(
+            "the drawer picks the module; only these chips pick the page",
+            shouldShowCategoryFilter(drawerCarriesModules = true, optionCount = 3),
         )
     }
 
     @Test
-    fun `module chips remain for a single-module verifier who has no drawer`() {
+    fun `page chips remain for a verifier who has no drawer`() {
         assertTrue(
             "without a drawer the chips are the only way to see the scope",
             shouldShowCategoryFilter(drawerCarriesModules = false, optionCount = 2),
         )
+    }
+
+    /** One page is no choice: a chip row with a single, always-selected chip is noise. */
+    @Test
+    fun `no chip row is drawn for a single-page module`() {
+        assertFalse(shouldShowCategoryFilter(drawerCarriesModules = true, optionCount = 1))
+        assertFalse(shouldShowCategoryFilter(drawerCarriesModules = false, optionCount = 1))
     }
 
     @Test

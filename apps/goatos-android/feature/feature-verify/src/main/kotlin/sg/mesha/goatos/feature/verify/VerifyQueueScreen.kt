@@ -950,8 +950,26 @@ private fun InlineLoadingFooter() {
  * suppressed there and the drawer owns the switch. A single-module verifier has no drawer, so the
  * row stays. Extracted so the rule is assertable without a screenshot.
  */
+/**
+ * The page filter (Feed Direction / Feed Packing / Feed Transport) shows whenever the module has a
+ * REAL CHOICE to make — two or more registered evidence pages — and is hidden otherwise.
+ *
+ * It used to be hidden from anyone whose drawer carries modules, on the reasoning that the drawer
+ * already scopes the queue. That held only while every module registered exactly ONE category. Feed
+ * registers three, so a verifier with a drawer had no way to reach feed packing or feed transport at
+ * all: the drawer picks the MODULE, and nothing picked the page (reported 2026-08-09 — three packing
+ * videos pending and unreachable).
+ *
+ * The alternative tried first — one bottom-bar tab per page — was rejected: the bar is module
+ * chrome, not a queue filter, and all three tabs resolved to the same /verify base route, so the
+ * shell read every one as selected and swallowed the taps. Narrowing a list belongs in a filter on
+ * the list (maintainer decision 2026-08-09).
+ *
+ * `drawerCarriesModules` is deliberately no longer read: a single-page module shows no filter either
+ * way, so the drawer tells us nothing the option count does not.
+ */
 internal fun shouldShowCategoryFilter(drawerCarriesModules: Boolean, optionCount: Int): Boolean =
-    optionCount > 0 && !drawerCarriesModules
+    optionCount > 1
 
 /** Above this many options a chip row stops being scannable on a phone and becomes a drag. */
 internal const val CHIP_ROW_MAX_OPTIONS = 6

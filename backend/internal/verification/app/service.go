@@ -173,7 +173,21 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		options.Sheds = []domain.LocationFilterOption{}
 	}
 	options.ActionTypes = s.actionTypeOptions()
-	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(params.Category)
+	// The page chips are scoped by the SELECTED category, which for a verifier does not arrive in
+	// params.Category: the handler resolves her authorization into params.Categories and blanks
+	// Category (so the repository filters on the authorized set). Reading Category alone therefore
+	// served her NO chips at all -- the filter existed, was populated from the registry, and was
+	// only ever reachable by leadership, who keep Category. Feed is the first module with more than
+	// one page, so this stayed invisible until three feed packing videos could not be reached
+	// (2026-08-09).
+	//
+	// Exactly ONE authorized category still identifies one page; several (leadership's cross-module
+	// read) identify none, and fall through to no chips rather than guessing a module.
+	selectedCategory := params.Category
+	if selectedCategory == "" && len(params.Categories) == 1 {
+		selectedCategory = params.Categories[0]
+	}
+	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(selectedCategory)
 	options.Statuses = []domain.QueueStatusOption{
 		// No "All" option. It was offered from 2026-07-30 until 2026-08-06, when the maintainer
 		// removed it: with the three status chips beside it, "All" earns nothing -- those three
