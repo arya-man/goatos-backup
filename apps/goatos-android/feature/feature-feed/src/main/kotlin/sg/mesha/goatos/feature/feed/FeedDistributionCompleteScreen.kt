@@ -58,10 +58,18 @@ data class FeedDistributionUiState(
     val waterMessage: String? = null,
     val canComplete: Boolean = false,
     val result: FeedDistributionResultUi? = null,
+    /**
+     * The session already went to the verifier (or was approved), so there is nothing to record.
+     *
+     * Backend-owned: from the row's lifecycle bucket, NOT the local capture draft. The draft was
+     * the only signal this screen had and a reinstall wipes it, which is how an operator was shown
+     * an empty form for work already queued (STG 2026-08-09).
+     */
+    val alreadySubmitted: Boolean = false,
 ) {
     /** The second proof is actionable only after the first proof has been recorded. */
     val waterCaptureEnabled: Boolean
-        get() = videoCaptured && !waterCaptured && !isCapturingVideo && !isCapturingWater &&
+        get() = !alreadySubmitted && videoCaptured && !waterCaptured && !isCapturingVideo && !isCapturingWater &&
             result?.status != FeedDistributionStatus.SYNCED && result?.status != FeedDistributionStatus.QUEUED
 
     /** Both mandatory proofs are recorded and the write is not already committed. */
@@ -102,6 +110,20 @@ fun FeedDistributionCompleteScreen(
         instruction = stringResource(R.string.feed_dist_caption),
         onBack = { onEvent(FeedDistributionEvent.Back) },
     ) {
+        // ALREADY SUBMITTED: both proofs went to the verifier, so there is nothing to record. The
+        // operator still reaches this screen — a tapped row must open — but sees the state rather
+        // than an empty form, which is what let a second set of proofs be shot for queued work.
+        if (state.alreadySubmitted) {
+            FeedProofCard(title = stringResource(R.string.feed_complete_already_submitted_title)) {
+                Text(
+                    text = stringResource(R.string.feed_complete_already_submitted_body),
+                    color = MeshaColors.Muted,
+                    fontSize = 13.sp,
+                )
+            }
+            return@FeedCaptureScaffold
+        }
+
         // Step 1 — MANDATORY live feed-distribution video.
         FeedProofCard(title = stringResource(R.string.feed_dist_video_title)) {
             when {

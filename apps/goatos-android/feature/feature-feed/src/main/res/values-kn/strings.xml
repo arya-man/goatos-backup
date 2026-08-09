@@ -92,4 +92,6 @@
     <string name="feed_pack_complete_need_video">ಸಲ್ಲಿಸಲು ಪ್ಯಾಕಿಂಗ್ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="feed_proof_rerecord">ವೀಡಿಯೊ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="feed_proof_recapture">ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಸೆರೆಹಿಡಿಯಿರಿ</string>
+    <string name="feed_complete_already_submitted_title">ಈಗಾಗಲೇ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="feed_complete_already_submitted_body">ಈ ವೀಡಿಯೋ ಪರಿಶೀಲಕರಿಗೆ ಹೋಗಿದೆ. ಇಲ್ಲಿ ಇನ್ನೇನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕಿಲ್ಲ.</string>
 </resources>

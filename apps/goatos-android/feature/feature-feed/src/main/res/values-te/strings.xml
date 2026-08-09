@@ -92,4 +92,6 @@
     <string name="feed_pack_complete_need_video">సమర్పించడానికి ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి.</string>
     <string name="feed_proof_rerecord">వీడియో మళ్లీ రికార్డ్ చేయండి</string>
     <string name="feed_proof_recapture">రుజువును మళ్లీ తీయండి</string>
+    <string name="feed_complete_already_submitted_title">ఇప్పటికే సబ్మిట్ చేసారు</string>
+    <string name="feed_complete_already_submitted_body">ఈ వీడియో వెరిఫైయర్కు వెళ్లింది. ఇక్కడ మరో రికార్డు అవసరం లేదు.</string>
 </resources>
