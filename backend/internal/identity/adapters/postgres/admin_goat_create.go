@@ -1092,22 +1092,30 @@ WHERE tenant_id = $1::uuid
 // fails closed here instead of being overwritten. An absent expectation (both nil) is a no-op --
 // the existing same-park guard still applies.
 func (r *Repository) assertGoatsAtExpectedSource(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) error {
-	if cmd.FromShedID == nil && cmd.FromParkID == nil {
+	if cmd.FromShedID == nil && cmd.FromParkID == nil && cmd.FromPartitionLabel == nil {
 		return nil
 	}
 	var offending int
 	err := tx.QueryRow(ctx, `
 SELECT count(*)
-FROM goats
-WHERE tenant_id = $1::uuid
-  AND goat_id = ANY($2::uuid[])
-  AND merged_into_goat_id IS NULL
-  AND exited_at IS NULL
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid
+  AND g.goat_id = ANY($2::uuid[])
+  AND g.merged_into_goat_id IS NULL
+  AND g.exited_at IS NULL
   AND (
-        (nullif($3::text, '') IS NOT NULL AND shed_id IS DISTINCT FROM nullif($3::text, '')::uuid)
-     OR (nullif($4::text, '') IS NOT NULL AND park_id IS DISTINCT FROM nullif($4::text, '')::uuid)
+        (nullif($3::text, '') IS NOT NULL AND g.shed_id IS DISTINCT FROM nullif($3::text, '')::uuid)
+     OR (nullif($4::text, '') IS NOT NULL AND g.park_id IS DISTINCT FROM nullif($4::text, '')::uuid)
+     OR (
+          nullif($5::text, '') IS NOT NULL
+          AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+              IS DISTINCT FROM regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+        )
       )`,
-		cmd.TenantID, cmd.GoatIDs, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID)).Scan(&offending)
+		cmd.TenantID, cmd.GoatIDs, stringValue(cmd.FromShedID), stringValue(cmd.FromParkID), stringValue(cmd.FromPartitionLabel)).Scan(&offending)
 	if err != nil {
 		return fmt.Errorf("identity: relocate goats: verify expected source placement: %w", err)
 	}

@@ -615,7 +615,7 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 		return domain.ShiftingExecutionResult{}, fmt.Errorf(
 			"%w: shifting event %s names no approved animals", ports.ErrShiftingExecutionIncomplete, shiftingEventID)
 	}
-	sourceParkID, sourceShedID, err := r.readShiftingEventSourceLocation(ctx, tx, tenantID, shiftingEventID)
+	sourceParkID, sourceShedID, sourcePartitionLabel, err := r.readShiftingEventSourceLocation(ctx, tx, tenantID, shiftingEventID)
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, err
 	}
@@ -645,7 +645,7 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	}
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
 		TenantID: tenantID, ActorID: *current.CompletedBy, GoatIDs: goatIDs,
-		FromParkID: sourceParkID, FromShedID: sourceShedID,
+		FromParkID: sourceParkID, FromShedID: sourceShedID, FromPartitionLabel: sourcePartitionLabel,
 		ToParkID: destParkID, ToShedID: destShedID, DestinationTag: destinationTag,
 		DestinationPartitionLabel: current.DestinationPartitionLabel,
 		DestinationShedName:       destShedName,
@@ -700,20 +700,20 @@ RETURNING applied_at, applied_by::text`, tenantID, shiftingEventID, appliedAt.UT
 // P1 follow-up #1: Used to guard against stale location overwrites.
 func (r *Repository) readShiftingEventSourceLocation(
 	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string,
-) (*string, *string, error) {
-	var sourceParkID, sourceShedID *string
+) (*string, *string, *string, error) {
+	var sourceParkID, sourceShedID, sourcePartitionLabel *string
 	err := tx.QueryRow(ctx, `
-SELECT source_park_id::text, source_shed_id::text
+SELECT source_park_id::text, source_shed_id::text, source_partition_label
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
-		tenantID, shiftingEventID).Scan(&sourceParkID, &sourceShedID)
+		tenantID, shiftingEventID).Scan(&sourceParkID, &sourceShedID, &sourcePartitionLabel)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, ports.ErrShiftingEventNotFound
+			return nil, nil, nil, ports.ErrShiftingEventNotFound
 		}
-		return nil, nil, fmt.Errorf("counts: read shifting source location: %w", err)
+		return nil, nil, nil, fmt.Errorf("counts: read shifting source location: %w", err)
 	}
-	return sourceParkID, sourceShedID, nil
+	return sourceParkID, sourceShedID, sourcePartitionLabel, nil
 }
 
 // shiftingMovementSet reads the animals a movement covers, plus its destination and source.
