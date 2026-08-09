@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -2380,7 +2381,7 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		&event.SummaryPrimary, &event.SummarySecondary, &event.SummaryTertiary,
 		&event.ShedCount, &event.VaccineCount, &event.DriveCount, &event.CatchUpCount,
 		&event.ScheduledCount, &event.DeferredCount, &event.ReviewCount,
-		&event.ShedLabels, &event.VaccineLabels, &driveSummaryRaw,
+		&event.ShedLabels, &event.ShedPartitionLabels, &event.VaccineLabels, &driveSummaryRaw,
 	}
 	if detail != nil {
 		dest = append(dest, detail)
@@ -2394,6 +2395,17 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		var ds domain.DriveSummary
 		if err := json.Unmarshal(driveSummaryRaw, &ds); err != nil {
 			return domain.CalendarEvent{}, fmt.Errorf("calendar: decode drive_summary: %w", err)
+		}
+		for i := range ds.Sheds {
+			partition := ""
+			if ds.Sheds[i].PartitionLabel != nil {
+				partition = *ds.Sheds[i].PartitionLabel
+			}
+			ds.Sheds[i].OperationalLocationDisplay = (oploc.OperationalLocation{
+				ShedID:         ds.Sheds[i].ShedID,
+				ShedName:       ds.Sheds[i].ShedName,
+				PartitionLabel: partition,
+			}).Display()
 		}
 		event.DriveSummary = &ds
 	}

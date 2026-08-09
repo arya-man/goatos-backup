@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 	verificationports "github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -81,24 +82,25 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 	rows := make([]domain.AdherenceRow, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		rows = append(rows, domain.AdherenceRow{
-			RowID:                   row.RowID,
-			ShedName:                row.ShedName,
-			PartitionLabel:          row.PartitionLabel,
-			Expected:                expectedText(row),
-			Actual:                  actualText(row),
-			Gap:                     gapText(row),
-			Severity:                row.Severity,
-			Owner:                   row.Owner,
-			NextAction:              row.NextAction,
-			Evidence:                row.Evidence,
-			WorkState:               row.WorkState,
-			DriveCapacityState:      row.DriveCapacityState,
-			DriveAnimalsRequired:    row.DriveAnimalsRequired,
-			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
-			DriveOperatorCap:        row.DriveOperatorCap,
-			DriveAvailableOperators: row.DriveAvailableOperators,
-			DriveLatestSafeDate:     row.DriveLatestSafeDate,
-			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
+			RowID:                      row.RowID,
+			ShedName:                   row.ShedName,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			Expected:                   expectedText(row),
+			Actual:                     actualText(row),
+			Gap:                        gapText(row),
+			Severity:                   row.Severity,
+			Owner:                      row.Owner,
+			NextAction:                 row.NextAction,
+			Evidence:                   row.Evidence,
+			WorkState:                  row.WorkState,
+			DriveCapacityState:         row.DriveCapacityState,
+			DriveAnimalsRequired:       row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:       row.DriveAnimalsAssigned,
+			DriveOperatorCap:           row.DriveOperatorCap,
+			DriveAvailableOperators:    row.DriveAvailableOperators,
+			DriveLatestSafeDate:        row.DriveLatestSafeDate,
+			DriveMedicalDeferReason:    row.DriveMedicalDeferReason,
 		})
 	}
 	return domain.ProtocolAdherenceResponse{
@@ -159,33 +161,34 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 	alerts := make([]domain.ControlTowerAlert, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		alerts = append(alerts, domain.ControlTowerAlert{
-			RowID:                   row.RowID,
-			Severity:                row.Severity,
-			WorkState:               row.WorkState,
-			Title:                   alertTitle(row),
-			Detail:                  alertDetail(row),
-			ScopeLabel:              scopeLabel(row),
-			EvidenceSummary:         evidenceSummary(row),
-			ProofSummary:            proofSummary(row),
-			ProofState:              row.ProofState,
-			VerificationState:       row.VerificationState,
-			ParkID:                  row.ParkID,
-			ParkName:                row.ParkName,
-			ShedID:                  row.ShedID,
-			ShedName:                row.ShedName,
-			PartitionLabel:          row.PartitionLabel,
-			DriveName:               row.DriveName,
-			Owner:                   row.Owner,
-			NextAction:              row.NextAction,
-			EvidenceLink:            workflowLink(row),
-			DriveCapacityState:      row.DriveCapacityState,
-			DriveAnimalsRequired:    row.DriveAnimalsRequired,
-			DriveAnimalsAssigned:    row.DriveAnimalsAssigned,
-			DriveOperatorCap:        row.DriveOperatorCap,
-			DriveAvailableOperators: row.DriveAvailableOperators,
-			DriveLatestSafeDate:     row.DriveLatestSafeDate,
-			DriveMedicalDeferReason: row.DriveMedicalDeferReason,
-			ObligationID:            row.ObligationID,
+			RowID:                      row.RowID,
+			Severity:                   row.Severity,
+			WorkState:                  row.WorkState,
+			Title:                      alertTitle(row),
+			Detail:                     alertDetail(row),
+			ScopeLabel:                 scopeLabel(row),
+			EvidenceSummary:            evidenceSummary(row),
+			ProofSummary:               proofSummary(row),
+			ProofState:                 row.ProofState,
+			VerificationState:          row.VerificationState,
+			ParkID:                     row.ParkID,
+			ParkName:                   row.ParkName,
+			ShedID:                     row.ShedID,
+			ShedName:                   row.ShedName,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			DriveName:                  row.DriveName,
+			Owner:                      row.Owner,
+			NextAction:                 row.NextAction,
+			EvidenceLink:               workflowLink(row),
+			DriveCapacityState:         row.DriveCapacityState,
+			DriveAnimalsRequired:       row.DriveAnimalsRequired,
+			DriveAnimalsAssigned:       row.DriveAnimalsAssigned,
+			DriveOperatorCap:           row.DriveOperatorCap,
+			DriveAvailableOperators:    row.DriveAvailableOperators,
+			DriveLatestSafeDate:        row.DriveLatestSafeDate,
+			DriveMedicalDeferReason:    row.DriveMedicalDeferReason,
+			ObligationID:               row.ObligationID,
 		})
 	}
 	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor, Projection: result.Projection}, nil
@@ -462,10 +465,18 @@ func proofSummary(row domain.Row) string {
 }
 
 func scopeLabel(row domain.Row) string {
-	parts := []string{strings.TrimSpace(row.ParkName), strings.TrimSpace(row.ShedName)}
-	if row.PartitionLabel != nil && strings.TrimSpace(*row.PartitionLabel) != "" {
-		parts = append(parts, strings.TrimSpace(*row.PartitionLabel))
+	location := strings.TrimSpace(row.OperationalLocationDisplay)
+	if location == "" {
+		partition := ""
+		if row.PartitionLabel != nil {
+			partition = *row.PartitionLabel
+		}
+		location = (oploc.OperationalLocation{
+			ShedName:       strings.TrimSpace(row.ShedName),
+			PartitionLabel: partition,
+		}).Display()
 	}
+	parts := []string{strings.TrimSpace(row.ParkName), location}
 	return strings.Join(parts, " / ")
 }
 

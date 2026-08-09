@@ -119,6 +119,55 @@ func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {
 	}
 }
 
+func TestOperationalLocationDisplayPropagatesAcrossProcessIntegritySurfaces(t *testing.T) {
+	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
+	row := processRow("partition-row", domain.WorkStateBlocked, domain.SeverityBroken, due)
+	row.PartitionLabel = strPtr("Part 3")
+	row.OperationalLocationDisplay = "K1 - Part 3"
+	repo := &fakeRepo{
+		result: domain.ListResult{
+			Rows:              []domain.Row{row},
+			CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateBlocked, Count: 1}},
+		},
+		row:   row,
+		found: true,
+	}
+	svc := NewService(repo).WithClock(func() time.Time { return due })
+
+	actionCenter, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("action center: %v", err)
+	}
+	adherence, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("protocol adherence: %v", err)
+	}
+	controlTower, err := svc.ControlTower(context.Background(), domain.Query{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("control tower: %v", err)
+	}
+	workflow, found, err := svc.WorkflowDrilldown(context.Background(), domain.Query{TenantID: "tenant-1"}, row.RowID)
+	if err != nil || !found {
+		t.Fatalf("workflow found=%v err=%v", found, err)
+	}
+
+	if got := actionCenter.Items[0].OperationalLocationDisplay; got != row.OperationalLocationDisplay {
+		t.Fatalf("action center display=%q", got)
+	}
+	if got := adherence.Rows[0].OperationalLocationDisplay; got != row.OperationalLocationDisplay {
+		t.Fatalf("adherence display=%q", got)
+	}
+	if got := controlTower.Alerts[0].OperationalLocationDisplay; got != row.OperationalLocationDisplay {
+		t.Fatalf("control tower display=%q", got)
+	}
+	if got := controlTower.Alerts[0].ScopeLabel; got != "CBE / K1 - Part 3" {
+		t.Fatalf("control tower scope=%q", got)
+	}
+	if got := workflow.Row.OperationalLocationDisplay; got != row.OperationalLocationDisplay {
+		t.Fatalf("workflow display=%q", got)
+	}
+}
+
 func TestControlTowerFetchesUnfilteredSummaryCountsForFilteredAlerts(t *testing.T) {
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("r1", domain.WorkStateBlocked, domain.SeverityBroken, due)
@@ -289,7 +338,7 @@ func TestControlTowerAlertDetailUsesHumanScopeAndGap(t *testing.T) {
 	if strings.Contains(alert.Detail, "verification_pending") {
 		t.Fatalf("detail leaked machine gap: %q", alert.Detail)
 	}
-	want := "Channapatna / Godel 2 / Part 4: proof submitted; awaiting verifier review"
+	want := "Channapatna / Godel 2 - Part 4: proof submitted; awaiting verifier review"
 	if alert.Detail != want {
 		t.Fatalf("detail = %q, want %q", alert.Detail, want)
 	}

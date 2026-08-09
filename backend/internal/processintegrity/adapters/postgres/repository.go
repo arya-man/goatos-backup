@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/ports"
 )
@@ -278,6 +279,15 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
 	row.PartitionLabel = textPtr(partitionLabel)
+	partition := ""
+	if row.PartitionLabel != nil {
+		partition = *row.PartitionLabel
+	}
+	row.OperationalLocationDisplay = (oploc.OperationalLocation{
+		ShedID:         row.ShedID,
+		ShedName:       row.ShedName,
+		PartitionLabel: partition,
+	}).Display()
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
@@ -667,7 +677,8 @@ assignment_binding AS (
     cand.assignment_id,
     cand.operator_id,
     cand.assignment_planned_at,
-    cand.assignment_is_exact
+    cand.assignment_is_exact,
+    cand.partition_label
   FROM (
     -- EXACT PATH (migration 000040): membership names the arm outright, and
     -- (tenant_id, obligation_id) is UNIQUE, so this arm is strictly 1:1 -- no ranking needed.
@@ -767,7 +778,14 @@ raw AS (
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
-    NULLIF(gsp.partition_label, '') AS goat_partition_label,
+    COALESCE(
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
+      END,
+      CASE
+        WHEN LOWER(BTRIM(COALESCE(vda.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(vda.partition_label)
+      END
+    ) AS goat_partition_label,
     oi.completed_at,
     te.asof_terminal_type,
     te.has_terminal_event,
@@ -925,7 +943,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_id,protocol_version_id,protocol_name,dose_code,unbatched-business-date); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply expected counts; pagination=grouped/all_rows feed keyset list plus full-window count/adherence aggregates independent of page size; scope=park/shed/protocol/owner/category filters are applied before grouping.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,partition_label,batch_id,rule_id,protocol_id,protocol_version_id,protocol_name,dose_code,unbatched-business-date); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply expected counts; pagination=grouped/all_rows feed keyset list plus full-window count/adherence aggregates independent of page size; scope=park/shed/protocol/owner/category filters are applied before grouping.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -942,7 +960,7 @@ grouped AS (
     (ARRAY_AGG(located.submission_id::text ORDER BY located.submitted_at DESC NULLS LAST) FILTER (WHERE located.submission_id IS NOT NULL))[1] AS submission_id,
     (ARRAY_AGG(located.completion_id::text ORDER BY located.completion_updated_at DESC NULLS LAST) FILTER (WHERE located.completion_id IS NOT NULL))[1] AS completion_id,
     CASE WHEN COUNT(DISTINCT located.goat_id) = 1 THEN MAX(located.goat_id::text) ELSE NULL END AS goat_id,
-    CASE WHEN COUNT(DISTINCT located.goat_partition_label) = 1 THEN MAX(located.goat_partition_label) ELSE NULL END AS partition_label,
+    located.goat_partition_label AS partition_label,
     CASE WHEN COUNT(DISTINCT located.goat_cohort_id) = 1 THEN MAX(located.goat_cohort_id::text) ELSE NULL END AS cohort_id,
     COALESCE(MAX(located.configured_sop_version_id::text), MAX(located.task_sop_version_id::text)) AS sop_version_id,
     MAX(located.proof_policy) AS proof_policy,
@@ -1046,7 +1064,7 @@ grouped AS (
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
     AND ($9::text = '' OR located.protocol_version_id = $9::uuid)
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
+  GROUP BY located.park_uuid, located.shed_uuid, located.goat_partition_label, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
     CASE WHEN located.batch_id IS NULL THEN (located.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date ELSE NULL END
 ),
 -- projection-review: membership=grouped grains decorated with the capacity facts of the drive assignments they bound to; group_key=grouped grain (park/shed/batch/rule/protocol/business-date) unchanged, assignment rollup keyed on the DISTINCT drive_assignment_ids array -- used verbatim when drive_membership_exact (every bound obligation resolved through vaccination_drive_assignment_members, so the arms ARE the animal's own), and otherwise expanded to its same-partition split cohort (same batch/shed/partition_label/vaccine_rule_ids) by the drive_split lateral, which ARRAY_AGGs DISTINCT assignment_ids so the cohort cannot contain a duplicate; join_cardinality=drive_assignment lateral aggregates assignment rows by PK (assignment_id = ANY(cohort_ids)) so each assignment contributes exactly once regardless of how many obligations bound to it or how many split arms exist, and drive_operator_capacity pre-collapses to one row per DISTINCT operator before summing caps so a two-assignment/one-operator grain cannot double count; pagination=both laterals are per-grain rollups, independent of the LIST keyset/limit; scope=tenant-scoped ($1) and reachable only through the already scope-filtered grouped grains.

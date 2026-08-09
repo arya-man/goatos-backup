@@ -37,6 +37,8 @@ import sg.mesha.goatos.core.network.dto.CalendarFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.CalendarPresentationDto
 import sg.mesha.goatos.core.network.dto.DriveSummaryDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.core.ui.operationalLocationLabel
+import sg.mesha.goatos.feature.calendar.CalendarDriveLocationSummary
 import sg.mesha.goatos.feature.calendar.CalendarDriveSummary
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarFilterOption
@@ -742,6 +744,17 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
     dueDateLabel = formatDriveDueDate(currentScheduleDate),
     shedCount = shedCount,
     shedsCompleted = shedsCompleted,
+    locations = sheds.map { shed ->
+        CalendarDriveLocationSummary(
+            shedId = shed.shedId,
+            shedName = shed.shedName,
+            partitionLabel = shed.partitionLabel,
+            operationalLocationDisplay = shed.operationalLocationDisplay.ifBlank {
+                operationalLocationLabel(shed.shedName, shed.partitionLabel)
+            },
+            totalAnimals = shed.totalAnimals,
+        )
+    },
     vaccineLabels = vaccineLabels.mapNotNull(::humanizeVaccineLabel),
     totalCount = totalCount,
     completedCount = completedCount,

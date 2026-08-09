@@ -12972,6 +12972,7 @@ components:
         - deferred_count
         - review_count
         - shed_labels
+        - shed_partition_labels
         - vaccine_labels
         - protocol_id
         - protocol_version_id
@@ -13120,13 +13121,10 @@ components:
               - string
               - "null"
           description: >-
-            Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed
-            partition (multi-partition or non-partitioned). NOT YET EMITTED: no backend query populates
-            this field today (backend/internal/calendar/domain.CalendarEvent has no ShedPartitionLabels
-            field, and no SQL in backend/internal/calendar/adapters/postgres builds a
-            shed_partition_labels key), so this property is deliberately optional rather than required
-            until that wiring lands. Do not mark it required again without also adding the Go field and
-            the SQL projection in the same change (see P2-13 in the partition-catalog session review).
+            Index-parallel to shed_labels. The raw stored partition label is emitted when the entry is
+            partitioned; an empty string means the physical shed is not partitioned. Repeated shed_labels
+            with different partition labels are distinct operational locations and count separately in
+            shed_count.
         vaccine_labels:
           type: array
           items:
@@ -13217,6 +13215,7 @@ components:
         - due_date
         - shed_count
         - sheds_completed
+        - sheds
         - vaccine_labels
         - total_count
         - completed_count
@@ -13252,14 +13251,14 @@ components:
         shed_count:
           type: integer
           minimum: 0
-          description: Number of unique sheds in the drive
+          description: Number of unique operational locations (physical shed plus optional partition) in the drive
         sheds_completed:
           type: integer
           minimum: 0
-          description: Number of sheds where all obligations are completed
+          description: Number of operational locations where all obligations are completed or submitted
         sheds:
           type: array
-          description: Per-shed animal counts for this drive.
+          description: Per-operational-location animal counts for this drive.
           items:
             $ref: "#/components/schemas/DriveShedSummary"
         vaccine_labels:
@@ -13357,6 +13356,7 @@ components:
       required:
         - shed_id
         - shed_name
+        - operational_location_display
         - total_animals
       properties:
         shed_id:
@@ -14268,6 +14268,7 @@ components:
         - park_name
         - shed_id
         - shed_name
+        - operational_location_display
         - animal_stage
         - protocol_id
         - protocol_name
@@ -14555,6 +14556,7 @@ components:
       required:
         - row_id
         - shed_name
+        - operational_location_display
         - expected
         - actual
         - gap
@@ -14700,6 +14702,7 @@ components:
         - park_name
         - shed_id
         - shed_name
+        - operational_location_display
         - owner
         - next_action
         - evidence_link

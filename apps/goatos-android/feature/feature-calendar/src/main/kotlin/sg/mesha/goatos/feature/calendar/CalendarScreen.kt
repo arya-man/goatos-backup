@@ -676,6 +676,19 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.size(6.dp))
+        }
+        if (summary.locations.isNotEmpty()) {
+            Text(
+                text = summary.locations.joinToString(" · ") { it.operationalLocationDisplay },
+                color = MeshaColors.Brand2,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.W600,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (summary.vaccineLabels.isNotEmpty() || summary.locations.isNotEmpty()) {
             Spacer(Modifier.size(10.dp))
         }
         // Coverage ring + headline prefer the DISTINCT-ANIMAL grain (a goat due for several vaccines

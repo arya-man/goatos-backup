@@ -108,9 +108,11 @@ type DriveSummary struct {
 }
 
 type DriveShedSummary struct {
-	ShedID       string `json:"shed_id"`
-	ShedName     string `json:"shed_name"`
-	TotalAnimals int    `json:"total_animals"`
+	ShedID                     string  `json:"shed_id"`
+	ShedName                   string  `json:"shed_name"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	TotalAnimals               int     `json:"total_animals"`
 }
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
@@ -148,6 +150,7 @@ type CalendarEvent struct {
 	DeferredCount              int             `json:"deferred_count"`
 	ReviewCount                int             `json:"review_count"`
 	ShedLabels                 []string        `json:"shed_labels"`
+	ShedPartitionLabels        []string        `json:"shed_partition_labels"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`

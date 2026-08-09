@@ -3078,6 +3078,127 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	}
 }
 
+func TestCalendarDriveSummaryUsesOperationalLocationGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Now().UTC().Add(24 * time.Hour))
+	const (
+		protocolID  = "ad000000-0000-4000-8000-000000000101"
+		versionID   = "ad000000-0000-4000-8000-000000000102"
+		ruleID      = "ad000000-0000-4000-8000-000000000103"
+		obligationA = "ad000000-0000-4000-8000-000000000104"
+		obligationB = "ad000000-0000-4000-8000-000000000105"
+		batchID     = "ad000000-0000-4000-8000-000000000106"
+		assignmentB = "ad000000-0000-4000-8000-000000000107"
+	)
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationA, driveDate)
+	seedCalendarGoat(t, ctx, pool, obligationA)
+	attachObligationToGoatScope(t, ctx, pool, obligationA, obligationA, "shed", testShedA)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationB, driveDate)
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET current_location_id = $3::uuid, park_id = $4::uuid, shed_id = $3::uuid, updated_at = now()
+WHERE tenant_id = $1::uuid AND goat_id = ANY($2::uuid[])`,
+		testTenantID, []string{obligationA, obligationB}, testShedA, testParkA); err != nil {
+		t.Fatalf("locate partition goats: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Test Shed 0711 - 1')`,
+		testTenantID, obligationA, testShedA); err != nil {
+		t.Fatalf("seed goat partitions: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, driveDate, obligationA, obligationB)
+	// The sibling intentionally has no goat_shed_partitions row. Its exact assignment ledger is the
+	// historical fallback used while canonical animal placement is still being backfilled.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  assignment_id, tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed,
+  partition_label, animal_count, total_doses, vaccine_rule_ids
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+  $5::uuid, $6::uuid, 'Test Shed 0711', '2', 1, 1, ARRAY[$7::uuid]
+)`, assignmentB, testTenantID, batchID, driveDate, testParkA, testShedA, ruleID); err != nil {
+		t.Fatalf("seed exact partition assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $3::uuid)`,
+		testTenantID, assignmentB, obligationB); err != nil {
+		t.Fatalf("seed exact partition assignment: %v", err)
+	}
+	setDriveObligationStatus(t, ctx, pool, obligationA, "completed")
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:            testTenantID,
+		OwnerKey:            domain.OwnerAll,
+		DateFrom:            driveDate.Add(-24 * time.Hour),
+		DateTo:              driveDate.Add(24 * time.Hour),
+		Limit:               50,
+		Scope:               domain.ScopeFilter{TenantWide: true},
+		IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive && resp.Items[i].ParkID != nil && *resp.Items[i].ParkID == testParkA {
+			drive = &resp.Items[i]
+			break
+		}
+	}
+	if drive == nil || drive.DriveSummary == nil {
+		t.Fatalf("partition drive summary missing: %#v", resp.Items)
+	}
+	if drive.ShedCount != 2 {
+		t.Fatalf("event shed_count=%d, want 2 operational locations", drive.ShedCount)
+	}
+	if !slices.Equal(drive.ShedLabels, []string{"Test Shed 0711", "Test Shed 0711"}) ||
+		!slices.Equal(drive.ShedPartitionLabels, []string{"1", "2"}) {
+		t.Fatalf("event locations labels=%v partitions=%v", drive.ShedLabels, drive.ShedPartitionLabels)
+	}
+	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID,
+		EventID:  drive.EventID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("get partition drive detail: %v", err)
+	}
+	if detail.Event.ShedCount != 2 ||
+		!slices.Equal(detail.Event.ShedPartitionLabels, []string{"1", "2"}) {
+		t.Fatalf("detail event operational locations count=%d partitions=%v", detail.Event.ShedCount, detail.Event.ShedPartitionLabels)
+	}
+
+	summary := drive.DriveSummary
+	if summary.ShedCount != 2 || summary.ShedsCompleted != 1 {
+		t.Fatalf("drive operational counts shed_count=%d completed=%d, want 2/1", summary.ShedCount, summary.ShedsCompleted)
+	}
+	if len(summary.Sheds) != 2 {
+		t.Fatalf("drive sheds=%#v, want two partition rows", summary.Sheds)
+	}
+	for i, wantPartition := range []string{"1", "2"} {
+		location := summary.Sheds[i]
+		if location.PartitionLabel == nil || *location.PartitionLabel != wantPartition {
+			t.Fatalf("drive shed %d partition=%v, want %s", i, location.PartitionLabel, wantPartition)
+		}
+		if location.OperationalLocationDisplay != "Test Shed 0711 - "+wantPartition {
+			t.Fatalf("drive shed %d display=%q", i, location.OperationalLocationDisplay)
+		}
+		if location.TotalAnimals != 1 {
+			t.Fatalf("drive shed %d animals=%d, want 1", i, location.TotalAnimals)
+		}
+	}
+}
+
 // TestDriveSummaryDistinctAnimalCoverageOneToMany proves CDR-001: distinct-animal coverage
 // is a separate grain from obligation counts. A single goat with two vaccination obligations in the same
 // drive (two rule_ids / two vaccines due the same day) should increment total_count by 2 (obligation grain)
