@@ -45,6 +45,10 @@ var (
 	// update when a stale or concurrent form addresses a pen that has already been enrolled.
 	ErrExperimentPenAlreadyConfigured = errors.New("feedconfig: experiment pen is already configured")
 
+	// ErrExperimentPenNotConfigured keeps the single-cell editor from becoming a non-atomic first
+	// enrollment path. A new pen must be enrolled with its complete item set through the batch write.
+	ErrExperimentPenNotConfigured = errors.New("feedconfig: experiment pen is not configured")
+
 	// ErrFeedItemExists is returned when a catalog entry with the same normalized label is already
 	// present in the tenant.
 	//
@@ -136,6 +140,7 @@ type Repository interface {
 	// omission: an experiment quantity is a hand-entered figure for a running trial that is corrected
 	// while the trial runs, not a standing rule whose past values must stay reconstructable to
 	// explain an old feed sheet. The write ledger still records who changed what and when.
+	// The pen must already be enrolled; its first complete set is created only by the batch method.
 	UpsertExperimentConfig(ctx context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error)
 
 	// UpsertExperimentConfigBatch ENROLLS every feed item of one unconfigured pen atomically.

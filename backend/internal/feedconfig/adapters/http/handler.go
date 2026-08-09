@@ -853,6 +853,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	case errors.Is(err, ports.ErrExperimentPenAlreadyConfigured):
 		h.writeError(w, r, http.StatusConflict, "experiment_pen_already_configured",
 			"this pen already has experiment configuration; refresh and edit its cells instead", nil)
+	case errors.Is(err, ports.ErrExperimentPenNotConfigured):
+		h.writeError(w, r, http.StatusConflict, "experiment_pen_not_configured",
+			"this pen must be enrolled atomically before individual cells can be edited", nil)
 	case errors.Is(err, ports.ErrFeedItemExists):
 		// 409, not 400 and not a silent success. The author asked to ADD a name the vocabulary
 		// already holds; reporting success would leave them believing there are now two entries when
