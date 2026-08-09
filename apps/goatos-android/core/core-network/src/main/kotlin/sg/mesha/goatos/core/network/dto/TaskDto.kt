@@ -202,6 +202,7 @@ data class TaskOptionValuesResponseDto(
 data class SubmitTaskRequestDto(
     @SerialName("sop_version_id") val sopVersionId: String,
     @SerialName("idempotency_key") val idempotencyKey: String,
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("answers") val answers: Map<String, JsonElement> = emptyMap(),
     @SerialName("proof_refs") val proofRefs: List<ProofReferenceDto> = emptyList(),
 )

@@ -154,7 +154,7 @@ class ScanViewModel @Inject constructor(
 
     private val shedCompletionSummary: StateFlow<ShedCompletionSummaryDto?> =
         (taskId?.let { id ->
-            tasksRepository.observeShedCompletionSummary(id, shedId)
+            tasksRepository.observeShedCompletionSummary(id, shedId, partitionLabel)
         } ?: flowOf(null))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -488,7 +488,7 @@ class ScanViewModel @Inject constructor(
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
         val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
-        taskId?.let { tasksRepository.refreshShedCompletionSummary(it, id) }
+        taskId?.let { tasksRepository.refreshShedCompletionSummary(it, id, partitionLabel) }
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         _refreshError.value = result.exceptionOrNull()?.message

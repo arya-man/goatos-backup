@@ -574,7 +574,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 			shedProofSubjectID = shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
 		}
 		if gate.SubjectType == "shed" && len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID)
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}
@@ -583,7 +583,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 				shedProofSubjectID = submittedShedProofSubjectID(cmd.Body.ProofRefs)
 			}
 		}
-		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, gate.MinimumCount, gate.MaximumCount)
+		readiness, err := s.repo.ShedCompletionReadiness(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel, gate.MinimumCount, gate.MaximumCount)
 		if err != nil {
 			return nil, mapRepoErr(err)
 		}
@@ -600,7 +600,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 		// attachment here.
 		proofPolicy = map[string]any{"required": false, "subject_scope": "task", "types": []any{"video"}, "minimum_count": 0}
 		if len(cmd.Body.ProofRefs) == 0 {
-			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID)
+			proofRefs, err := s.repo.CompletedTaskProofRefs(ctx, cmd.TenantID, cmd.TaskID, gate.SubjectType, shedProofSubjectID, cmd.Body.PartitionLabel)
 			if err != nil {
 				return nil, mapRepoErr(err)
 			}

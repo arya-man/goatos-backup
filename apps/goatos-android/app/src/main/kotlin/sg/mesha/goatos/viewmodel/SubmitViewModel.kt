@@ -681,6 +681,7 @@ class SubmitViewModel @Inject constructor(
             val request = SubmitTaskRequestDto(
                 sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,
+                partitionLabel = activePartitionLabel(),
                 answers = answersForSubmission(currentForm, formAnswers, currentScans),
                 proofRefs = proofRefsForSubmission(currentProofs),
             )

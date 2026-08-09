@@ -1,35 +1,13 @@
-export interface CommandBoardDriveOption {
-  driveBatchId: string;
-  driveName: string;
-  label: string;
-  // Park of the drive. Optional because a skinny API catalogue can omit it; while it is absent the
-  // park stays out of the rendered label rather than being guessed at.
-  parkId?: string | null;
-  parkName?: string | null;
-  status: string;
-  plannedDate?: string | null;
-  windowStart?: string | null;
-  windowEnd?: string | null;
-  targetCount: number;
-  doseCount: number;
-  operatorDays?: Array<{ date: string; targetCount: number; doseCount: number }>;
-  // Legacy display names for the physical sheds in this executable day.
-  shedNames: string[];
-  // Stable ids for the same sheds. Dedup on these, never on shedNames -- names repeat across
-  // parks, so a name-keyed dedup merges two parks' sheds into one row. Optional because older
-  // backends did not send it; absent means fall back to name-scoped behaviour within this row.
-  shedIds?: string[];
-  shedLocations?: Array<{
-    shedId: string;
-    shedName: string;
-    partition_label?: string | null;
-    operational_location_display?: string | null;
-  }>;
+import type { AppApiComponents } from "@goatos/api-client";
+
+type ApiCommandBoardDriveOption = AppApiComponents["schemas"]["VaccinationCommandBoardDriveOption"];
+
+export type CommandBoardDriveOption = ApiCommandBoardDriveOption & {
   // Set when the option's counts were reconstructed from the projection matrices instead of being
   // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
   // fold below must not add it to its siblings.
   derivedFromMatrix?: boolean;
-}
+};
 
 export interface ScheduledDriveRow {
   key: string;

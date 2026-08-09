@@ -858,10 +858,12 @@ type CommandBoardShedVaccineCell struct {
 	// tenant runs 175 sheds under 99 distinct names ("Godel 1" exists in two parks), so grouping by
 	// name merges two parks' sheds into one row and reports one park's red cell against the other's
 	// shed. ParkName is carried so two same-named sheds can be told apart on screen.
-	ShedID      string `json:"shedId"`
-	ShedName    string `json:"shedName"`
-	ParkName    string `json:"parkName,omitempty"`
-	VaccineCode string `json:"vaccineCode"`
+	ShedID                     string `json:"shedId"`
+	ShedName                   string `json:"shedName"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
+	ParkName                   string `json:"parkName,omitempty"`
+	VaccineCode                string `json:"vaccineCode"`
 	// State is one of:
 	//   "behind"      at least one animal holds a missed or past-due dose of this vaccine with NO
 	//                 proof of any kind against it                     -> RED
@@ -1071,15 +1073,17 @@ const CommandBoardCohortExceptionListCap = 25
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination.
 type ShedDoseMatrixCell struct {
-	ShedID              string     `json:"shedId"`
-	ShedName            string     `json:"shedName"`
-	DoseRule            string     `json:"doseRule"` // e.g. "et_tt_adult_w1", vaccine + position label
-	State               string     `json:"state"`    // "verified", "awaiting", "overdue", "scheduled"
-	AnimalCount         int        `json:"animalCount"`
-	MinAdministeredDate *time.Time `json:"minAdministeredDate,omitempty"` // for completed
-	MaxAdministeredDate *time.Time `json:"maxAdministeredDate,omitempty"` // for completed
-	MinDueDate          *time.Time `json:"minDueDate,omitempty"`          // for scheduled
-	MaxDueDate          *time.Time `json:"maxDueDate,omitempty"`          // for scheduled
+	ShedID                     string     `json:"shedId"`
+	ShedName                   string     `json:"shedName"`
+	PartitionLabel             string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string     `json:"operational_location_display,omitempty"`
+	DoseRule                   string     `json:"doseRule"` // e.g. "et_tt_adult_w1", vaccine + position label
+	State                      string     `json:"state"`    // "verified", "awaiting", "overdue", "scheduled"
+	AnimalCount                int        `json:"animalCount"`
+	MinAdministeredDate        *time.Time `json:"minAdministeredDate,omitempty"` // for completed
+	MaxAdministeredDate        *time.Time `json:"maxAdministeredDate,omitempty"` // for completed
+	MinDueDate                 *time.Time `json:"minDueDate,omitempty"`          // for scheduled
+	MaxDueDate                 *time.Time `json:"maxDueDate,omitempty"`          // for scheduled
 }
 
 // WeeklyGivenRow is one ISO week × vaccine × status aggregation.
@@ -1095,13 +1099,15 @@ type WeeklyGivenRow struct {
 
 // VerificationQueueRow is one shed × dose awaiting-verification row.
 type VerificationQueueRow struct {
-	ShedID          string     `json:"shedId"`
-	ShedName        string     `json:"shedName"`
-	DoseRule        string     `json:"doseRule"`
-	AwaitingCount   int        `json:"awaitingCount"`
-	TotalCount      int        `json:"totalCount"`
-	LastGivenOnDate *time.Time `json:"lastGivenOnDate,omitempty"` // max administered_at
-	DaysInQueue     *int       `json:"daysInQueue,omitempty"`     // business days since min administered_at
+	ShedID                     string     `json:"shedId"`
+	ShedName                   string     `json:"shedName"`
+	PartitionLabel             string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string     `json:"operational_location_display,omitempty"`
+	DoseRule                   string     `json:"doseRule"`
+	AwaitingCount              int        `json:"awaitingCount"`
+	TotalCount                 int        `json:"totalCount"`
+	LastGivenOnDate            *time.Time `json:"lastGivenOnDate,omitempty"` // max administered_at
+	DaysInQueue                *int       `json:"daysInQueue,omitempty"`     // business days since min administered_at
 }
 
 // CommandBoardResponse is the CEO closure view aggregating KPIs, cohort vaccine matrix,

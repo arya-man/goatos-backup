@@ -12,10 +12,13 @@ export default async function Page({
   params: Promise<{ shedId: string }>;
   searchParams?: Promise<RouteSearchParams>;
 }) {
-  const { shedId } = await params;
-  const sp = (await searchParams) ?? {};
+  const [{ shedId }, spRaw, pageContract] = await Promise.all([
+    params,
+    searchParams,
+    requireAdminWebPageContract("shed-execution"),
+  ]);
+  const sp = spRaw ?? {};
   const scope = parseScope(sp);
-  const pageContract = await requireAdminWebPageContract("shed-execution");
   return (
     <ShedExecutionDetailPage
       shedId={shedId}

@@ -1808,11 +1808,11 @@ func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAtte
 	f.scanAttempts = append(f.scanAttempts, attempt)
 	return attempt, nil
 }
-func (f *fakeRepo) ShedCompletionReadiness(_ context.Context, _, _, _, shedID string, _ int, _ int) (ports.ShedCompletionReadiness, error) {
+func (f *fakeRepo) ShedCompletionReadiness(_ context.Context, _, _, _, shedID, partitionLabel string, _ int, _ int) (ports.ShedCompletionReadiness, error) {
 	f.lastShedReadinessShedID = shedID
 	return f.shedReadiness, f.shedReadinessErr
 }
-func (f *fakeRepo) CompletedTaskProofRefs(_ context.Context, _, _, _, shedID string) ([]domain.ProofReference, error) {
+func (f *fakeRepo) CompletedTaskProofRefs(_ context.Context, _, _, _, shedID, partitionLabel string) ([]domain.ProofReference, error) {
 	f.lastCompletedProofRefsShedID = shedID
 	return f.completedTaskGoatProofRefs, f.completedTaskGoatProofErr
 }

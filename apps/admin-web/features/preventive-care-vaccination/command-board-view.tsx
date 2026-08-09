@@ -399,7 +399,7 @@ function enrichDriveOptions(
       .map((entry) => ({
         shedId: entry.shedId,
         shedName: entry.shedName,
-        partition_label: entry.partitionLabel,
+        ...(entry.partitionLabel ? { partition_label: entry.partitionLabel } : {}),
         operational_location_display: entry.operationalLocationDisplay || entry.shedName,
       }))
       .sort((a, b) => `${a.shedId}|${a.partition_label ?? ""}`.localeCompare(`${b.shedId}|${b.partition_label ?? ""}`));
@@ -1191,7 +1191,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       )}
                       <td><strong>{drive.driveName}</strong></td>
                       <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
-                      <td>{drive.shedIds && drive.shedIds.length > 0 ? `${drive.shedIds.length} sheds` : (drive.shedNames.join(", ") || "—")}</td>
+                      <td>{drive.shedNames.join(", ") || "—"}</td>
                       <td><strong>{drive.targetCount}</strong></td>
                       <td><strong>{drive.doseCount}</strong></td>
                     </tr>

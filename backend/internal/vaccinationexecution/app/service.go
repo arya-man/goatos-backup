@@ -266,11 +266,12 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 	if limit > 0 && len(cohorts) > limit {
 		last := cohorts[limit-1]
 		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
-			ParkID:   last.ParkID,
-			ParkName: last.ParkName,
-			ShedID:   last.ShedID,
-			ShedName: last.ShedName,
-			Stage:    last.Stage,
+			ParkID:         last.ParkID,
+			ParkName:       last.ParkName,
+			ShedID:         last.ShedID,
+			ShedName:       last.ShedName,
+			PartitionLabel: stringPtrValue(last.PartitionLabel),
+			Stage:          last.Stage,
 		})
 		if err != nil {
 			return domain.OperationsResponse{}, err
@@ -885,14 +886,18 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 }
 
 func operationalLocationDisplay(shedName string, partitionLabel *string) string {
-	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
-		return shedName
+	label := ""
+	if partitionLabel != nil {
+		label = *partitionLabel
 	}
-	label := strings.TrimSpace(*partitionLabel)
-	if strings.Contains(strings.ToLower(shedName), strings.ToLower(label)) {
-		return shedName
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
 	}
-	return shedName + " - " + label
+	return strings.TrimSpace(*value)
 }
 
 func partitionKey(partitionLabel *string) string {

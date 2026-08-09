@@ -877,6 +877,11 @@ raw AS (
     WHERE vda_guess.tenant_id = oi.tenant_id
       AND vda_guess.batch_id = oi.batch_id
       AND vda_guess.shed_id = g.shed_id
+      AND (
+        vda_guess.partition_label = 'whole'
+        OR regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+      )
     ORDER BY vda_guess.created_at DESC
     LIMIT 1
   ) vda_guess ON true
@@ -1942,21 +1947,27 @@ asof_terminal AS (
   GROUP BY obligation_id
 ),
 drive_assignment_dates AS (
-  -- ONE representative planned date per (batch, shed), pre-aggregated ONCE instead of probed per
+  -- ONE representative planned date per (batch, shed, partition), pre-aggregated ONCE instead of probed per
   -- obligation. This was a LEFT JOIN LATERAL ... LIMIT 1 correlated on (oi.batch_id, g.shed_id): a
   -- per-row index probe into vaccination_drive_assignments, i.e. one round trip per obligation row,
   -- which dominated the plan cost at the 500k envelope even after the due window became index-bound.
   -- Distinct (batch, shed) pairs are bounded by planned DRIVES, not by animals, so collapsing to one
   -- row per pair up front is strictly cheaper and set-based. DISTINCT ON reproduces the LATERAL's
   -- ORDER BY ... LIMIT 1 tie-break exactly, so the selected assignment date is unchanged.
-  SELECT DISTINCT ON (assignment.batch_id, assignment.shed_id)
+  SELECT DISTINCT ON (
     assignment.batch_id,
     assignment.shed_id,
+    regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
+    assignment.batch_id,
+    assignment.shed_id,
+    regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
     (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
   FROM vaccination_drive_assignments assignment
   WHERE assignment.tenant_id = $1::uuid
   ORDER BY assignment.batch_id,
            assignment.shed_id,
+           regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', ''),
            assignment.planned_date ASC,
            assignment.partition_label ASC,
            assignment.operator_id ASC NULLS LAST,
@@ -2041,6 +2052,10 @@ raw AS (
   LEFT JOIN drive_assignment_dates vda
     ON vda.batch_id = oi.batch_id
    AND vda.shed_id = g.shed_id
+   AND (
+     vda.partition_key = 'whole'
+     OR vda.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+   )
   LEFT JOIN completions c
     ON c.obligation_id = oi.obligation_id
   LEFT JOIN asof_terminal te
@@ -4795,6 +4810,10 @@ shed_dose_obligations AS (
   SELECT
     oi.scope_id as shed_id,
     loc.name as shed_name,
+    CASE
+      WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+      ELSE btrim(gsp.partition_label)
+    END AS partition_label,
     pr.dose_code,
     CASE
       WHEN comp.has_accepted THEN 'verified'
@@ -4810,6 +4829,7 @@ shed_dose_obligations AS (
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -4819,7 +4839,7 @@ shed_dose_obligations AS (
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
 )
-SELECT shed_id, shed_name, dose_code, state,
+SELECT shed_id, shed_name, partition_label, dose_code, state,
   COUNT(DISTINCT target_id) as animal_count,
   MIN(min_administered_at) as min_administered_at,
   MAX(max_administered_at) as max_administered_at,
@@ -4827,8 +4847,8 @@ SELECT shed_id, shed_name, dose_code, state,
   MAX(due_at) as max_due_at
 FROM shed_dose_obligations
 WHERE state != 'other'
-GROUP BY shed_id, shed_name, dose_code, state
-ORDER BY shed_name, dose_code, state
+GROUP BY shed_id, shed_name, partition_label, dose_code, state
+ORDER BY shed_name, partition_label, dose_code, state
 `
 	shedDoseRows, err := r.pool.Query(ctx, shedDoseSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
@@ -4837,19 +4857,21 @@ ORDER BY shed_name, dose_code, state
 	defer shedDoseRows.Close()
 
 	for shedDoseRows.Next() {
-		var shedID, shedName, doseCode, state string
+		var shedID, shedName, partitionLabel, doseCode, state string
 		var animalCount int
 		var minAdministeredAt, maxAdministeredAt, minDueAt, maxDueAt pgtype.Timestamptz
-		if err := shedDoseRows.Scan(&shedID, &shedName, &doseCode, &state, &animalCount, &minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
+		if err := shedDoseRows.Scan(&shedID, &shedName, &partitionLabel, &doseCode, &state, &animalCount, &minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: shed dose scan: %w", err)
 		}
 
 		cell := domain.ShedDoseMatrixCell{
-			ShedID:      shedID,
-			ShedName:    shedName,
-			DoseRule:    vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
-			State:       state,
-			AnimalCount: animalCount,
+			ShedID:                     shedID,
+			ShedName:                   shedName,
+			PartitionLabel:             partitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
+			DoseRule:                   vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
+			State:                      state,
+			AnimalCount:                animalCount,
 		}
 
 		if minAdministeredAt.Valid {
@@ -4914,6 +4936,10 @@ WITH comp AS (
 SELECT
   shed.location_id::text AS shed_id,
   COALESCE(shed.name, '') AS shed_name,
+  CASE
+    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(gsp.partition_label)
+  END AS partition_label,
   COALESCE(park.name, '') AS park_name,
   d.vaccine_code,
   -- BEHIND is "no dose reached this animal": no accepted completion AND no recorded proof waiting on
@@ -4943,6 +4969,7 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
@@ -4955,27 +4982,29 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
-GROUP BY shed.location_id, shed.name, park.name, d.vaccine_code
+GROUP BY shed.location_id, shed.name, partition_label, park.name, d.vaccine_code
 `
 	shedVaccineRows, err := r.pool.Query(ctx, shedVaccineSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: shed vaccine query: %w", err)
 	}
 	defer shedVaccineRows.Close()
-	type shedVaccineKey struct{ shedID, vaccine string }
-	type shedIdentity struct{ name, park string }
+	type shedVaccineKey struct{ shedID, partitionLabel, vaccine string }
+	type shedIdentity struct{ id, name, partitionLabel, display, park string }
 	shedVaccineCells := map[shedVaccineKey]domain.CommandBoardShedVaccineCell{}
 	sheds := map[string]shedIdentity{}
 	shedOrder := []string{}
 	for shedVaccineRows.Next() {
-		var shedID, shedName, parkName, vaccineCode string
+		var shedID, shedName, partitionLabel, parkName, vaccineCode string
 		var behind, verifying, total int64
-		if err := shedVaccineRows.Scan(&shedID, &shedName, &parkName, &vaccineCode, &behind, &verifying, &total); err != nil {
+		if err := shedVaccineRows.Scan(&shedID, &shedName, &partitionLabel, &parkName, &vaccineCode, &behind, &verifying, &total); err != nil {
 			return resp, fmt.Errorf("vaccination command board: shed vaccine scan: %w", err)
 		}
-		if _, seen := sheds[shedID]; !seen {
-			sheds[shedID] = shedIdentity{name: shedName, park: parkName}
-			shedOrder = append(shedOrder, shedID)
+		shedKey := shedID + "|" + partitionLabel
+		if _, seen := sheds[shedKey]; !seen {
+			display := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+			sheds[shedKey] = shedIdentity{id: shedID, name: shedName, partitionLabel: partitionLabel, display: display, park: parkName}
+			shedOrder = append(shedOrder, shedKey)
 		}
 		// BEHIND outranks VERIFYING: an animal nobody dosed is a bigger problem than one whose proof
 		// is queued, so a shed holding both reads red. Verifying is amber on its own -- the work is
@@ -4987,15 +5016,17 @@ GROUP BY shed.location_id, shed.name, park.name, d.vaccine_code
 		case verifying > 0:
 			state = "verifying"
 		}
-		shedVaccineCells[shedVaccineKey{shedID, vaccineCode}] = domain.CommandBoardShedVaccineCell{
-			ShedID:           shedID,
-			ShedName:         shedName,
-			ParkName:         parkName,
-			VaccineCode:      vaccineCode,
-			State:            state,
-			BehindAnimals:    int(behind),
-			VerifyingAnimals: int(verifying),
-			TotalAnimals:     int(total),
+		shedVaccineCells[shedVaccineKey{shedID, partitionLabel, vaccineCode}] = domain.CommandBoardShedVaccineCell{
+			ShedID:                     shedID,
+			ShedName:                   shedName,
+			PartitionLabel:             partitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
+			ParkName:                   parkName,
+			VaccineCode:                vaccineCode,
+			State:                      state,
+			BehindAnimals:              int(behind),
+			VerifyingAnimals:           int(verifying),
+			TotalAnimals:               int(total),
 		}
 	}
 	if err := shedVaccineRows.Err(); err != nil {
@@ -5070,7 +5101,15 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 )
-SELECT DISTINCT ON (oi.scope_id, d.vaccine_code, g.goat_id)
+SELECT DISTINCT ON (
+  oi.scope_id,
+  CASE
+    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(gsp.partition_label)
+  END,
+  d.vaccine_code,
+  g.goat_id
+)
   oi.scope_id::text AS shed_id,
   d.vaccine_code,
   g.goat_id::text,
@@ -5099,7 +5138,10 @@ SELECT DISTINCT ON (oi.scope_id, d.vaccine_code, g.goat_id)
   -- Ground location is park + physical shed + PARTITION. The shed name alone sends a person to
   -- "Godel 1" when the animal is standing in "Godel 1 - Part 3", which on a partitioned shed is a
   -- different pen and a wasted trip. Same source the closed-without-dose drawer already uses.
-  COALESCE(gsp.partition_label, '') AS partition_label,
+  CASE
+    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(gsp.partition_label)
+  END AS partition_label,
   COALESCE(comp.has_recorded_unverified, false) AS awaiting_verification,
   comp.recorded_at
 FROM obligation_instances oi
@@ -5128,14 +5170,14 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
-ORDER BY oi.scope_id, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
+ORDER BY oi.scope_id, partition_label, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
 )
 -- The cap is a GLOBAL budget across every behind cell, so the order that decides who survives it
 -- has to be applied HERE, over the whole set, and not inside the DISTINCT ON. Ordering by due date
 -- first means truncation drops the most recently missed rather than the longest waiting; without
 -- this wrapper the effective order was goat_id, i.e. arbitrary.
 SELECT * FROM per_animal_behind
-ORDER BY due_at ASC NULLS LAST, shed_id, vaccine_code, goat_id
+ORDER BY due_at ASC NULLS LAST, shed_id, partition_label, vaccine_code, goat_id
 LIMIT $5
 `
 	behindAnimals := map[shedVaccineKey][]domain.CommandBoardShedVaccineAnimal{}
@@ -5181,7 +5223,7 @@ LIMIT $5
 			due := dueAt.Time
 			animal.DueAt = &due
 		}
-		key := shedVaccineKey{shedID, vaccineCode}
+		key := shedVaccineKey{shedID, partitionLabel, vaccineCode}
 		behindAnimals[key] = append(behindAnimals[key], animal)
 	}
 	if err := behindRows.Err(); err != nil {
@@ -5293,23 +5335,29 @@ ORDER BY pa.uploaded_at
 		if a.name != b.name {
 			return a.name < b.name
 		}
+		if a.partitionLabel != b.partitionLabel {
+			return a.partitionLabel < b.partitionLabel
+		}
 		return a.park < b.park
 	})
-	for _, shedID := range shedOrder {
-		identity := sheds[shedID]
+	for _, shedKey := range shedOrder {
+		identity := sheds[shedKey]
 		for _, column := range resp.ShedVaccineColumns {
 			code := column.Code
-			if cell, ok := shedVaccineCells[shedVaccineKey{shedID, code}]; ok {
-				cell.FlaggedAnimals = behindAnimals[shedVaccineKey{shedID, code}]
+			key := shedVaccineKey{identity.id, identity.partitionLabel, code}
+			if cell, ok := shedVaccineCells[key]; ok {
+				cell.FlaggedAnimals = behindAnimals[key]
 				resp.ShedVaccineMatrix = append(resp.ShedVaccineMatrix, cell)
 				continue
 			}
 			resp.ShedVaccineMatrix = append(resp.ShedVaccineMatrix, domain.CommandBoardShedVaccineCell{
-				ShedID:      shedID,
-				ShedName:    identity.name,
-				ParkName:    identity.park,
-				VaccineCode: code,
-				State:       "not_planned",
+				ShedID:                     identity.id,
+				ShedName:                   identity.name,
+				PartitionLabel:             identity.partitionLabel,
+				OperationalLocationDisplay: identity.display,
+				ParkName:                   identity.park,
+				VaccineCode:                code,
+				State:                      "not_planned",
 			})
 		}
 	}
@@ -5378,6 +5426,10 @@ ORDER BY iso_year DESC, iso_week DESC, pr.dose_code, vc.status
 SELECT
   oi.scope_id as shed_id,
   loc.name as shed_name,
+  CASE
+    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(gsp.partition_label)
+  END AS partition_label,
   pr.dose_code,
   COUNT(DISTINCT vc.completion_id) as awaiting_count,
   COUNT(DISTINCT oi.obligation_id) as total_count,
@@ -5386,6 +5438,7 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
@@ -5399,8 +5452,8 @@ WHERE oi.tenant_id = $1::uuid
   )
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
-GROUP BY oi.scope_id, loc.name, pr.dose_code
-ORDER BY shed_name, pr.dose_code
+GROUP BY oi.scope_id, loc.name, partition_label, pr.dose_code
+ORDER BY shed_name, partition_label, pr.dose_code
 `
 	verifyRows, err := r.pool.Query(ctx, verifyQueueSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
@@ -5409,19 +5462,21 @@ ORDER BY shed_name, pr.dose_code
 	defer verifyRows.Close()
 
 	for verifyRows.Next() {
-		var shedID, shedName, doseCode string
+		var shedID, shedName, partitionLabel, doseCode string
 		var awaitingCount, totalCount int
 		var lastGivenDate, firstGivenDate pgtype.Timestamptz
-		if err := verifyRows.Scan(&shedID, &shedName, &doseCode, &awaitingCount, &totalCount, &lastGivenDate, &firstGivenDate); err != nil {
+		if err := verifyRows.Scan(&shedID, &shedName, &partitionLabel, &doseCode, &awaitingCount, &totalCount, &lastGivenDate, &firstGivenDate); err != nil {
 			return resp, fmt.Errorf("vaccination command board: verification queue scan: %w", err)
 		}
 
 		row := domain.VerificationQueueRow{
-			ShedID:        shedID,
-			ShedName:      shedName,
-			DoseRule:      vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
-			AwaitingCount: awaitingCount,
-			TotalCount:    totalCount,
+			ShedID:                     shedID,
+			ShedName:                   shedName,
+			PartitionLabel:             partitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
+			DoseRule:                   vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
+			AwaitingCount:              awaitingCount,
+			TotalCount:                 totalCount,
 		}
 
 		if lastGivenDate.Valid {
