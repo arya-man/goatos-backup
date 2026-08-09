@@ -845,12 +845,33 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 	//     client, which now registers "/verify/alerts?category=" as a real destination reading
 	//     the same pending queue; the href stays as-is precisely because it is that contract, and
 	//     it must keep carrying the category or the feed stops being feature-scoped.
-	category := verificationCategoryForFeature(normalized)
-	items := []moduleNavContribution{
-		{key: "verify", labelKey: "nav.verify", href: verifyQueueHref(normalized), shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
-		{key: "alerts", labelKey: "nav.alerts", href: verifierAlertsHref(normalized, category), shared_key: "", priority: 20, requiredPermission: ""},
-		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
+	// ONE VERIFY TAB PER EVIDENCE PAGE, because a module may register more than one category and
+	// the tab is the ONLY way into that category's queue. Feed registers three (feed_distribution,
+	// feed_packing, feed_transport) and had a single "Verify" tab pinned to feed_distribution, so
+	// packing and transport proofs were unreachable on the phone -- a verifier holding a
+	// feed.direction verify duty, with Feed showing in her drawer, could not open a feed packing
+	// video at all (observed on STG 2026-08-09, four packing proofs queued and invisible).
+	//
+	// This is the same shape the admin-web verifier lens already composes (adminui/app.
+	// verifierLensNavigation: one leaf per registered PageKey, each differing only by category), so
+	// the two surfaces now agree on what a verifier can reach.
+	pages := verificationPagesForFeature(normalized)
+	category := pages[0].category
+	items := make([]moduleNavContribution, 0, len(pages)+2)
+	for i, page := range pages {
+		items = append(items, moduleNavContribution{ //nav-composition:ignore: composed per registered evidence page, not a per-role template
+			key:                page.key,
+			labelKey:           page.labelKey,
+			href:               verifyQueueHrefForCategory(normalized, page.category),
+			shared_key:         "",
+			priority:           i,
+			requiredPermission: permissions.VerificationReview,
+		})
 	}
+	items = append(items,
+		moduleNavContribution{key: "alerts", labelKey: "nav.alerts", href: verifierAlertsHref(normalized, category), shared_key: "", priority: 20, requiredPermission: ""},
+		moduleNavContribution{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
+	)
 
 	// Filter to permitted items
 	permittedItems := make([]moduleNavContribution, 0, len(items))
@@ -1267,7 +1288,50 @@ func leadershipVideosHref(normalizedFeatureKey string) string {
 }
 
 func verifyQueueHref(normalizedFeatureKey string) string {
-	return "/verify?module=" + normalizedFeatureKey + "&category=" + verificationCategoryForFeature(normalizedFeatureKey)
+	return verifyQueueHrefForCategory(normalizedFeatureKey, verificationCategoryForFeature(normalizedFeatureKey))
+}
+
+// verifyQueueHrefForCategory is the same link for a NAMED category, used when a module registers
+// more than one evidence page and each tab must open its own queue.
+func verifyQueueHrefForCategory(normalizedFeatureKey, category string) string {
+	return "/verify?module=" + normalizedFeatureKey + "&category=" + category
+}
+
+// verifierPage is one evidence queue a verifier can open inside a module: the nav item key, its
+// copy-catalog label key, and the verification category the queue filters on.
+type verifierPage struct {
+	key      string
+	labelKey string
+	category string
+}
+
+// verificationPagesForFeature lists a module's evidence pages in tab order.
+//
+// A module with ONE category keeps the single tab labelled just "Verify" -- naming the page there
+// would only repeat the module the verifier is already standing in, the same reasoning the 2026-08-03
+// ruling applied to the Alerts label. A module with SEVERAL must name them, because the tab is the
+// only thing distinguishing one queue from another.
+//
+// Feed is the only multi-page module today and the reason this function exists. Adding a second
+// category to any other module means adding it HERE too, or its queue is unreachable on the phone --
+// the failure is silent (the tab that does exist answers 200 with the wrong category's rows), which
+// is exactly how feed packing stayed invisible. The durable fix is to compose this from the
+// Verification type registry the way adminui does; that needs a registry port threaded through the
+// bootstrap builders, which are package-level functions today.
+func verificationPagesForFeature(normalizedFeatureKey string) []verifierPage {
+	switch normalizedFeatureKey {
+	case "feed_direction":
+		// Order and labels mirror the registry's PageOrder/PageLabel for these three categories
+		// (bootstrap/api.go): Feed Distribution, Feed Packing, Feed Transport. The label keys are the
+		// module's existing operator-side nav keys, so all four locales already resolve.
+		return []verifierPage{
+			{key: "verify_feed_distribution", labelKey: "nav.feed_direction", category: "feed_distribution"},
+			{key: "verify_feed_packing", labelKey: "nav.feed_packing", category: "feed_packing"},
+			{key: "verify_feed_transport", labelKey: "nav.feed_transport", category: "feed_transport"},
+		}
+	default:
+		return []verifierPage{{key: "verify", labelKey: "nav.verify", category: verificationCategoryForFeature(normalizedFeatureKey)}}
+	}
 }
 
 // verificationCategoryForFeature maps a MODULE key (the vocabulary nav and

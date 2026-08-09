@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -53,11 +54,19 @@ func TestVerifierBarLinksAreFeatureScopedAndClientResolvable(t *testing.T) {
 				t.Fatalf("module href = %q, want %q (the drawer entry and the Verify tab must open the same queue)", module.Href, wantVerify)
 			}
 			byKey := map[string]string{}
+			// The PRIMARY verify tab is the first one the module emits. A module registering several
+			// evidence categories emits one named tab each ("verify_feed_packing"), so this looks up
+			// the leading verify item rather than a literal "verify" key -- the assertion below is
+			// unchanged: whichever tab the drawer entry lands on must carry a resolvable category.
+			primaryVerify := ""
 			for _, item := range module.NavItems {
 				byKey[item.Key] = item.Href
+				if primaryVerify == "" && strings.HasPrefix(item.Key, "verify") {
+					primaryVerify = item.Href
+				}
 			}
-			if byKey["verify"] != wantVerify {
-				t.Fatalf("verify href = %q, want %q -- without the category the client scopes this queue by guessing the module", byKey["verify"], wantVerify)
+			if primaryVerify != wantVerify {
+				t.Fatalf("primary verify href = %q, want %q -- without the category the client scopes this queue by guessing the module", primaryVerify, wantVerify)
 			}
 			if alerts := byKey["alerts"]; alerts != wantVerifierAlertsHref(tc.feature, tc.wantCategory) {
 				t.Fatalf("alerts href = %q, want %s -- an alerts feed with no category is not feature-scoped", alerts, tc.wantCategory)
