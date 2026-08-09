@@ -92,13 +92,13 @@ fun CaptureAccessGate(
         Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(16.dp))
         Text(
-            "Camera, microphone, RFID reader, and background upload access are required",
+            "Upload access is required",
             color = MeshaColors.Ink,
             style = MeshaType.headerTitle,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "A vaccination drive can't be scanned or proven without these. Grant the access below to continue.",
+            "Allow camera, location, and file access to continue.",
             color = MeshaColors.Muted,
             style = MeshaType.rowLabel,
         )
