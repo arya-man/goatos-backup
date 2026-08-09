@@ -5562,11 +5562,11 @@ export interface components {
             /** @description DEPRECATED ALIAS — kept for existing consumers; "whole" for unsplit sheds. New consumers must use partition_label instead, which is null (never the string "whole") when the shed is non-partitioned. */
             partition?: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
+            partition_label: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            operational_location_display: string;
             animalStage: string;
             /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
             targetCount: number;
@@ -6020,9 +6020,9 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partitionLabel?: string | null;
+            partitionLabel: string | null;
             /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operationalLocationDisplay?: string;
+            operationalLocationDisplay: string;
             shedName: string;
             animalStages: string[];
             drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
@@ -11210,6 +11210,8 @@ export interface operations {
     getVaccinationExecutionShedDrilldown: {
         parameters: {
             query?: {
+                /** @description Raw operational partition label within the physical shed. Omit only for an undivided shed or an intentional all-partitions read. */
+                partition_label?: string;
                 /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
@@ -12868,6 +12870,8 @@ export interface operations {
     appScanRoster: {
         parameters: {
             query?: {
+                /** @description Raw operational partition label within the physical shed. Operators send the label from the selected execution card. */
+                partition_label?: string;
                 task_id?: string;
                 /** @description Opaque keyset cursor for the next page. Omit to start from the beginning. */
                 cursor?: string;

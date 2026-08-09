@@ -1,6 +1,7 @@
-import { VaccinationShedDetailPage } from "@/features/vaccination-sheds";
+import { ShedExecutionDetailPage } from "@/features/vaccination-execution/shed-drilldown";
 import { requireAdminWebPageContract } from "@/lib/api/server";
-import type { RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
+import { backendScope, parseScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,15 @@ export default async function Page({
 }) {
   const { shedId } = await params;
   const sp = (await searchParams) ?? {};
-  const [pageContract, passportPageContract] = await Promise.all([
-    requireAdminWebPageContract("shed-execution"),
-    requireAdminWebPageContract("goat-passport"),
-  ]);
-  return <VaccinationShedDetailPage shedId={shedId} searchParams={sp} pageContract={pageContract} passportPageContract={passportPageContract} />;
+  const scope = parseScope(sp);
+  const pageContract = await requireAdminWebPageContract("shed-execution");
+  return (
+    <ShedExecutionDetailPage
+      shedId={shedId}
+      partitionLabel={one(sp, "partition_label")}
+      scope={scope}
+      asOf={backendScope(scope).asOf}
+      pageContract={pageContract}
+    />
+  );
 }

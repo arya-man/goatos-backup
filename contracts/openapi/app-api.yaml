@@ -2902,6 +2902,12 @@ paths:
       summary: Get vaccination execution context for one shed.
       parameters:
         - $ref: "#/components/parameters/ShedId"
+        - name: partition_label
+          in: query
+          required: false
+          description: Raw operational partition label within the physical shed. Omit only for an undivided shed or an intentional all-partitions read.
+          schema:
+            type: string
         - name: as_of
           in: query
           required: false
@@ -5318,6 +5324,12 @@ paths:
         shed-wide roster. Park-scoped actors only see sheds in their authorized parks.
       parameters:
         - $ref: "#/components/parameters/ShedId"
+        - name: partition_label
+          in: query
+          required: false
+          description: Raw operational partition label within the physical shed. Operators send the label from the selected execution card.
+          schema:
+            type: string
         - name: task_id
           in: query
           required: false
@@ -14913,6 +14925,8 @@ components:
         - parkName
         - shedId
         - shedName
+        - partition_label
+        - operational_location_display
         - animalStage
         - targetCount
         - openCount
@@ -16102,6 +16116,8 @@ components:
         - parkName
         - shedId
         - shedName
+        - partitionLabel
+        - operationalLocationDisplay
         - animalStages
         - drives
         - rows

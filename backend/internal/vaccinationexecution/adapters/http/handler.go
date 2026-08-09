@@ -564,6 +564,9 @@ func (h *Handler) GetShedDrilldown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q.ShedID = &shedID
+	if partitionLabel := strings.TrimSpace(r.URL.Query().Get("partition_label")); partitionLabel != "" {
+		q.PartitionLabel = &partitionLabel
+	}
 	detail, found, err := h.reader.ShedDrilldown(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
@@ -729,6 +732,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 	q := vaccexecd.ScanRosterQuery{
 		TenantID:             tenantID(r),
 		ShedID:               shedID,
+		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
 		TaskID:               taskID,
 		OperatorScopeActorID: actorID,
 		Limit:                limit,

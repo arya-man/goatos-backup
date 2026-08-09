@@ -205,10 +205,11 @@ class ScanViewModelTest {
 
     @Test
     fun `scan header title uses task shed name plus scan`() = runTest(dispatcher) {
+        val repo = FakeScanExecutionRepository(
+            firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+        )
         val vm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
-            ),
+            repo = repo,
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = FakeScanCaptureRepository(),
             scanAttemptRepository = FakeScanAttemptRepository(),
@@ -231,6 +232,7 @@ class ScanViewModelTest {
                     "shedId" to "shed-1",
                     "taskId" to "task-1",
                     "scanTitle" to "Gandhi 1 - Part 3",
+                    "partitionLabel" to "Part 3",
                 ),
             ),
         )
@@ -238,6 +240,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
+        assertEquals("Part 3", repo.lastRefreshPartitionLabel)
     }
 
     @Test
@@ -1440,6 +1443,8 @@ private class FakeScanExecutionRepository(
     // WHOLE roster into this list (with backend seq order); every read is a bounded/aggregate query
     // over it. No whole-collection blob.
     private val rows = MutableStateFlow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>>(emptyList())
+    var lastRefreshPartitionLabel: String? = null
+        private set
 
     private fun norm(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
@@ -1476,18 +1481,20 @@ private class FakeScanExecutionRepository(
         shedId: String,
         taskId: String?,
         windowSize: Int,
+        partitionLabel: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>> =
         rows.map { it.take(windowSize) }
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> = rows.map { it.size }
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> = rows.map { it.size }
 
-    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         rows.map { list -> list.filter { it.goatId.isNotBlank() && statusIsDone(it.status) }.map { it.goatId }.distinct() }
 
     override suspend fun scanRosterRowsByGoatIds(
         shedId: String,
         taskId: String?,
         goatIds: List<String>,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
         rows.value.filter { it.goatId in goatIds }
 
@@ -1495,6 +1502,7 @@ private class FakeScanExecutionRepository(
         shedId: String,
         taskId: String?,
         normalizedTag: String,
+        partitionLabel: String?,
     ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? =
         rows.value.firstOrNull {
             it.normalizedPrimaryTag == normalizedTag || it.normalizedSecondaryTag == normalizedTag
@@ -1503,6 +1511,7 @@ private class FakeScanExecutionRepository(
     override fun observeScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
+        partitionLabel: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> =
         rows.map { list ->
             list.groupingBy { it.status }.eachCount()
@@ -1513,6 +1522,7 @@ private class FakeScanExecutionRepository(
         shedId: String,
         taskId: String?,
         obligationIds: List<String>,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         rows.value.filter { it.obligationId in obligationIds }
             .groupingBy { it.status }.eachCount()
@@ -1521,11 +1531,13 @@ private class FakeScanExecutionRepository(
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
         rows.value.groupingBy { it.status }.eachCount()
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
-    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
+    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> = runCatching {
+        lastRefreshPartitionLabel = partitionLabel
         refreshStarted?.complete(Unit)
         refreshGate?.await()
         val staged = mutableListOf<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>()
@@ -1586,14 +1598,14 @@ private class FakeScanExecutionRepository(
         includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
-    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
+    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): VaccinationExecutionShedDrilldownDto =
         error("unused")
 
     override fun observeShed(
-        shedId: String, asOf: String?, dueBefore: String?, limit: Int?,
+        shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?,
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> = error("unused")
 
-    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
+    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): Result<Unit> =
         error("unused")
 }
 

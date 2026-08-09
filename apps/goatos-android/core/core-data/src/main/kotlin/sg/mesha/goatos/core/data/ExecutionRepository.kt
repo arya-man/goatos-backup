@@ -106,6 +106,7 @@ interface ExecutionRepository {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): VaccinationExecutionShedDrilldownDto
 
     /** Cache-first stream for this shed drilldown scope. */
@@ -114,6 +115,7 @@ interface ExecutionRepository {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>>
 
     /** Fetches and upserts Room on success; leaves the cache untouched on failure. */
@@ -122,6 +124,7 @@ interface ExecutionRepository {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): Result<Unit>
 
     /** The scan LIST read: a bounded keyset WINDOW of the per-row SSOT (never the whole collection),
@@ -132,18 +135,24 @@ interface ExecutionRepository {
         shedId: String,
         taskId: String? = null,
         windowSize: Int,
+        partitionLabel: String? = null,
     ): Flow<List<ScanRosterRowEntity>>
 
     /** Full-roster row count for this shed/task scope — drives `hasMore` (window < total). */
-    fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int>
+    fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<Int>
 
     /** Distinct goat ids of every DONE/completed animal in the FULL roster (page-independent). The
      *  submit proof gate requires a synced proof for each; see [scanRosterRowsByGoatIds]. */
-    fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>>
+    fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<List<String>>
 
     /** Rows for a bounded goat-id set — the proof-incomplete animals the submit gate surfaces for
      *  retry/replace, so action-needed animals outside the visible window are still shown. */
-    suspend fun scanRosterRowsByGoatIds(shedId: String, taskId: String?, goatIds: List<String>): List<ScanRosterRowEntity>
+    suspend fun scanRosterRowsByGoatIds(
+        shedId: String,
+        taskId: String?,
+        goatIds: List<String>,
+        partitionLabel: String? = null,
+    ): List<ScanRosterRowEntity>
 
     /** Walks the WHOLE shed roster page-by-page into the per-row SSOT ([ScanRosterRowDao]) — each
      *  network page stays ~20 rows, streamed straight into the DAO with its backend `seq` order, and
@@ -154,22 +163,33 @@ interface ExecutionRepository {
         shedId: String,
         taskId: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): Result<Unit>
 
     /** R50-007: Find a roster row by shed and normalized tag (searches the full roster, not just
      *  the loaded page). Returns null if the tag is not found in this shed. */
-    suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String): ScanRosterRowEntity?
+    suspend fun findScanRosterByTag(
+        shedId: String,
+        taskId: String?,
+        normalizedTag: String,
+        partitionLabel: String? = null,
+    ): ScanRosterRowEntity?
 
     /** R50-008: Get status-based counts for a shed (full roster, independent of loaded page). */
-    suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?): List<StatusCount>
+    suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String? = null): List<StatusCount>
 
     /** R50-008: Observable full-roster status aggregates for a shed. Re-emits on every roster
      *  upsert; the ViewModel combines this with the paged roster so counters are identical for
      *  page size 1 and 20. */
-    fun observeScanRosterStatusCounts(shedId: String, taskId: String?): Flow<List<StatusCount>>
+    fun observeScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<List<StatusCount>>
 
     /** R50-008: Status aggregates for a bounded obligation-id set (the local unsynced overlay). */
-    suspend fun getScanRosterStatusCountsFor(shedId: String, taskId: String?, obligationIds: List<String>): List<StatusCount>
+    suspend fun getScanRosterStatusCountsFor(
+        shedId: String,
+        taskId: String?,
+        obligationIds: List<String>,
+        partitionLabel: String? = null,
+    ): List<StatusCount>
 }
 
 class DefaultExecutionRepository(
@@ -268,16 +288,18 @@ class DefaultExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto =
-        api.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit)
+        api.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit, partitionLabel)
 
     override fun observeShed(
         shedId: String,
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> {
-        val key = cacheKey(shedId, asOf, dueBefore, limit?.toString())
+        val key = cacheKey(shedId, executionPartitionKey(partitionLabel), asOf, dueBefore, limit?.toString())
         return shedDao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
@@ -288,9 +310,10 @@ class DefaultExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): Result<Unit> = runCatching {
-        val dto = shed(shedId, asOf, dueBefore, limit)
-        val key = cacheKey(shedId, asOf, dueBefore, limit?.toString())
+        val dto = shed(shedId, asOf, dueBefore, limit, partitionLabel)
+        val key = cacheKey(shedId, executionPartitionKey(partitionLabel), asOf, dueBefore, limit?.toString())
         shedDao.upsert(ExecutionShedCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         shedDao.enforceCacheBounds()
     }
@@ -303,38 +326,42 @@ class DefaultExecutionRepository(
         taskId: String?,
         cursor: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): ScanRosterResponseDto =
-        api.getScanRoster(shedId, taskId, cursor, limit)
+        api.getScanRoster(shedId, taskId, cursor, limit, partitionLabel)
 
     override fun observeScanRosterRows(
         shedId: String,
         taskId: String?,
         windowSize: Int,
+        partitionLabel: String?,
     ): Flow<List<ScanRosterRowEntity>> =
-        scanRosterRowDao.observeRowsWindow(scanRosterRowScopeKey(shedId, taskId), windowSize)
+        scanRosterRowDao.observeRowsWindow(scanRosterRowScopeKey(shedId, taskId, partitionLabel), windowSize)
             .flowOn(Dispatchers.Default)
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> =
-        scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId)).flowOn(Dispatchers.Default)
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
+        scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId, partitionLabel)).flowOn(Dispatchers.Default)
 
-    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
-        scanRosterRowDao.observeDoneGoatIds(scanRosterRowScopeKey(shedId, taskId)).flowOn(Dispatchers.Default)
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
+        scanRosterRowDao.observeDoneGoatIds(scanRosterRowScopeKey(shedId, taskId, partitionLabel)).flowOn(Dispatchers.Default)
 
     override suspend fun scanRosterRowsByGoatIds(
         shedId: String,
         taskId: String?,
         goatIds: List<String>,
+        partitionLabel: String?,
     ): List<ScanRosterRowEntity> =
         if (goatIds.isEmpty()) emptyList()
-        else scanRosterRowDao.rowsByGoatIds(scanRosterRowScopeKey(shedId, taskId), goatIds)
+        else scanRosterRowDao.rowsByGoatIds(scanRosterRowScopeKey(shedId, taskId, partitionLabel), goatIds)
 
     override suspend fun refreshScanRoster(
         shedId: String,
         taskId: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
-            val rowScope = scanRosterRowScopeKey(shedId, taskId)
+            val rowScope = scanRosterRowScopeKey(shedId, taskId, partitionLabel)
             // Walk the WHOLE shed roster keyset page-by-page over the NETWORK first (each page stays
             // ~20 rows), staging the entities in one bounded per-shed buffer with backend `seq` order.
             // No DB transaction is held across the network I/O — a long multi-page walk must not block
@@ -351,12 +378,12 @@ class DefaultExecutionRepository(
             var authoritativeForTask = !taskId.isNullOrBlank()
             while (true) {
                 val page = try {
-                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit)
+                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit, partitionLabel = partitionLabel)
                 } catch (error: Throwable) {
                     if (cursor != null || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
                     fetchTaskId = null
                     authoritativeForTask = false
-                    scanRoster(shedId, taskId = null, cursor = null, limit = limit)
+                    scanRoster(shedId, taskId = null, cursor = null, limit = limit, partitionLabel = partitionLabel)
                 }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 val next = page.nextCursor ?: break
@@ -445,22 +472,23 @@ class DefaultExecutionRepository(
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
     }
 
-    override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String): ScanRosterRowEntity? =
-        scanRosterRowDao.findByTag(scanRosterRowScopeKey(shedId, taskId), normalizedTag)
+    override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String, partitionLabel: String?): ScanRosterRowEntity? =
+        scanRosterRowDao.findByTag(scanRosterRowScopeKey(shedId, taskId, partitionLabel), normalizedTag)
 
-    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?): List<StatusCount> =
-        scanRosterRowDao.countByStatus(scanRosterRowScopeKey(shedId, taskId))
+    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> =
+        scanRosterRowDao.countByStatus(scanRosterRowScopeKey(shedId, taskId, partitionLabel))
 
-    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?): Flow<List<StatusCount>> =
-        scanRosterRowDao.observeCountsByStatus(scanRosterRowScopeKey(shedId, taskId)).flowOn(Dispatchers.Default)
+    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<StatusCount>> =
+        scanRosterRowDao.observeCountsByStatus(scanRosterRowScopeKey(shedId, taskId, partitionLabel)).flowOn(Dispatchers.Default)
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
         obligationIds: List<String>,
+        partitionLabel: String?,
     ): List<StatusCount> =
         if (obligationIds.isEmpty()) emptyList()
-        else scanRosterRowDao.countByStatusForObligations(scanRosterRowScopeKey(shedId, taskId), obligationIds)
+        else scanRosterRowDao.countByStatusForObligations(scanRosterRowScopeKey(shedId, taskId, partitionLabel), obligationIds)
 }
 
 private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
@@ -535,8 +563,14 @@ private fun Throwable.isHttpNotFound(): Boolean =
             .onFailure { android.util.Log.d("ExecutionRepository", "isHttpNotFound: reflection failed", it) }
             .getOrNull() == 404
 
-private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
-    cacheKey(shedId, taskId ?: "shed-wide")
+internal fun scanRosterRowScopeKey(shedId: String, taskId: String?, partitionLabel: String?): String =
+    cacheKey(shedId, executionPartitionKey(partitionLabel), taskId ?: "shed-wide")
+
+internal fun executionPartitionKey(raw: String?): String {
+    val normalized = raw.orEmpty().trim().lowercase()
+        .replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
+}
 
 internal fun canonicalRosterTag(tag: String): String = tag.filter(Char::isLetterOrDigit).lowercase()
 
@@ -563,6 +597,7 @@ internal fun mergeExecutionRowsPage(
         listOf(
             row.parkId,
             row.shedId,
+            executionPartitionKey(row.partitionLabel ?: row.partition),
             row.animalStage,
             row.driveId.orEmpty(),
             row.batchId.orEmpty(),

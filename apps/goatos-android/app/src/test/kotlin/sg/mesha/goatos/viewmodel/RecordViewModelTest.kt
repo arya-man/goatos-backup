@@ -73,13 +73,15 @@ class RecordViewModelTest {
                 ),
             )
         }
-        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-1")))
+        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-1", "partitionLabel" to "Part 2")))
         backgroundScope.launchCollect(vm)
         advanceUntilIdle()
 
         val state = vm.state.value
         assertEquals("No scannable task yet — awaiting task assignment", state.statusLabel)
         assertEquals(RecordTone.WARN, state.statusTone)
+        assertEquals("Part 2", repo.lastObservedPartitionLabel)
+        assertEquals("Part 2", repo.lastRefreshPartitionLabel)
     }
 
     @Test
@@ -301,6 +303,10 @@ private fun kotlinx.coroutines.CoroutineScope.launchCollect(vm: RecordViewModel)
  */
 private class FakeExecutionRepository : ExecutionRepository {
     private val sheds = mutableMapOf<String, MutableStateFlow<VaccinationExecutionShedDrilldownDto?>>()
+    var lastObservedPartitionLabel: String? = null
+        private set
+    var lastRefreshPartitionLabel: String? = null
+        private set
 
     fun setShed(shedId: String, dto: VaccinationExecutionShedDrilldownDto) {
         sheds.getOrPut(shedId) { MutableStateFlow(null) }.value = dto
@@ -311,32 +317,41 @@ private class FakeExecutionRepository : ExecutionRepository {
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
-    ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> =
-        sheds.getOrPut(shedId) { MutableStateFlow(null) }.map { Resource(data = it, lastSyncedAt = null) }
+        partitionLabel: String?,
+    ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> {
+        lastObservedPartitionLabel = partitionLabel
+        return sheds.getOrPut(shedId) { MutableStateFlow(null) }.map { Resource(data = it, lastSyncedAt = null) }
+    }
 
-    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
-        Result.success(Unit)
+    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): Result<Unit> {
+        lastRefreshPartitionLabel = partitionLabel
+        return Result.success(Unit)
+    }
 
     override suspend fun findScanRosterByTag(
         shedId: String,
         taskId: String?,
         normalizedTag: String,
+        partitionLabel: String?,
     ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? = null
 
     override fun observeScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
+        partitionLabel: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> = kotlinx.coroutines.flow.flowOf(emptyList())
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
         obligationIds: List<String>,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
 
     override suspend fun rows(
@@ -381,25 +396,27 @@ private class FakeExecutionRepository : ExecutionRepository {
         includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
-    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
+    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): VaccinationExecutionShedDrilldownDto =
         error("unused")
 
     override fun observeScanRosterRows(
         shedId: String,
         taskId: String?,
         windowSize: Int,
+        partitionLabel: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
 
-    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
 
     override suspend fun scanRosterRowsByGoatIds(
         shedId: String,
         taskId: String?,
         goatIds: List<String>,
+        partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> = emptyList()
 
-    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = error("unused")
+    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> = error("unused")
 }

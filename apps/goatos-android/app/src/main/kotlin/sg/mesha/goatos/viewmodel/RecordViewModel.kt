@@ -51,6 +51,7 @@ class RecordViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
+    private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
 
     // Fires funnel_vaccination_capture_completed at most once per shed session, the first time
     // the drilldown reports the shed's vaccination work as fully done — see [toRecordUiState].
@@ -58,7 +59,7 @@ class RecordViewModel @Inject constructor(
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
-        (if (shedId != null) repo.observeShed(shedId) else flowOf(Resource(data = null))).stateIn(
+        (if (shedId != null) repo.observeShed(shedId, partitionLabel = partitionLabel) else flowOf(Resource(data = null))).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
@@ -108,7 +109,7 @@ class RecordViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
         if (shedId != null) {
-            val result = repo.refreshShed(shedId)
+            val result = repo.refreshShed(shedId, partitionLabel = partitionLabel)
             _isRefreshing.value = false
             _isOffline.value = result.isFailure
             result.exceptionOrNull()?.let {
@@ -165,8 +166,9 @@ class RecordViewModel @Inject constructor(
         // comment says so). `partitionLabel` is the sanctioned raw field and is only used as a
         // fallback for older API responses that predate the composed value.
         val firstRow = rows.firstOrNull()
-        val locationLabel = (firstRow?.operationalLocationDisplay.orEmpty())
-            .ifBlank { operationalLocationLabel(shedName, firstRow?.partitionLabel) }
+        val locationLabel = operationalLocationDisplay
+            .ifBlank { firstRow?.operationalLocationDisplay.orEmpty() }
+            .ifBlank { operationalLocationLabel(shedName, partitionLabel ?: firstRow?.partitionLabel) }
             .ifBlank { shedName }
         return base.copy(
             title = "$locationLabel · record",

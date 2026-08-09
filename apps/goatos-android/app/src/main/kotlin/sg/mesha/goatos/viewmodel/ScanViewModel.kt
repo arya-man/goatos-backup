@@ -93,6 +93,7 @@ class ScanViewModel @Inject constructor(
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
+    private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
@@ -109,28 +110,28 @@ class ScanViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedRows: StateFlow<List<ScanRosterRowEntity>> =
         (if (shedId != null) {
-            _windowSize.flatMapLatest { size -> repo.observeScanRosterRows(shedId, taskId, windowSize = size) }
+            _windowSize.flatMapLatest { size -> repo.observeScanRosterRows(shedId, taskId, windowSize = size, partitionLabel = partitionLabel) }
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Full-roster row count for this scope (page-independent) — drives hasMore and the sync/error gates.
     private val rosterTotal: StateFlow<Int> =
-        (if (shedId != null) repo.observeScanRosterTotal(shedId, taskId) else flowOf(0))
+        (if (shedId != null) repo.observeScanRosterTotal(shedId, taskId, partitionLabel) else flowOf(0))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // Every DONE animal across the FULL roster (backend-persisted status), page-independent. The
     // submit proof gate unions this with the session local-done overlay and requires a synced proof
     // for each; see [computeProofGate].
     private val persistedDoneGoatIds: StateFlow<List<String>> =
-        (if (shedId != null) repo.observeScanRosterDoneGoatIds(shedId, taskId) else flowOf(emptyList()))
+        (if (shedId != null) repo.observeScanRosterDoneGoatIds(shedId, taskId, partitionLabel) else flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // R50-008: full-roster status aggregates (Room GROUP BY, page-independent). Re-emits on every
     // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
     private val statusCounts: StateFlow<List<StatusCount>> =
         (if (shedId != null) {
-            repo.observeScanRosterStatusCounts(shedId, taskId)
+            repo.observeScanRosterStatusCounts(shedId, taskId, partitionLabel)
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -486,7 +487,7 @@ class ScanViewModel @Inject constructor(
         _isRefreshing.value = true
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
-        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
+        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
         taskId?.let { tasksRepository.refreshShedCompletionSummary(it, id) }
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
@@ -568,7 +569,7 @@ class ScanViewModel @Inject constructor(
         if (target.isEmpty()) return
         viewModelScope.launch {
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
-            val dbRow = repo.findScanRosterByTag(id, taskId, target) ?: run {
+            val dbRow = repo.findScanRosterByTag(id, taskId, target, partitionLabel) ?: run {
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
                 _scanErrorNotice.value = ScanError(message = "Unknown tag · not in this shed", tag = tag)
@@ -770,7 +771,7 @@ class ScanViewModel @Inject constructor(
         val extraDone = if (localDone.isEmpty()) {
             0
         } else {
-            repo.getScanRosterStatusCountsFor(id, taskId, localDone.toList())
+            repo.getScanRosterStatusCountsFor(id, taskId, localDone.toList(), partitionLabel)
                 .filter { statusOf(it.status) != ScanStatus.DONE }
                 .sumOf { it.count }
         }
@@ -806,7 +807,7 @@ class ScanViewModel @Inject constructor(
         val windowGoatIds = rows.mapTo(mutableSetOf()) { it.goatId }
         val missingGoatIds = doneGoatIds.filterNot { it in windowGoatIds }
         if (missingGoatIds.isEmpty()) return rows
-        val extra = repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds)
+        val extra = repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds, partitionLabel)
         if (extra.isEmpty()) return rows
         return (rows + extra).sortedBy { it.seq }
     }
@@ -995,7 +996,7 @@ class ScanViewModel @Inject constructor(
         val actionNeeded = if (missingGoatIds.isEmpty()) {
             emptyList()
         } else {
-            repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds.toList())
+            repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds.toList(), partitionLabel)
                 .sortedBy { it.seq }
                 .map { row ->
                     val mapped = row.toRosterRow(emptySet(), goatProofsBySubject)

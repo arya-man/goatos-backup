@@ -179,6 +179,7 @@ data class ShedRow(
     val operatorName: String = "",
     val physicalShed: String = "",
     val partition: String = "",
+    val partitionLabel: String? = null,
     val animalStage: String,
     val scheduleDateKey: String = "",
     val scheduleDateLabel: String = "",

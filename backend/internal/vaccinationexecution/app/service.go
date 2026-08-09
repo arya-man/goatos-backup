@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -167,14 +168,16 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 	}
 	sort.Strings(stages)
 	return domain.ShedDrilldown{
-		ParkID:       head.ParkID,
-		ParkName:     head.ParkName,
-		ShedID:       head.ShedID,
-		ShedName:     head.ShedName,
-		AnimalStages: stages,
-		Drives:       drives,
-		Rows:         rows,
-		Summary:      summary,
+		ParkID:                     head.ParkID,
+		ParkName:                   head.ParkName,
+		ShedID:                     head.ShedID,
+		ShedName:                   head.ShedName,
+		PartitionLabel:             head.PartitionLabel,
+		OperationalLocationDisplay: head.OperationalLocationDisplay,
+		AnimalStages:               stages,
+		Drives:                     drives,
+		Rows:                       rows,
+		Summary:                    summary,
 	}, true, nil
 }
 
@@ -397,18 +400,33 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partition == "" {
 		partition = "whole"
 	}
+	location := oploc.OperationalLocation{
+		ParkID:         p.ParkID,
+		ParkName:       p.ParkName,
+		ShedID:         p.ShedID,
+		ShedName:       physicalShed,
+		PartitionLabel: partition,
+	}
+	var partitionLabel *string
+	if location.IsPartitioned() {
+		value := partition
+		partitionLabel = &value
+	}
 	return domain.ExecutionRow{
-		ParkID:        p.ParkID,
-		ParkName:      p.ParkName,
-		ShedID:        p.ShedID,
-		ShedName:      p.ShedName,
-		PhysicalShed:  physicalShed,
-		Partition:     partition,
-		AnimalStage:   p.AnimalStage,
-		TargetCount:   targetCount,
-		OpenCount:     openCount,
-		DoneCount:     doneCount,
-		AcceptedCount: p.CompletionAccepted,
+		ParkID:                     p.ParkID,
+		ParkName:                   p.ParkName,
+		ShedID:                     p.ShedID,
+		ShedName:                   p.ShedName,
+		PhysicalShed:               physicalShed,
+		Partition:                  partition,
+		PartitionLabel:             partitionLabel,
+		SourceShedName:             p.SourceShedName,
+		OperationalLocationDisplay: location.Display(),
+		AnimalStage:                p.AnimalStage,
+		TargetCount:                targetCount,
+		OpenCount:                  openCount,
+		DoneCount:                  doneCount,
+		AcceptedCount:              p.CompletionAccepted,
 		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
 		// rejected) -- must match the verifier's own /verification/queue, which only ever
 		// surfaces pending items. A rejected completion is a resolved verdict, not open review

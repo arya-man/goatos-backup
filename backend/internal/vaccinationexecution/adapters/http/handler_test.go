@@ -555,7 +555,7 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&partition_label=Part%202&limit=1", nil)
 	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -567,6 +567,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if reader.lastRoster.OperatorScopeActorID != actorID {
 		t.Fatalf("operator scope actor=%q want %q", reader.lastRoster.OperatorScopeActorID, actorID)
+	}
+	if reader.lastRoster.PartitionLabel != "Part 2" {
+		t.Fatalf("partition label=%q want Part 2", reader.lastRoster.PartitionLabel)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
@@ -906,7 +909,7 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001?limit=10", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001?partition_label=Part%203&limit=10", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
@@ -915,6 +918,9 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 	}
 	if reader.last.Limit != 10 {
 		t.Fatalf("limit = %d want 10", reader.last.Limit)
+	}
+	if reader.last.PartitionLabel == nil || *reader.last.PartitionLabel != "Part 3" {
+		t.Fatalf("partition label = %v want Part 3", reader.last.PartitionLabel)
 	}
 }
 

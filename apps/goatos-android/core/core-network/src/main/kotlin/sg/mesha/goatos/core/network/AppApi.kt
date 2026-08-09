@@ -332,6 +332,7 @@ interface AppApi {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): VaccinationExecutionShedDrilldownDto
 
     /** GET /calendar/vaccination/events — presentation + bounded events. */
@@ -637,6 +638,7 @@ interface AppApi {
         taskId: String? = null,
         cursor: String? = null,
         limit: Int? = null,
+        partitionLabel: String? = null,
     ): ScanRosterResponseDto
 
     /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
@@ -1219,6 +1221,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto = VaccinationExecutionShedDrilldownDto(shedId = shedId)
 
     override suspend fun listCalendarVaccinationEvents(
@@ -1437,6 +1440,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         taskId: String?,
         cursor: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
 
     override suspend fun rescheduleObligation(

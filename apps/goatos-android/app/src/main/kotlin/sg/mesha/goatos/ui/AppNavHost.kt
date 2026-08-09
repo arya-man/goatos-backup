@@ -539,10 +539,16 @@ object Routes {
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
     const val RECORD_SHED_ARG = "shedId"
+    const val RECORD_PARTITION_ARG = "partitionLabel"
 
     /** Record route for a specific shed (null → generic first-shed record). */
-    fun recordRoute(shedId: String?): String =
-        if (shedId.isNullOrBlank()) RECORD else "$RECORD?$RECORD_SHED_ARG=${Uri.encode(shedId)}"
+    fun recordRoute(shedId: String?, partitionLabel: String? = null): String {
+        val args = listOfNotNull(
+            shedId?.takeIf { it.isNotBlank() }?.let { RECORD_SHED_ARG to it },
+            partitionLabel?.takeIf { it.isNotBlank() }?.let { RECORD_PARTITION_ARG to it },
+        )
+        return if (args.isEmpty()) RECORD else "$RECORD?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+    }
 
     const val SCAN_SHED_ARG = "shedId"
     const val EXECUTION_DRIVE_ARG = "driveId"
@@ -551,6 +557,7 @@ object Routes {
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
+    const val EXECUTION_PARTITION_ARG = "partitionLabel"
     /**
      * Names WHICH weighing surface a destination renders, so the screen and its fetch never have
      * to ask who is looking. Set per route via a nav argument default value.
@@ -585,7 +592,8 @@ object Routes {
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
+        partitionLabel: String? = null,
+    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
 
     fun submitRoute(
         shedId: String?,
@@ -595,7 +603,8 @@ object Routes {
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
-    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle)
+        partitionLabel: String? = null,
+    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
 
     /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
     fun weighingTaskRoute(campaignId: String): String =
@@ -662,6 +671,7 @@ object Routes {
         sopVersionId: String?,
         taskRowVersion: Int?,
         scanTitle: String?,
+        partitionLabel: String?,
     ): String {
         val args = buildList {
             shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
@@ -671,6 +681,7 @@ object Routes {
             sopVersionId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SOP_VERSION_ARG to it) }
             taskRowVersion?.takeIf { it > 0 }?.let { add(EXECUTION_TASK_ROW_VERSION_ARG to it.toString()) }
             scanTitle?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SCAN_TITLE_ARG to it) }
+            partitionLabel?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_PARTITION_ARG to it) }
         }
         if (args.isEmpty()) return base
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -772,18 +783,27 @@ private fun workTargetRoute(target: String): String? {
             sopVersionId = uri.getQueryParameter("sop_version_id") ?: uri.getQueryParameter("sopVersionId"),
             taskRowVersion = (uri.getQueryParameter("task_row_version")
                 ?: uri.getQueryParameter("taskRowVersion"))?.toIntOrNull(),
+            partitionLabel = uri.getQueryParameter("partition_label") ?: uri.getQueryParameter("partitionLabel"),
         )
     }
     // Past-drive/history rows point at a read-only record.
     if (target.contains("record/")) {
         val id = target.substringAfter("record/").substringBefore('/').substringBefore('?')
-        return Routes.recordRoute(id.ifBlank { null })
+        val uri = Uri.parse(target)
+        return Routes.recordRoute(
+            id.ifBlank { null },
+            uri.getQueryParameter("partition_label") ?: uri.getQueryParameter("partitionLabel"),
+        )
     }
     val shedId = shedIdFromTarget(target)
     val uri = Uri.parse(target)
     val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
     return if (shedId != null && !taskId.isNullOrBlank()) {
-        Routes.scanRoute(shedId, taskId = taskId)
+        Routes.scanRoute(
+            shedId,
+            taskId = taskId,
+            partitionLabel = uri.getQueryParameter("partition_label") ?: uri.getQueryParameter("partitionLabel"),
+        )
     } else null
 }
 
@@ -807,7 +827,7 @@ private fun shedIdFromTarget(target: String): String? {
 private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
     selected.opensRecordOnly -> fallbackRoute
-    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
+    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId, selected.partitionLabel)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
         driveId = selected.driveId,
@@ -816,6 +836,7 @@ private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Strin
         sopVersionId = selected.sopVersionId,
         taskRowVersion = selected.taskRowVersion,
         scanTitle = selected.scanDisplayTitle(),
+        partitionLabel = selected.partitionLabel,
     )
 }
 
@@ -1757,6 +1778,7 @@ fun AppNavHost(
                                 taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 }
                                     ?: state.taskRowVersion,
                                 scanTitle = entry.arguments?.getString(Routes.EXECUTION_SCAN_TITLE_ARG)?.takeIf { it.isNotBlank() },
+                                partitionLabel = entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG)?.takeIf { it.isNotBlank() },
                             ),
                         ) { launchSingleTop = true }
                         ScanEvent.Back -> navController.popBackStack()
@@ -1823,9 +1845,15 @@ fun AppNavHost(
         // in the VERIFY_DETAIL surface). When a shed lacks scannable tasks, the record
         // honestly shows "awaiting task assignment" instead of a dead-end.
         composable(
-            route = "${Routes.RECORD}?${Routes.RECORD_SHED_ARG}={${Routes.RECORD_SHED_ARG}}",
+            route = "${Routes.RECORD}?${Routes.RECORD_SHED_ARG}={${Routes.RECORD_SHED_ARG}}" +
+                "&${Routes.RECORD_PARTITION_ARG}={${Routes.RECORD_PARTITION_ARG}}",
             arguments = listOf(
                 navArgument(Routes.RECORD_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.RECORD_PARTITION_ARG) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -2936,7 +2964,8 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ARG}={${Routes.EXECUTION_TASK_ARG}}" +
         "&${Routes.EXECUTION_SOP_VERSION_ARG}={${Routes.EXECUTION_SOP_VERSION_ARG}}" +
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
-        "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}"
+        "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
+        "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
 
 private fun executionNavArguments() = listOf(
     navArgument(Routes.SCAN_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -2946,6 +2975,7 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_SOP_VERSION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
     navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+    navArgument(Routes.EXECUTION_PARTITION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
 
 private fun String.isClosedWeighingAssignmentStatus(): Boolean =

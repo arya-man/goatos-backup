@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import retrofit2.HttpException
@@ -36,7 +37,7 @@ import retrofit2.HttpException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
-    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?)
+    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?, val partitionLabel: String?)
 
     @Test
     fun `execution continuation merges unique rows and advances cursor`() {
@@ -78,6 +79,63 @@ class ExecutionRepositoryPaginationTest {
 
         assertEquals(listOf("park-a"), merged.filterOptions?.parks?.map { it.parkId })
         assertEquals(listOf("shed-a", "shed-b"), merged.rows.map { it.shedId })
+    }
+
+    @Test
+    fun `execution continuation keeps sibling partitions under one shed`() {
+        val first = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a").copy(partitionLabel = "Part 1")),
+        )
+        val second = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a").copy(partitionLabel = "2")),
+        )
+
+        val merged = mergeExecutionRowsPage(first, second)
+
+        assertEquals(listOf("Part 1", "2"), merged.rows.map { it.partitionLabel })
+    }
+
+    @Test
+    fun `partition scoped roster requests and caches stay separate`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = { cursor ->
+                check(cursor == null)
+                ScanRosterResponseDto(
+                    source = "api",
+                    rows = listOf(ScanRosterRowDto(goatId = "goat-part", primaryTag = "tag-part", status = "due", obligationId = "obl-part")),
+                )
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "2").getOrThrow()
+
+            assertEquals(listOf("Part 1", "2"), requests.map { it.partitionLabel })
+            assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 1").first())
+            assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "2").first())
+            assertTrue(repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 3").first() == 0)
+        }
+    }
+
+    @Test
+    fun `partition scoped shed drilldowns use separate requests and cache entries`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.shedResponse = { partitionLabel ->
+                VaccinationExecutionShedDrilldownDto(
+                    shedId = SHED_ID,
+                    shedName = "Castro",
+                    partitionLabel = partitionLabel,
+                    operationalLocationDisplay = partitionLabel?.let { "Castro - $it" } ?: "Castro",
+                )
+            }
+
+            repository.refreshShed(SHED_ID, partitionLabel = "Part 1").getOrThrow()
+            repository.refreshShed(SHED_ID, partitionLabel = "2").getOrThrow()
+
+            assertEquals(listOf("Part 1", "2"), backend.shedPartitions)
+            assertEquals("Part 1", repository.observeShed(SHED_ID, partitionLabel = "Part 1").first().data?.partitionLabel)
+            assertEquals("2", repository.observeShed(SHED_ID, partitionLabel = "2").first().data?.partitionLabel)
+            assertNull(repository.observeShed(SHED_ID, partitionLabel = "Part 3").first().data)
+        }
     }
 
     @Test
@@ -384,6 +442,7 @@ class ExecutionRepositoryPaginationTest {
                             taskId = args[1] as String?,
                             cursor = args[2] as String?,
                             limit = args[3] as Int?,
+                            partitionLabel = args[4] as String?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
@@ -395,6 +454,11 @@ class ExecutionRepositoryPaginationTest {
                             }
                         }
                         backend.response(request.cursor)
+                    }
+                    "getVaccinationExecutionShed" -> {
+                        val partitionLabel = args?.get(4) as String?
+                        backend.shedPartitions += partitionLabel
+                        backend.shedResponse(partitionLabel)
                     }
                     "toString" -> "ScanRosterAppApiTestProxy"
                     "hashCode" -> System.identityHashCode(proxy)
@@ -424,6 +488,8 @@ class ExecutionRepositoryPaginationTest {
         var offlineCursor: String? = null
         var taskScopedFailureStatus: Int? = null
         var response: (String?) -> ScanRosterResponseDto = { error("response not configured") }
+        val shedPartitions = mutableListOf<String?>()
+        var shedResponse: (String?) -> VaccinationExecutionShedDrilldownDto = { error("shed response not configured") }
     }
 
     private fun numberedPage(cursor: String?): ScanRosterResponseDto {
