@@ -411,6 +411,16 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		route.Pattern == "/feed-transport/tasks" ||
 		route.Pattern == "/feed-direction/distribution/complete" ||
 		route.Pattern == "/feed-direction/packing/complete" ||
+		// The transport SUBMIT was missed when the three routes above were admitted (2026-08-08), so
+		// a park-scoped operator could open his transport task, record the mandatory video, and be
+		// refused 403 on submit -- with roles resolved to "" here, before AuthorizeRoute ever ran.
+		// He holds feed_direction.complete, the same permission the distribution completion above
+		// accepts, which is why no permission change could have fixed it.
+		//
+		// It clamps like the others, but against the TASK's park rather than a park in the request:
+		// this route names none, so PostTransportSubmit resolves the caller's own scope and
+		// SubmitTransport refuses a task outside it (ports.ErrTransportParkForbidden).
+		route.Pattern == "/feed-transport/tasks/{task_id}/submit" ||
 		// Android shifting resolves a scanned tag through this legacy non-/app route. Admit
 		// only the search route; SearchGoats capability-clamps park_id before reading.
 		route.Pattern == "/goats/search" ||

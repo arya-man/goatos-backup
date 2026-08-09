@@ -21,7 +21,17 @@ type FeedTransportVerificationEnqueueRequest struct {
 	ShedName, PartitionLabel                                                  string // used internally by enqueuer; compose display via shared primitive
 	CapturedAt                                                                time.Time
 }
-type SubmitTransportInput struct{ TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string }
+type SubmitTransportInput struct {
+	TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string
+	// AuthorizedParkIDs is the caller's own park scope, resolved at the HTTP boundary. EMPTY means
+	// unrestricted -- a tenant-wide principal, or an internal/service context with no grants at all
+	// (the same escape hatch ResolveAuthorizedParkScopeForCapabilities has always had).
+	//
+	// It is checked against the TASK's park because this route names no park of its own: the id in
+	// the path is the only input, so without this a park-scoped operator holding one valid task id
+	// could submit against any shed in the tenant.
+	AuthorizedParkIDs []string
+}
 
 type ListTransportTasksInput struct {
 	TenantID, ActorID, Date, ParkID, ShedID, Status, Cursor string
@@ -77,6 +87,10 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 	if err != nil {
 		return ports.SubmitTransportResult{}, err
 	}
+	// Park clamp, BEFORE the proof is validated or anything is written.
+	if !transportParkAllowed(in.AuthorizedParkIDs, task.ParkID) {
+		return ports.SubmitTransportResult{}, ports.ErrTransportParkForbidden
+	}
 	if s.proofs != nil {
 		if err := s.proofs.ValidateLiveCameraVideo(ctx, in.TenantID, in.ProofRef, task.ShedID); err != nil {
 			return ports.SubmitTransportResult{}, err
@@ -92,4 +106,25 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
 	}
 	return res, err
+}
+
+// transportParkAllowed reports whether the task's park is inside the caller's own scope. An empty
+// authorized set means unrestricted (tenant-wide principal or internal context); a non-empty set
+// must contain the task's park exactly.
+func transportParkAllowed(authorizedParkIDs []string, taskParkID string) bool {
+	if len(authorizedParkIDs) == 0 {
+		return true
+	}
+	taskParkID = strings.TrimSpace(taskParkID)
+	if taskParkID == "" {
+		// A task with no park cannot be proven in scope, so a scoped caller is refused rather than
+		// admitted by an absent value.
+		return false
+	}
+	for _, parkID := range authorizedParkIDs {
+		if strings.TrimSpace(parkID) == taskParkID {
+			return true
+		}
+	}
+	return false
 }

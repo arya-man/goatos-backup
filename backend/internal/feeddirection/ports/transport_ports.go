@@ -7,8 +7,13 @@ import (
 )
 
 var (
-	ErrTransportProofRequired             = errors.New("feeddirection: a live feed-transport video is required")
-	ErrTransportTaskNotActionable         = errors.New("feeddirection: feed-transport task is not actionable")
+	ErrTransportProofRequired     = errors.New("feeddirection: a live feed-transport video is required")
+	ErrTransportTaskNotActionable = errors.New("feeddirection: feed-transport task is not actionable")
+	// ErrTransportParkForbidden: the task belongs to a park the caller is not scoped to. This is the
+	// CLAMP that lets a park-scoped operator submit at all -- httpmiddleware.routeAllowsScopedGrants
+	// admits a park grant on this route only because the park is checked here, against the TASK's own
+	// park rather than a park named by the request (this route names none).
+	ErrTransportParkForbidden             = errors.New("feeddirection: feed-transport task is outside the actor's park scope")
 	ErrTransportAssignedToAnotherOperator = errors.New("feeddirection: feed-transport task is assigned to another operator")
 	ErrInvalidTransportStatus             = errors.New("feeddirection: invalid feed-transport status")
 )

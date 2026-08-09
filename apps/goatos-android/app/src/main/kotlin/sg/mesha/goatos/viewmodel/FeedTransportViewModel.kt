@@ -8,10 +8,13 @@ import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -210,15 +213,43 @@ class FeedTransportViewModel @Inject constructor(
  */
 @HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val drafts:CaptureDraftRepository,saved:SavedStateHandle):ViewModel(){
     private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel));val state:StateFlow<FeedTransportCaptureUiState> = _state
-    init{viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))}}}
+    init{viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.submitOutboxItemId?.let(::observeOutboxItem)}}
+
+    /**
+     * Follow the queued submit to its REAL outcome.
+     *
+     * Enqueuing only means the write reached the phone's outbox. Transport reported that as
+     * "Submitted for verification" and then never looked again, so when the server refused the
+     * submit the screen kept claiming success: the operator saw no status change and was still
+     * offered Submit and Re-record, with nothing anywhere telling him it had failed (reported
+     * 2026-08-09, against a 403 the backend was returning for a park-scoped operator). Packing and
+     * distribution have always observed their item; transport was the one that did not.
+     */
+    private fun observeOutboxItem(itemId:String){
+        statusJob?.cancel()
+        statusJob=viewModelScope.launch{
+            sync.observeStatus()
+                .map{status->status.items.firstOrNull{it.id==itemId}}
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect{item->
+                    val write=item.toWriteResult("Submitted for verification","Submitted for verification")
+                    _state.update{it.copy(result=FeedTransportResultUi(
+                        if(write.isCommitted) FeedTransportSubmitStatus.QUEUED else FeedTransportSubmitStatus.FAILED,
+                        write.message.orEmpty(),
+                    ))}
+                }
+        }
+    }
     fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.ReRecordVideo->reRecord();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.Back->Unit}}
     /** Drops the discarded take's queued upload so the verifier never receives two clips, then re-captures. */
     private fun reRecord(){if(_state.value.isCapturing)return;viewModelScope.launch{draft.proofs[STEP_VIDEO]?.let{sync.deleteOutboxItem(it)};drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);proofKey.invalidate();_state.update{it.copy(videoCaptured=false,videoMessage=null)};record()}}
     private fun record(){if(_state.value.isCapturing||_state.value.videoCaptured)return;_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCapturePrompt.FEED_TRANSPORT);if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};val req=ProofUploadRequestDto(proofType="video",mimeType=v.mimeType,scopeType="shed",scopeId=shedId,subjectType="shed",subjectId=shedId,metadata=mapOf("capture_source" to JsonPrimitive(v.captureSource),"captured_start_ms" to JsonPrimitive(v.startedAtMs),"captured_end_ms" to JsonPrimitive(v.endedAtMs)));when(val r=sync.enqueueProofUpload(group,proofKey.current(),req,v.localUri,(v.endedAtMs-v.startedAtMs).takeIf{it>0})){is AppResult.Ok->{drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();_state.update{it.copy(isCapturing=false,videoMessage=r.message)}}}}}
+    private var statusJob:Job?=null
     private fun submit(){val proof=draft.proofs[STEP_VIDEO]?:return;viewModelScope.launch{
         // STABLE per task and durable, so a re-entered screen resends the SAME key.
         val submitIdempotencyKey=draft.submitIdempotencyKey?:"feed-transport-submit:$taskId"
         if(draft.submitIdempotencyKey==null){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
-        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}
+        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}
     companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";private const val STEP_VIDEO="video"}
 }
