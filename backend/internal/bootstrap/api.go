@@ -641,8 +641,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Vertical: countsdomain.VerificationVerticalMilkPreparation, Module: countsdomain.VerificationModuleMilkPreparation,
 		Category:      countsdomain.VerificationCategoryMilkPreparation,
 		ExpectedMedia: []string{"video", "video", "video", "video", "video"},
-		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "milk_preparation", PageLabel: "Milk Prep", PageOrder: 4,
+		// Reviewed under MILK, not Counts (maintainer decision 2026-08-09). The two milk tasks were
+		// split out of Counts into their own operator module on 2026-07-31, but their VERIFICATION
+		// was deliberately left in the Counts lens -- so a verifier saw Milk Prep and Milk Feeding
+		// filed under Herd Operations, while the Milk module in her own drawer pointed at an
+		// invented "milk_proof" category that no producer writes and that answers 400 forever.
+		// Review now follows the module the work belongs to.
+		SLAHours: 24, NavigationModule: "milk", NavigationModuleLabel: "Milk",
+		PageKey: "milk_preparation", PageLabel: "Milk Prep", PageOrder: 1,
 	}); err != nil {
 		pool.Close()
 		return nil, err
@@ -653,8 +659,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
 		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"},
 		MediaLabels: []string{"Milk preparation video", "Milk feeding video"}, SLAHours: 24,
-		NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 5,
+		NavigationModule: "milk", NavigationModuleLabel: "Milk",
+		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 2,
 	}); err != nil {
 		pool.Close()
 		return nil, err

@@ -8,22 +8,18 @@ import (
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
-// A verifier holding a feed.direction verify duty must be able to REACH every feed evidence queue
-// from her nav, not just feed distribution.
+// A verifier's module tab must land on a category some producer ACTUALLY writes.
 //
-// Observed on STG 2026-08-09: Feed registers three verification categories (feed_distribution,
-// feed_packing, feed_transport) but the verifier's Feed module emitted ONE tab, pinned to
-// feed_distribution by verificationCategoryForFeature. Four feed packing proofs and one transport
-// proof sat pending with no nav entry that could open them -- the backend gate authorized her for
-// all three (her duty maps to the feed_direction navigation module, which is what every one of
-// those categories is registered against), so this was purely a missing way in.
+// verificationCategoryForFeature falls back to "<module>_proof" for anything it does not name, and
+// that guess has now been wrong four times: counts (counts_proof), feed (one category named while
+// three were registered), milk (milk_proof) and health (aas_health_proof). The failure is silent by
+// construction -- an unregistered category answers 400 unknown_category, or a registered-but-wrong
+// one answers 200 with another page's rows -- so it is only ever found by opening the tab on a
+// phone. These assertions pin every landing category against the registry in bootstrap/api.go.
 //
-// The failure is silent by construction: the tab that DOES exist answers 200 with distribution's
-// rows, so the queue looks merely empty of packing rather than unreachable. These assertions are on
-// the emitted hrefs for that reason -- an "is the tab there" check passed throughout the outage.
+// The durable fix is to read the category FROM the registry instead of guessing it here; until then
+// this test is the thing that fails when the two drift.
 
-// Jyothi's real STG shape: the verifier role at tenant scope. Permissions are derived from the
-// role (grantsHavePermission -> permissions.RoleHasPermission), so the role alone is the fixture.
 func verifierGrants() []domain.GrantSummary {
 	return []domain.GrantSummary{{
 		Role:      permissions.RoleVerifier,
@@ -32,60 +28,45 @@ func verifierGrants() []domain.GrantSummary {
 	}}
 }
 
-func navHrefByKey(module domain.BootstrapModule, key string) string {
-	for _, item := range module.NavItems {
-		if item.Key == key {
-			return item.Href
-		}
-	}
-	return ""
+// registeredCategories mirrors bootstrap/api.go's RegisterCategory calls. Update BOTH together.
+var registeredCategories = map[string]bool{
+	"vaccination_proof": true,
+	"weighing_proof":    true,
+	"health_adults":     true,
+	"health_kids":       true,
+	"shifting_move":     true,
+	"birth_evidence":    true,
+	"death_evidence":    true,
+	"milk_preparation":  true,
+	"milk_feeding":      true,
+	"feed_distribution": true,
+	"feed_packing":      true,
+	"feed_transport":    true,
 }
 
-func TestVerifierFeedModuleReachesEveryFeedEvidenceQueue(t *testing.T) {
-	module := verificationModuleForFeature("feed.direction", verifierGrants(), "en")
-
-	want := map[string]string{
-		"verify_feed_distribution": "feed_distribution",
-		"verify_feed_packing":      "feed_packing",
-		"verify_feed_transport":    "feed_transport",
-	}
-	for key, category := range want {
-		href := navHrefByKey(module, key)
-		if href == "" {
-			t.Fatalf("feed verifier nav has no %q tab: a registered evidence category with no nav entry is unreachable on the phone (nav items: %+v)", key, module.NavItems)
-		}
-		if !strings.Contains(href, "category="+category) {
-			t.Errorf("%s href = %q, want it to carry category=%s -- the client scopes the queue by category, so a wrong/absent one silently opens another module's rows", key, href, category)
+func TestEveryVerifierModuleLandsOnARegisteredCategory(t *testing.T) {
+	for _, feature := range []string{"vaccination", "weighing", "counts", "feed_direction", "milk", "aas_health"} {
+		category := verificationCategoryForFeature(feature)
+		if !registeredCategories[category] {
+			t.Errorf("feature %q lands on category %q, which no producer registers -- the queue answers 400 unknown_category and the tab is dead", feature, category)
 		}
 	}
 }
 
-func TestVerifierFeedTabsAreDistinctQueues(t *testing.T) {
-	module := verificationModuleForFeature("feed.direction", verifierGrants(), "en")
-
-	seen := map[string]string{}
-	for _, item := range module.NavItems {
-		if !strings.HasPrefix(item.Key, "verify") {
-			continue
-		}
-		if prior, dup := seen[item.Href]; dup {
-			t.Errorf("verify tabs %q and %q both open %q: two tabs onto one queue means a category is unreachable", prior, item.Key, item.Href)
-		}
-		seen[item.Href] = item.Key
-		if strings.TrimSpace(item.Label) == "" {
-			t.Errorf("verify tab %q has an empty label; a nameless tab cannot be told from its sibling", item.Key)
-		}
-	}
-	if len(seen) != 3 {
-		t.Errorf("feed verifier has %d distinct verify queues, want 3 (distribution, packing, transport)", len(seen))
+// Milk review follows the MILK module (maintainer decision 2026-08-09). Its landing page is Milk
+// Prep; Milk Feeding sits beside it in the queue's own page filter.
+func TestMilkVerifierTabLandsOnMilkPreparation(t *testing.T) {
+	if got := verificationCategoryForFeature("milk"); got != "milk_preparation" {
+		t.Errorf("milk verify tab category = %q, want milk_preparation (never the invented milk_proof)", got)
 	}
 }
 
-// A single-category module must NOT grow a named tab: the verifier is already standing in that
-// module, so naming the page repeats it back at her. This pins the blast radius of the feed fix to
-// feed -- vaccination, weighing, counts and health keep exactly the bar they had.
-func TestSingleCategoryVerifierModulesKeepOneUnnamedVerifyTab(t *testing.T) {
-	for _, feature := range []string{"vaccination", "weighing", "counts", "aas_health"} {
+// ONE Verify tab per module, whatever the module's page count. The bar is module chrome; choosing
+// among a module's evidence pages happens in the queue's single-select page filter. Three feed tabs
+// were tried and reverted: they all resolved to the same /verify base route, so the shell read every
+// one as selected and swallowed the taps.
+func TestVerifierModulesEmitExactlyOneVerifyTab(t *testing.T) {
+	for _, feature := range []string{"vaccination", "weighing", "counts", "feed_direction", "milk", "aas_health"} {
 		module := verificationModuleForFeature(feature, verifierGrants(), "en")
 
 		verifyTabs := 0
@@ -98,22 +79,22 @@ func TestSingleCategoryVerifierModulesKeepOneUnnamedVerifyTab(t *testing.T) {
 			}
 		}
 		if verifyTabs != 1 {
-			t.Errorf("%s has %d verify tabs, want exactly 1", feature, verifyTabs)
+			t.Errorf("%s emitted %d verify tabs, want exactly 1", feature, verifyTabs)
+		}
+		if strings.TrimSpace(module.Label) == "" {
+			t.Errorf("%s module has an empty drawer label", feature)
 		}
 	}
 }
 
-// The category a tab emits must be one the producers actually write onto verification_items. A
-// value nothing matches is the counts_proof defect: HTTP 200, zero rows, permanently empty.
-func TestVerifierFeedCategoriesAreTheRegisteredOnes(t *testing.T) {
-	registered := map[string]bool{
-		"feed_distribution": true,
-		"feed_packing":      true,
-		"feed_transport":    true,
-	}
-	for _, page := range verificationPagesForFeature("feed_direction") {
-		if !registered[page.category] {
-			t.Errorf("feed verifier tab %q emits category %q, which no feed producer writes", page.key, page.category)
+// The tab's href must carry its category explicitly: the client scopes a queue by category, and
+// anything it cannot resolve falls through to vaccination -- another module's work, silently.
+func TestVerifierTabHrefCarriesItsCategory(t *testing.T) {
+	for _, feature := range []string{"feed_direction", "milk", "counts"} {
+		module := verificationModuleForFeature(feature, verifierGrants(), "en")
+		want := "category=" + verificationCategoryForFeature(feature)
+		if !strings.Contains(module.Href, want) {
+			t.Errorf("%s module href = %q, want it to carry %q", feature, module.Href, want)
 		}
 	}
 }

@@ -268,9 +268,17 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 	//
 	// The two pages KEEP their existing /counts/... hrefs: the move is a nav regrouping, not a
 	// route change, so installed deep links, the Android L0 route set, and the admin-web
-	// milk-preparation page all keep working. Verification also stays in the Counts verify
-	// lens (bootstrap/api.go), so there is deliberately no reviewContributions here — a milk
-	// proof is still reviewed where every other Counts proof is reviewed.
+	// milk-preparation page all keep working.
+	//
+	// Verification FOLLOWS the module (maintainer decision 2026-08-09), superseding the original
+	// split's decision to leave it in the Counts lens. That half-move was the worst of both: a
+	// verifier found Milk Prep and Milk Feeding filed under Herd Operations, while the Milk module
+	// in her own drawer opened an invented "milk_proof" category that no producer writes and that
+	// answered 400 forever. The two categories now register against NavigationModule "milk"
+	// (bootstrap/api.go) and the verifier's Milk tab lands on milk_preparation, with Milk Feeding
+	// beside it in the queue's page filter. There is still no reviewContributions here: a
+	// verifier's per-feature module is synthesised by verificationModuleForFeature, not read from
+	// this registry.
 	"milk": {
 		key:         "milk",
 		labelKey:    "module.milk",
@@ -1319,19 +1327,18 @@ type verifierPage struct {
 // Verification type registry the way adminui does; that needs a registry port threaded through the
 // bootstrap builders, which are package-level functions today.
 func verificationPagesForFeature(normalizedFeatureKey string) []verifierPage {
-	switch normalizedFeatureKey {
-	case "feed_direction":
-		// Order and labels mirror the registry's PageOrder/PageLabel for these three categories
-		// (bootstrap/api.go): Feed Distribution, Feed Packing, Feed Transport. The label keys are the
-		// module's existing operator-side nav keys, so all four locales already resolve.
-		return []verifierPage{
-			{key: "verify_feed_distribution", labelKey: "nav.feed_direction", category: "feed_distribution"},
-			{key: "verify_feed_packing", labelKey: "nav.feed_packing", category: "feed_packing"},
-			{key: "verify_feed_transport", labelKey: "nav.feed_transport", category: "feed_transport"},
-		}
-	default:
-		return []verifierPage{{key: "verify", labelKey: "nav.verify", category: verificationCategoryForFeature(normalizedFeatureKey)}}
-	}
+	// ONE "Verify" tab per module, always (maintainer decision 2026-08-09).
+	//
+	// Feed registers three evidence categories and briefly got one BOTTOM-BAR TAB each. That was
+	// wrong twice over: the bar is module chrome, not a queue filter, and all three tabs resolved to
+	// the same /verify base route, so the shell read every one of them as already selected and the
+	// double-tap guard swallowed the taps.
+	//
+	// A module's categories are chosen INSIDE the queue instead, from the single-select page filter
+	// the backend already serves on the queue read (QueueFilterOptions.Pages, built from the same
+	// registry). That keeps the bar stable no matter how many categories a module registers, and it
+	// is where a verifier expects to narrow a list.
+	return []verifierPage{{key: "verify", labelKey: "nav.verify", category: verificationCategoryForFeature(normalizedFeatureKey)}}
 }
 
 // verificationCategoryForFeature maps a MODULE key (the vocabulary nav and
@@ -1384,6 +1391,19 @@ func verificationCategoryForFeature(normalizedFeatureKey string) string {
 		return "shifting_move"
 	case "feed_direction":
 		return "feed_distribution"
+	case "aas_health":
+		// NOT "aas_health_proof" -- no such category. Health registers health_adults and
+		// health_kids (bootstrap/api.go), so the fallback's guess answered 400 unknown_category on
+		// every open and the verifier's Health tab was dead. Lands on Adults (PageOrder 1); Kids
+		// sits beside it in the queue's page filter.
+		return "health_adults"
+	case "milk":
+		// NOT "milk_proof" -- no such category exists. Milk registers milk_preparation and
+		// milk_feeding (bootstrap/api.go); the fallback below invented a name no producer writes,
+		// so the verifier's Milk tab answered 400 unknown_category on every open. Same defect this
+		// switch already records for counts, one module over. The queue's own page filter offers
+		// Milk Feeding beside this landing page.
+		return "milk_preparation"
 	default:
 		return normalizedFeatureKey + "_proof"
 	}
