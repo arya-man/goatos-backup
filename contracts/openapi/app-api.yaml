@@ -9200,7 +9200,8 @@ components:
         was actually generated for. A client renders its farm/shed pickers from this and holds no
         location list of its own. Bounded by physical infrastructure (parks and one park's shed
         catalog), never by herd size. served_park_id equals the requested park_id, or — when the
-        request omitted park_id — the default park the server selected.
+        request omitted park_id — the default park the server selected from the caller's own
+        authorized parks.
       required:
         - served_park_id
         - parks
@@ -9209,9 +9210,14 @@ components:
       properties:
         served_park_id:
           type: string
-          description: The park id this response was generated for (the requested park, or the defaulted first park).
+          description: The park id this response was generated for (the requested park, or the caller's defaulted first authorized park).
         parks:
           type: array
+          description: >-
+            The parks THIS CALLER may open, not the tenant catalog. A park-scoped operator receives
+            only their own park; a tenant-wide principal receives every active park. The route
+            refuses a park outside the caller's scope (403 park_scope_forbidden), so an option that
+            is not listed here could never have been selected successfully.
           items:
             $ref: "#/components/schemas/FeedDirectionFilterPark"
         sheds:

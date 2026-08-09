@@ -599,6 +599,10 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
+		// The caller's own park set, so the FILTER VOCABULARY is scoped the same way the read is.
+		// The clamp above already refuses a park outside this set; passing it down stops the response
+		// from advertising those parks as choices in the first place. Nil for a tenant-wide principal.
+		AuthorizedParkIDs: parkScope.ParkIDs,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed direction preview", err)
@@ -667,6 +671,9 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
+		// Same scoping contract as the preview above: the packing farm dropdown offers only the parks
+		// this caller may open. Nil for a tenant-wide principal.
+		AuthorizedParkIDs: parkScope.ParkIDs,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed packing worklist", err)
