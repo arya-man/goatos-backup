@@ -846,6 +846,56 @@ func TestListPendingExecutionParkScopeFiltersBySourcePark(t *testing.T) {
 	}
 }
 
+func TestListPendingExecutionSourceFiltersAlsoNarrowDatedSummaries(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	inPark := authorizedShifting(t, ctx, pool, repo, "park-summary-filter",
+		[]string{"00000000-0000-4000-8000-00000000f301"})
+
+	var raisedAt time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT raised_at FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		countsTenant, inPark).Scan(&raisedAt); err != nil {
+		t.Fatalf("read raised_at: %v", err)
+	}
+	from, before := raisedAt.Add(-time.Hour), raisedAt.Add(time.Hour)
+
+	otherPark := "00000000-0000-4000-8000-0000000000aa"
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, SourceParkID: otherPark,
+	})
+	if err != nil {
+		t.Fatalf("list dated summary for other park: %v", err)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("rows=%d for other park, want 0", len(page.Items))
+	}
+	if page.StatusCounts != (domain.ShiftingActionStatusCounts{}) {
+		t.Fatalf("status_counts=%+v for other park, want all zero like the page", page.StatusCounts)
+	}
+	if len(page.PreviousDates) != 0 {
+		t.Fatalf("previous_dates=%v for other park, want none", page.PreviousDates)
+	}
+
+	page, err = repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before,
+		SourceParkID: countsPark, SourceShedID: countsShedA,
+	})
+	if err != nil {
+		t.Fatalf("list dated summary for source park/shed: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ShiftingEventID != inPark {
+		t.Fatalf("rows=%v, want only %s", page.Items, inPark)
+	}
+	wantCounts := domain.ShiftingActionStatusCounts{All: 1, Authorized: 1}
+	if page.StatusCounts != wantCounts {
+		t.Fatalf("status_counts=%+v, want %+v narrowed to the same source scope as the page",
+			page.StatusCounts, wantCounts)
+	}
+}
+
 // TestListPendingExecutionFiltersBySourceShed proves the optional shed filter is the second half of
 // the operator's farm -> shed cascade: it narrows to the SOURCE shed the animals stand in, returns
 // empty for a shed with no movement, and returns everything when omitted. authorizedShifting seeds

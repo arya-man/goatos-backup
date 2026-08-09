@@ -185,8 +185,9 @@ feed projection.
 
 ## Proof
 
-- `shifting_approval_completion_integration_test.go`: raised Actions visibility; completion-first;
-  approval-first; evidence rejection cannot roll back.
+- `shifting_approval_completion_integration_test.go`: raised Actions visibility; completion before
+  approval is refused without writes; approval-first applies at completion; evidence rejection cannot
+  roll back.
 - `shifting_verification_integration_test.go`: low/high proof gates, exact feed resolution,
   stale-config rejection, evidence snapshot, and approve/rework idempotency.
 - `countsbridge/shifting_verification_enqueue_test.go`: three high-priority videos stay together in
