@@ -29,7 +29,9 @@ test("calendar drive detail roster opens the goat passport drawer with vaccinati
 });
 
 test("calendar drive links preserve operational partition identity", () => {
-  assert.match(contractSource, /driveExecutionPath\(event\.shed_id,\s*eventPartitionLabel\(event\)\)/);
-  assert.match(contractSource, /partition_label=\$\{encodeURIComponent\(partition\)\}/);
-  assert.match(drawerSource, /driveExecutionPath\(shedId,\s*eventPartitionLabel\(event\)\)/);
+  assert.match(contractSource, /driveExecutionPath\(event\.shed_id\)/);
+  assert.match(contractSource, /partition_label:\s*partition/);
+  assert.match(drawerSource, /driveExecutionPath\(shedId\)/);
+  assert.match(drawerSource, /partition \? \{ partition_label: partition \} : \{\}/);
+  assert.match(drawerSource, /scopeHref\(l\.appPath,\s*scope,\s*\{\},\s*l\.query \?\? \{\}\)/);
 });

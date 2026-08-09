@@ -1325,9 +1325,9 @@ class SubmitViewModelFormTest {
         viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
-        assertEquals("godel-2", sync.lastGroupKey)
-        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastIdempotencyKey)
-        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastRequest?.idempotencyKey)
+        assertEquals("godel-2|whole", sync.lastGroupKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastIdempotencyKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastRequest?.idempotencyKey)
     }
 
     @Test

@@ -300,7 +300,7 @@ export function blockEntries(block: CalendarJSONBlock | undefined | null): { lab
 // (e.g. "/vaccination/operations", "/vaccination/workflows/<id>") that do NOT match admin-web routes, so
 // we map the KEY to the real app route (built from event fields), preserving top-bar scope at the call
 // site. Only confidently-mappable keys become links; unknown keys are skipped (no dead links).
-export type CalendarLink = { key: string; label: string; appPath: string; tone: Tone };
+export type CalendarLink = { key: string; label: string; appPath: string; tone: Tone; query?: Record<string, string> };
 
 // CalendarEventLinks is the generated index-signature map ({ [key]: string | boolean | null }). The index
 // signature types every lookup as non-undefined, but at RUNTIME an absent key is `undefined` — so the
@@ -313,14 +313,18 @@ function linkPresent(links: CalendarEventLinks, key: string): boolean {
 export function parseLinks(event: CalendarEvent, pageContract: AdminUiPageContract): CalendarLink[] {
   const links: CalendarEventLinks = event.links ?? {};
   const out: CalendarLink[] = [];
-  const link = (key: string, appPath: string) => ({
+  const link = (key: string, appPath: string, query?: Record<string, string>): CalendarLink => ({
     key,
     label: optionLabel(pageContract, "calendar_links", key),
     appPath,
     tone: optionTone(pageContract, "calendar_links", key) as Tone,
+    query,
   });
   if (linkPresent(links, "vaccination")) out.push(link("vaccination", "/vaccination"));
-  if (linkPresent(links, "drive") && event.shed_id) out.push(link("drive", driveExecutionPath(event.shed_id, eventPartitionLabel(event))));
+  if (linkPresent(links, "drive") && event.shed_id) {
+    const partition = eventPartitionLabel(event)?.trim();
+    out.push(link("drive", driveExecutionPath(event.shed_id), partition ? { partition_label: partition } : undefined));
+  }
   if (linkPresent(links, "workflow")) out.push(link("workflow", `/workflows/${encodeURIComponent(event.event_id)}`));
   if (linkPresent(links, "action_center")) out.push(link("action_center", "/action-center"));
   if (linkPresent(links, "adherence")) out.push(link("adherence", "/protocol-adherence"));
@@ -335,11 +339,8 @@ export function driveShedId(event: CalendarEvent): string | null {
   return linkPresent(links, "drive") && event.shed_id ? event.shed_id : null;
 }
 
-export function driveExecutionPath(shedId: string, partitionLabel?: string | null): string {
-  const base = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
-  const partition = (partitionLabel ?? "").trim();
-  if (!partition) return base;
-  return `${base}?partition_label=${encodeURIComponent(partition)}`;
+export function driveExecutionPath(shedId: string): string {
+  return `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
 }
 
 export function eventPartitionLabel(event: CalendarEvent): string | null {

@@ -3734,7 +3734,7 @@ export interface components {
             filters: components["schemas"]["FeedTransportFilterOptions"];
         };
         FeedTransportFilterOption: {
-            /** @description Opaque filter key. Shed options use shed_id plus partition grain. */
+            /** @description Opaque partition-grain option key. For sheds this is not guaranteed to be a UUID because one physical shed can expose multiple partition options. */
             id: string;
             label: string;
             partition_label?: string;
@@ -10228,7 +10228,12 @@ export interface operations {
     };
     getShedCompletionSummary: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional operational shed id for partition-scoped shed completion summaries. */
+                shed_id?: string;
+                /** @description Optional partition label for partitioned sheds; blank/omitted means whole shed. */
+                partition_label?: string;
+            };
             header?: never;
             path: {
                 task_id: components["parameters"]["TaskId"];

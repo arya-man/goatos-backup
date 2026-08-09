@@ -5,8 +5,12 @@
 -- Forward-only companion to 000141. 000141 is already in released migration history, so it must
 -- remain byte-stable for checksum validation; extra idempotent safety lives here.
 
+SET lock_timeout = '5s';
+
 ALTER TABLE public.weighing_campaign_sheds
   ADD COLUMN IF NOT EXISTS partition_label text;
+
+RESET lock_timeout;
 
 WITH alias_matches AS (
   SELECT

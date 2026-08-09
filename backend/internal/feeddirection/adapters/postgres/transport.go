@@ -29,6 +29,25 @@ func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.Mate
 	if now.Before(day.Add(15*time.Hour + 30*time.Minute)) {
 		return ports.MaterializeTransportResult{BusinessDate: day.Format("2006-01-02")}, nil
 	}
+	var oldShedArbiterPresent bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass('public.feed_transport_tasks_daily_shed_uq') IS NOT NULL`).Scan(&oldShedArbiterPresent); err != nil {
+		return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: inspect transport task arbiter: %w", err)
+	}
+	if oldShedArbiterPresent {
+		tag, err := r.pool.Exec(ctx, `
+INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
+SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
+       (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
+FROM locations s
+JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
+WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
+  AND p.location_type = 'park' AND p.status = 'active'
+ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
+		if err != nil {
+			return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)
+		}
+		return ports.MaterializeTransportResult{BusinessDate: day.Format("2006-01-02"), Inserted: tag.RowsAffected()}, nil
+	}
 	tag, err := r.pool.Exec(ctx, `
 INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
 SELECT s.tenant_id, s.parent_location_id, s.location_id, part.partition_label, $2::date,
@@ -88,6 +107,7 @@ JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- or none go bare.
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
+  AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 	AND ($4::text='' OR t.park_id=$4::uuid)
 	AND ($5::text='' OR t.shed_id=$5::uuid)
@@ -132,6 +152,7 @@ SELECT 'park', t.park_id::text, p.name, ''
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
+  AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 GROUP BY t.park_id, p.name
 UNION ALL
@@ -151,6 +172,7 @@ JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- oploc.Display(). Concatenating them here would be a second implementation of the display
 -- rule living in SQL -- exactly the drift the guard blocks.
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
+  AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
   AND ($4::text='' OR t.park_id=$4::uuid)
 GROUP BY t.shed_id, s.name, t.partition_label

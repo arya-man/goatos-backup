@@ -1233,8 +1233,8 @@ raw AS (
     COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
     COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
     COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
-    COALESCE(NULLIF(btrim(vda_member.partition_label), ''), NULLIF(btrim(gsp.partition_label), ''), 'whole') AS partition_label,
-    regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(vda_member.partition_label), ''), gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') AS partition_label,
+    regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '') AS partition_key,
     NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name,
     st.state AS task_state,
     st.task_id AS sop_task_id,
@@ -1305,6 +1305,7 @@ raw AS (
       END
    AND (
         assignment.partition_label = 'whole'
+        OR gsp.partition_label IS NULL
         OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
          = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
       )
@@ -1332,8 +1333,10 @@ raw AS (
           END
       AND (
             vda_guess.partition_label = 'whole'
-            OR regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
+            OR (gsp.partition_label IS NOT NULL
+             AND regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
              = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+            )
           )
     ORDER BY vda_guess.created_at DESC
     LIMIT 1
