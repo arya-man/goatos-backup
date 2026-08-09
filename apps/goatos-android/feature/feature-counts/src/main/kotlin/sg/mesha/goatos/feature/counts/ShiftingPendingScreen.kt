@@ -84,6 +84,16 @@ data class ShiftingPendingRowUi(
     val animalCount: Int,
     val approvedAtLabel: String,
     val actionStateLabel: String = "",
+    /**
+     * How prominently [actionStateLabel] reads. Tone is presentation, so the screen owns the colour
+     * tokens while the view model owns which tone a backend state maps to.
+     *
+     * [ShiftingStateTone.Waiting] exists because a row the operator CANNOT act on has to say so
+     * loudly enough to be read. An unapproved movement is not tappable (approve-first, maintainer
+     * decision 2026-08-09), and a dead tap explained only by faint 11sp footer text reads as a
+     * broken app rather than as "someone else has to act first".
+     */
+    val actionStateTone: ShiftingStateTone = ShiftingStateTone.Neutral,
     val primaryActionKey: String = "none",
     /**
      * Evidence progress for a task the operator still has to complete: how many of this movement's
@@ -97,6 +107,9 @@ data class ShiftingPendingRowUi(
     /** Shown only on tasks still awaiting the operator — a finished movement has no progress left. */
     val showsEvidenceProgress: Boolean get() = primaryActionKey == "execute" && videosRequired > 0
 }
+
+/** Visual weight for a row's state pill: waiting on someone, informational, or finished. */
+enum class ShiftingStateTone { Waiting, Neutral, Done }
 
 @Immutable
 data class ShiftingPendingStatusUi(val key: String, val label: String, val selected: Boolean, val count: Int = 0)
@@ -459,7 +472,14 @@ private fun ShiftingPendingRowCard(row: ShiftingPendingRowUi, onClick: () -> Uni
             }
         }
         if (row.actionStateLabel.isNotBlank()) {
-            Text(text = row.actionStateLabel, color = MeshaColors.Faint, fontSize = 11.sp)
+            // Its OWN row rather than a fourth pill beside priority/category/animals: that Row does
+            // not wrap, so a longer state on a narrow phone would clip off the right edge.
+            val (bg, fg) = when (row.actionStateTone) {
+                ShiftingStateTone.Waiting -> MeshaColors.WarnX to MeshaColors.Warn
+                ShiftingStateTone.Done -> MeshaColors.OkX to MeshaColors.Ok
+                ShiftingStateTone.Neutral -> MeshaColors.Surf3 to MeshaColors.Muted
+            }
+            ShiftingPill(row.actionStateLabel, bg, fg)
         }
     }
 }
