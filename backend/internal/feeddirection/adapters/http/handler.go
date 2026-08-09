@@ -243,7 +243,24 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
 		return
 	}
-	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	// This route names no park -- the task id in the path is the only input -- so the caller's OWN
+	// scope is resolved here and checked against the TASK's park in the service. That check is the
+	// precondition for httpmiddleware.routeAllowsScopedGrants admitting a park-scoped grant on this
+	// route; without it a CBE operator holding a CPT task id could submit CPT work.
+	//
+	// A blank requested park asks the resolver for the caller's own authorized set rather than
+	// validating a named one, so a tenant-wide principal comes back unrestricted (empty ParkIDs) and
+	// a park-scoped operator comes back with exactly his park.
+	transportScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenant, "", permissions.FeedDirectionComplete,
+	)
+	if !transportScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, transportScope.Status, map[string]string{
+			"code": transportScope.Code, "message": transportScope.Message,
+		}, nil)
+		return
+	}
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: transportScope.ParkIDs})
 	if err != nil {
 		h.writeServiceError(w, r, "submit feed transport", err)
 		return
@@ -689,6 +706,11 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrTransportParkForbidden):
+		// 403, not 409: the task is fine, the CALLER is out of scope. Coded so the client can tell
+		// this apart from a task-state conflict and show the operator something true.
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
+			codedError{Code: "park_scope_forbidden", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),
