@@ -13,6 +13,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.analytics.CrashReporter
 import javax.inject.Inject
 
 /**
@@ -39,7 +40,9 @@ interface AuthRepository {
     fun signOut()
 }
 
-class FirebaseAuthRepository @Inject constructor() : AuthRepository {
+class FirebaseAuthRepository @Inject constructor(
+    private val crashReporter: CrashReporter,
+) : AuthRepository {
 
     private val firebaseAuth: FirebaseAuth
         get() = FirebaseAuth.getInstance()
@@ -85,7 +88,9 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
     override suspend fun currentIdToken(forceRefresh: Boolean): String? {
         val user = firebaseAuth.currentUser ?: return null
         return withContext(Dispatchers.IO) {
-            runCatching { Tasks.await(user.getIdToken(forceRefresh))?.token }.getOrNull()
+            runCatching { Tasks.await(user.getIdToken(forceRefresh))?.token }
+                .onFailure { crashReporter.recordException(it, "firebase id token refresh failed") }
+                .getOrNull()
         }
     }
 
@@ -95,6 +100,7 @@ class FirebaseAuthRepository @Inject constructor() : AuthRepository {
 
     override fun signOut() {
         runCatching { firebaseAuth.signOut() }
+            .onFailure { crashReporter.recordException(it, "firebase sign out failed") }
     }
 
     /**

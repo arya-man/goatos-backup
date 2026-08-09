@@ -40,6 +40,8 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("force_update_gate_blocking", AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
         assertEquals("route_entered", AnalyticsEventsSession.ROUTE_ENTERED)
         assertEquals("route_exited_via_back", AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK)
+        assertEquals("navigation_blocked", AnalyticsEventsSession.NAVIGATION_BLOCKED)
+        assertEquals("shell_action", AnalyticsEventsSession.SHELL_ACTION)
         assertEquals("permission_gate_shown", AnalyticsEventsSession.PERMISSION_GATE_SHOWN)
         assertEquals("permission_gate_result", AnalyticsEventsSession.PERMISSION_GATE_RESULT)
     }
@@ -51,6 +53,7 @@ class AnalyticsEventsSessionContractTest {
         assertEquals("role", AnalyticsEventsSession.Params.ROLE)
         assertEquals("module_keys", AnalyticsEventsSession.Params.MODULE_KEYS)
         assertEquals("offline", AnalyticsEventsSession.Params.OFFLINE)
+        assertEquals("shell_action", AnalyticsEventsSession.Params.SHELL_ACTION)
     }
 
     @Test
@@ -64,6 +67,8 @@ class AnalyticsEventsSessionContractTest {
             AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING,
             AnalyticsEventsSession.ROUTE_ENTERED,
             AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK,
+            AnalyticsEventsSession.NAVIGATION_BLOCKED,
+            AnalyticsEventsSession.SHELL_ACTION,
             AnalyticsEventsSession.PERMISSION_GATE_SHOWN,
             AnalyticsEventsSession.PERMISSION_GATE_RESULT,
         )

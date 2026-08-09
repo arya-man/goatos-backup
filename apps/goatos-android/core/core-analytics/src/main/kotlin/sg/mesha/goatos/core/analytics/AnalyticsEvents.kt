@@ -365,13 +365,19 @@ object AnalyticsEvents {
     /** The Feed Packing worklist screen was opened. */
     const val FEED_PACKING_VIEWED = "feed_packing_viewed"
 
-    /** A Feed read (direction or packing) failed. [Params.KIND] is the surface, [Params.REASON] a
-     *  coarse cause. */
+    /** The Feed Transport verification-submission worklist screen was opened. */
+    const val FEED_TRANSPORT_VIEWED = "feed_transport_viewed"
+
+    /** A Feed read (direction, packing, or transport) failed. [Params.KIND] is the surface,
+     *  [Params.REASON] a coarse cause. */
     const val FEED_READ_FAILURE = "feed_read_failure"
 
     /** A Feed filter changed. [Params.DIMENSION] is `farm`/`shed`/`workflow`/`all`, [Params.ACTION]
      *  is `set`/`cleared`. */
     const val FEED_FILTER_APPLIED = "feed_filter_applied"
+
+    /** A Feed worklist row was tapped. [Params.KIND] is `direction`/`packing`/`transport`. */
+    const val FEED_ROW_TAPPED = "feed_row_tapped"
 
     /** The feed-direction completion detail was opened (a shed-session row was tapped). */
     const val FEED_COMPLETE_OPENED = "feed_complete_opened"
@@ -413,6 +419,18 @@ object AnalyticsEvents {
 
     /** A feed-packing completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_PACKING_COMPLETE_FAILURE = "feed_packing_complete_failure"
+
+    /** The feed-transport proof/submit detail was opened from the Transport worklist. */
+    const val FEED_TRANSPORT_OPENED = "feed_transport_opened"
+
+    /** The MANDATORY transport video was captured on the feed-transport detail. */
+    const val FEED_TRANSPORT_VIDEO_CAPTURED = "feed_transport_video_captured"
+
+    /** A feed-transport completion was submitted for verification. */
+    const val FEED_TRANSPORT_SUBMITTED = "feed_transport_submitted"
+
+    /** A feed-transport proof or completion could not be queued. */
+    const val FEED_TRANSPORT_FAILURE = "feed_transport_failure"
 
     /**
      * A Birth/Death workflow work list was opened (docs/decisions/birth-death-workflows.md).
@@ -619,6 +637,7 @@ object AnalyticsEvents {
         const val CHROME = "chrome"
         const val ACTION = "action"
         const val SHED_ID = "shed_id"
+        const val SESSION_NO = "session_no"
 
         /** Stable backend module key from the bootstrap `modules` array. */
         const val MODULE_KEY = "module_key"

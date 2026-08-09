@@ -2273,19 +2273,22 @@ fun AppNavHost(
                         // Direction rows open the verifier-GATED distribution flow (two mandatory
                         // proofs -> pending_verification). Packing rows (below) keep the untouched
                         // instant FeedCompleteScreen — docs/decisions/feed-distribution-verification.md.
-                        is FeedDirectionEvent.OpenRow -> navController.navigate(
-                            Routes.feedDistributionCompleteRoute(
-                                parkId = event.parkId,
-                                shedId = event.shedId,
-                                sessionNo = event.sessionNo,
-                                workflow = event.workflow,
-                                targetDate = state.targetDateLabel,
-                                shedLabel = event.shedLabel,
-                                sessionLabel = event.sessionLabel,
-                                partitionLabel = event.partitionLabel,
-                                lifecycleStatus = event.lifecycleStatus,
-                            ),
-                        ) { launchSingleTop = true }
+                        is FeedDirectionEvent.OpenRow -> {
+                            vm.onEvent(event)
+                            navController.navigate(
+                                Routes.feedDistributionCompleteRoute(
+                                    parkId = event.parkId,
+                                    shedId = event.shedId,
+                                    sessionNo = event.sessionNo,
+                                    workflow = event.workflow,
+                                    targetDate = state.targetDateLabel,
+                                    shedLabel = event.shedLabel,
+                                    sessionLabel = event.sessionLabel,
+                                    partitionLabel = event.partitionLabel,
+                                    lifecycleStatus = event.lifecycleStatus,
+                                ),
+                            ) { launchSingleTop = true }
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -2313,29 +2316,32 @@ fun AppNavHost(
                         // Packing rows open the verifier-GATED packing flow (ONE mandatory proof ->
                         // pending_verification), mirroring Direction rows above. [FEED_COMPLETE] (the
                         // untouched instant path) stays in the graph but is no longer reached from here.
-                        is FeedPackingEvent.OpenRow -> navController.navigate(
-                            Routes.feedPackingCompleteRoute(
-                                parkId = event.parkId,
-                                shedId = event.shedId,
-                                sessionNo = event.sessionNo,
-                                workflow = event.workflow,
-                                // The completion records the FEED day (= packing day + 1), matching the
-                                // read query; targetDateLabel is the packing-day axis, feedForDateLabel is
-                                // the feed day the backend keys on.
-                                targetDate = state.feedForDateLabel,
-                                shedLabel = event.shedLabel,
-                                sessionLabel = event.sessionLabel,
-                                partitionLabel = event.partitionLabel,
-                                lifecycleStatus = event.lifecycleStatus,
-                            ),
-                        ) { launchSingleTop = true }
+                        is FeedPackingEvent.OpenRow -> {
+                            vm.onEvent(event)
+                            navController.navigate(
+                                Routes.feedPackingCompleteRoute(
+                                    parkId = event.parkId,
+                                    shedId = event.shedId,
+                                    sessionNo = event.sessionNo,
+                                    workflow = event.workflow,
+                                    // The completion records the FEED day (= packing day + 1), matching the
+                                    // read query; targetDateLabel is the packing-day axis, feedForDateLabel is
+                                    // the feed day the backend keys on.
+                                    targetDate = state.feedForDateLabel,
+                                    shedLabel = event.shedLabel,
+                                    sessionLabel = event.sessionLabel,
+                                    partitionLabel = event.partitionLabel,
+                                    lifecycleStatus = event.lifecycleStatus,
+                                ),
+                            ) { launchSingleTop = true }
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
             )
         }
 
-        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open)navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel))else vm.onEvent(event)}}
+        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel))}else vm.onEvent(event)}}
 
         composable(
             route = Routes.FEED_TRANSPORT_CAPTURE,

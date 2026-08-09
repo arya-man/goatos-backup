@@ -78,7 +78,10 @@ class ShiftingPendingViewModel @Inject constructor(
                 "rework" -> meta.counts.rework; else -> meta.counts.completed
             }) },
             previousDates = if (meta.date == selection.dateIso) meta.previousDates.mapNotNull { item ->
-                runCatching { LocalDate.parse(item.date) }.getOrNull()?.let { ShiftingPreviousDateUi(item.date, it.format(DATE_LABEL), item.actionCount) }
+                runCatching { LocalDate.parse(item.date) }
+                    .onFailure { crashReporter.recordException(it, "shifting previous date parse failed") }
+                    .getOrNull()
+                    ?.let { ShiftingPreviousDateUi(item.date, it.format(DATE_LABEL), item.actionCount) }
             } else emptyList(),
             emptyMessage = if (isOffline) OFFLINE_EMPTY else EMPTY_MESSAGE,
             isErrorEmpty = isOffline,
