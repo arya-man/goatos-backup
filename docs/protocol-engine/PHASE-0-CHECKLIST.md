@@ -11,7 +11,11 @@ implemented.
 ---
 
 ## 0. Guardrails (every commit)
-- **Repo:** `vgoats/goatos` only. Push via `zsh -ic 'git mesha-push main'` (MESHA_GITHUB_PAT). **Never `gh`** (authed as wrong account). Branch off `main`, no direct commits to `main`; no PRs (review-and-counter flow).
+- **Repo:** `vgoats/goatos` only. For ordinary work use the current repository
+  landing contract in `AGENTS.md`; never issue an ambient direct-main push.
+  When this checklist is executed inside the approved whole-ledger/task-kernel
+  program, its single integration PR and `make land-integration-pr PR=<number>`
+  contract supersede this checklist's historical no-PR/direct-main workflow.
 - **GCP (only when wiring Pub/Sub):** verify active account = `ravi@mesha.sg`, org `vgoats.com`, project `goatos-dev`. **Never** Heva / Slice / `hevaplatform` / `goatos-sheets`. State account+project before any gcloud.
 - **No production `protocol_rules`.** Seeds allowed: `animal_stage_lookup` bands, location profiles from **real `locations`**, capability rows, and a vaccination SOP `form_dsl`/`proof_policy` skeleton. Draft rule rows never publish or generate obligations unless a later CEO/COO-authorized protocol version passes JSON-schema validation, SOP binding, impact preview, and effective-date checks. **No fabricated PPR/FMD/ET schedule values.**
 

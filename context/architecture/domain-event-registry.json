@@ -82,7 +82,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER assignment contact. Preserve the source event, add shared task materializer/contact consumers, and suppress this direct sender before shared contacts activate."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -140,7 +141,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER submission/sign-off contact. Shared verifier/sign-off task and contact policy become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -164,7 +166,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER reopen contact. Shared task descendant/ancestor reopening and contact policy become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -187,7 +190,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verification-settled contact. Shared sibling sign-off/task policy becomes authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -210,7 +214,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER rework contact. Shared sibling sign-off/operator rework task and contact policy become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -233,7 +238,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER rework digest contact. Shared contact policy becomes authoritative; suppress and retire this direct digest after parity, replay, and zero-use proof."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -257,7 +263,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER close contact. Shared task close/rollup and contact policy become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -281,7 +288,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER campaign-close contact. Shared task close/rollup and contact policy become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -305,7 +313,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verified-close contact. Shared sign-off completion and task rollup become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -329,7 +338,8 @@
       "consumers": [
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verified campaign-close contact. Shared sign-off completion and hierarchy rollup become authoritative; suppress this direct sender before activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -345,7 +355,7 @@
     },
     {
       "eventType": "weighing.work_item.day_start",
-      "producer": "weighing kernel day-start cadence pass (kernel-worker operational lane); one event per (campaign, assigned operator, Asia/Kolkata business date), enqueued in the same transaction as the day_start_surfaced_on claim",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel day-start cadence pass (kernel-worker operational lane); one event per (campaign, assigned operator, Asia/Kolkata business date), enqueued in the same transaction as the day_start_surfaced_on claim. Suppress its direct contact before shared task contacts activate, then retire/demote it after parity, replay, and zero-use proof.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/kernel.go",
         "backend/internal/kernelstages/weighing_kernel.go",
@@ -356,7 +366,7 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
           "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
-          "notes": "DOWNWARD ONLY to the assigned bucket operator resolved via ResolveMemberRecipients from the assignment-row operator_user_id. No leadership push for routine daily work."
+          "notes": "LEGACY PRE-CUTOVER direct contact only. It currently resolves the assigned bucket operator via ResolveMemberRecipients. Shared task policy becomes sole contact authority; this consumer must be suppressed before that activation."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -372,7 +382,7 @@
     },
     {
       "eventType": "weighing.work_item.rolled_forward",
-      "producer": "weighing kernel roll-forward pass; unfinished work at the business-day boundary stays executable and its due business date moves to today while planned_business_date is preserved for audit",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel roll-forward pass. Shared task policy becomes the only app-visible clock/roll-forward authority; retain this event only through shadow parity and source reconciliation, then retire/demote it.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/kernel.go",
         "backend/internal/kernelstages/weighing_kernel.go",
@@ -383,7 +393,7 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
           "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
-          "notes": "DOWNWARD to the assigned operator (work is still executable today) plus UPWARD to growth_director + ceo_internal resolved from active role grants (the plan slipped)."
+          "notes": "LEGACY PRE-CUTOVER direct contacts. Suppress before shared task contact activation; shared versioned policy owns operator and leadership audiences thereafter."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -399,7 +409,7 @@
     },
     {
       "eventType": "weighing.work_item.delayed",
-      "producer": "weighing kernel delayed/escalation pass; open work past its ORIGINAL planned business date becomes work_state='delayed' and escalates",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel delayed/escalation pass. Shared task policy becomes the sole app-visible clock/escalation authority; this local producer is shadowed and reconciled, then retired/demoted.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/kernel.go",
         "backend/internal/kernelstages/weighing_kernel.go",
@@ -410,7 +420,7 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
           "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
-          "notes": "UPWARD ESCALATION ONLY to growth_director + ceo_internal resolved from active role grants via ResolvePositionRecipients. The operator is deliberately not re-pushed; the work is already in their day-start list."
+          "notes": "LEGACY PRE-CUTOVER direct escalation only. Suppress before shared task contacts activate; the shared ack-gated policy resolves real recipients and owns all later contacts."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
@@ -1250,7 +1260,7 @@
     },
     {
       "eventType": "weighing.work_item.merged_on_carry_over",
-      "producer": "weighing kernel carry-over merge pass; a carried-over work item whose new due date lands on a (park, shed, date) another OPEN item already covers is CLOSED and linked to it via merged_into_work_item_id. Nothing is re-assigned and no capture is moved: the closed item keeps its own observations as history, and the task already planned for that day simply carries on. Fires only on collision; an ordinary carry-over rolls forward untouched.",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel carry-over merge pass. It records a local collision/source-reconciliation fact without moving capture. The shared task hierarchy must materialize the one-open-work-unit result, suppress the direct contact before activation, and retire/demote this local coordination event after parity and zero-use proof.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/kernel.go",
         "backend/internal/kernelstages/weighing_kernel.go",
@@ -1261,7 +1271,7 @@
           "module": "notification",
           "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
           "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
-          "notes": "DOWNWARD to the operator whose item closed, so the shed leaving their day is told to them rather than discovered as an empty list. Copy states the shed is already covered today; it must never imply a transfer, because no work item changes hands."
+          "notes": "LEGACY PRE-CUTOVER direct contact only. Shared task materialization and contact policy become authoritative; suppress this consumer before shared sends activate."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",

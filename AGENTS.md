@@ -130,6 +130,16 @@ If you delegate weighing work to a subagent, the isolation rule goes in the
 brief. An agent that was never told the boundary will propose crossing it, and
 it will sound reasonable.
 
+Isolation is not permission to create a private coordination island. Weighing
+continues to commit its own domain state, audit, idempotency, proof, and outbox
+without an inbound kernel dependency. The shared task kernel, outside the
+Weighing package, consumes those durable events outward-only to materialize
+owner/clock, hierarchy, contact-waterfall, proof, and sign-off coordination.
+That consumer must be receipt-backed, idempotent, version-fenced, bounded,
+observable, replayable, and reconciled against Weighing source rows. This does
+not widen the Weighing table allowlist, and generic task state must never gate
+scan, submit, verdict, reopen, or close.
+
 ## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
 
 Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
@@ -1047,6 +1057,64 @@ When fixing ANY reported bug (review finding, audit item, regression):
    sub-agent's claim (run the failing test on old code, confirm it fails; on new,
    confirm it passes) before landing — sub-agents have repeatedly done shallow
    "already fixed" passes.
+
+## Operational Task-Kernel Non-Deviation Lock (Mandatory)
+
+Maintainer decision 2026-08-10: Goat OS is one event-driven, interlinked
+task/ticketing waterfall. Every operational feature follows:
+
+```text
+business event -> canonical transaction + audit/outbox -> real owner + clock
+-> bounded task hierarchy -> acknowledgement-gated contact waterfall -> proof
+-> separate verification/sign-off task -> close/reopen rollup -> shared reads
+```
+
+Module state machines remain authoritative for domain facts, but no module may
+create, retain as canonical, or exempt a private app-visible task authority,
+scheduler, owner fallback, overdue calculation, reminder/escalation ladder,
+verification queue, or screen-only follow-up pipeline. A feature whose shared adapter is not ready
+stays shadowed or blocked; it does not bypass the kernel. Every activated,
+app-visible task has a real owner and pinned clock. Failed owner resolution
+creates a separate durable exception owned by a real configuration/operations
+resolver; the exception is not a substitute owner and the task stays hidden.
+Operator and verifier/sign-off work are separate sibling leaves.
+Acknowledgement stops contacts, not the work clock, and authorized descendant
+reopen propagates upward.
+
+Read and obey
+`context/execution/operational-task-kernel-remediation-plan.md` and
+`context/execution/defect-prevention-execution-contract.md` for any trigger,
+task, Today/My Tasks, owner/duty, clock, reminder, escalation, proof,
+verification, hierarchy, or shared operational-read change. Changing this
+architecture requires an explicit maintainer decision plus same-change updates
+to the kernel architecture, plan, skills, guardrails, and adversarial tests.
+Ambiguity is not approval.
+
+The persistent multi-session checkpoint is
+`context/execution/operational-kernel-program-state.md`. Coordinators update it
+on the sole integration branch after each accepted batch; worker and review
+agents never edit it.
+
+## Defect Prevention Closure (Mandatory)
+
+Every bug fix, audit batch, kernel milestone, and feature change follows
+`context/execution/defect-prevention-execution-contract.md`. A fix is not closed
+until the same current-SHA packet includes the failing-before production-path
+regression, the root-cause implementation, the strongest applicable recurrence
+control, ordinary affected `make ci-local` wiring, recovery/observability where
+needed, docs/skill/anti-pattern sync, and independent counter-review.
+
+When a rule is mechanically detectable, ship its structural guard in the same
+batch with adversarial negative fixtures, manifest registration, self-test,
+Make target, and standard `run_common` or component-job wiring. A hook or
+compatibility-only `JOB=guardrails` path is not enforcement. If a static guard
+is weaker than a DB/transaction/contract/runtime control, record that choice and
+ship the stronger control; do not write a literal-only false-green grep.
+
+Delegated briefs must name the absolute repo path, fresh base SHA, owned files,
+invariants, banned patterns, red/green tests, prevention work, and CI commands.
+The coordinator owns shared migrations/contracts, independently verifies every
+claim, and keeps closure-pending work open.
 
 ## Consolidated Defect-Ledger Closure (Mandatory)
 
@@ -2256,9 +2324,12 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   when their owned paths or shared contracts changed. Unmapped paths and changes
   to CI workflows, CI scripts, agent hooks, or the Makefile force the full suite;
   `make ci-local MODE=all` is the explicit full-suite command. Treat a green
-  `make ci-local` on the exact pushed SHA as the authoritative gate. Record the
-  `make ci-local` SHA + result as the current-SHA proof. Restoring org Actions
-  billing stays a separate maintainer task, tracked but never blocking closure.
+  `make ci-local` on the exact pushed SHA as the authoritative ordinary
+  deterministic CI gate. It does not replace applicable PostgreSQL, migration,
+  device, browser, deploy, or live-state certification lanes; those remain
+  closure blockers. Record the `make ci-local` SHA + result as current-SHA
+  ordinary-CI proof. Restoring org Actions billing stays a separate maintainer
+  task, tracked but never blocking closure.
 
 - **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
   `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and
@@ -2279,14 +2350,17 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   component, or newly-full diff is rejected. Explicit partial
   `JOB=...` runs intentionally write NO receipt and never authorize a push. Every
   new machine guardrail MUST be registered in `tools/ci/guardrail-manifest.json`
-  and wired into both `Makefile:guardrails` and `tools/ci/run-local-ci.sh` (the
-  `guardrail-registration-guard` fails closed if any guardrail is missing,
-  unvalidated, or unwired). See `docs/runbooks/local-release-evidence.md` →
+  and wired into both `Makefile:guardrails` and `tools/ci/run-local-ci.sh`. The
+  current `guardrail-registration-guard` proves enumeration, declarations, and
+  textual reachability only; semantic execution/routing, existence/uniqueness,
+  and spoof resistance remain F0 work and must be manually verified until that
+  hardening lands. See `docs/runbooks/local-release-evidence.md` →
   "Exact-SHA Local-CI Push Gate (Main)" and `docs/runbooks/local-ci.md` →
   "Guardrail registration and exact-SHA push evidence" for the full flow. Do not
   bypass the hook with `--no-verify`.
-- **Mandatory automatic main landing (Codex and Claude)**: When the requested
-  outcome includes pushing to `main`, run **`make land-main`** instead of composing
+- **Mandatory ordinary main landing (Codex and Claude)**: For ordinary work and
+  this documentation foundation, when the requested outcome includes pushing
+  to `main`, run **`make land-main`** instead of composing
   `git fetch` / `git rebase` / `make ci-local` / `git mesha-push` by hand. The
   target refuses a dirty worktree, fetches fresh `origin/main`, rebases the
   candidate before CI, runs the complete affected-component `make ci-local`,
@@ -2298,6 +2372,13 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   only the scoped work and use a clean isolated worktree for landing. Standalone
   `make ci-local` remains valid for development/hosted CI; `make land-main` is
   the release path that mutates history and pushes.
+- **Whole-ledger/task-kernel program landing exception**: the documentation
+  foundation may use ordinary `make land-main`, but the approved implementation
+  program uses exactly one external integration PR. It must not use milestone
+  PRs or ordinary `make land-main`. F0 first adds the repo-owned
+  `make land-integration-pr PR=<number>` exact-head fast-forward gate defined in
+  `context/execution/defect-prevention-execution-contract.md`; until then no
+  implementation batch closes and the program PR cannot land.
 - **Mandatory GitHub release tags and Firebase provenance**: Every dev/stg/prod
   release must create an annotated GitHub tag through `make release-tag`, never
   a hand-written `git tag` command. The tag message must keep separate Backend,

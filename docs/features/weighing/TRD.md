@@ -50,9 +50,11 @@ capture stack, and existing Vaccination execution patterns.
 
 This TRD defines the first Weighing implementation slice:
 
-1. Kids-only weekly weighing campaigns created by CEO/CXO from Android.
-2. Shed/partition selection and count snapshot.
-3. Rolling daily work groups driven by a capacity target.
+1. Manually authored kids-only weighing campaigns created by CEO/CXO from
+   Android, with no inferred recurrence.
+2. Explicit shed/partition selection.
+3. Bucket grouping guidance that never creates an expected-animal denominator;
+   the shared task kernel owns clocks and any roll-forward policy.
 4. Shed-level operator execution for v1.
 5. Category-aware capture: RFID, weight, and mandatory per-animal video proof
    for `individual_animal`; selected-scope result and mandatory shed/partition
@@ -77,13 +79,18 @@ the only weighing client. All backend weighing APIs, read models, and the
 `ceo_ai` weighing views stay and are unaffected. Do not rebuild an admin-web
 weighing surface without a new maintainer decision.
 
-## 1.0 Authoritative lifecycle (maintainer decision 2026-07-31)
+## 1.0 Authoritative source lifecycle (maintainer decision 2026-07-31; coordination superseded 2026-08-10)
 
-This is the canonical Weighing task lifecycle. Every section below must be read
-consistent with it; where an older paragraph in this TRD conflicts, this
-section governs.
+This is the canonical Weighing campaign, bucket, capture, proof, verdict, close,
+and reopen lifecycle. It remains authoritative for physical execution. It is no
+longer the final app-visible task/owner/clock/contact authority. The shared task
+kernel consumes these facts outward-only and owns the cross-module hierarchy,
+Today, acknowledgement-gated contact waterfall, separate verifier/sign-off
+leaf, and close/reopen rollup. Weighing never reads that generic state and it
+never gates free-flow capture. Every section below must be read with that split;
+this section governs older conflicting language.
 
-1. CEO/Growth Director creates a weighing task by park/date/shed buckets.
+1. CEO/CXO creates a Weighing source campaign by park/date/shed buckets.
 2. Each shed bucket (`weighing_campaign_sheds` row) has exactly ONE assigned
    operator (`operator_user_id uuid not null`, migration
    `000056_weighing_shed_operator_assignments.sql`; enforced by
@@ -129,7 +136,7 @@ failure patterns before code starts:
 | Failure pattern fixed in Vaccination | Weighing design guard |
 |---|---|
 | Shared parent task hid the real shed submit grain. | No aggregate campaign/task state may be used as per-shed/per-animal completion truth. |
-| Over-broad scan items wrote sibling shed completions. | Observation inserts must join through `weighing_expected_animals` and the active proof/subject grain before counting expected completion. |
+| Over-broad scan items wrote sibling shed completions. | Observation inserts must bind the exact campaign bucket, scan identity, proof subject, and observation grain before counting captured or accepted work. |
 | Proof refs disappeared across submit retry/recovery. | Observation, proof artifact, upload state, and idempotency replay must be recoverable from durable rows. |
 | Terminal submit state accepted new side effects. | Completed/canceled work groups are immutable except explicit correction/reopen flows. |
 | Android routes chose the wrong task/shed after scan. | Route identity must carry campaign, work group, expected shed/partition, and animal scan context end to end. |
@@ -153,23 +160,29 @@ service.
 
 Every mutating path must define idempotency, audit, outbox publication, RBAC
 scope, observability, replay behavior, and tests. Weighing must plug into the
-operational kernel chain:
+governed shared operational-kernel chain through an outward-only materializer:
 
 ```text
 business event
--> canonical transaction
--> audit/outbox
--> work item
--> sweeper/reminder/deadline alert
--> notification/escalation
--> proof/verification
--> read model
+-> Weighing source transaction + idempotency + audit/outbox
+-> outward shared materialization receipt + source-version fence
+-> real owner + pinned clock
+-> bounded task hierarchy
+-> acknowledgement-gated contact waterfall
+-> proof
+-> separately owned verifier/sign-off leaf
+-> close/reopen rollup
+-> shared Today/My Tasks/leadership reads
 ```
 
 The kernel chain is not optional because Weighing looks simpler than
 Vaccination. Weighing still creates operational work, captures proof, records a
-trusted animal fact, affects leadership answers, and can become delayed or
-blocked by missing animals. Those are kernel concerns.
+trusted measurement fact, affects leadership answers, and can cross an authored
+task clock. The adapter remains strictly outward-only: Weighing execution never
+reads shared task state or waits on the shared kernel, while no private
+Weighing task list, owner fallback, clock, contact ladder, sign-off queue, or
+coordination read may remain authoritative after cutover. Missing/expected
+animals are not Weighing concepts.
 
 ## 3. Domain grain
 
@@ -177,13 +190,12 @@ Canonical grains:
 
 | Grain | Purpose |
 |---|---|
-| Weighing campaign | One kids-only weekly instance created by CEO/CXO for a farm/park/week/start date. |
-| Selected shed/partition | Atomic assignment/grouping unit. It tells the operator where to work, carries expected animal membership at planning time, stores the selected weighing category, and owns the assigned operator. |
-| Work group | One suggested operator chunk containing one or more whole selected sheds/partitions for the same operator. It is an assignment container, not a weighing observation. |
-| Animal weighing observation | One animal's RFID, measured weight, proof video, and expected/actual shed context. |
+| Weighing campaign | One manually authored instance created by CEO/CXO for a park, date/window, and selected physical buckets. It does not imply recurrence. |
+| Selected shed/partition | Atomic source assignment/grouping unit carrying physical scope, category, authored operator, and source lifecycle. It carries no expected membership. |
+| Shared task work unit | Outward-materialized campaign/bucket hierarchy with real owner, pinned clock, contacts, and sibling verifier/sign-off work. It never gates Weighing execution. |
+| Animal weighing observation | One scanned identifier, measured weight, and proof video; no expected-roster or resident-animal lookup. |
 | Per-shed/partition weighing observation | One selected shed/partition's weighing result and required shed/partition proof. It is not animal latest-weight truth. |
 | Proof artifact | Mandatory per-animal video linked to an animal observation, or shed/partition proof linked to a per-shed/partition observation. |
-| Availability exception | Current herd-state explanation for why an expected animal is not weighable from the planned shed. |
 | Correction | Audited replacement/voiding of an incorrect weight or proof after sync. |
 
 Shed/partition is atomic for assignment planning. A work group may contain
@@ -191,11 +203,10 @@ multiple sheds/partitions when those buckets have the same operator. A
 shed/partition must not be split only to satisfy the daily cap. If one
 shed/partition exceeds the daily cap, the group remains the whole
 shed/partition and may span multiple business dates through execution progress.
-For individually marked sheds/partitions, completion remains
-animal-wise: one expected animal is complete only after its RFID/animal identity,
-weight, and per-animal proof video are accepted. For per-shed/partition marked
-scopes, completion is at the selected scope grain and must not update individual
-animal latest-weight projections.
+For individually marked sheds/partitions, source progress counts accepted
+observations and proof/verdict state without a denominator. For
+per-shed/partition marked scopes, completion is at the selected-scope grain and
+must not invent individual observations.
 
 Campaign-level `operator_user_id` is the backwards-compatible default operator.
 `weighing_campaign_sheds.operator_user_id` is the execution owner used for
@@ -211,25 +222,18 @@ lookup must preserve this key set:
 ```text
 tenant_id
 campaign_id
-campaign_shed_id / expected_location_id
-work_group_id where execution context exists
-animal_id where the fact is animal-grain
+campaign_shed_id / shed_location_id / partition key
+task source identity where coordination context exists
+scanned_identifier where the fact is individual capture grain
 proof_artifact_id where the fact is proof/media-grain
 ```
 
-`weighing_campaigns.status` is aggregate bookkeeping. It cannot answer whether a
-shed, animal, proof, or operator submission is complete. Completion is
-category-aware:
-
-- `individual_animal` selected scopes complete from `weighing_expected_animals`
-  joined to accepted `weighing_observations` at the same campaign + animal grain.
-- `per_shed_partition` selected scopes complete from accepted
-  `weighing_shed_observations` at the same campaign + selected shed/partition
-  grain.
-
-Extra scans come from animal observations with no matching expected row and must
-remain outside the individual expected numerator. Per-shed/partition observations
-must not mark expected animals as individually weighed.
+`weighing_campaigns.status` is aggregate source bookkeeping. It cannot answer
+whether a shared task, contact, proof, or sign-off is complete. Source progress
+is category-aware: individual capture counts submitted and verified
+observations/proofs without a denominator; per-shed/partition capture counts
+accepted selected-scope observations/proofs. There is no expected row, extra-
+scan classification, missing-animal state, or individual expected numerator.
 
 ## 4. Proposed backend module
 
@@ -267,10 +271,9 @@ before implementation.
 | `tenant_id uuid not null` | Tenant boundary. |
 | `farm_id` / `park_id` | Execution scope. Use current location model terminology at implementation time. |
 | `period_type text not null` | `week` for v1. Keep the column generic only to avoid later migration churn; month/manual values are not accepted in v1 commands. |
-| `period_start_date date not null` | Week start for weekly kid campaigns. |
-| `period_end_date date not null` | Week end for weekly kid campaigns. |
-| `cadence_type text not null` | `weekly_kids` only in v1. |
-| `cadence_due_date date not null` | Monday for weekly kid work or the selected in-week start anchor when leadership creates work later in the week. |
+| `period_start_date date not null` | Authored campaign display-window start. |
+| `period_end_date date not null` | Authored campaign display-window end. |
+| `cadence_type` / `cadence_due_date` | Legacy compatibility fields only. No recurrence is inferred; the shared task clock maps the explicitly authored campaign date/window. |
 | `display_week_start_date date not null` | Week-tab anchor. |
 | `display_month date` | Reserved for future adult/monthly scope; null in v1. |
 | `animal_group_filter text not null` | `kids_k_f` only in v1. |
@@ -279,7 +282,7 @@ before implementation.
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
 | `operator_user_id uuid` | Backwards-compatible default operator for old clients and campaign-level display. Shed rows carry the execution owner. |
 | `published_at timestamptz` | Set when operator-visible work is created. |
-| `completed_at timestamptz` | Set only when all selected scopes are complete under their category policy: individual expected animals weighed/unavailable/closed, or per-shed/partition selected scope accepted/closed. |
+| `completed_at timestamptz` | Source campaign closure evidence derived from selected bucket/proof/verdict state, never expected animals. |
 | `created_by`, `created_at`, `updated_at`, `row_version` | Audit/optimistic lock. |
 
 ### `weighing_campaign_sheds`
@@ -298,18 +301,15 @@ before implementation.
 | `completed_at timestamptz` | Set when the assigned operator submits (awaiting verification), independent of `closed_at`. |
 | `closed_at`, `closed_by`, `close_reason`, `closed_not_accepted_count` | Set only on explicit CEO/Growth Director close, after all submitted observations in the bucket are verified. |
 
-### `weighing_work_groups`
+### Legacy `weighing_work_groups` design (do not implement as task authority)
 
 | Column | Notes |
 |---|---|
 | `work_group_id uuid pk` | Suggested execution group. |
 | `campaign_id uuid not null` | Parent campaign. |
-| `planned_business_date date not null` | Suggested day. Moves forward if not completed. |
+| `planned_business_date date not null` | Authored/source planning date; shared task policy owns active clock behavior. |
 | `sequence_no int not null` | Stable order. |
-| `status text not null` | `pending`, `in_progress`, `completed`, `delayed`, `canceled`. |
-| `expected_count int not null` | Sum of selected group membership. |
-| `effective_business_date date not null` | Current visible execution date after roll-forward. |
-| `rolled_from_date date` | Last scheduled date when carried forward. |
+| `status`, `effective_business_date`, `rolled_from_date` | Legacy coordination fields to shadow/reconcile and retire or demote; not shared task truth. |
 
 Group membership should be a separate join table:
 
@@ -317,59 +317,17 @@ Group membership should be a separate join table:
 weighing_work_group_sheds(work_group_id, campaign_shed_id)
 ```
 
-The join table is the only source of work-group shed membership. Do not infer a
-work group's sheds from planned date, display name, route params, or a generic
-SOP parent task. This is the vaccination sibling-shed bug class in weighing
-form.
+This historical join design is not current task authority. The shared task
+adapter maps stable campaign/bucket source identity directly and must not infer
+hierarchy from dates, labels, or route parameters.
 
-Suggested work groups are planner output, not membership authority. The
-membership authority remains `weighing_expected_animals`. A replan may change a
-pending expected row's planned work group, but it must not rewrite which animals
-were expected at campaign publication unless CEO/CXO explicitly edits the
-selected sheds and the edit records a new membership snapshot version.
+### Removed: `weighing_expected_animals`
 
-### `weighing_expected_animals`
-
-> **SUPERSEDED (maintainer decision 2026-07-31, migration
-> `000007_weighing_free_flow_scanned_identifier.sql`): Weighing is FREE-FLOW.**
-> `weighing_expected_animals` is now a **compatibility / planner-hint table
-> only**. It is populated at campaign creation as a display/planning aid
-> (legacy admin/review surfaces and the planner catalog), but it is
-> **never a submit gate and never the completion/membership source of
-> truth** for accepted observations. An operator may scan and accept ANY
-> real ear-tag RFID for a campaign shed bucket — including animals that
-> never appear in this table — because the same physical goat legitimately
-> moves in and out of expected rosters between planning and execution.
-> Do not read this table to reject a scan, and do not treat its `pending`/
-> `missed` rows as outstanding work that blocks completion. See
-> `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`
-> (A-6, B-4, C-3) and `tools/agent-hooks/check-weighing-free-flow-guard.mjs`.
-> The paragraph below documents the pre-free-flow design intent and is kept
-> for history; it no longer governs submit/completion behavior.
-
-Snapshot expected membership at campaign creation. This prevents later animal
-movement from rewriting what the operator was asked to cover.
-
-| Column | Notes |
-|---|---|
-| `campaign_id uuid not null` | Campaign. |
-| `animal_id uuid not null` | Current canonical animal identity. |
-| `expected_location_id uuid not null` | Shed/partition at planning time. |
-| `expected_location_label text not null` | Snapshot display. |
-| `expected_group_id uuid` | Optional planned group assignment. |
-| `status text not null` | `pending`, `weighed`, `unavailable`, `missed`, `canceled`, `closed_by_override`. |
-| `availability_status text` | `expected_shed`, `moved_other_shed`, `icu`, `quarantine`, `dead`, `culled`, `sold_transferred`, `exited`, `unknown_review`. |
-| `current_location_id uuid` | Last projected location used for exception display, nullable. |
-| `current_lifecycle_status text` | Last projected lifecycle state used for exception display, nullable. |
-| `availability_checked_at timestamptz` | When the exception projection last reconciled this row. |
-
-Unique key: `(campaign_id, animal_id)`.
-
-If leadership can later add sheds to an active campaign, add
-`membership_version int not null` and include it in the idempotency/audit story.
-Implementation must choose either "campaign membership is immutable after
-publish" or "membership versions are first-class"; it must not silently append
-rows that make old progress/proof counts impossible to reconstruct.
+Migration `000079` dropped this table. It is not a compatibility source,
+planner hint, denominator, membership snapshot, or future task input. Do not
+reintroduce expected, missing, moved, unavailable, ICU/quarantine, lifecycle, or
+resident-animal concepts into Weighing. Planning selects physical buckets;
+capture records what the scanner/scale/proof observed.
 
 ### `weighing_observations`
 
@@ -455,15 +413,13 @@ rows that make old progress/proof counts impossible to reconstruct.
 | `observation_id uuid pk` | Idempotent observation identity. |
 | `campaign_id uuid not null` | Parent campaign. |
 | `work_group_id uuid` | Work group being executed. |
-| `animal_id uuid` (nullable — see decision note above) | Resolved from RFID/Animal ID scan **when it maps to a known goat**; may be null. |
+| `animal_id uuid` | Legacy nullable enrichment only; the operator path stores NULL and never resolves it to authorize capture. |
 | `scanned_identifier text not null` | Raw scanned value for audit; the free-flow contract's primary identity when `animal_id` cannot be resolved. |
 | `weight_kg numeric not null` | Positive measured weight. |
 | `observed_at timestamptz not null` | Device/business timestamp. |
 | `operator_user_id uuid not null` | Field operator. |
-| `expected_location_id uuid` | From `weighing_expected_animals` if present. |
-| `actual_location_id uuid` | Current animal location or selected execution context at scan time. |
-| `location_match_status text not null` | `expected`, `other_shed`, `not_in_campaign`, `unknown`. |
-| `proof_artifact_id uuid not null` | Mandatory per-animal video proof. |
+| `campaign_shed_id uuid not null` | Weighing-owned selected physical bucket. |
+| `proof_artifact_id uuid not null` | Mandatory bucket-scoped video proof for the captured row. |
 | `status text not null` | `local_pending`, `submitted`, `accepted`, `rejected`, `voided`, `replaced`. |
 | `correction_of_observation_id uuid` | Nullable pointer for audited replacement. |
 | `sync_state/audit columns` | Follow existing mobile capture conventions. |
@@ -490,18 +446,9 @@ so they cannot accidentally update animal latest-weight truth.
 | `status text not null` | `local_pending`, `submitted`, `accepted`, `rejected`, `voided`, `replaced`. |
 
 Accepted `weighing_shed_observations` complete only the selected
-shed/partition category row. They do not create `weighing_observations`, mark
-expected animals as individually weighed, or update animal-level latest trusted
-weight.
-
-Expected-vs-extra counting rule:
-
-- if `(campaign_id, animal_id)` exists in `weighing_expected_animals`, the
-  accepted observation may satisfy that expected row;
-- if it does not exist, the observation is `not_in_campaign` and contributes
-  only to extra/mismatch insight counts;
-- a not-in-campaign observation must never increment expected completion or
-  silently create expected membership for another shed.
+shed/partition category row. They do not create individual observations or
+animal latest-weight truth. Individual observations have no expected-versus-
+extra classification.
 
 ### `weighing_observation_corrections`
 
@@ -538,17 +485,12 @@ Implementation must define persisted status values in migrations with `CHECK`
 constraints and mirror them in domain value objects. At minimum, the design must
 separate:
 
-- campaign lifecycle: draft/planned/published/in_progress/delayed/completed/
-  canceled;
-- work-group lifecycle: pending/in_progress/delayed/completed/canceled;
-- expected-animal status: pending/weighed/unavailable/missed/closed_by_override/
-  canceled;
+- Weighing source campaign/bucket lifecycle from current migrations;
 - observation status: pending_upload/submitted/accepted/rejected/voided/replaced.
 
-Exact names should follow current migration conventions, but terminal states
-must be immutable except explicit correction/reopen commands. Display buckets
-such as "open today", "delayed", "moved", or "review needed" must not be
-persisted as ad-hoc statuses unless the migration and state machine define them.
+Exact names follow current migrations, but terminal source states change only
+through explicit correction/reopen commands. Today, delayed, contact pending,
+and sign-off pending belong to the shared task kernel.
 
 ## 5.1 Count and projection grain
 
@@ -559,35 +501,28 @@ Required written proof:
 
 ```text
 Producer unique key:
-  weighing_expected_animals = tenant_id + campaign_id + animal_id
-  weighing_observations accepted row = tenant_id + campaign_id + animal_id
-  weighing_shed_observations accepted row = tenant_id + campaign_id + campaign_shed_id
+  individual observation = tenant_id + campaign_shed_id + normalized scanned_identifier + accepted generation
+  shed observation = tenant_id + campaign_id + campaign_shed_id + accepted generation
 Consumer group key:
   overview = tenant_id + campaign_id
   shed progress = tenant_id + campaign_id + campaign_shed_id
-  work group progress = tenant_id + campaign_id + work_group_id
-  animal row = tenant_id + campaign_id + animal_id
+  captured row = tenant_id + campaign_shed_id + observation_id
   per-shed/partition row = tenant_id + campaign_id + campaign_shed_id
 Joined side multiplicity:
-  expected animal -> accepted observation is 0:1 in v1
-  expected animal -> current animal state is 1:1 after tenant + animal filter
   observation -> proof artifact is 1:1 for accepted rows
-  selected per-shed/partition scope -> accepted shed observation is 0:1 in v1
+  selected per-shed/partition scope -> active accepted shed observation is 0:1
   shed observation -> proof artifact is 1:1 for accepted rows
-Ratio/cap key set:
-  individual numerator/denominator range over campaign expected animals
-  per-shed/partition numerator/denominator range over selected campaign_shed_id scopes
-  neither category may use visible page rows, current shed residents, or observations alone
+No expected denominator or resident-animal join exists.
 ```
 
 Projection buckets are disjoint:
 
 ```text
-individual_expected_total
-= individual_weighed_expected
-+ individual_pending_expected
-+ individual_unavailable_expected
-+ individual_closed_by_leadership
+individual_captured_total
+= individual_proof_verified
++ individual_proof_pending
++ individual_rework
++ individual_voided_or_replaced
 
 per_shed_partition_selected_total
 = per_shed_partition_completed
@@ -596,10 +531,9 @@ per_shed_partition_selected_total
 + per_shed_partition_closed_by_leadership
 ```
 
-Additional counters such as `proof_pending` and `correction_pending` are insight
-counters. V1 must not add Vaccination-style wrong-shed, not-in-campaign, or
-missing-roster counters into submit readiness; the selected shed/partition is a
-Weighing evidence bucket, not a Herd Register membership assertion.
+No counter may add Vaccination-style wrong-shed, not-in-campaign, missing,
+unavailable, or roster concepts; the selected shed/partition is a Weighing
+evidence bucket, not a Herd Register membership assertion.
 
 Never use `ORDER BY ... LIMIT 1` to bind an observation to a work group, shed, or
 proof when multiple rows can legitimately exist for the same campaign. Use the
@@ -607,31 +541,25 @@ exact membership/proof key or reject the ambiguity.
 
 ## 6. Planning algorithm
 
-Inputs:
-
-- Selected shed/partition rows. Any count is a planning hint only and must not
-  become an individual submit gate.
-- Kids-only cadence lane and animal group filter.
-- `start_business_date`.
-- `planned_cap_per_day`, default 100.
-- Shed-level operator assignment with campaign-level default fallback.
+Inputs are explicitly selected shed/partition rows, authored campaign date/
+window, optional capacity guidance, and authored bucket operator assignment.
+No expected roster, resident-animal filter, recurring cadence, or generic duty
+lookup runs inside Weighing.
 
 Algorithm:
 
 1. Sort selected sheds/partitions by stable operational order.
-2. Resolve the selected kids/K/F shed/partition buckets for planning. V1 does
-   not build an expected animal roster for submit; adult goats and adult sheds
-   are excluded even when they share a physical area or appear in source cadence
-   docs.
-3. Treat each selected shed/partition as an atomic item after filtering.
-4. Build work groups greedily:
+2. Treat each selected physical shed/partition bucket as an atomic item without
+   inspecting resident animals.
+3. Build source bucket groups greedily:
    - add the next item if it does not exceed cap;
    - if the current group is empty, add the item even when it exceeds cap;
    - otherwise close the current group and start the next.
-5. Optionally fit a small later item into remaining capacity if it avoids a
+4. Optionally fit a small later item into remaining capacity if it avoids a
    tiny group and does not reorder across parks/farms.
-6. Assign suggested business dates starting at `start_business_date`.
-7. Do not create hard errors for under-cap or over-cap groups when caused by
+5. Assign suggested source planning dates starting at `start_business_date`;
+   shared task policy owns active clock behavior.
+6. Do not create hard errors for under-cap or over-cap groups when caused by
    atomic shed/partition rules.
 
 The planner must be deterministic and idempotent for the same campaign snapshot.
@@ -664,18 +592,30 @@ Vaccination comparison:
   Replanning should preserve completed observations and explicit operator
   progress.
 
-## 6.1 IMPLEMENTED (Phase 2): the time-driven kernel
+## 6.1 IMPLEMENTED COMPATIBILITY SOURCE (Phase 2): local time-driven lane
 
 Phase 1 shipped planning, execution, proof, verification, and explicit close, but
 weighing had **no time-driven kernel at all**: publishing a campaign produced a
 plan nothing swept, `kernel-worker` had zero weighing awareness, and Calendar /
 Control Tower had no weighing process state. Phase 2 closes that. This section
-describes what is actually built, not intent.
+describes what is currently built, not the final coordination authority.
+
+Under the 2026-08-10 non-deviation decision, `weighing_work_items`,
+`WeighingKernelStage`, direct cadence notifications, `/app/weighing/alerts`, and
+`GET /weighing/process-state` are legacy compatibility/source lanes to
+shadow-compare and suppress or demote at task-kernel cutover. Weighing-owned
+campaign/bucket identity, assigned operator, authored planned date, capture,
+proof, verdict, close, and reopen remain source facts. Generic owner/clock,
+Today, delay/contact policy, verifier/sign-off task, hierarchy, and rollup move
+to shared task truth. The cutover must prove parity, event receipt/version
+fencing, replay, reconciliation, and zero duplicate tasks or contacts, and must
+not add an inbound Weighing dependency.
 
 ### Work items on publish
 
 `weighing_work_items` (migration `000059_weighing_kernel_work_items.sql`) is the
-weighing equivalent of an obligation instance.
+currently deployed Weighing source/compatibility work ledger. It is not the
+post-cutover generic task authority.
 
 - **Grain: ONE ROW PER `weighing_campaign_sheds` BUCKET.** Never per animal, never
   per campaign. One bucket has exactly one operator, so a work item has exactly one
@@ -776,6 +716,12 @@ or seed-time route exists in any payload or handler.
 
 ### Calendar + Control Tower binding
 
+This subsection describes current compatibility behavior. After shared-kernel
+cutover, Calendar, Today, Control Tower, Action Center, and alerts read shared
+task truth. `GET /weighing/process-state` remains only for source reconciliation
+or is retired after zero-use proof; it cannot remain a competing coordination
+authority.
+
 `Repository.WeighingProcessState` / `GET /weighing/process-state`
 (`getWeighingProcessState`, permission `weighing.monitor`) is the shared-surface
 read, per `docs/architecture/operational-read-model-contract.md`:
@@ -819,20 +765,24 @@ follow-up work.
 All dates in these tests are FIXED Asia/Kolkata business dates; there is no
 wall-clock offset and no hour arithmetic.
 
-Machine gate: `make weighing-kernel-phase2-guard`
+Compatibility machine gate: `make weighing-kernel-phase2-guard`
 (`tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs`, registered in
 `tools/ci/guardrail-manifest.json`, `Makefile:guardrails`, and
 `tools/ci/run-local-ci.sh`) enforces five failure modes: publish without work
 items, an unbounded/non-keyset sweeper claim, hour arithmetic in the kernel path, a
 cadence not registered inside the existing kernel worker, and hardcoded cadence
-recipients.
+recipients. F0 must reclassify this guard as pre-cutover continuity protection;
+the task-kernel cutover change replaces its private-coordination requirements
+with materialization parity, receipt/version fencing, no duplicate task/contact,
+source reconciliation, and no inbound Weighing dependency.
 
-## 7. Rolling execution
+## 7. Open execution across business days
 
-At day boundary, a sweeper or read-model update marks incomplete current work as
-still open and delayed/rolled forward. The work remains executable until all
-selected scopes are complete under their category policy or leadership
-cancels/closes the campaign.
+Weighing source buckets remain executable across day boundaries until their
+category policy completes or leadership cancels/closes the campaign. Before
+cutover the legacy sweeper records local delay/roll-forward compatibility facts.
+After cutover the shared task clock is the only app-visible day/delay authority;
+the source bucket never reads that state or blocks capture.
 
 Allowed execution cases:
 
@@ -850,59 +800,16 @@ Forbidden behavior:
 - Auto-move animal location because the animal was scanned in another shed.
 - Accept a completed observation without the mandatory proof for its selected
   category.
-- Keep animals that are now dead, culled, sold/transferred, ICU, quarantine, or
-  shifted elsewhere in the same "operator missed it" bucket forever.
 - Change completion counts by reading only the visible/paginated rows.
 
-## 8. Availability reconciliation
+## 8. No animal availability reconciliation
 
-At planning time, `weighing_expected_animals` snapshots the selected shed/
-partition membership. After that, other canonical workflows may change animal
-availability before the operator weighs the animal:
-
-- normal shed shift;
-- ICU or quarantine movement/status;
-- death;
-- culling;
-- sale/transfer/other lifecycle exit;
-- identity/location correction.
-
-Weighing must consume current herd/location/lifecycle truth to classify expected
-animals before presenting misses. This should be implemented as a bounded
-reconciliation path, not a full-tenant scan:
-
-1. Reconcile open campaign expected rows by campaign/work group/shed.
-2. Join current animal state by `tenant_id + animal_id`.
-3. Update the expected row's `availability_status` and current-state snapshot.
-4. Leave the original expected shed untouched for audit.
-5. Remove unavailable animals from operator remaining workload counts where the
-   status means the animal is not practically weighable.
-6. Keep shifted-to-other-normal-shed animals visible as moved/mismatch; if
-   scanned and weighed, record the observation with original expected shed plus
-   actual/current shed.
-
-This reconciliation must not write animal movement/lifecycle facts. It only
-reads facts owned by Movement, Health/ICU/quarantine, Death/Culling, Sale/
-Transfer, or identity correction workflows.
-
-Availability events from other modules should invalidate/reconcile only affected
-open campaigns by `tenant_id + animal_id`, not trigger a tenant-wide rebuild.
-If a required lifecycle module is missing when this slice ships, record a
-durable review-needed availability state rather than silently treating the
-animal as pending forever.
-
-Reconciliation query shape:
-
-- Event-driven path: `tenant_id + animal_id` finds open
-  `weighing_expected_animals` rows through an index on
-  `(tenant_id, animal_id, status)`.
-- Campaign catch-up path: bounded by `tenant_id + campaign_id + status` and
-  paged by `(campaign_id, animal_id)`; no full-tenant scan.
-- Current herd/location/lifecycle lookup must be batched by animal ids from the
-  page and joined/pre-aggregated once. It must not issue one query per missing
-  animal.
-- Stale event protection must prevent an older movement/lifecycle event from
-  overwriting a newer availability snapshot.
+Migration `000079` removed the expected roster. Weighing does not consume
+movement, ICU/quarantine, death/culling, sale/transfer, identity, resident-
+animal, or lifecycle events to classify pending work. It records the selected
+physical bucket and what the scanner/scale/proof observed. The shared task
+materializer reconciles only Weighing campaign/bucket/event facts; it never
+introduces animal availability into capture or completion.
 
 ## 9. API draft
 
@@ -920,12 +827,21 @@ POST /api/v1/weighing/campaigns/{campaign_id}/close-pending
 POST /api/v1/weighing/campaigns/{campaign_id}/cancel
 ```
 
-Operator/mobile:
+Shared operator coordination after cutover:
+
+```text
+GET  /api/v1/app/tasks?scope=mine&business_date=&state=&cursor=&limit=
+GET  /api/v1/app/tasks/{task_node_id}
+```
+
+These shared routes own L1 Today/open work, owner/clock/state filters, day/week
+markers, and hierarchy. A shared task launches Weighing source detail through
+its stable `(source_module, source_type, source_id, source_part)` identity.
+
+Weighing source detail/capture:
 
 ```text
 GET  /api/v1/app/weighing/bootstrap
-GET  /api/v1/app/weighing/weeks?from=&to=
-GET  /api/v1/app/weighing/work-groups?date=&status=&cursor=&limit=
 GET  /api/v1/app/weighing/work-groups/{work_group_id}
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/progress-contract
 GET  /api/v1/app/weighing/work-groups/{work_group_id}/animals?status=&cursor=&limit=
@@ -936,6 +852,11 @@ POST /api/v1/app/weighing/shed-observations/{shed_observation_id}/corrections
 POST /api/v1/app/weighing/work-groups/{work_group_id}/submit-progress
 ```
 
+The current `/app/weighing/work-groups?date=&status=...` and week-list routes
+are pre-cutover compatibility worklists. Shadow them against shared task reads,
+suppress their navigation/date/status authority when parity is proven, and
+retain only bounded source-detail access or retire them after zero-use proof.
+
 All mutating routes require idempotency keys and semantic request fingerprints.
 List endpoints must return `items`, `next_cursor`, `total`, and backend-owned
 summary buckets. Android must not infer campaign totals from the current page.
@@ -943,9 +864,10 @@ summary buckets. Android must not infer campaign totals from the current page.
 API response contracts must include backend-owned:
 
 - row IDs and row versions for campaign, work group, selected shed/partition,
-  expected animal, observation, and proof artifact;
+  captured observation, and proof artifact;
 - disjoint progress buckets;
-- mismatch and availability reason codes plus display labels;
+- capture, proof, verdict, correction, and recovery reason codes plus display
+  labels;
 - disabled reasons for publish, submit progress, replace proof, correct
   observation, close remaining, and cancel;
 - media upload/recovery states and signed playback/download URLs where allowed;
@@ -961,14 +883,15 @@ not hardcode bucket meanings.
 
 API read contracts:
 
-- `GET /api/v1/app/weighing/work-groups` returns an L1 page plus day/week
-  markers and whole-filter summary buckets.
+- Shared `GET /api/v1/app/tasks` returns the keyset-paged L1 task list plus
+  canonical Today/date/state markers. It suppresses duplicate legacy Weighing
+  worklist rows during shadow/cutover.
 - `GET /api/v1/app/weighing/work-groups/{work_group_id}` returns only header,
   summary, selected shed memberships, and cursors for animal lists. It must not
   embed all animals for large groups.
 - `GET /api/v1/app/weighing/work-groups/{work_group_id}/animals` is keyset
-  paged by stable animal/work-row identity and accepts status/availability/shed
-  filters.
+  paged by stable captured-observation/work-row identity and accepts
+  status/proof/verdict/shed filters.
 - Leadership campaign detail returns summary buckets and paged drilldowns
   separately. A leadership card must not depend on fetching every animal row.
 - Every list route must support stable `as_of` or revision semantics so counts
@@ -984,7 +907,8 @@ role:
 | `weighing.plan` | CEO/CXO only |
 | `weighing.monitor` | CEO/CXO and Growth Director |
 | `weighing.execute` | Operator and `growth_director` field execution users |
-| `weighing.verify` | Future verifier/supervisor route if proof review becomes explicit |
+| `verification.review` | Shared evidence read/lens capability; not authority to decide |
+| `verification.verdict` | Shared verifier-only approve/rework authority for the separately owned sign-off leaf |
 
 Dinakar uses `growth_director` for monitoring/review plus execution capability.
 He is not a planner and does not add field-operator capacity.
@@ -1010,13 +934,15 @@ Leadership screen:
 - Week tabs.
 - Campaign status for each week.
 - Shed/partition selector.
-- Expected count and suggested days.
+- Captured/accepted/pending counts and the authored date/window.
 - Operator assignment display.
-- Progress summary: expected, weighed, pending, other-shed/mismatch, delayed.
+- Progress summary: captured, accepted, proof/sync pending, correction-needed,
+  selected-scope complete, and shared-task delayed state.
 
 Operator screen:
 
-- Today's/open weighing work.
+- Shared Today/My Tasks list; selecting a Weighing task opens exact source
+  detail by stable task/source identity.
 - Work group detail grouped by selected shed/partition.
 - Scan-first flow.
 - Weight input.
@@ -1035,9 +961,11 @@ Android data contract:
   assumptions. Extract reusable scan/proof renderer pieces behind neutral models
   if needed, keep the Vaccination adapter and tests intact, and add a separate
   Weighing adapter/route/viewmodel contract.
-- Work groups, captured Weighing rows, proof upload rows, and sync attempts are
-  principal-scoped Room rows and are wiped on sign-out.
-- L1 work groups and L2 animal rows use keyset paging with a phone-sized page.
+- Shared L1 task rows plus Weighing source-detail, captured rows, proof upload
+  rows, and sync attempts are principal-scoped Room rows and are wiped on
+  sign-out. Weighing does not maintain a second L1 task cache after cutover.
+- Shared L1 tasks and Weighing captured/source-detail rows use keyset paging
+  with a phone-sized page.
 - RFID lookup is O(1) against indexed Room/cache state, not a linear scan of a
   large in-memory list.
 - Physical RFID attempts are append-only audited separately from accepted
@@ -1069,8 +997,8 @@ Android data contract:
   proof is already uploaded and then update Room.
 - The sign-out wipe inventory must include weighing Room tables, proof/video
   cache files, upload work, outbox rows, and saved route/draft state.
-- The scan screen must not fetch all expected animals into memory. It should
-  page visible rows and resolve RFID through an indexed lookup/cache path.
+- The scan screen must not fetch a Herd Register roster into memory. It should
+  page captured rows and resolve RFID through an indexed lookup/cache path.
 
 ## 12. Proof/media
 
@@ -1150,29 +1078,20 @@ Media implementation requirements:
 
 ## 13. Events and projections
 
-Domain events:
+The outward source stream includes campaign create/publish/update, shed
+submission/reopen/close/verified-close, observation acceptance/rework/verified,
+shed-observation acceptance, and campaign close/verified-close. It must carry
+stable campaign/bucket identity, assigned operator, authored business date,
+source version, proof/verdict state, and close/reopen facts needed by the shared
+task materializer. Current work-item day-start/rolled-forward/delayed/carry-over
+events are legacy coordination events: suppress their direct contacts per
+tenant/module when shared task contact policy activates, then retire/demote them
+after reconciliation and zero-use proof.
 
-- `weighing.campaign.planned`
-- `weighing.work_group.planned`
-- `weighing.observation.recorded`
-- `weighing.observation.accepted`
-- `weighing.shed_observation.recorded`
-- `weighing.shed_observation.accepted`
-- `weighing.work_group.progressed`
-- `weighing.campaign.completed`
-- `weighing.campaign.delayed`
-- `weighing.expected_animal.availability_changed`
-- `weighing.observation.corrected`
-- `weighing.shed_observation.corrected`
-- `weighing.campaign.canceled`
-
-External/cross-module events to consume:
-
-- animal location changed;
-- animal lifecycle/status changed;
-- ICU/quarantine admission or release, if modeled separately;
-- identity/RFID corrected or replaced;
-- proof artifact accepted/rejected/removed, if proof uses its own event stream.
+Weighing consumes no animal-location, animal-lifecycle, ICU/quarantine,
+identity/RFID, vaccination, SOP, obligation, roster, or generic-task event to
+decide whether capture may proceed. Proof-engine events may complete evidence
+plumbing, but never introduce a herd or clinical gate.
 
 Every event added or consumed must be registered in
 `context/architecture/domain-event-registry.json` with durable producer,
@@ -1181,16 +1100,12 @@ an unused bus is not accepted.
 
 Read models:
 
-- Leadership weekly weighing overview.
-- Operator open work groups.
-- Campaign shed progress.
-- Animal weight history / latest trusted weight projection.
-- Per-shed/partition weighing progress, excluded from animal latest trusted
-  weight projection.
-- Other-shed mismatch summary.
-- Missing/unavailable expected animal summary by reason.
-- Proof recovery/review queue, if a proof upload exists without accepted
-  observation or an observation references unavailable proof.
+- Weighing campaign/bucket capture and proof/verdict detail.
+- Captured identifier/weight history and per-shed/partition result history.
+- Proof recovery/review exceptions.
+- Shared task-kernel Today, owner, clock, hierarchy, contact, sign-off, and
+  close/reopen state. Operator/leadership coordination must not be rebuilt from
+  Weighing pages or notification delivery rows.
 
 The implementation must register producer/consumer relationships in the domain
 event registry and update leadership assistant coverage or document a deliberate
@@ -1198,13 +1113,13 @@ exclusion.
 
 Projection grain requirements:
 
-- individual expected progress source: `weighing_expected_animals`;
-- individual accepted observation source: `weighing_observations`;
+- individual captured/proof/verdict source: `weighing_observations`;
 - per-shed/partition accepted observation source:
   `weighing_shed_observations`;
 - media state source: proof/media tables through the proof port;
-- availability source: current canonical herd/location/lifecycle projections;
-- group membership source: `weighing_work_group_sheds`;
+- physical-bucket source: `weighing_campaign_sheds` and partition identity;
+- shared coordination source: `task_nodes` and its task/contact/sign-off history
+  after cutover;
 - totals are computed or projected over the full filtered set, never from one
   page of rows;
 - every projection row must carry tenant, campaign, farm/park, work group and,
@@ -1212,15 +1127,13 @@ Projection grain requirements:
 
 Projection/update rules:
 
-- Animal observation acceptance updates expected-animal status, individual
-  progress counters, latest-weight candidate state, audit, and outbox in one
-  transaction or through an idempotent outbox consumer with replay-safe aggregate
-  versioning.
+- Observation acceptance updates captured/proof/verdict facts, audit, and outbox
+  without expected-animal or current-herd state.
 - Per-shed/partition observation acceptance updates selected-scope progress,
   proof state, audit, and outbox. It must not update expected-animal `weighed`
   status or animal latest-weight projections.
-- Progress projections must be incrementally updated by campaign + shed + work
-  group. A fallback full recompute is allowed only as a bounded repair job for a
+- Source progress is incrementally updated by campaign + shed bucket. A fallback
+  full recompute is allowed only as a bounded repair job for a
   named campaign, never as a hot read path.
 - Projection consumers must dedupe by event id and aggregate version. Replay
   must be safe after partial failure between animal observation or
@@ -1234,18 +1147,18 @@ Projection/update rules:
 Campaign creation:
 
 - Key source: client idempotency key plus a semantic fingerprint containing
-  tenant, farm/park scope, cadence type, cadence due date, weekly period, animal
-  group filter, selected shed/partition ids, selected weighing categories,
-  expected membership snapshot or source revision, operator id, start business
-  date, planned cap, and requested publish mode.
+  tenant, park, explicitly authored date/window, selected physical bucket/
+  partition identities, categories, authored operators, optional capacity
+  guidance, and requested publish mode. It contains no recurrence or animal
+  membership snapshot.
 - Same key + same payload returns the existing campaign.
 - Same key + different payload fails.
 
 Observation submission:
 
 - Key source: device idempotency key per animal scan/proof submission.
-- Semantic fingerprint includes campaign, animal, weight, observed timestamp
-  bucket or exact device event ID, and proof artifact reference.
+- Semantic fingerprint includes campaign bucket, normalized scanned identifier,
+  weight, observed timestamp or exact device event ID, and proof reference.
 - Same key replay returns existing observation.
 - Same campaign + same animal duplicate without correction intent fails or
   returns the accepted observation depending on chosen API behavior.
@@ -1271,8 +1184,8 @@ repository SQL, and tests prove:
 - exact replay returns the original response and writes no new audit/outbox/media
   side effect;
 - same key with different semantic fingerprint fails before mutation;
-- duplicate same-campaign/same-animal observation fails unless it is an explicit
-  correction/replacement;
+- duplicate same-bucket/scanned-identifier observation follows the current
+  correction/replacement rule; the same identifier may occur in another bucket;
 - duplicate same-campaign-shed per-shed/partition observation fails unless it is
   an explicit correction/replacement;
 - retry after partial proof upload recovers the same proof/observation lineage;
@@ -1283,10 +1196,9 @@ repository SQL, and tests prove:
 
 Submit-progress command:
 
-- Key source: work group submit idempotency key.
-- Semantic fingerprint includes campaign, work group, operator, completed
-  animal observation ids, completed shed observation ids, expected-animal status
-  revisions, and selected-shed status revisions.
+- Key source: bucket submission idempotency key.
+- Semantic fingerprint includes campaign, bucket, operator, captured
+  observation/proof ids, shed-observation ids, and source bucket revisions.
 - Same key replay returns the same progress response.
 - Same key with a different observation/proof set fails with no side effects.
 - Terminal `completed`/`canceled` work groups reject new side effects except
@@ -1299,24 +1211,19 @@ hot reads from Android or leadership dashboards.
 
 Requirements:
 
-- Campaign reads page by week/scope.
-- Work group reads page by assigned operator/date/status.
-- Observation lists page by campaign/work group/shed.
-- Expected animal lists page by campaign/work group/status/availability.
-- Animal expected membership snapshots are inserted set-wise.
-- Progress projections are maintained incrementally by campaign/shed/work group.
+- Campaign reads page by authored period/date and park scope.
+- Source bucket/observation lists page by campaign and physical bucket.
+- Shared operator worklists page by canonical task owner/clock/status.
+- Source progress is maintained incrementally by campaign/bucket.
 - Summary buckets are computed over the full filtered result, not the current
   page.
-- Projection membership source is category-aware: `weighing_expected_animals`
-  plus `weighing_observations` for individual expected/extra scans, and
-  `weighing_campaign_sheds` plus `weighing_shed_observations` for
-  per-shed/partition progress. Do not reconstruct membership from coincidentally
-  equal shed/date fields.
+- Source progress is category-aware: captured observations/proofs for individual
+  buckets and selected bucket plus shed observations/proofs for lump-sum work.
+  There is no expected membership.
 - Indexed predicates keep typed columns bare; do not cast indexed UUID/text
   columns in predicates.
-- Reconciliation after lifecycle/location events must be affected-animal
-  bounded. Do not rebuild all open campaigns for a tenant on every shift/death/
-  cull event.
+- Task materialization reconciliation is keyset-bounded by stable Weighing
+  source identity and version; no herd/lifecycle event participates.
 - Read models serving Android and admin-web should have query-plan proof at the
   50k-animal release envelope and keep p90/p95 latency inside the API latency
   policy.
@@ -1327,11 +1234,10 @@ Required indexes should cover:
 - `(tenant_id, display_week_start_date, status)` for week-tab campaign lookup
 - `(tenant_id, operator_user_id, planned_business_date, status)`
 - `(campaign_id, location_id)`
-- `(campaign_id, animal_id)`
-- `(campaign_id, work_group_id, animal_id)`
-- `(campaign_id, availability_status, status)`
+- `(campaign_shed_id, normalized_scanned_identifier)`
 - `(campaign_id, weighing_category, status)` on selected shed/partition rows
-- `(tenant_id, animal_id, status)` for affected-campaign reconciliation
+- shared task materialization receipt/source-version lookup by stable campaign
+  and bucket identity
 - proof/media lookup by subject and aggregate id using existing proof patterns
 
 Expected cardinality envelope for validation:
@@ -1339,9 +1245,9 @@ Expected cardinality envelope for validation:
 | Shape | Validation target |
 |---|---:|
 | Tenant animals | 5k, 25k, 50k |
-| One large weekly campaign | 5k expected animals |
-| Many open campaigns | 52 weekly campaigns with retained history |
-| Observations/history | Multiple observations per animal across retained weeks |
+| One large campaign | thousands of captured observations across selected buckets |
+| Many retained campaigns | one year of authored campaign history |
+| Observations/history | Multiple raw-identifier observations across retained campaigns |
 | Android page size | Around 20 detail rows; no bulk page of 100/1000 |
 
 Hot query contracts:
@@ -1349,21 +1255,19 @@ Hot query contracts:
 - Overview queries filter by `tenant_id + period_type + period_start_date/status`
   or by the week-tab display anchor (`display_week_start_date`) and prebuilt or
   bounded progress buckets.
-- Operator worklist filters by `tenant_id + operator_user_id + effective_business_date/status`
-  and keyset cursor. It does not scan all campaign animals.
+- Shared operator worklist filters by canonical task owner/clock/state and a
+  keyset cursor; Weighing detail filters by exact campaign/bucket.
 - Captured bucket rows filter by `tenant_id + campaign_id + work_group_id +
   campaign_shed_id` and keyset cursor.
 - Observation submit performs indexed lookups for captured bucket rows and proof
   state. It must not load or require expected Herd Register membership.
-- Availability reconciliation uses event-affected animals or campaign pages, not
-  tenant-wide current herd scans.
 - Media/proof display preloads proof metadata in one batched query for the page.
   No per-row signed URL/proof lookup loop.
 
 Performance proof expected in implementation:
 
-- EXPLAIN for campaign overview, operator work group list, captured bucket row
-  list, observation insert lookup, and availability reconciliation at the
+- EXPLAIN for campaign overview, shared operator task list, captured bucket row
+  list, observation insert lookup, and source reconciliation at the
   50k-animal envelope.
 - Query-count tests proving no per-animal N+1 proof/media or current-location
   lookups.
@@ -1373,19 +1277,17 @@ Performance proof expected in implementation:
 
 ## 16. Notifications and reminders
 
-V1 notification rules:
+Pre-cutover compatibility notification rules:
 
 | Trigger | Audience | Route | Dedupe key |
 |---|---|---|---|
 | Campaign published | Assigned shed operator | Open weighing work group | campaign + shed + operator |
 | Day-start open work | Assigned shed operator | Today/open weighing work | shed + operator + business date |
 | Proof failed or missing after submit | Assigned shed operator | Proof repair screen | observation/proof artifact |
-| Campaign delayed after week end or expected finish | CEO/CXO + preventive director | Campaign progress | campaign + delayed date |
-| Review-needed availability | Preventive director | Missing/review bucket | campaign + animal/status revision |
+| Authored task clock breached | Shared policy recipients | Shared task/contact lens | task + run + policy version |
 
-Avoid noisy per-animal pushes. Leadership summaries include missing/unavailable
-counts without blaming the operator for animals unavailable due to canonical
-lifecycle/location facts.
+Avoid noisy per-capture pushes. Leadership task/contact summaries come from the
+shared kernel; Weighing source summaries contain no missing/unavailable animals.
 
 Notification rows must be durable. Delivery failures belong in the shared
 notification retry/DLQ path.
@@ -1395,15 +1297,22 @@ copy fields, and tap route. Audience resolution must come from active role
 grants/profile truth and assigned operator rows, not hardcoded names. V1
 specifics:
 
-- Each assigned shed operator receives assignment, daily open-work,
-  sync-failed/proof-failed nudges only for their shed buckets.
-- CEO/CXO and preventive director receive delayed/open summary notifications
-  when a campaign rolls beyond the planned week or has unresolved review-needed
-  animals.
+- Shared task policy contacts each assigned shed operator for assignment,
+  time-bounded open work, and separately classified proof/sync repair only for
+  their buckets.
+- Shared task policy contacts CEO/CXO and preventive director for policy-defined
+  delayed/open summaries or unresolved proof/verdict work.
 - Dinakar receives reviewer/supervisor notifications and execution assignments
   when explicitly assigned, not task creation or publish/edit notifications.
 
 Notification durability contract:
+
+At task-kernel cutover, the shared contact engine becomes the sole owner of
+assignment/day-start/delay/rework/sign-off contacts and acknowledgement. The
+legacy Weighing notification consumer is shadowed, deduplicated by stable source
+identity, then suppressed per tenant/module before shared sends activate. It is
+retired only after retained-event replay and zero-use proof. Weighing continues
+to emit source facts; it does not resolve shared duty/absence/contact policy.
 
 - Assignment, day-start reminder, rolled-forward reminder, delayed-beyond-week,
   proof-upload-failed, and leadership summary notifications are created as
@@ -1422,32 +1331,31 @@ Notification durability contract:
 Weighing must emit structured logs, metrics, and traces with low-cardinality
 labels plus request/event ids:
 
-- Planner: campaign id, policy version, selected shed count, expected count,
-  generated group count, cap, duration, and replan reason.
+- Planner: campaign id, source revision, selected shed count, generated bucket
+  count, optional grouping guidance, duration, and edit reason.
 - Observation submit: campaign id, work group id, animal id hash/id, proof id,
   idempotency replay/conflict, location match status, and latency.
 - Proof upload/recovery: proof id, observation id, upload state, retry count, and
   recovery outcome.
-- Availability reconciliation: campaign id or event animal id, affected expected
-  row count, status transitions by bucket, stale-event drops, and duration.
+- Shared-task materialization: source event/version, task identity, outcome,
+  lag, replay status, source-versus-task reconciliation result, and duration.
 - Projection refresh: rows touched, previous/current aggregate version, retry
   count, and DLQ reason on failure.
 - Notification: notification request id, event id, recipient role, delivery
   state, retry count, and tap route type.
 
 Operational runbooks must cover: replaying a stuck observation/proof link,
-reconciling availability for one campaign, regenerating progress for one
-campaign, inspecting delayed work, and diagnosing why a notification did not
-reach Amit or leadership.
+repairing source-to-task materialization for one campaign, regenerating captured
+progress for one campaign, inspecting shared-task delayed work, and diagnosing
+why a contact did not reach Amit or leadership.
 
 ## 17. Tests and validation
 
 Minimum tests before implementation is considered done:
 
 - Planner preserves shed/partition atomicity under cap.
-- V1 accepts only weekly kids/K/F campaigns; monthly adult and manual adult
-  campaign commands are rejected.
-- Adult sheds and adult animals are not included in weekly campaign membership.
+- V1 accepts manually authored kids/K/F campaigns and rejects adult shed
+  selection; it does not infer weekly or monthly recurrence.
 - Leadership can select `individual_animal` or `per_shed_partition` category per
   selected shed/partition.
 - Individually marked sheds/partitions require animal observations with RFID,
@@ -1455,32 +1363,26 @@ Minimum tests before implementation is considered done:
 - Per-shed/partition marked rows require one accepted selected-scope observation
   with required shed/partition proof and must not update individual animal latest
   trusted weight.
-- Per-shed/partition completion does not leave its expected animals in ordinary
-  operator pending counts and does not mark those animals as individually
-  weighed; leadership progress shows them under the selected-scope category.
+- Per-shed/partition completion changes only the selected-scope category; it
+  creates no individual observations or implied individually weighed animals.
 - `weighing_shed_observations` emit their own recorded/corrected events and
   update per-shed/partition progress projections.
 - Shed observation idempotency rejects category mismatches, duplicate selected
   scope submissions without correction intent, and same-key/different-payload
   replay.
 - Planner allows over-cap single shed/partition.
-- Planner may group `80 + 20` under one operator when both whole sheds fit that
-  operator's plan. If a whole shed overruns the daily plan, execution allows the
-  finished rows today and rolls the unfinished rows forward.
+- Planning may group whole physical buckets owned by the same operator for field
+  routing without creating an expected count. The Weighing source bucket stays
+  open/executable until submit/close; the shared task clock alone carries
+  unfinished visibility into later business days.
 - Campaign created on 2026-07-29 inside week 2026-07-26..2026-08-01 can finish
   after 2026-08-01.
 - Dinakar can review/monitor and execute assigned weighing work, but cannot
   create, publish, or edit weighing tasks and is not counted as operator
   capacity.
 - The assigned shed operator can execute only their own shed buckets.
-- Wrong-shed animal scan records in same table with mismatch status.
-- Expected animal shifted to another shed is not shown as an ordinary miss; if
-  scanned, observation records original and actual/current shed.
-- Expected animal moved to ICU/quarantine is classified unavailable and removed
-  from ordinary remaining workload.
-- Expected animal marked dead/culled/sold/transferred/exited after planning is
-  classified as lifecycle exit and not held open as operator pending.
-- Unknown current state remains review-needed, not completed.
+- A scanned RFID/tag remains bucket-local Weighing evidence even when current
+  Herd Register location differs; capture does not read or mutate herd state.
 - Observation without proof video is rejected.
 - Duplicate observation/idempotency replay is safe.
 - Android offline capture sync preserves proof and weight.
@@ -1529,8 +1431,9 @@ Minimum tests before implementation is considered done:
 - Notification tests prove durable request creation, exact replay, retry/DLQ
   behavior, and role-correct recipients.
 - Observability tests or golden log/metric assertions cover key failure paths:
-  idempotency conflict, proof missing, stale availability event, projection
-  retry, and notification failure. Wrong-shed scan is not a V1 Weighing failure.
+  idempotency conflict, proof missing, stale source-version materialization,
+  projection retry, and notification failure. Wrong-shed scan is not a V1
+  Weighing failure.
 
 Implementation guard targets to add:
 
@@ -1538,12 +1441,19 @@ Implementation guard targets to add:
 - `weighing-observation-proof-guard`
 - `weighing-progress-grain-guard`
 - `weighing-mobile-contract-guard`
-- `weighing-availability-reconciliation-guard`
+- `operational-task-kernel-non-deviation-guard`
 - `weighing-query-plan-guard`
 - `weighing-notification-durability-guard`
 - `weighing-observability-contract-guard`
 
 ## 18. Open decisions
+
+Already settled and not open: every submitted proof-backed observation creates
+a separately owned shared sign-off leaf. `verification.review` may read it;
+only a principal with `verification.verdict` may approve or return it for
+rework. An individual observation becomes trusted latest-weight truth only after
+that shared verdict is applied. Weighing must not invent a private verifier
+permission or optional supervisor bypass.
 
 - Exact canonical naming: `animal_id`/`herd_animals` target versus current
   `goat_id`/`goats` implementation names during this slice.
@@ -1552,17 +1462,8 @@ Implementation guard targets to add:
 - Whether a future reconciliation layer should compare captured RFID/tag values
   to Herd Register location and suggest movement review. That future analytics
   layer must not become a V1 submit gate.
-- Whether a future rostered weighing mode should use lifecycle statuses to
-  remove an expected animal from remaining workload versus require supervisor
-  confirmation. V1 does not use expected animal workload.
-- Whether weight values need verifier review before becoming the trusted latest
-  weight projection.
 - Whether the daily cap should be tenant-wide, farm-specific, or operator
   configuration in v1. Product default is 100.
-- Whether accepted weighing immediately updates the canonical latest-weight
-  projection or waits for optional supervisor verification.
-- Which existing proof review/verifier roles, if any, can reject an animal-level
-  weighing video in v1.
 - Whether active campaign membership is immutable after publish or supports
   versioned add/remove edits.
 - Whether v1 stores progress projections or serves canonical indexed SQL only

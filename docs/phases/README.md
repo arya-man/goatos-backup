@@ -9,10 +9,14 @@ Rule:
 phase selected
 -> PRD written and reviewed
 -> TRD written and reviewed
+-> prevention matrix and internal dependency/commit order recorded
 -> relevant skill/reference files updated if the phase adds permanent rules
--> legacy/source discovery produces evidence-backed proposals before asking humans
+-> legacy/source discovery resolves evidence-backed implementation details and
+   surfaces only genuine maintainer decisions
 -> implementation starts
--> tests/load checks/migration checks
+-> failing-before production-path proof
+-> implementation + recurrence control + guard/self-test/ordinary-CI wiring
+-> tests/load checks/migration checks + recovery/observability proof
 -> post-code docs/context/skills sync against actual code
 -> next phase
 ```
@@ -42,12 +46,25 @@ Browser and React Native clients must not use direct gRPC unless a new ADR
 replaces the current protocol decision.
 Every phase keeps idempotency, audit, outbox, RBAC scope, observability, and
 load-test expectations explicit.
+Every phase follows
+`context/execution/defect-prevention-execution-contract.md`: each invariant has
+a failing-before production-path regression, the strongest applicable
+persistent or structural recurrence control, an adversarial self-test when a
+structural guard applies (otherwise the stronger-control rationale and relevant
+production-path proof), ordinary affected `make ci-local` routing, operational
+recovery, and current-SHA counter-review. A feature is not complete when only
+its happy path and unit test are green.
 Every phase follows the operational kernel golden rule in
 `context/architecture/operational-kernel.md`: business event -> canonical
 transaction -> audit/outbox -> trigger evaluation -> obligation/work item ->
 sweeper/reminder/deadline alert -> notification/escalation -> proof/
 verification -> read model that answers whether the process was followed and
 where it broke.
+This chain is a non-deviation lock. A module may own domain facts but may not
+create, retain as canonical, or exempt a private task authority, scheduler,
+owner fallback, overdue calculation, reminder/escalation ladder, verification
+queue, or screen-only follow-up state.
+If the shared task adapter is not ready, the feature remains shadowed or blocked.
 Every phase declares an Idempotency & Replay section for all mutating routes,
 imports, workers, webhooks, mobile submissions, server actions, outbox
 producers/consumers, and state transitions. It must list key source, semantic
@@ -62,10 +79,12 @@ DLQ/error counts, and the alert thresholds that matter for that phase.
 Every phase declares agent-context impact: if the phase adds a new module,
 vendor/tool, API pattern, form rule, analytics rule, or operational workflow,
 update `.agents/skills/goatos-build/references/` before implementation.
-Every phase must inspect available legacy/source artifacts before asking the
-business to answer from memory. Agents should produce evidence-backed proposals
-with source paths, counts, and confidence, then ask for confirmation. Raw PII or
-private source rows must not be committed.
+Every phase must inspect available legacy/source artifacts before treating a
+business rule as unknown. Agents produce evidence-backed proposals with source
+paths, counts, and confidence. A genuinely unresolved authority decision is
+recorded fail-closed while all independent work continues; routine scheduling,
+review, conflict resolution, or merge work is never handed to the maintainer.
+Raw PII or private source rows must not be committed.
 Every phase touching herd-animal identity, species/breed labels, park/shed
 scope, shed tags, lifecycle/stage, pregnancy/lactation/warm-up/fattening, feed
 safety, weighing, handling, medicine administration, park roles, or feed

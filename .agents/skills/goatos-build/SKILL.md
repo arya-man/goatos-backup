@@ -102,6 +102,18 @@ procurement/obligation/workforce tables but do NOT modify the vaccination seed/
 config/SOP schema. These migrations support the leadership assistant's
 operational read path and are not part of the vaccination protocol contract.
 
+Defect-prevention and kernel non-deviation rule: every bug fix, audit batch,
+migration, feature, and operational module must load and follow
+`context/execution/defect-prevention-execution-contract.md`. Coordinators for
+the whole-ledger/kernel program also resume from
+`context/execution/operational-kernel-program-state.md`. Operational work is
+one event-driven, interlinked task/ticketing waterfall: canonical event and
+transaction, real owner and pinned clock, bounded hierarchy,
+acknowledgement-gated contacts, proof, separate verification/sign-off task,
+close/reopen rollup, and shared reads. Module domain facts stay local; private
+task authorities, schedulers, owner fallbacks, overdue logic, escalation
+ladders, verification queues, and screen-only follow-up pipelines are banned.
+
 ## Required First Step — 4-Layer Lookup
 
 Work layers in order. Stop when the question is answered. Never jump to files first.
@@ -244,9 +256,13 @@ Permanent scale and guard-authoring rules:
 - A green unit test or checker is not recurrence protection until the failing
   fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
   is recorded in `AGENTS.md` and the relevant reference doc.
-- `requiredInCI` means a guard runs from a standard `make ci-local` component
-  job. A guard reachable only through the legacy `JOB=guardrails` compatibility
-  helper is unwired and must fail the registration meta-guard.
+- `requiredInCI` means a guard must run from a standard `make ci-local`
+  component job. The current registration meta-guard proves declarations and
+  textual reachability only; semantic recipe execution, affected-job routing,
+  file uniqueness/existence, and spoof resistance remain mandatory F0 work in
+  `context/repo-audits/current-whole-project-remediation-ledger.md`. Until F0,
+  reviewers must verify those properties directly rather than treating the
+  meta-guard as complete proof.
 - Shed shifting is profile-driven. Resolve the active destination
   `shed_profiles -> animal_stage_lookup` row and lock its version; never infer a
   destination stage from resident goats. Verified completion atomically changes
@@ -281,6 +297,20 @@ built product.
 
 ## Before you code: operational-invariant discipline
 
+Before editing a bug fix, audit row, migration, new feature, or kernel milestone,
+fill the batch record and prevention matrix in
+`context/execution/defect-prevention-execution-contract.md`. Name the exact
+failing production path, sibling sites, canonical invariant, regression,
+persistent safety control, structural guard or stronger-control rationale,
+adversarial self-test when a structural guard applies (otherwise the applicable
+production-path proof for the stronger control), ordinary local-CI job,
+recovery/observability, skill/doc updates, and internal dependency/commit order
+in the single integration PR.
+For operational features also name the event, task
+source identity, owner, clock, parent/work-unit, proof, sign-off leaf, contact
+policy, acknowledgement, rollup, shared reads, and reconciliation. A missing
+answer is a design gap, not work to defer silently.
+
 Before touching code, identify WHICH operational invariant(s) the change touches:
 
 - **pagination forward-progress:** cursor is monotonic, next-page fetch cannot regress
@@ -300,14 +330,29 @@ Before touching code, identify WHICH operational invariant(s) the change touches
 - **India business-date correctness:** date-only values in business rules (due/missed/
   recovery windows, eligibility checks) use India/local operational timezone, never UTC
 
-Every bug fix REQUIRES a failing-before regression test added to an existing suite. Run
-the test BEFORE the fix to confirm it fails; after the fix it passes. A fix with no
-failing-before test is unproven.
+Every bug fix REQUIRES a failing-before regression test added to an existing
+suite. Run the test BEFORE the fix to confirm it fails; after the fix it passes.
+A net-new feature proves its acceptance behavior is absent or failing on the
+base. A docs/policy-only change uses structural validation and diff proof rather
+than inventing a runtime failure. A behavioral fix without failing-before proof
+is unproven.
 
-Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit being
-pushed. Partial `JOB=...` runs are fine while developing; only a full local CI gates
-main push. GitHub Actions availability is irrelevant to this gate; use
-`make land-main` for the fetch/rebase/full-local-CI/race-check/push sequence.
+The fix also requires recurrence prevention in the same batch. Prefer a DB,
+transaction, type, schema, or production-path control over a weak static grep.
+When the rule is mechanically detectable, ship a structural guard with
+adversarial fixtures, manifest registration, self-test, Make target, and normal
+`run_common` or component-job wiring. Update the closest canonical anti-pattern,
+the relevant skill/reference, and operational recovery. If any applicable leg
+is absent, report `source-fixed, closure-pending`; do not mark the work done.
+
+Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit
+being pushed. Partial `JOB=...` runs are fine while developing; only a full
+local CI gates main push. This is the ordinary deterministic CI gate, not a
+substitute for applicable PostgreSQL, migration, device, browser, deploy, or
+live-state certification lanes. GitHub Actions availability is irrelevant.
+Ordinary work and this documentation foundation use `make land-main`; the
+approved whole-ledger/task-kernel program uses
+`make land-integration-pr PR=<number>` after F0 implements and proves it.
 
 ## Reference Guide
 
@@ -351,13 +396,13 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
-- **Promote staging only through GitHub's PR merge.** Never push any local ref,
-  `HEAD`, `main`, local `stg`, agent branch, or refspec directly to remote
-  `stg`. Open the same-repository `vgoats/goatos main -> stg` PR, wait for
-  `stg-pr-gate`, and merge it in GitHub. Manual workflow dispatch is only a
-  rerun of the exact current `stg` SHA already produced by such a merge. Never
+- **Promote staging only through manual Cloud Deploy.** Never create or wait for
+  a `main -> stg` PR or GitHub Actions deployment. Never push any local ref to
+  remote `stg`. Deploy only from a clean, approved `origin/main` SHA through
+  `docs/runbooks/stg-deploy.md` and the repo-owned Cloud Deploy helpers. Never
   use `--no-verify` to bypass the installed pre-push guard.
-- **Land main through `make land-main` (Codex and Claude).** Do not issue a
+- **Land ordinary work and this documentation foundation through
+  `make land-main` (Codex and Claude).** Do not issue a
   direct `git push` / `git mesha-push` to `main`, and do not run CI before
   refreshing main during a landing. The target requires a clean worktree,
   fetches and rebases onto fresh `origin/main`, runs complete affected-component
@@ -365,6 +410,13 @@ one product; this skill is the navigation layer.
   and verifies the exact green SHA. Use a clean isolated worktree when the
   development checkout is dirty or shared; never auto-rebase unrelated local
   changes merely because an agent session started.
+- **Kernel/remediation program exception.** The approved whole-ledger and
+  operational-kernel program uses one external integration PR, not direct-main
+  landing. F0 must introduce the repo-owned exact-head program-PR landing gate
+  defined in `context/execution/defect-prevention-execution-contract.md` before
+  any implementation batch can close or the program PR can merge. Until that
+  gate exists, `make land-main` remains the default for unrelated ordinary
+  changes and for landing the documentation foundation only.
 - For any whole-project audit fix, read
   `context/repo-audits/current-whole-project-remediation-ledger.md` and its
   current closure gate. For work explicitly naming an older last-35 ID, read
@@ -374,6 +426,10 @@ one product; this skill is the navigation layer.
   Before implementation, fetch fresh `origin/main`, re-adjudicate the selected
   IDs and migration tail, and treat the ledger's recorded SHA as evidence
   provenance rather than live status.
+- For every bug fix, feature, migration, and kernel milestone, use
+  `context/execution/defect-prevention-execution-contract.md` as the mandatory
+  batch-entry, recurrence-prevention, PR-topology, and closure checklist. A
+  behavior-only fix is not complete.
 - For generic task hierarchy, owner/duty clocks, Today/My Tasks, sign-off, or
   escalation work, also obey
   `context/execution/operational-task-kernel-remediation-plan.md`.
@@ -708,6 +764,15 @@ If a finding assumes any of those exist, it is invalid — close it and cite ban
 findings are about PLUMBING: writes landing, evidence being reviewable, failures being
 visible, screens showing honest numbers. Full statement:
 `docs/features/weighing/TRD.md` → "What weighing IS".
+
+Isolation does not exempt Weighing from shared operational coordination.
+Weighing emits its domain/audit/idempotency/proof/outbox facts atomically; a
+shared-kernel consumer outside the Weighing package consumes those events
+outward-only into owner/clock, hierarchy, contact-waterfall, proof, and sign-off
+task state. The consumer must be receipt-backed, idempotent, version-fenced,
+bounded, observable, replayable, and reconciled. Never add an inbound
+`task_nodes`, SOP, obligation, roster, herd, or lifecycle dependency to
+Weighing, and never let generic task state gate scan-and-submit execution.
 
 <!-- Coupling review 2026-08-04: vaccination drive safe-date override metadata is runtime scheduling state, not source seed data. Requested/applied override dates and conflict metadata do not change raw vaccination/HRMS source files, SOP contracts, seed closeout, fixture hashes, or approved source-date validation. Approved combo helper sharing is code reuse for clinical scheduling only. -->
 <!-- Coupling review 2026-08-04: seed-roster-real adds aas_health + milk + feed_direction + vaccination to the health department module grant and milk to preventive_care, extending the same department-grant mechanism recorded on 2026-07-29 for feed_direction. Runtime module/navigation authorization only; no HRMS roster row, vaccination history, source date, fixture byte, hash or count changes. -->

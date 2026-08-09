@@ -77,8 +77,17 @@ Current whole-project remediation ledger (snapshot recorded inside)
 Operational task-kernel remediation and rollout plan
   context/execution/operational-task-kernel-remediation-plan.md
 
+Mandatory defect-prevention, kernel non-deviation, single-integration-PR, and closure contract
+  context/execution/defect-prevention-execution-contract.md
+
+Persistent multi-session program checkpoint and dependency state
+  context/execution/operational-kernel-program-state.md
+
 Operational kernel 5k-to-50k deployment envelope and reversible consolidation ADR
   docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+
+Governing operational task-kernel non-deviation ADR
+  docs/decisions/operational-task-kernel-non-deviation.md
 
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
