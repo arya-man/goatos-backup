@@ -2,6 +2,7 @@ package verificationbridge
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +49,19 @@ func TestDistributionVerificationCarriesPartitionIdentity(t *testing.T) {
 	if item.PartitionLabel == nil || *item.PartitionLabel != "2" {
 		t.Fatalf("PartitionLabel = %v, want 2", item.PartitionLabel)
 	}
-	if item.SubjectLabel == nil || *item.SubjectLabel != "Session 1 · castro · Pen 2" {
-		t.Fatalf("SubjectLabel = %v, want partition-aware verifier label", item.SubjectLabel)
+	// The subject is the SESSION and nothing else. It used to read
+	// "Session 1 · castro · Pen 2" -- the shed ID and a duplicate of the pen, which this fixture
+	// made look harmless by naming the shed "castro". On real data that middle field is a UUID, and
+	// a verifier's card read "Session 2 · 62241795-628e-58ef-9591-aa384fb0f0f7 · Pen 1" (reported
+	// 2026-08-09). The old expectation is why it survived review: a fixture asserting a shape the
+	// farm does not have is a defect even while it passes.
+	//
+	// Location rides on ShedID/PartitionLabel (asserted above) and is composed ONCE at the wire
+	// boundary by oploc.Display(), which is what the card renders.
+	if item.SubjectLabel == nil || *item.SubjectLabel != "Session 1" {
+		t.Fatalf("SubjectLabel = %v, want just the session", item.SubjectLabel)
+	}
+	if strings.Contains(*item.SubjectLabel, "castro") || strings.Contains(*item.SubjectLabel, "Pen ") {
+		t.Errorf("SubjectLabel = %q leaks the shed id or duplicates the pen", *item.SubjectLabel)
 	}
 }

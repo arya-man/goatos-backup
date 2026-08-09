@@ -6,7 +6,6 @@ package verificationbridge
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -38,7 +37,7 @@ var _ feeddirectionapp.FeedDistributionVerificationEnqueuer = (*Enqueuer)(nil)
 // idempotent on (tenant, idempotency_key), so a retry after a prior failure heals rather than
 // duplicates.
 func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) error {
-	subjectLabel := feedDistributionSubjectLabel(in.SessionNo, in.ShedID, in.PartitionLabel)
+	subjectLabel := feedDistributionSubjectLabel(in.SessionNo)
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     feeddirectiondomain.VerificationVerticalFeed,
@@ -62,21 +61,19 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 	return err
 }
 
-func feedDistributionSubjectLabel(sessionNo int32, shedID, partitionLabel string) *string {
-	parts := make([]string, 0, 3)
-	if sessionNo > 0 {
-		parts = append(parts, fmt.Sprintf("Session %d", sessionNo))
-	}
-	if strings.TrimSpace(shedID) != "" {
-		parts = append(parts, strings.TrimSpace(shedID))
-	}
-	if strings.TrimSpace(partitionLabel) != "" {
-		parts = append(parts, "Pen "+strings.TrimSpace(partitionLabel))
-	}
-	if len(parts) == 0 {
+// feedDistributionSubjectLabel is the SESSION and nothing else.
+//
+// It used to append the raw shed UUID and a "Pen N" fragment, so a verifier's card read
+// "Session 2 · 62241795-628e-58ef-9591-aa384fb0f0f7 · Pen 1" -- a database id rendered as farm copy
+// (the never-render-a-UUID rule), next to a pen the card was ALREADY showing from its own
+// partition_label field. Location rides on ShedID/PartitionLabel and is composed once at the wire
+// boundary by oploc.Display(); repeating it here duplicated it and, when the shed name could not be
+// resolved, leaked the id instead.
+func feedDistributionSubjectLabel(sessionNo int32) *string {
+	if sessionNo <= 0 {
 		return nil
 	}
-	label := strings.Join(parts, " · ")
+	label := fmt.Sprintf("Session %d", sessionNo)
 	return &label
 }
 
