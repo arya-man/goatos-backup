@@ -19,8 +19,8 @@ const feedTransportIdemScope = "feed.transport.submit"
 
 var _ ports.TransportStore = (*Repository)(nil)
 
-// MaterializeTransportTasks creates today's one-per-active-shed work after 15:30 IST. The unique
-// daily-shed key makes scheduler retries and overlapping workers harmless.
+// MaterializeTransportTasks creates today's one-per-operational-location work after 15:30 IST. The
+// daily location key makes scheduler retries and overlapping workers harmless.
 func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.MaterializeTransportParams) (ports.MaterializeTransportResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -30,14 +30,32 @@ func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.Mate
 		return ports.MaterializeTransportResult{BusinessDate: day.Format("2006-01-02")}, nil
 	}
 	tag, err := r.pool.Exec(ctx, `
-INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, business_date, scheduled_at)
-SELECT s.tenant_id, s.parent_location_id, s.location_id, $2::date,
+INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
+SELECT s.tenant_id, s.parent_location_id, s.location_id, part.partition_label, $2::date,
        (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
 FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
+JOIN LATERAL (
+  SELECT sp.partition_label
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.shed_id = s.location_id
+    AND sp.status = 'active'
+    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  UNION ALL
+  SELECT ''
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM shed_partitions sp
+    WHERE sp.tenant_id = s.tenant_id
+      AND sp.shed_id = s.location_id
+      AND sp.status = 'active'
+      AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  )
+) part ON true
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
-ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
+ON CONFLICT (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''), 'whole')) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
 	if err != nil {
 		return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)
 	}
@@ -50,7 +68,7 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	if q.Limit < 1 || q.Limit > 100 {
 		q.Limit = 20
 	}
-	// projection-review: producer unique=(tenant_id,business_date,shed_id); consumer match/group uses
+	// projection-review: producer unique=(tenant_id,business_date,shed_id,partition_label); consumer match/group uses
 	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
 	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by actor, park, shed and status; group_key=none on the row read (one row per task), and the partition join groups shed_partitions by (tenant_id, shed_id); join_cardinality=the partition subquery is pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so it cannot fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters, and the partition join adds no rows so page boundaries are unchanged; scope=tenant plus optional park/shed resolved from canonical location ids.
 	// Returns the shed name and the partition as SEPARATE columns; oploc.Display() composes them
@@ -61,29 +79,22 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
        coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
-       coalesce(part.partition_label, '')
+       coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- ONE grouped join, evaluated once, instead of the same correlated subquery repeated four
 -- times. Agree-or-go-bare is HAVING count(*) = 1: exactly one real partition resolves, several
 -- or none go bare.
-LEFT JOIN (
-  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
-  FROM shed_partitions sp
-  WHERE sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  GROUP BY sp.tenant_id, sp.shed_id
-  HAVING count(*) = 1
-) part ON part.tenant_id = t.tenant_id AND part.shed_id = t.shed_id
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 	AND ($4::text='' OR t.park_id=$4::uuid)
 	AND ($5::text='' OR t.shed_id=$5::uuid)
-	AND ($6::text='' OR t.status=$6)
-	AND ($7::text='' OR t.task_id > $7::uuid)
-ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.Status, q.Cursor, q.Limit+1)
+	AND ($6::text='' OR COALESCE(NULLIF(btrim(t.partition_label), ''), 'whole') = COALESCE(NULLIF(btrim($6::text), ''), 'whole'))
+	AND ($7::text='' OR t.status=$7)
+	AND ($8::text='' OR t.task_id > $8::uuid)
+ORDER BY t.task_id LIMIT $9`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.PartitionLabel, q.Status, q.Cursor, q.Limit+1)
 	if err != nil {
 		return ports.FeedTransportTaskPage{}, fmt.Errorf("feeddirection: list transport tasks: %w", err)
 	}
@@ -127,7 +138,7 @@ UNION ALL
 -- The filter DROPDOWN must name the same place the rows name. A bare s.name hides the
 -- partition, so two pens of one shed read as one option and the operator cannot tell which
 -- they picked. Composed here with the same agree-or-go-bare rule the row reads use.
-SELECT 'shed', t.shed_id::text, s.name, coalesce(part.partition_label, '')
+SELECT 'shed', t.shed_id::text, s.name, coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- Partition resolved by a GROUPED JOIN, not a correlated subquery: correlating on t.tenant_id
@@ -136,18 +147,10 @@ JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- The name and the partition come back as SEPARATE columns and are composed in Go by
 -- oploc.Display(). Concatenating them here would be a second implementation of the display
 -- rule living in SQL -- exactly the drift the guard blocks.
-LEFT JOIN (
-  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
-  FROM shed_partitions sp
-  WHERE sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  GROUP BY sp.tenant_id, sp.shed_id
-  HAVING count(*) = 1
-) part ON part.tenant_id = t.tenant_id AND part.shed_id = t.shed_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
   AND ($4::text='' OR t.park_id=$4::uuid)
-GROUP BY t.shed_id, s.name, part.partition_label
+GROUP BY t.shed_id, s.name, t.partition_label
 ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 	if err != nil {
 		return ports.FeedTransportFilterOptions{}, fmt.Errorf("feeddirection: list transport filter options: %w", err)
@@ -161,6 +164,7 @@ ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 			return ports.FeedTransportFilterOptions{}, err
 		}
 		// Compose through the shared primitive so the dropdown reads exactly like the rows.
+		option.PartitionLabel = partitionLabel
 		option.Label = oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if kind == "park" {
 			options.Parks = append(options.Parks, option)
@@ -187,15 +191,7 @@ SELECT t.task_id::text,t.park_id::text,p.name,t.shed_id::text,s.name,t.business_
        -- itself. AGREE-OR-GO-BARE: exactly one active real partition resolves, several or none
        -- go bare. min() is required -- a bare HAVING over a non-aggregated column is rejected
        -- by Postgres (42803).
-       coalesce((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '')
+       coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -241,15 +237,7 @@ func (r *Repository) SubmitTransportAttempt(ctx context.Context, p ports.SubmitT
 		// rule, so a replay returns the identical location the original submit returned.
 		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text,
        coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
-       coalesce((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '')
+       coalesce(t.partition_label, '')
 FROM feed_transport_attempts a
 JOIN feed_transport_tasks t ON t.tenant_id=a.tenant_id AND t.task_id=a.task_id
 WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
@@ -272,15 +260,7 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 	// rejected by Postgres (42803).
 	err = tx.QueryRow(ctx, `SELECT t.status,coalesce(t.operator_id::text,''),t.park_id::text,t.shed_id::text,
        coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
-       coalesce((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '')
+       coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
 WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &assigned, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {

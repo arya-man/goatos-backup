@@ -665,6 +665,7 @@ interface AppApiService {
         @Query("business_date") businessDate: String,
         @Query("park_id") parkId: String?,
         @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
         @Query("status") status: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
@@ -1330,10 +1331,11 @@ class RetrofitAppApi(
         businessDate: String,
         parkId: String?,
         shedId: String?,
+        partitionLabel: String?,
         status: String?,
         cursor: String?,
         limit: Int?,
-    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, status, cursor, limit)
+    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, partitionLabel, status, cursor, limit)
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = service.submitFeedTransport(taskId, idempotencyKey, request)
 
     override suspend fun recordCountsShiftingEvent(

@@ -343,6 +343,7 @@ data class FeedTransportTaskDto(
 data class FeedTransportFilterOptionDto(
     @SerialName("id") val id: String,
     @SerialName("label") val label: String,
+    @SerialName("partition_label") val partitionLabel: String? = null,
 )
 
 @Serializable

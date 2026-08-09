@@ -3874,6 +3874,10 @@ paths:
           schema: { type: string, format: uuid }
           description: Optional physical-shed filter; must remain shed-grain and never imply a feed session.
         - in: query
+          name: partition_label
+          schema: { type: string }
+          description: Optional operational partition filter within the selected shed.
+        - in: query
           name: status
           schema: { type: string, enum: [due, verification_due, rework, completed] }
           description: Optional verification-lifecycle filter.
@@ -9679,6 +9683,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         label: { type: string }
+        partition_label: { type: string }
     FeedTransportFilterOptions:
       type: object
       additionalProperties: false

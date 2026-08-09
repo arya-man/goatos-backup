@@ -126,16 +126,18 @@ func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 type transportTaskDTO struct {
-	TaskID       string    `json:"task_id"`
-	ParkID       string    `json:"park_id"`
-	ParkLabel    string    `json:"park_label"`
-	ShedID       string    `json:"shed_id"`
-	ShedLabel    string    `json:"shed_label"`
-	BusinessDate string    `json:"business_date"`
-	Status       string    `json:"status"`
-	OperatorID   string    `json:"operator_id,omitempty"`
-	ReworkReason string    `json:"rework_reason,omitempty"`
-	ScheduledAt  time.Time `json:"scheduled_at"`
+	TaskID                     string    `json:"task_id"`
+	ParkID                     string    `json:"park_id"`
+	ParkLabel                  string    `json:"park_label"`
+	ShedID                     string    `json:"shed_id"`
+	ShedLabel                  string    `json:"shed_label"`
+	PartitionLabel             string    `json:"partition_label"`
+	OperationalLocationDisplay string    `json:"operational_location_display"`
+	BusinessDate               string    `json:"business_date"`
+	Status                     string    `json:"status"`
+	OperatorID                 string    `json:"operator_id,omitempty"`
+	ReworkReason               string    `json:"rework_reason,omitempty"`
+	ScheduledAt                time.Time `json:"scheduled_at"`
 }
 type transportListResponse struct {
 	Items      []transportTaskDTO  `json:"items"`
@@ -144,8 +146,9 @@ type transportListResponse struct {
 }
 
 type transportFilterOptionDTO struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID             string `json:"id"`
+	Label          string `json:"label"`
+	PartitionLabel string `json:"partition_label,omitempty"`
 }
 
 type transportFiltersDTO struct {
@@ -183,14 +186,15 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		actorFilter = ""
 	}
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
-		TenantID: tenant,
-		ActorID:  actorFilter,
-		Date:     r.URL.Query().Get("business_date"),
-		ParkID:   parkScope.ParkID,
-		ShedID:   r.URL.Query().Get("shed_id"),
-		Status:   r.URL.Query().Get("status"),
-		Cursor:   r.URL.Query().Get("cursor"),
-		Limit:    int(limit),
+		TenantID:       tenant,
+		ActorID:        actorFilter,
+		Date:           r.URL.Query().Get("business_date"),
+		ParkID:         parkScope.ParkID,
+		ShedID:         r.URL.Query().Get("shed_id"),
+		PartitionLabel: r.URL.Query().Get("partition_label"),
+		Status:         r.URL.Query().Get("status"),
+		Cursor:         r.URL.Query().Get("cursor"),
+		Limit:          int(limit),
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "list feed transport tasks", err)
@@ -198,7 +202,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]transportTaskDTO, 0, len(page.Items))
 	for _, x := range page.Items {
-		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
+		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, PartitionLabel: x.PartitionLabel, OperationalLocationDisplay: x.OperationalLocationDisplay, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
 	}
 	parks := make([]transportFilterOptionDTO, 0, len(page.Filters.Parks))
 	for _, option := range page.Filters.Parks {
@@ -206,7 +210,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	sheds := make([]transportFilterOptionDTO, 0, len(page.Filters.Sheds))
 	for _, option := range page.Filters.Sheds {
-		sheds = append(sheds, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
+		sheds = append(sheds, transportFilterOptionDTO{ID: option.ID, Label: option.Label, PartitionLabel: option.PartitionLabel})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{
 		Items:      out,

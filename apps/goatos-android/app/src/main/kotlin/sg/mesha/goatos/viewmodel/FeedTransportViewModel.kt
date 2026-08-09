@@ -94,7 +94,9 @@ class FeedTransportViewModel @Inject constructor(
 
     val state: StateFlow<FeedTransportUiState> = combine(observedPage, flags, window) { (selected, page), current, size ->
         val parks = page.filters.parks.map { FeedDropdownOption(it.id, it.label) }
-        val sheds = page.filters.sheds.map { FeedDropdownOption(it.id, it.label) }
+        val sheds = page.filters.sheds.map {
+            FeedDropdownOption(feedTransportShedFilterKey(it.id, it.partitionLabel.orEmpty()), it.label)
+        }
         FeedTransportUiState(
             date = selected.businessDate,
             today = today,
@@ -105,7 +107,9 @@ class FeedTransportViewModel @Inject constructor(
                 selectedParkLabel = parks.firstOrNull { it.key == selected.parkId }?.label,
                 sheds = sheds,
                 selectedShedId = selected.shedId,
-                selectedShedLabel = sheds.firstOrNull { it.key == selected.shedId }?.label,
+                selectedShedLabel = sheds.firstOrNull {
+                    it.key == feedTransportShedFilterKey(selected.shedId, selected.partitionLabel)
+                }?.label,
                 status = selected.status,
             ),
             rows = page.items.map {
@@ -146,13 +150,16 @@ class FeedTransportViewModel @Inject constructor(
             FeedTransportEvent.LoadMore -> loadMore()
             is FeedTransportEvent.SelectDate -> selectDate(event.date)
             is FeedTransportEvent.SelectPark -> selectPark(event.parkId)
-            is FeedTransportEvent.SelectShed -> if (updateQuery(query.value.copy(shedId = event.shedId))) {
-                trackFilter(DIMENSION_SHED, event.shedId)
+            is FeedTransportEvent.SelectShed -> {
+                val (shedId, partitionLabel) = parseFeedTransportShedFilterKey(event.shedId)
+                if (updateQuery(query.value.copy(shedId = shedId, partitionLabel = partitionLabel))) {
+                    trackFilter(DIMENSION_SHED, event.shedId)
+                }
             }
             is FeedTransportEvent.SelectStatus -> if (updateQuery(query.value.copy(status = event.status))) {
                 trackFilter(DIMENSION_STATUS, event.status)
             }
-            FeedTransportEvent.ClearFilters -> if (updateQuery(query.value.copy(parkId = "", shedId = "", status = ""))) {
+            FeedTransportEvent.ClearFilters -> if (updateQuery(query.value.copy(parkId = "", shedId = "", partitionLabel = "", status = ""))) {
                 trackFilter(DIMENSION_ALL, "")
             }
             is FeedTransportEvent.Open -> analytics.track(
@@ -233,7 +240,7 @@ class FeedTransportViewModel @Inject constructor(
     }
 
     private fun selectPark(parkId: String) {
-        if (updateQuery(query.value.copy(parkId = parkId, shedId = ""))) {
+        if (updateQuery(query.value.copy(parkId = parkId, shedId = "", partitionLabel = ""))) {
             trackFilter(DIMENSION_FARM, parkId)
         }
     }
@@ -269,6 +276,15 @@ class FeedTransportViewModel @Inject constructor(
 
 private fun analyticsReason(error: Throwable): String =
     error::class.java.simpleName.ifBlank { "unknown" }
+
+private fun feedTransportShedFilterKey(shedId: String, partitionLabel: String): String =
+    if (shedId.isBlank()) "" else shedId + "\u001f" + partitionLabel
+
+private fun parseFeedTransportShedFilterKey(key: String): Pair<String, String> {
+    if (key.isBlank()) return "" to ""
+    val parts = key.split("\u001f", limit = 2)
+    return parts[0] to parts.getOrElse(1) { "" }
+}
 
 /**
  * The Feed Transport per-shed capture screen.
