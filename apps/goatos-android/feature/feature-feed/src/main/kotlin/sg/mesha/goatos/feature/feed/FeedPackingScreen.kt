@@ -191,10 +191,14 @@ fun FeedPackingScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    // Past-day rows are VIEW ONLY: `canCapture = false` disables the card's clickable
-                    // modifier below, so a tap never reaches this lambda and OpenRow — hence the
-                    // verifier-gated capture screen — is never dispatched for a non-today day.
-                    FeedPackingRowCard(row, canCapture = state.canCapture) {
+                    // Past-day rows AND rows already awaiting/holding a verdict are VIEW ONLY:
+                    // `canCapture = false` disables the card's clickable modifier below, so a tap
+                    // never reaches this lambda and OpenRow — hence the verifier-gated capture
+                    // screen — is never dispatched. The row's own lifecycle bucket is part of that
+                    // decision: the detail screen never receives it and would otherwise offer a
+                    // fresh capture form for a session already in review (see
+                    // feedSessionCanCapture).
+                    FeedPackingRowCard(row, canCapture = feedSessionCanCapture(row.lifecycleStatus, state.canCapture)) {
                         onEvent(
                             FeedPackingEvent.OpenRow(
                                 parkId = row.parkId,
