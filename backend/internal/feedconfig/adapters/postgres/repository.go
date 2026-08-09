@@ -394,8 +394,6 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
-	//
 	// park_id is OPTIONAL here, unlike every other read on this screen. The ration grid, the session
 	// split and the dispatch clock are park-OWNED and have no cross-park meaning, but an experiment
 	// cell already carries its own park_id, so the authored inventory can legitimately be listed for
@@ -408,6 +406,8 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	//
 	// ORDER BY leads with park so a cross-park page groups rather than interleaves, and still sorts
 	// by shed/partition/item beneath it so a single-park read is byte-identical to what it was.
+	//
+	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
 	const query = `
 SELECT c.experiment_config_id::text,
        c.park_id::text,
