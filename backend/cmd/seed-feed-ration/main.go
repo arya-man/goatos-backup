@@ -179,12 +179,12 @@ var parkCodes = map[string]string{
 // read the name on the sack.
 //
 // Anchored to end-of-string and requiring whitespace before "per", so the three genuine names in
-// the same header row survive untouched: "Mesha Concentrate Goat" and "Mesha Concentrate Sheep" do
-// not END in "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
+// the same header row survive untouched: "Mesha Adult Concentrate Goat" and "Mesha Adult
+// Concentrate Sheep" do not END in "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
 var perGoatSuffix = regexp.MustCompile(`(?i)\s+per\s+goat\s*$`)
 
 // kgUnitSuffix matches the EXPERIMENT workbook's unit descriptor at the end of a column header:
-// "Mesha Concentrate Sheep (kg)", "RGS Concentrate (kg)", and so on.
+// "Mesha Adult Concentrate Sheep (kg)", "RGS Concentrate (kg)", and so on.
 //
 // It is the same class of thing as perGoatSuffix and is stripped for the same reason. The two
 // workbooks annotate their columns differently because they hold different KINDS of number -- the
@@ -242,16 +242,17 @@ func feedItemName(header string) string {
 // likewise catalogued but not declared. Before these slots existed the generator had no recipe to
 // consult, walked the whole catalog, and asked every shed for all of them at once.
 //
-// The EXPERIMENT workbook's Template tab declares a different five (Mesha Concentrate Goat | Mesha
-// Concentrate Sheep | RGS Concentrate | Vijay Concentrate | Dry Masoor Bhusa). It is not seeded:
+// The EXPERIMENT workbook's Template tab declares a different five (Mesha Adult Concentrate Goat |
+// Mesha Adult Concentrate Sheep | RGS Concentrate | Vijay Concentrate | Dry Masoor Bhusa). It is
+// not seeded:
 // feed_experiment_config has no source rows yet, so a recipe for it would be configuration nobody
 // can trace back to a farm decision. Experiment sheds do not consult this table in any case -- their
 // hand-entered cells are their complete item list.
 var normalWorkflowFeedSlots = []string{
 	"Concentrate",
 	"Dry Masoor Bhusa",
-	"Mesha Concentrate Goat",
-	"Mesha Concentrate Sheep",
+	"Mesha Adult Concentrate Goat",
+	"Mesha Adult Concentrate Sheep",
 	"Baking Soda",
 }
 
