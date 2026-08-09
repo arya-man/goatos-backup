@@ -9,19 +9,25 @@ import (
 	"time"
 )
 
-// Shifting EXECUTION (maintainer decision 2026-07-28): Park Head approval and operator completion
-// are independent gates. The second gate atomically relocates and moves census; verification only
-// reviews mandatory video evidence afterward and cannot roll the movement back.
+// Shifting EXECUTION (maintainer decision 2026-08-09, SUPERSEDING the 2026-07-28 order-free gates):
+// APPROVE FIRST. A raised movement is not in the operator's Actions work list and cannot be
+// completed until a Park Head authorizes it; operator completion then atomically relocates and moves
+// census. Verification still only reviews mandatory video evidence afterward and cannot roll the
+// movement back.
 
 const (
-	// ShiftingEventStatusPending is not-yet-decided; it may already carry operator completion stamps.
+	// ShiftingEventStatusPending is not-yet-approved. It is the ONLY status the operator's work list
+	// excludes: the row is visible read-only under its own Pending bucket and offers no action until
+	// a Park Head decides it. Legacy rows raised under the superseded order-free rule may still carry
+	// operator completion stamps here; new ones cannot.
 	ShiftingEventStatusPending = "pending"
 	// ShiftingEventStatusAuthorized is approved-but-not-executed: the movement MAY happen and the
 	// animals are still at the source shed. This is the state the execution queue lists.
 	ShiftingEventStatusAuthorized = "authorized"
-	// ShiftingEventStatusPendingVerification means operator completion/proof exists while Park Head
-	// approval is absent (or a legacy rollout row awaits compatibility apply). Verification is
-	// orthogonal and does not own relocation.
+	// ShiftingEventStatusPendingVerification is a legacy rollout status: operator completion/proof
+	// exists while Park Head approval is absent, or a pre-000049 row awaits compatibility apply.
+	// Approve-first makes it unreachable for new movements. Verification is orthogonal and does not
+	// own relocation.
 	ShiftingEventStatusPendingVerification = "pending_verification"
 	// ShiftingEventStatusApplied means Park Head approval + operator completion both exist and the
 	// animals' canonical location was rewritten atomically.
@@ -189,6 +195,12 @@ type ShiftingExecutionQuery struct {
 	// mobile Actions contract no longer exposes them.
 	SourceParkID string
 	SourceShedID string
+
+	// Now is the business clock the ACTIONS LEAD TIME is evaluated against (see
+	// ShiftingActionsDueFrom). The service fills it from its own clock rather than letting the
+	// adapter call the database's now(), so the filter is deterministic under a pinned test clock
+	// and cannot disagree with the app's business time.
+	Now time.Time
 
 	PageSize int
 	Cursor   *ShiftingExecutionCursor

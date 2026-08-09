@@ -563,15 +563,80 @@ or other clinical facts; those stay on their authoritative workflows. A real
 shifting-completion → Vaccination E2E test is mandatory—separate producer and
 consumer tests are not closure.
 
-Confirmed shifting approval + completion gate (maintainer decision 2026-07-28,
-SUPERSEDING the 2026-07-26 "verifier approval applies the move" rule): a raised
-movement appears in Android Actions immediately. Park Head approval and operator
-completion are independent and may arrive in either order; neither first fact
-relocates. Operator completion still requires a MANDATORY live-camera video
-(`shifting_events.proof_ref`; blank is 422). The transaction recording the SECOND
-of approval/completion atomically updates canonical `goats.shed_id` and destination
-stage, publishes location/stage events, flips the movement `applied`, and therefore
-moves Herd Register / Counts. Verification is post-task evidence review only:
+Confirmed shifting APPROVE-FIRST gate (maintainer decision 2026-08-09, SUPERSEDING
+the 2026-07-28 "independent, order-free gates" rule, which itself superseded the
+2026-07-26 "verifier approval applies the move" rule): **Park Head approval comes
+FIRST, always.** A raised movement is NOT in the operator's Actions work list and
+CANNOT be completed until an approver authorizes it. This applies to every
+movement, low and high priority alike.
+
+Two halves, and both are enforced:
+
+1. **Visibility.** The Actions `all` bucket EXCLUDES `event_status='pending'`. The
+   raiser still sees their movement, read-only, under the retained `pending` tab:
+   `primary_action_key='none'`, chip "Awaiting Park Head approval", not tappable.
+   The `rework` bucket likewise excludes `pending`, so an unapproved movement
+   cannot re-enter the work list through an evidence verdict. Every non-canceled
+   row still lands in exactly one bucket, and each tab's count equals what that
+   tab lists.
+2. **Write.** `POST /app/counts/shifting-events/{id}/complete` REFUSES an
+   unapproved movement with `ErrShiftingNotAuthorized` (400
+   `shifting_not_authorized`) and writes NOTHING — no `proof_ref`, no completion
+   stamp, no verification item. Gated on `authorization_state='authorized'`, not
+   on `event_status`, because a legacy `pending_verification` row can be unapproved.
+
+Why this replaced the order-free rule: an operator could burn the mandatory video
+— all THREE videos on a high-priority move — on a movement the park head then
+rejected, and a verifier could be handed evidence for a move nobody authorized.
+
+**ACTIONS LEAD TIME (same maintainer decision, 2026-08-09).** An approved movement
+awaiting operator work appears in Actions when it is DUE:
+
+- **High priority → due the second it is approved.** No lead time at all.
+- **Low priority → planned work.** Raised BEFORE 13:30 IST it is due the NEXT day;
+  raised AT OR AFTER 13:30 IST it is due the DAY AFTER THAT. Due means 00:00 IST
+  of that day.
+
+A held movement keeps its RAISED business date and is simply absent from the queue
+until due — it does not move to a later date bucket. Consequence to know: on its
+due day the operator must page back to the raise date to find it, which is what the
+previous-dates strip is for. Anchoring on RAISE time also makes a late approval
+self-solving: if approval lands after the due instant, `now` is already past it and
+the row appears immediately, so approved work is never hidden in the past.
+
+Held rows are ONLY `event_status='authorized'`. An applied movement (completed, or
+in evidence rework) is history and is never held — hiding it would erase work an
+operator demonstrably did. A `pending` row is never held either, so a raiser always
+sees what they just raised.
+
+This is NOT an authority gate: completion is NOT blocked before the due date,
+because the animals may genuinely have walked today and refusing to record a real
+movement would make the herd register lie. Approval remains the only gate on
+completion.
+
+**This binds the ACTIONS QUEUE ONLY.** It does NOT change the feed-direction
+shifting projection, which by the 2026-07-27 decision below has NO lead time and NO
+priority branch ("forget high priority") and counts every authorized-but-unexecuted
+movement immediately. The two rules look alike and are not: this one decides when an
+operator is SHOWN work, that one decides how many mouths a shed is fed for. Do not
+collapse them, and do not read this as reviving the retired normal-2-day /
+high-priority-1-day projection lead.
+
+Canonical rule: `counts/domain.ShiftingActionsDueFrom` (mirrored in SQL by
+`shiftingActionsVisibleSQL`, which the page, the status counts, and the
+previous-dates strip all share so a tab badge cannot advertise work the tab hides).
+
+The approval-arrives-second apply branch in `authorizeShiftingEventInTx` is KEPT
+deliberately as rollout compatibility for rows completed under the retired rule;
+it is not a supported new path. Do NOT delete it, and do NOT treat its existence
+as permission to complete before approval.
+
+Operator completion still requires a MANDATORY live-camera video
+(`shifting_events.proof_ref`; blank is 422). The COMPLETION transaction — now always
+the second gate, since approval must already exist — atomically updates canonical
+`goats.shed_id` and destination stage, publishes location/stage events, flips the
+movement `applied`, and therefore moves Herd Register / Counts. Approval alone still
+moves NOTHING. Verification is post-task evidence review only:
 APPROVE marks evidence verified; REWORK creates evidence rework/audit without
 changing the applied movement or rolling back goat location/count. Generic
 Verification enqueue and verdict consumers remain wired, but verdicts do not own
