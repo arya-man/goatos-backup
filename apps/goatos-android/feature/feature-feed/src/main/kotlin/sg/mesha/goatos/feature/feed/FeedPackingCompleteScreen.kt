@@ -57,11 +57,24 @@ data class FeedPackingCompleteUiState(
     val videoMessage: String? = null,
     val canComplete: Boolean = false,
     val result: FeedPackingCompleteResultUi? = null,
+    /**
+     * The session already went to the verifier (or was approved), so there is nothing to record
+     * here.
+     *
+     * Backend-owned: it comes from the row's lifecycle bucket, NOT from the local capture draft.
+     * The draft was the only signal this screen had, and a reinstall wipes it — which is how an
+     * operator was shown an empty form for work already queued and re-shot a video the backend then
+     * discarded as an idempotent replay (STG 2026-08-09).
+     */
+    val alreadySubmitted: Boolean = false,
 ) {
     /** The mandatory video is recorded and the write is not already committed. */
     val submitEnabled: Boolean
-        get() = canComplete && videoCaptured && !isCapturingVideo &&
+        get() = !alreadySubmitted && canComplete && videoCaptured && !isCapturingVideo &&
             result?.status != FeedPackingCompleteStatus.SYNCED && result?.status != FeedPackingCompleteStatus.QUEUED
+
+    /** Recording is offered only while the session is still the operator's to act on. */
+    val captureEnabled: Boolean get() = !alreadySubmitted
 }
 
 sealed interface FeedPackingCompleteEvent {
@@ -88,6 +101,20 @@ fun FeedPackingCompleteScreen(
         instruction = stringResource(R.string.feed_pack_complete_caption),
         onBack = { onEvent(FeedPackingCompleteEvent.Back) },
     ) {
+        // ALREADY SUBMITTED: the session went to the verifier, so there is nothing to record. The
+        // operator still gets here — a row he tapped must open — but he sees the state instead of
+        // an empty form, which is what let a second video be shot for work already queued.
+        if (state.alreadySubmitted) {
+            FeedProofCard(title = stringResource(R.string.feed_complete_already_submitted_title)) {
+                Text(
+                    text = stringResource(R.string.feed_complete_already_submitted_body),
+                    color = MeshaColors.Muted,
+                    fontSize = 13.sp,
+                )
+            }
+            return@FeedCaptureScaffold
+        }
+
         // MANDATORY live in-app camera packing video.
         FeedProofCard(title = stringResource(R.string.feed_pack_complete_video_title)) {
             when {

@@ -3,6 +3,7 @@ package sg.mesha.goatos.viewmodel
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.feature.feed.FeedPackingCompleteUiState
 import sg.mesha.goatos.feature.feed.FeedStatus
 import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 
@@ -63,5 +64,35 @@ class FeedCaptureAvailabilityTest {
         assertFalse(feedSessionCanCapture(FeedStatus.PENDING, isToday = false))
         assertFalse(feedSessionCanCapture("rework", isToday = false))
         assertFalse(feedSessionCanCapture("", isToday = false))
+    }
+
+    /**
+     * The screen must REFUSE, not merely hide the row. An operator who taps a submitted session
+     * still gets here — a dead card reads as a broken app — so the detail state is what stops a
+     * second video being recorded for work already queued.
+     */
+    @Test
+    fun `an already-submitted session offers no capture and no submit`() {
+        val submitted = FeedPackingCompleteUiState(
+            videoCaptured = true,
+            canComplete = true,
+            alreadySubmitted = true,
+        )
+
+        assertFalse(submitted.captureEnabled)
+        assertFalse(submitted.submitEnabled)
+    }
+
+    /** The same state with the session still open must behave exactly as before. */
+    @Test
+    fun `an open session still offers capture and submit`() {
+        val open = FeedPackingCompleteUiState(
+            videoCaptured = true,
+            canComplete = true,
+            alreadySubmitted = false,
+        )
+
+        assertTrue(open.captureEnabled)
+        assertTrue(open.submitEnabled)
     }
 }

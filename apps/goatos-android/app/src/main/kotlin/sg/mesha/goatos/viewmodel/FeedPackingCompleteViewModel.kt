@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteStatus
@@ -72,6 +73,12 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
+    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
+    // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
+    // an operator was shown an empty form for work already submitted (STG 2026-08-09).
+    private val alreadySubmitted: Boolean =
+        !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
+
     // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
     // proof drains strictly before the gated completion that references it. The PEN and the DAY are
     // both part of this key: see feedCaptureGroupKey for what dropping either did to the field.
@@ -88,6 +95,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             shedLabel = shedLabel,
             sessionLabel = sessionLabel,
             workflowLabel = workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
+            alreadySubmitted = alreadySubmitted,
         ),
     )
     val state: StateFlow<FeedPackingCompleteUiState> = _state.asStateFlow()
@@ -283,6 +291,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
         /** The PEN worked. Part of the completion's identity: without it one pen's video closed
          *  out every pen of the shed (STG 2026-08-08). */
         const val ARG_PARTITION_LABEL = "partition_label"
+        const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

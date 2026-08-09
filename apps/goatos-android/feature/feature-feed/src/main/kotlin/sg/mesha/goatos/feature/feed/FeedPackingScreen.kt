@@ -118,6 +118,9 @@ sealed interface FeedPackingEvent {
     /** Tap a packing line to open its shed-session completion detail. */
     data class OpenRow(
         val parkId: String,
+        /** The row's backend-owned lifecycle bucket, so the capture screen knows the session is
+         *  already submitted without re-reading it. */
+        val lifecycleStatus: String,
         val shedId: String,
         val sessionNo: Int,
         val workflow: String,
@@ -191,17 +194,20 @@ fun FeedPackingScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    // Past-day rows AND rows already awaiting/holding a verdict are VIEW ONLY:
-                    // `canCapture = false` disables the card's clickable modifier below, so a tap
-                    // never reaches this lambda and OpenRow — hence the verifier-gated capture
-                    // screen — is never dispatched. The row's own lifecycle bucket is part of that
-                    // decision: the detail screen never receives it and would otherwise offer a
-                    // fresh capture form for a session already in review (see
-                    // feedSessionCanCapture).
-                    FeedPackingRowCard(row, canCapture = feedSessionCanCapture(row.lifecycleStatus, state.canCapture)) {
+                    // Past-day rows are VIEW ONLY: `canCapture = false` disables the card's
+                    // clickable modifier below, so a tap never reaches this lambda and OpenRow is
+                    // never dispatched for a non-today day.
+                    //
+                    // An ALREADY-SUBMITTED row stays tappable on purpose. Blocking it made the card
+                    // dead: an operator who taps a session showing "in review" wants to see what he
+                    // sent, and a row that does nothing reads as a broken app. The refusal belongs
+                    // one level in — the detail screen receives the row's lifecycle bucket and
+                    // shows the submitted state instead of an empty capture form.
+                    FeedPackingRowCard(row, canCapture = state.canCapture) {
                         onEvent(
                             FeedPackingEvent.OpenRow(
                                 parkId = row.parkId,
+                                lifecycleStatus = row.lifecycleStatus,
                                 shedId = row.shedId,
                                 sessionNo = row.sessionNo,
                                 workflow = row.workflow,

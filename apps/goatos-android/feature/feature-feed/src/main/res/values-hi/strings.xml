@@ -92,4 +92,6 @@
     <string name="feed_pack_complete_need_video">सबमिट करने के लिए पैकिंग वीडियो रिकॉर्ड करें।</string>
     <string name="feed_proof_rerecord">वीडियो दोबारा रिकॉर्ड करें</string>
     <string name="feed_proof_recapture">प्रमाण दोबारा लें</string>
+    <string name="feed_complete_already_submitted_title">पहले ही भेजा गया</string>
+    <string name="feed_complete_already_submitted_body">यह वीडियो सत्यापनकर्ता को भेज दिया गया है। यहाँ और कुछ रिकॉर्ड नहीं करना है — समीक्षा के बाद परिणाम दिखेगा।</string>
 </resources>

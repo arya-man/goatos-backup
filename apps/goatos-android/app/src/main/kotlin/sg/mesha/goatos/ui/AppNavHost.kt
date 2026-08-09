@@ -414,7 +414,7 @@ object Routes {
     // roots and from [FEED_COMPLETE] (the untouched Packing/direction-shared completion) — never a
     // prefix reuse. Same grain args as [FEED_COMPLETE]; the operator records BOTH mandatory proofs here.
     const val FEED_DISTRIBUTION_COMPLETE =
-        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}"
+        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
 
     fun feedDistributionCompleteRoute(
         parkId: String,
@@ -427,12 +427,16 @@ object Routes {
         // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
         // still resolves; the completion needs it because proof is per-pen, not per-shed.
         partitionLabel: String,
+        // The row's backend-owned lifecycle bucket. The capture screen refuses when the session
+        // is already with the verifier; without it the screen has only the LOCAL draft to go on,
+        // and a reinstall wipes that.
+        lifecycleStatus: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
-            "&partition_label=${e(partitionLabel)}"
+            "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
     }
 
     // L2 verifier-GATED feed-PACKING completion, reached ONLY by tapping a shed-session row on Feed
@@ -440,7 +444,7 @@ object Routes {
     // direction-shared completion), and [FEED_DISTRIBUTION_COMPLETE] — never a prefix reuse. Same
     // grain args; simpler than distribution — the operator records ONE mandatory proof here.
     const val FEED_PACKING_COMPLETE =
-        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}"
+        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
 
     fun feedPackingCompleteRoute(
         parkId: String,
@@ -453,12 +457,16 @@ object Routes {
         // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
         // still resolves; the completion needs it because proof is per-pen, not per-shed.
         partitionLabel: String,
+        // The row's backend-owned lifecycle bucket. The capture screen refuses when the session
+        // is already with the verifier; without it the screen has only the LOCAL draft to go on,
+        // and a reinstall wipes that.
+        lifecycleStatus: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
-            "&partition_label=${e(partitionLabel)}"
+            "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
     }
 
     /**
@@ -2275,6 +2283,7 @@ fun AppNavHost(
                                 shedLabel = event.shedLabel,
                                 sessionLabel = event.sessionLabel,
                                 partitionLabel = event.partitionLabel,
+                                lifecycleStatus = event.lifecycleStatus,
                             ),
                         ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
@@ -2317,6 +2326,7 @@ fun AppNavHost(
                                 shedLabel = event.shedLabel,
                                 sessionLabel = event.sessionLabel,
                                 partitionLabel = event.partitionLabel,
+                                lifecycleStatus = event.lifecycleStatus,
                             ),
                         ) { launchSingleTop = true }
                         else -> vm.onEvent(event)

@@ -92,4 +92,6 @@
     <string name="feed_pack_complete_need_video">Record the packing video to submit.</string>
     <string name="feed_proof_rerecord">Re-record video</string>
     <string name="feed_proof_recapture">Re-capture proof</string>
+    <string name="feed_complete_already_submitted_title">Already submitted</string>
+    <string name="feed_complete_already_submitted_body">This video has gone to the verifier. Nothing more to record here — you will see the result once it is reviewed.</string>
 </resources>
