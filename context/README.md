@@ -71,6 +71,12 @@ Operational kernel golden rule
 Operational kernel system design and diagram
   context/architecture/operational-kernel-system-design.md
 
+Current whole-project remediation ledger (snapshot recorded inside)
+  context/repo-audits/current-whole-project-remediation-ledger.md
+
+Operational task-kernel remediation and rollout plan
+  context/execution/operational-task-kernel-remediation-plan.md
+
 Operational kernel 5k-to-50k deployment envelope and reversible consolidation ADR
   docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 
@@ -234,6 +240,9 @@ context/frontend/
 context/repo-audits/
   current repo inventory, migration notes, consolidated defect ledger, and the
   mandatory cross-layer defect-closure program
+
+Current whole-project remediation queue
+  context/repo-audits/current-whole-project-remediation-ledger.md
 
 Consolidated last-35-commits bug ledger
   context/repo-audits/last-35-commits-consolidated-bug-ledger.md

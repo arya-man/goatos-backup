@@ -365,11 +365,18 @@ one product; this skill is the navigation layer.
   and verifies the exact green SHA. Use a clean isolated worktree when the
   development checkout is dirty or shared; never auto-rebase unrelated local
   changes merely because an agent session started.
-- For any consolidated-ledger fix, read
-  `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
-  `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one
-  root batch at a time; do not claim closure without its current-SHA proof
-  packet, required CI gates, and independent counter-review.
+- For any whole-project audit fix, read
+  `context/repo-audits/current-whole-project-remediation-ledger.md` and its
+  current closure gate. For work explicitly naming an older last-35 ID, read
+  its historical ledger and closure program instead. Work one root batch at a
+  time; do not claim closure without its current-SHA proof packet, required CI
+  gates, and independent counter-review.
+  Before implementation, fetch fresh `origin/main`, re-adjudicate the selected
+  IDs and migration tail, and treat the ledger's recorded SHA as evidence
+  provenance rather than live status.
+- For generic task hierarchy, owner/duty clocks, Today/My Tasks, sign-off, or
+  escalation work, also obey
+  `context/execution/operational-task-kernel-remediation-plan.md`.
 - Lock to the user-approved slice. Shared/generic infrastructure may be built
   only to serve that slice, and visible UI/API handoffs must not present future
   verticals as live product.

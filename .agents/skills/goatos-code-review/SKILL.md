@@ -205,10 +205,10 @@ clean the rest is:
 
 ## Consolidated-ledger closure gate
 
-When a change claims to fix any row in
-`context/repo-audits/last-35-commits-consolidated-bug-ledger.md`, load and apply
-`context/repo-audits/consolidated-ledger-defect-closure-program.md` in addition
-to every layer reference selected above. Review the current-SHA proof packet,
+When a change claims to fix a current whole-project row, load
+`context/repo-audits/current-whole-project-remediation-ledger.md` and apply its
+current closure gate in addition to every layer reference selected above.
+Review the current-SHA proof packet,
 not only the diff. Reject the closure claim if any applicable real-Postgres,
 retry/idempotency, pagination, contract/API, admin-web, Android Room/offline,
 logout, performance/memory, authorization, architecture, observability, guard
@@ -216,6 +216,16 @@ self-test, ordinary-PR CI, or independent-counter axis is missing. Confirm that
 duplicate-root evidence was merged and every ledger count/status summary was
 reconciled mechanically. A compile, typecheck, screenshot, mock-only test,
 missing/skipped workflow, or prose report is not closure proof.
+
+If the change explicitly names an older `last-35-commits` ID, load that
+historical ledger and its `consolidated-ledger-defect-closure-program.md`
+instead; its namespace is separate. For generic task hierarchy, owner/duty
+clocks, Today/My Tasks, sign-off, or escalation changes, also review against
+`context/execution/operational-task-kernel-remediation-plan.md`.
+
+The current ledger records its evidence SHA. Fetch fresh `origin/main` and
+re-adjudicate the selected IDs and migration tail before reviewing a closure;
+do not treat the recorded snapshot as live status.
 
 ## Volatile anchors — verify, don't trust the list below
 
