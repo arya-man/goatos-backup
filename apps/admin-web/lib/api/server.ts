@@ -722,8 +722,18 @@ export async function getFeedPackingWorklist(params: {
 export async function listFeedConfigRationRates(params: {
   park_id: string;
   ration_group?: string;
+  /**
+   * A BREED, not a ration group. The backend resolves it through the breed -> ration-group map
+   * (Beetal and Sirohi both land on "Beetal/Sirohi"); see the OpenAPI description for why the two
+   * are separate filters rather than one.
+   */
+  breed?: string;
   shed_tag?: string;
-  feed_item?: string;
+  /** A SET. Sent as a repeated query parameter, never comma-joined — see the api-client serializer. */
+  feed_item?: string[];
+  /** Half of one filter: both or neither. The backend rejects a lone half rather than defaulting it. */
+  grams_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+  grams_value?: string;
   limit?: number;
   offset?: number;
 }): Promise<ApiResult<FeedConfigRationRatePage>> {
@@ -915,6 +925,15 @@ export async function listFeedConfigExperiment(params: {
   park_id?: string;
   shed_id?: string;
   status?: "active" | "retired";
+  /** A SET, sent as a repeated query parameter. A pen survives when any of its cells matches. */
+  feed_item?: string[];
+  experiment_category?: string;
+  /**
+   * Half of one filter: both or neither. Named kg_ and not grams_ because this compares an ABSOLUTE
+   * PEN TOTAL, while the ration grid's grams_op compares a PER-HEAD RATE.
+   */
+  kg_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+  kg_value?: string;
   limit?: number;
   offset?: number;
 }): Promise<ApiResult<FeedConfigExperimentPage>> {
@@ -2787,10 +2806,15 @@ function parseEnvelope(body: unknown): ErrorEnvelope | null {
   return maybe as ErrorEnvelope;
 }
 
-export function compactQuery(values: Record<string, string | number | boolean | null | undefined>) {
-  const query: Record<string, string | number | boolean> = {};
+export function compactQuery(
+  values: Record<string, string | number | boolean | readonly string[] | null | undefined>,
+) {
+  const query: Record<string, string | number | boolean | readonly string[]> = {};
   for (const [key, value] of Object.entries(values)) {
     if (value === null || value === undefined || value === "") continue;
+    // An EMPTY array is dropped like an empty string: a multi-valued filter with nothing selected is
+    // "no filter", and emitting `feed_item=` would ask the backend for an item named "".
+    if (Array.isArray(value) && value.length === 0) continue;
     query[key] = value;
   }
   return query;

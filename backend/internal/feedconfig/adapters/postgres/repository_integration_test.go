@@ -768,6 +768,338 @@ func TestListRationRatesPagesAndFilters(t *testing.T) {
 	}
 }
 
+// TestListRationRatesBreedItemSetAndGramsFilters proves the three grid filters against the real
+// schema. None of them can be proved anywhere else:
+//
+//	BREED       -- resolves through feed_ration_groups, a table the fake repo does not have. The
+//	               mapping is MANY-TO-ONE, so the whole point (Sirohi finds the Beetal/Sirohi rows)
+//	               only exists once that join runs.
+//	ITEM SET    -- `= ANY (SELECT feed_config_norm(item) FROM unnest($5::text[]))` is SQL. A Go-level
+//	               test can show the slice was carried; only Postgres can show it MATCHES, and that
+//	               casing still normalizes through the array.
+//	GRAMS       -- the CASE comparison runs in numeric. A float-compared 149.995 is exactly the
+//	               defect the decimal strings exist to prevent, and only the database shows it.
+func TestListRationRatesBreedItemSetAndGramsFilters(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	// The breed -> ration-group map, exactly as the live tenant carries it: two breeds share one
+	// group, and the "Kid" group is reachable from NO breed.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_ration_groups (tenant_id, breed_label, ration_group_label)
+VALUES ($1::uuid, 'Beetal', 'Beetal/Sirohi'),
+       ($1::uuid, 'Sirohi', 'Beetal/Sirohi'),
+       ($1::uuid, 'Boer', 'Boer')
+ON CONFLICT DO NOTHING`, fcTenant); err != nil {
+		t.Fatalf("seed ration groups: %v", err)
+	}
+
+	cells := []struct{ group, tag, item, grams string }{
+		{"Beetal/Sirohi", "Pregnant", "Concentrate", "250.000"},
+		{"Beetal/Sirohi", "Pregnant", "Green Fodder", "1000.000"},
+		{"Beetal/Sirohi", "Pregnant", "Baking Soda", "0.000"},
+		{"Boer", "Pregnant", "Concentrate", "300.000"},
+		// A kid rate. No breed maps to this group, so every breed filter must exclude it.
+		{"Kid", "Pregnant", "Concentrate", "149.995"},
+	}
+	for i, c := range cells {
+		cmd := rateCommand("key-filt-"+string(rune('a'+i))+"00001", "fp-filt-"+c.group+c.item, c.grams, "2026-07-19")
+		cmd.RationGroupLabel, cmd.ShedTagLabel, cmd.FeedItemLabel = c.group, c.tag, c.item
+		if _, err := repo.UpsertRationRate(ctx, cmd); err != nil {
+			t.Fatalf("seed rate %d: %v", i, err)
+		}
+	}
+
+	list := func(t *testing.T, q domain.RationRateQuery) []domain.RationRate {
+		t.Helper()
+		q.TenantID, q.ParkID = fcTenant, fcPark
+		q.Page = domain.Page{Limit: 50}
+		page, err := repo.ListRationRates(ctx, q)
+		if err != nil {
+			t.Fatalf("ListRationRates(%+v): %v", q, err)
+		}
+		return page.Items
+	}
+
+	t.Run("a breed finds the rows of the group it resolves into", func(t *testing.T) {
+		// Sirohi is not the name of any group. Without the map this returns nothing.
+		got := list(t, domain.RationRateQuery{Breed: "Sirohi"})
+		if len(got) != 3 {
+			t.Fatalf("Sirohi returned %d rows, want the 3 Beetal/Sirohi rows", len(got))
+		}
+		for _, row := range got {
+			if row.RationGroupLabel != "Beetal/Sirohi" {
+				t.Fatalf("Sirohi returned a %q row", row.RationGroupLabel)
+			}
+		}
+		// Its co-breed must resolve to the same set: that is what many-to-one means.
+		if other := list(t, domain.RationRateQuery{Breed: "Beetal"}); len(other) != len(got) {
+			t.Fatalf("Beetal returned %d rows and Sirohi %d; the two share one group", len(other), len(got))
+		}
+	})
+
+	t.Run("a breed excludes kid rates", func(t *testing.T) {
+		for _, row := range list(t, domain.RationRateQuery{Breed: "Boer"}) {
+			if row.RationGroupLabel == "Kid" {
+				t.Fatal("a breed filter returned a Kid rate — kid rates are not breed-specific")
+			}
+		}
+	})
+
+	t.Run("an unknown breed narrows to nothing, never widens to everything", func(t *testing.T) {
+		// The failure this guards is silent and total: a NULL from the subquery that widened the
+		// predicate instead of failing it would return the WHOLE park's grid to someone who asked
+		// for one breed.
+		if got := list(t, domain.RationRateQuery{Breed: "Nonesuch"}); len(got) != 0 {
+			t.Fatalf("unknown breed returned %d rows, want 0", len(got))
+		}
+	})
+
+	t.Run("breed matching is case- and separator-insensitive", func(t *testing.T) {
+		if got := list(t, domain.RationRateQuery{Breed: "  sirohi "}); len(got) != 3 {
+			t.Fatalf("case-variant breed returned %d rows, want 3", len(got))
+		}
+	})
+
+	t.Run("a feed-item set matches any of its members", func(t *testing.T) {
+		got := list(t, domain.RationRateQuery{FeedItems: []string{"Concentrate", "Green Fodder"}})
+		if len(got) != 4 {
+			t.Fatalf("two-item set returned %d rows, want 4", len(got))
+		}
+		for _, row := range got {
+			if row.FeedItemLabel != "Concentrate" && row.FeedItemLabel != "Green Fodder" {
+				t.Fatalf("item set returned an unrelated %q row", row.FeedItemLabel)
+			}
+		}
+		// One member is still a set of one, and the normalization must survive the array.
+		if one := list(t, domain.RationRateQuery{FeedItems: []string{"  GREEN fodder"}}); len(one) != 1 {
+			t.Fatalf("case-variant single item returned %d rows, want 1", len(one))
+		}
+	})
+
+	t.Run("no feed-item set is no filter", func(t *testing.T) {
+		if got := list(t, domain.RationRateQuery{FeedItems: nil}); len(got) != len(cells) {
+			t.Fatalf("nil item set returned %d rows, want all %d", len(got), len(cells))
+		}
+	})
+
+	t.Run("more than zero hides the authored zeros", func(t *testing.T) {
+		got := list(t, domain.RationRateQuery{GramsCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"}})
+		if len(got) != 4 {
+			t.Fatalf("grams > 0 returned %d rows, want 4", len(got))
+		}
+		for _, row := range got {
+			if row.GramsPerHead == "0.000" {
+				t.Fatal("grams > 0 returned an authored zero")
+			}
+		}
+	})
+
+	t.Run("exactly zero isolates the authored zeros", func(t *testing.T) {
+		got := list(t, domain.RationRateQuery{GramsCompare: &domain.GramsComparison{Op: domain.GramsOpEquals, Value: "0"}})
+		if len(got) != 1 || got[0].FeedItemLabel != "Baking Soda" {
+			t.Fatalf("grams = 0 returned %+v, want only the Baking Soda zero", got)
+		}
+	})
+
+	t.Run("comparison is exact decimal, not float", func(t *testing.T) {
+		// 149.995 is the kid rate. A float round-trip is what makes an equality like this miss.
+		got := list(t, domain.RationRateQuery{GramsCompare: &domain.GramsComparison{Op: domain.GramsOpEquals, Value: "149.995"}})
+		if len(got) != 1 {
+			t.Fatalf("grams = 149.995 returned %d rows, want exactly the row authored at that rate", len(got))
+		}
+		if got[0].GramsPerHead != "149.995" {
+			t.Fatalf("grams = %q, want the exact authored decimal 149.995", got[0].GramsPerHead)
+		}
+	})
+
+	t.Run("every operator is wired to the comparison it names", func(t *testing.T) {
+		// One CASE arm per operator, and a mis-wired arm (gte behaving as gt, lt as lte) is invisible
+		// in any test that only exercises the common one.
+		for _, tc := range []struct {
+			op   domain.GramsOp
+			want int
+		}{
+			{domain.GramsOpGreaterThan, 2}, // 300, 1000
+			{domain.GramsOpAtLeast, 3},     // + 250
+			{domain.GramsOpEquals, 1},      // 250
+			{domain.GramsOpAtMost, 3},      // 250, 149.995, 0
+			{domain.GramsOpLessThan, 2},    // 149.995, 0
+			{domain.GramsOpNotEqualTo, 4},  // everything but 250
+		} {
+			got := list(t, domain.RationRateQuery{GramsCompare: &domain.GramsComparison{Op: tc.op, Value: "250"}})
+			if len(got) != tc.want {
+				t.Errorf("grams %s 250 returned %d rows, want %d", tc.op, len(got), tc.want)
+			}
+		}
+	})
+
+	t.Run("filters compose rather than replace one another", func(t *testing.T) {
+		got := list(t, domain.RationRateQuery{
+			Breed:        "Sirohi",
+			FeedItems:    []string{"Concentrate", "Baking Soda"},
+			GramsCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"},
+		})
+		if len(got) != 1 || got[0].FeedItemLabel != "Concentrate" {
+			t.Fatalf("composed filter returned %+v, want only the Beetal/Sirohi Concentrate row", got)
+		}
+	})
+}
+
+// TestListExperimentConfigFiltersKeepPenPagingHonest proves the experiment filters against the real
+// schema, and specifically the thing that can only go wrong HERE.
+//
+// This read pages by PEN, not by cell: it ranks distinct pens in a CTE, takes a window of them, and
+// then joins their cells back. So every cell-level filter has to be applied in BOTH places. Apply
+// it only to the ranking and the page returns cells nobody asked for; apply it only to the join and
+// the pen COUNT (and therefore has_more, and which pens land on which page) is computed over pens
+// that contribute no rows -- a page that renders short, or empty, with a pager that insists there
+// is more. The two predicates are one shared const in the query for exactly this reason, and this
+// test is what proves the sharing actually holds.
+func TestListExperimentConfigFiltersKeepPenPagingHonest(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	// The pen CATALOG. An authored pen label is validated against it, and its normalization strips a
+	// leading "part " -- a different vocabulary from feed_experiment_config.partition_key, so it is
+	// seeded the catalog's own way rather than with feed_config_norm.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source)
+SELECT $1::uuid, $2::uuid, label, regexp_replace(lower(btrim(label)), '^part[[:space:]]+', ''), 'manual'
+FROM unnest(ARRAY['Part 1','Part 2','Part 3']) AS t(label)
+ON CONFLICT DO NOTHING`, fcTenant, fcShed); err != nil {
+		t.Fatalf("seed shed partitions: %v", err)
+	}
+
+	// Three pens of one shed, each enrolled ATOMICALLY -- membership is the workflow flag, so a pen
+	// exists only once its complete set of cells is authored in one write. Only ONE pen holds
+	// Concentrate, so a Concentrate filter must reduce the pen count from three to one, not merely
+	// hide rows inside three pens.
+	pens := []struct {
+		partition, category string
+		cells               []domain.ExperimentBatchCell
+	}{
+		{"Part 1", "Sheep M NEW", []domain.ExperimentBatchCell{
+			{FeedItemLabel: "Concentrate", AbsoluteKg: "14.000"},
+			{FeedItemLabel: "Green Fodder", AbsoluteKg: "4.000"},
+			{FeedItemLabel: "Baking Soda", AbsoluteKg: "0.000"},
+		}},
+		{"Part 2", "B+S Goat F NEW", []domain.ExperimentBatchCell{
+			{FeedItemLabel: "Green Fodder", AbsoluteKg: "6.000"},
+		}},
+		{"Part 3", "Sheep M NEW", []domain.ExperimentBatchCell{
+			{FeedItemLabel: "Green Fodder", AbsoluteKg: "8.000"},
+		}},
+	}
+	for i, p := range pens {
+		key := "key-expf-" + string(rune('a'+i)) + "00001"
+		if _, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+			WriteIdentity: domain.WriteIdentity{
+				TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+				IdempotencyKey: key, RequestFingerprint: "fp-" + key,
+			},
+			ParkID: fcPark, ShedID: fcShed, PartitionLabel: p.partition,
+			ExperimentCategory: p.category, Cells: p.cells,
+		}); err != nil {
+			t.Fatalf("enroll experiment pen %d: %v", i, err)
+		}
+	}
+
+	list := func(t *testing.T, q domain.ExperimentConfigQuery) domain.ExperimentConfigPage {
+		t.Helper()
+		q.TenantID = fcTenant
+		if q.Page.Limit == 0 {
+			q.Page.Limit = 50
+		}
+		page, err := repo.ListExperimentConfig(ctx, q)
+		if err != nil {
+			t.Fatalf("ListExperimentConfig(%+v): %v", q, err)
+		}
+		return page
+	}
+
+	distinctPens := func(page domain.ExperimentConfigPage) map[string]bool {
+		out := map[string]bool{}
+		for _, row := range page.Items {
+			out[row.ShedID+"#"+row.PartitionLabel] = true
+		}
+		return out
+	}
+
+	t.Run("unfiltered shows every pen", func(t *testing.T) {
+		if got := distinctPens(list(t, domain.ExperimentConfigQuery{})); len(got) != 3 {
+			t.Fatalf("unfiltered returned %d pens, want 3", len(got))
+		}
+	})
+
+	t.Run("a feed-item filter drops pens that do not hold it", func(t *testing.T) {
+		page := list(t, domain.ExperimentConfigQuery{FeedItems: []string{"Concentrate"}})
+		if pensSeen := distinctPens(page); len(pensSeen) != 1 {
+			t.Fatalf("Concentrate returned %d pens, want 1 — the pen-ranking CTE is not filtered", len(pensSeen))
+		}
+		for _, row := range page.Items {
+			if row.FeedItemLabel != "Concentrate" {
+				t.Fatalf("Concentrate filter returned a %q cell — the outer join is not filtered", row.FeedItemLabel)
+			}
+		}
+	})
+
+	t.Run("a feed-item set matches any member", func(t *testing.T) {
+		page := list(t, domain.ExperimentConfigQuery{FeedItems: []string{"Concentrate", "Baking Soda"}})
+		if len(page.Items) != 2 {
+			t.Fatalf("two-item set returned %d cells, want 2", len(page.Items))
+		}
+	})
+
+	t.Run("an arm filter narrows to that arm's pens", func(t *testing.T) {
+		page := list(t, domain.ExperimentConfigQuery{ExperimentCategory: "b+s goat f new"})
+		if pensSeen := distinctPens(page); len(pensSeen) != 1 {
+			t.Fatalf("arm filter returned %d pens, want 1 (and it must be case-insensitive)", len(pensSeen))
+		}
+	})
+
+	t.Run("more than zero hides the authored zeros", func(t *testing.T) {
+		page := list(t, domain.ExperimentConfigQuery{KgCompare: &domain.GramsComparison{Op: domain.GramsOpGreaterThan, Value: "0"}})
+		for _, row := range page.Items {
+			if row.AbsoluteKg == "0.000" {
+				t.Fatal("kg > 0 returned an authored zero")
+			}
+		}
+		if len(page.Items) != 4 {
+			t.Fatalf("kg > 0 returned %d cells, want 4", len(page.Items))
+		}
+	})
+
+	t.Run("has_more and the page window agree with the filter", func(t *testing.T) {
+		// The real trap: one pen matches, so a one-pen page must NOT claim there is another. A pen
+		// count computed before the filter would say 3 > 1 and set has_more.
+		page := list(t, domain.ExperimentConfigQuery{
+			FeedItems: []string{"Concentrate"},
+			Page:      domain.Page{Limit: 1},
+		})
+		if page.HasMore {
+			t.Fatal("has_more is true for a filter matching exactly one pen — the pen count ignores the cell filter")
+		}
+		// And with the filter off, one pen of three must report more.
+		if unfiltered := list(t, domain.ExperimentConfigQuery{Page: domain.Page{Limit: 1}}); !unfiltered.HasMore {
+			t.Fatal("has_more is false for page 1 of 3 pens")
+		}
+	})
+
+	t.Run("filters compose", func(t *testing.T) {
+		page := list(t, domain.ExperimentConfigQuery{
+			ExperimentCategory: "Sheep M NEW",
+			FeedItems:          []string{"Green Fodder"},
+			KgCompare:          &domain.GramsComparison{Op: domain.GramsOpAtLeast, Value: "8"},
+		})
+		if len(page.Items) != 1 || page.Items[0].AbsoluteKg != "8.000" {
+			t.Fatalf("composed filter returned %+v, want only the 8.000 Green Fodder cell", page.Items)
+		}
+	})
+}
+
 // TestListsExcludeSupersededRows proves the edit screen shows only what is IN FORCE. Mixing closed
 // historical windows into the grid would present superseded rates as editable current values.
 func TestListsExcludeSupersededRows(t *testing.T) {

@@ -30,12 +30,16 @@ type fakeService struct {
 	experimentInput       feedconfigapp.UpsertExperimentConfigInput
 	experimentStatusInput feedconfigapp.SetExperimentShedStatusInput
 
+	rationRateFilter feedconfigapp.RationRateFilter
+	experimentFilter feedconfigapp.ExperimentConfigFilter
+
 	result domain.WriteResult
 	err    error
 	calls  int
 }
 
-func (f *fakeService) ListRationRates(context.Context, string, string, string, string, string, *int32, *int32) (domain.RationRatePage, error) {
+func (f *fakeService) ListRationRates(_ context.Context, _ string, filter feedconfigapp.RationRateFilter) (domain.RationRatePage, error) {
+	f.rationRateFilter = filter
 	return domain.RationRatePage{}, f.err
 }
 func (f *fakeService) ListRationGroups(context.Context, string, *int32, *int32) (domain.RationGroupPage, error) {
@@ -57,7 +61,8 @@ func (f *fakeService) ListShedFactors(context.Context, string, string, string, s
 	return domain.ShedFactorPage{}, f.err
 }
 
-func (f *fakeService) ListExperimentConfig(context.Context, string, string, string, string, *int32, *int32) (domain.ExperimentConfigPage, error) {
+func (f *fakeService) ListExperimentConfig(_ context.Context, _ string, filter feedconfigapp.ExperimentConfigFilter) (domain.ExperimentConfigPage, error) {
+	f.experimentFilter = filter
 	return domain.ExperimentConfigPage{}, f.err
 }
 
@@ -129,6 +134,70 @@ func serve(t *testing.T, svc Service, req *http.Request) *httptest.ResponseRecor
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
+}
+
+// TestRationGridFiltersReachTheServiceIntact covers what only this layer can drop: the grid's
+// filters arrive as a query string, and one of them REPEATS.
+//
+// feed_item is read with q["feed_item"] rather than q.Get("feed_item"). Get returns only the FIRST
+// value, so the obvious version of this handler compiles, passes a single-item test, and silently
+// discards every item after the first -- an operator who ticked four items would be shown one
+// item's rows and no sign that the other three were dropped.
+func TestRationGridFiltersReachTheServiceIntact(t *testing.T) {
+	svc := &fakeService{}
+	target := "/feed-config/ration-rates?park_id=p&breed=Sirohi&ration_group=Beetal%2FSirohi&shed_tag=Pregnant" +
+		"&feed_item=Hybrid&feed_item=COFS&feed_item=Dry+Maize&grams_op=gt&grams_value=0"
+	rec := serve(t, svc, newRequest(t, http.MethodGet, target, "", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	got := svc.rationRateFilter
+	if got.ParkID != "p" {
+		t.Errorf("park = %q, want %q", got.ParkID, "p")
+	}
+	// Breed and ration group are separate filters and must stay separate on the wire.
+	if got.Breed != "Sirohi" {
+		t.Errorf("breed = %q, want %q", got.Breed, "Sirohi")
+	}
+	if got.RationGroup != "Beetal/Sirohi" {
+		t.Errorf("ration group = %q, want %q", got.RationGroup, "Beetal/Sirohi")
+	}
+	if got.ShedTag != "Pregnant" {
+		t.Errorf("shed tag = %q, want %q", got.ShedTag, "Pregnant")
+	}
+	want := []string{"Hybrid", "COFS", "Dry Maize"}
+	if len(got.FeedItems) != len(want) {
+		t.Fatalf("feed items = %#v, want all %#v — a repeated query parameter was truncated", got.FeedItems, want)
+	}
+	for i := range want {
+		if got.FeedItems[i] != want[i] {
+			t.Fatalf("feed items = %#v, want %#v", got.FeedItems, want)
+		}
+	}
+	if got.GramsOp != "gt" || got.GramsValue != "0" {
+		t.Errorf("grams comparison = %q %q, want gt 0", got.GramsOp, got.GramsValue)
+	}
+}
+
+// TestInvalidGridFilterIs400NotAnEmptyPage pins the status a malformed filter gets.
+//
+// 200 with zero rows would render as "no rates are configured for this scope", and on the ration
+// grid that sentence means the sheds resolving to it are BLOCKED and will not be fed. A mistake in
+// the caller's query string must never be reported as a fact about the farm.
+//
+// The service is what decides a filter is malformed (see app.TestGramsComparisonIsValidatedAsAPair
+// for the rules); this asserts the half only the HTTP layer owns -- that its verdict leaves as a
+// 400 with a code the client can branch on, rather than a 500 or a bare empty page.
+func TestInvalidGridFilterIs400NotAnEmptyPage(t *testing.T) {
+	svc := &fakeService{err: feedconfigapp.ErrInvalidFilter}
+	rec := serve(t, svc, newRequest(t, http.MethodGet, "/feed-config/ration-rates?park_id=p&grams_op=approximately&grams_value=0", "", ""))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_filter") {
+		t.Fatalf("body = %s, want the invalid_filter code", rec.Body.String())
+	}
 }
 
 // TestWriteRequiresIdempotencyKey proves an authored edit cannot be made without a client key. These

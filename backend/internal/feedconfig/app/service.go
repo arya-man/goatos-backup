@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,25 +107,106 @@ func resolvePage(limit, offset *int32) (domain.Page, error) {
 // and CPT genuinely differ on two rows (see migration 000003); a tenant-wide listing would
 // interleave two parks' rates under identical group/tag/item labels and give the author no way to
 // tell which park a row belongs to.
-func (s *Service) ListRationRates(ctx context.Context, tenantID, parkID, rationGroup, shedTag, feedItem string, limit, offset *int32) (domain.RationRatePage, error) {
+func (s *Service) ListRationRates(ctx context.Context, tenantID string, f RationRateFilter) (domain.RationRatePage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.RationRatePage{}, ErrMissingTenant
 	}
-	if strings.TrimSpace(parkID) == "" {
+	if strings.TrimSpace(f.ParkID) == "" {
 		return domain.RationRatePage{}, ErrMissingPark
 	}
-	page, err := resolvePage(limit, offset)
+	page, err := resolvePage(f.Limit, f.Offset)
+	if err != nil {
+		return domain.RationRatePage{}, err
+	}
+	compare, err := resolveGramsComparison(f.GramsOp, f.GramsValue)
 	if err != nil {
 		return domain.RationRatePage{}, err
 	}
 	return s.repo.ListRationRates(ctx, domain.RationRateQuery{
-		TenantID:    tenantID,
-		ParkID:      strings.TrimSpace(parkID),
-		RationGroup: strings.TrimSpace(rationGroup),
-		ShedTag:     strings.TrimSpace(shedTag),
-		FeedItem:    strings.TrimSpace(feedItem),
-		Page:        page,
+		TenantID:     tenantID,
+		ParkID:       strings.TrimSpace(f.ParkID),
+		RationGroup:  strings.TrimSpace(f.RationGroup),
+		Breed:        strings.TrimSpace(f.Breed),
+		ShedTag:      strings.TrimSpace(f.ShedTag),
+		FeedItems:    cleanStrings(f.FeedItems),
+		GramsCompare: compare,
+		Page:         page,
 	})
+}
+
+// RationRateFilter is the read's narrowing input.
+//
+// A STRUCT rather than more positional parameters. The grid now filters on park, ration group,
+// breed, shed tag, a SET of feed items and a comparison against the rate itself; as a parameter
+// list that is nine same-typed arguments in a row, where transposing two of them compiles cleanly
+// and silently filters the grid by the wrong column.
+type RationRateFilter struct {
+	ParkID      string
+	RationGroup string
+	// Breed resolves through the breed -> ration-group map; see domain.RationRateQuery.Breed for
+	// why it is a different filter from RationGroup rather than an alias for it.
+	Breed     string
+	ShedTag   string
+	FeedItems []string
+	// GramsOp and GramsValue are the two halves of ONE filter and are validated as a pair: either
+	// both are present or neither is. Accepting one alone would mean inventing the other, and both
+	// inventions answer a question nobody asked -- a default operator silently reinterprets the
+	// value, and a default value silently reinterprets the operator.
+	GramsOp    string
+	GramsValue string
+	Limit      *int32
+	Offset     *int32
+}
+
+// ErrInvalidFilter is returned for a filter the caller expressed wrongly -- an unknown comparison
+// operator, a non-numeric comparison value, or half a comparison. It maps to 400, never to an empty
+// page: silently returning no rows for a malformed filter reads on screen as "no rates are
+// configured", which on this screen means "these animals are blocked" and is a different fact.
+var ErrInvalidFilter = errors.New("feedconfig: invalid filter")
+
+// gramsValuePattern is the exact-decimal shape numeric(12,3) accepts from this filter: an optional
+// sign, digits, and at most three decimal places.
+//
+// Validated as TEXT and passed on as text. Parsing to float64 to check it would reintroduce exactly
+// the round-tripping this module keeps decimal strings to avoid, and would let 1e309 through as
+// +Inf. The database does the actual comparison in numeric.
+var gramsValuePattern = regexp.MustCompile(`^-?\d{1,9}(\.\d{1,3})?$`)
+
+func resolveGramsComparison(op, value string) (*domain.GramsComparison, error) {
+	op = strings.TrimSpace(op)
+	value = strings.TrimSpace(value)
+	if op == "" && value == "" {
+		return nil, nil
+	}
+	if op == "" || value == "" {
+		return nil, fmt.Errorf("%w: grams comparison needs both an operator and a value", ErrInvalidFilter)
+	}
+	parsed, ok := domain.ParseGramsOp(op)
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown grams comparison operator %q", ErrInvalidFilter, op)
+	}
+	if !gramsValuePattern.MatchString(value) {
+		return nil, fmt.Errorf("%w: grams comparison value %q is not an exact decimal", ErrInvalidFilter, value)
+	}
+	return &domain.GramsComparison{Op: parsed, Value: value}, nil
+}
+
+// cleanStrings trims and drops blanks, and returns nil for an all-blank set.
+//
+// nil vs empty matters downstream: the SQL reads a NULL array as "no filter" and a present array as
+// "match one of these", so a set of nothing but blanks must collapse to no filter rather than to an
+// array that matches nothing.
+func cleanStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ListRationGroups serves the breed -> ration-group map. Tenant-scoped, not park-scoped: the merge
@@ -272,7 +354,9 @@ func (s *Service) ListPens(ctx context.Context, tenantID, parkID string, limit, 
 	})
 }
 
-func (s *Service) ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error) {
+func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f ExperimentConfigFilter) (domain.ExperimentConfigPage, error) {
+	parkID, shedID, status := f.ParkID, f.ShedID, f.Status
+	limit, offset := f.Limit, f.Offset
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ExperimentConfigPage{}, ErrMissingTenant
 	}
@@ -292,13 +376,44 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID, parkID, sh
 	if err != nil {
 		return domain.ExperimentConfigPage{}, err
 	}
+	compare, err := resolveGramsComparison(f.KgOp, f.KgValue)
+	if err != nil {
+		return domain.ExperimentConfigPage{}, err
+	}
 	return s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
-		TenantID: tenantID,
-		ParkID:   strings.TrimSpace(parkID),
-		ShedID:   strings.TrimSpace(shedID),
-		Status:   normalizedStatus,
-		Page:     page,
+		TenantID:           tenantID,
+		ParkID:             strings.TrimSpace(parkID),
+		ShedID:             strings.TrimSpace(shedID),
+		Status:             normalizedStatus,
+		FeedItems:          cleanStrings(f.FeedItems),
+		ExperimentCategory: strings.TrimSpace(f.ExperimentCategory),
+		KgCompare:          compare,
+		Page:               page,
 	})
+}
+
+// ExperimentConfigFilter is the experiment section's narrowing input.
+//
+// A struct for the same reason RationRateFilter is one, and it deliberately mirrors that type: the
+// two sections of Feed Config filter on the same shapes (a set of feed items, a comparison against
+// the authored quantity), so an author who learns one has learned the other.
+//
+// The quantities themselves are NOT the same kind of number, which is why the fields are named
+// apart rather than shared: the ration grid holds a per-head RATE in grams and this holds an
+// ABSOLUTE kg total for a pen. Calling both "grams" here is how the two get confused, and confusing
+// them is how a pen gets fed its per-head rate as a shed total.
+type ExperimentConfigFilter struct {
+	ParkID             string
+	ShedID             string
+	Status             string
+	FeedItems          []string
+	ExperimentCategory string
+	// KgOp and KgValue are validated as a pair by the same rule as the grid's grams comparison:
+	// both or neither, and an unrecognised operator is rejected rather than dropped.
+	KgOp    string
+	KgValue string
+	Limit   *int32
+	Offset  *int32
 }
 
 // ---------------------------------------------------------------------------
