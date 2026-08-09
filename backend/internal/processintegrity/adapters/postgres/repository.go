@@ -711,7 +711,8 @@ assignment_binding AS (
         ELSE 2
       END AS rule_rank,
       CASE
-        WHEN assignment.partition_label = w.binding_partition_label THEN 0
+        WHEN regexp_replace(lower(btrim(COALESCE(assignment.partition_label, 'whole'))), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim(COALESCE(w.binding_partition_label, 'whole'))), '^part[[:space:]]+', '') THEN 0
         WHEN assignment.partition_label = 'whole' THEN 1
         ELSE 2
       END AS partition_rank,
@@ -1108,7 +1109,8 @@ enriched AS (
           AND bound.assignment_id = ANY(grouped.drive_assignment_ids)
           AND bound.batch_id IS NOT DISTINCT FROM a.batch_id
           AND bound.shed_id IS NOT DISTINCT FROM a.shed_id
-          AND bound.partition_label = a.partition_label
+          AND regexp_replace(lower(btrim(COALESCE(bound.partition_label, 'whole'))), '^part[[:space:]]+', '')
+            = regexp_replace(lower(btrim(COALESCE(a.partition_label, 'whole'))), '^part[[:space:]]+', '')
           AND bound.vaccine_rule_ids = a.vaccine_rule_ids
       )
   ) drive_split ON true
