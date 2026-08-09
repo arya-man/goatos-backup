@@ -392,7 +392,7 @@ interface AppApi {
 
     /** GET /app/tasks/{task_id}/shed-completion-summary — vaccination shed completion summary
      *  (read-only acknowledgement contract: shed name, drive name, animal counts, vaccine breakdown). */
-    suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
+    suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null, partitionLabel: String? = null): ShedCompletionSummaryDto
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
     suspend fun listWeighingCampaigns(
@@ -1273,7 +1273,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         TaskOptionValuesResponseDto(taskId = taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): ShedCompletionSummaryDto =
         ShedCompletionSummaryDto(
             taskId = taskId,
             shedName = "Shed A — Weaners",

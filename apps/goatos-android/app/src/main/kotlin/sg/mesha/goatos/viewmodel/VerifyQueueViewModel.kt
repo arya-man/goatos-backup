@@ -23,6 +23,7 @@ import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.isConnectivityFailure
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
@@ -618,8 +619,8 @@ class VerifyQueueViewModel @Inject constructor(
         // Prefer the backend-COMPOSED location. shedLabel is the bare shed, so a verifier could
         // not tell "Godel 1 - Part 3" from "Godel 1 - Part 1" -- the wire carried the partition
         // but this screen kept reading the old field.
-        val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
-            ?: representative.shedLabel)?.takeIf { it.isNotBlank() }
+		val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
+			?: operationalLocationLabel(representative.shedLabel, representative.partitionLabel))?.takeIf { it.isNotBlank() }
         val title = listOfNotNull(shedLabel, "$size goats · $pendingCount to review")
             .joinToString(" · ")
             .ifBlank { humanizeCategory(representative.category) }

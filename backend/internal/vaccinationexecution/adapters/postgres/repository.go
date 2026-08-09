@@ -282,12 +282,13 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	if q.ShedID != nil {
 		shedID = *q.ShedID
 	}
-	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
+	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorPartitionLabel, cursorStage := "", "", "", "", "", ""
 	if q.Cursor != nil {
 		cursorParkID = q.Cursor.ParkID
 		cursorParkName = q.Cursor.ParkName
 		cursorShedID = q.Cursor.ShedID
 		cursorShedName = q.Cursor.ShedName
+		cursorPartitionLabel = q.Cursor.PartitionLabel
 		cursorStage = q.Cursor.Stage
 	}
 	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
@@ -296,7 +297,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	// stale relative to the canonical write, so the serving-projection freshness gate is removed.
 	// Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
-		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
+		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName, cursorPartitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
@@ -329,16 +330,17 @@ func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain
 		parkID = *q.ParkID
 	}
 	restrictParks := authorizedParkFilter(ctx, q.TenantID)
-	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
+	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorPartitionLabel, cursorStage := "", "", "", "", "", ""
 	if q.Cursor != nil {
 		cursorParkID = q.Cursor.ParkID
 		cursorParkName = q.Cursor.ParkName
 		cursorShedID = q.Cursor.ShedID
 		cursorShedName = q.Cursor.ShedName
+		cursorPartitionLabel = q.Cursor.PartitionLabel
 		cursorStage = q.Cursor.Stage
 	}
 	rows, err := r.pool.Query(ctx, vaccinationScheduleWindowSQL, q.TenantID, asOf, monthStart, monthEnd, parkID,
-		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit, restrictParks)
+		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit, restrictParks, cursorPartitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: schedule source rows: %w", err)
 	}
@@ -627,7 +629,11 @@ LIMIT $5;
 `
 
 func scheduleCohortKey(row domain.OperationsRow) string {
-	return row.ParkID + "|" + row.ShedID + "|" + row.Stage
+	partition := ""
+	if row.PartitionLabel != nil {
+		partition = *row.PartitionLabel
+	}
+	return row.ParkID + "|" + row.ShedID + "|" + partition + "|" + row.Stage
 }
 
 func operationsCursorFromRow(row domain.OperationsRow) domain.OperationsCursor {
@@ -636,7 +642,13 @@ func operationsCursorFromRow(row domain.OperationsRow) domain.OperationsCursor {
 		ParkName: row.ParkName,
 		ShedID:   row.ShedID,
 		ShedName: row.ShedName,
-		Stage:    row.Stage,
+		PartitionLabel: func() string {
+			if row.PartitionLabel == nil {
+				return ""
+			}
+			return *row.PartitionLabel
+		}(),
+		Stage: row.Stage,
 	}
 }
 
@@ -654,12 +666,12 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 	out := []domain.OperationsRow{}
 	for rows.Next() {
 		var row domain.OperationsRow
-		var ageBand pgtype.Text
+		var ageBand, partitionLabel pgtype.Text
 		var nextDue, lastDose pgtype.Timestamptz
 		var vaccineNames []string
 		var animals, overdue, due, inProgress, scheduled, missed, deferred, accepted, proofPending, rejected, total int64
 		if err := rows.Scan(
-			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Stage, &ageBand,
+			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &partitionLabel, &row.Stage, &ageBand,
 			&row.ProtocolID, &row.ProtocolName, &animals, &nextDue, &lastDose,
 			&vaccineNames,
 			&overdue, &due, &inProgress, &scheduled, &missed, &deferred, &accepted, &proofPending, &rejected, &total,
@@ -667,6 +679,7 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 			return nil, fmt.Errorf("vaccination execution: scan operations: %w", err)
 		}
 		row.AgeBand = textPtr(ageBand)
+		row.PartitionLabel = textPtr(partitionLabel)
 		row.NextDue = timePtr(nextDue)
 		row.LastDose = timePtr(lastDose)
 		row.Animals = int(animals)
@@ -821,6 +834,7 @@ raw AS (
     COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
     oi.target_id AS goat_id,
     g.shed_id AS shed_uuid,
+    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
     c.last_accepted_at,
@@ -841,6 +855,9 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -928,7 +945,7 @@ windowed AS (
     AND ($12::uuid[] IS NULL OR park_uuid = ANY($12::uuid[]))
 ),
 cohort_page AS (
-  SELECT windowed.park_uuid, windowed.shed_uuid, windowed.stage
+  SELECT windowed.park_uuid, windowed.shed_uuid, windowed.partition_label, windowed.stage
   FROM windowed
   JOIN locations shed
     ON shed.tenant_id = $1::uuid
@@ -942,11 +959,11 @@ cohort_page AS (
    AND park.status = 'active'
   WHERE (
     NULLIF($6::text, '') IS NULL
-    OR (park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid) >
-       ($9::text, $10::text, $8::text, NULLIF($6::text, '')::uuid, NULLIF($7::text, '')::uuid)
+    OR (park.name, shed.name, COALESCE(windowed.partition_label, ''), windowed.stage, windowed.park_uuid, windowed.shed_uuid) >
+       ($9::text, $10::text, $13::text, $8::text, NULLIF($6::text, '')::uuid, NULLIF($7::text, '')::uuid)
   )
-  GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage
-  ORDER BY park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid
+  GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.partition_label, windowed.stage
+  ORDER BY park.name, shed.name, COALESCE(windowed.partition_label, ''), windowed.stage, windowed.park_uuid, windowed.shed_uuid
   LIMIT $11::int
 )
 SELECT
@@ -954,6 +971,7 @@ SELECT
   park.name AS park_name,
   windowed.shed_uuid,
   shed.name AS shed_name,
+  windowed.partition_label,
   windowed.stage,
   (ARRAY_AGG(windowed.age_band) FILTER (WHERE windowed.age_band IS NOT NULL))[1] AS age_band,
   windowed.protocol_id,
@@ -983,6 +1001,7 @@ FROM windowed
 JOIN cohort_page page
   ON page.park_uuid = windowed.park_uuid
  AND page.shed_uuid = windowed.shed_uuid
+ AND COALESCE(page.partition_label, '') = COALESCE(windowed.partition_label, '')
  AND page.stage = windowed.stage
 JOIN locations shed
   ON shed.tenant_id = $1::uuid
@@ -994,10 +1013,11 @@ JOIN locations park
  AND park.location_id = windowed.park_uuid
  AND park.location_type = 'park'
  AND park.status = 'active'
-GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage, windowed.protocol_id, windowed.protocol_name
+GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.partition_label, windowed.stage, windowed.protocol_id, windowed.protocol_name
 ORDER BY
   park.name COLLATE "C" ASC, windowed.park_uuid ASC,
   shed.name COLLATE "C" ASC, windowed.shed_uuid ASC,
+  COALESCE(windowed.partition_label, '') COLLATE "C" ASC,
   windowed.stage COLLATE "C" ASC,
   windowed.protocol_name COLLATE "C" ASC, windowed.protocol_id ASC;`
 
@@ -1991,6 +2011,7 @@ raw AS (
     COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
     oi.target_id AS goat_id,
     g.shed_id AS shed_uuid,
+    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
     g.park_id AS direct_park_uuid,
     c.effective_status AS completion_status,
     c.last_accepted_at,
@@ -2011,6 +2032,9 @@ raw AS (
    AND g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -2079,7 +2103,7 @@ effective AS (
 	FROM located
 ),
 cohort_page AS (
-  SELECT effective.park_uuid, effective.shed_uuid, effective.stage
+  SELECT effective.park_uuid, effective.shed_uuid, effective.partition_label, effective.stage
   FROM effective
   JOIN locations shed
     ON shed.tenant_id = $1::uuid
@@ -2099,19 +2123,22 @@ cohort_page AS (
       OR (
         lower(park.name) COLLATE "C", park.name COLLATE "C", effective.park_uuid,
         lower(shed.name) COLLATE "C", shed.name COLLATE "C", effective.shed_uuid,
+        COALESCE(effective.partition_label, '') COLLATE "C",
         effective.stage COLLATE "C"
       ) > (
         SELECT
           lower(cursor_location.park_name) COLLATE "C", cursor_location.park_name COLLATE "C", NULLIF($6, '')::uuid,
           lower(cursor_location.shed_name) COLLATE "C", cursor_location.shed_name COLLATE "C", NULLIF($7, '')::uuid,
+          $12::text COLLATE "C",
           $8::text COLLATE "C"
         FROM cursor_location
       )
     )
-  GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage
+  GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.partition_label, effective.stage
   ORDER BY
     lower(park.name) COLLATE "C" ASC, park.name COLLATE "C" ASC, effective.park_uuid ASC,
     lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
+    COALESCE(effective.partition_label, '') COLLATE "C" ASC,
     effective.stage COLLATE "C" ASC
   LIMIT $9
 )
@@ -2122,6 +2149,7 @@ SELECT
   park.name AS park_name,
   effective.shed_uuid,
   shed.name AS shed_name,
+  effective.partition_label,
   effective.stage,
   (ARRAY_AGG(effective.age_band) FILTER (WHERE effective.age_band IS NOT NULL))[1] AS age_band,
   effective.protocol_id,
@@ -2151,6 +2179,7 @@ FROM effective
 JOIN cohort_page page
   ON page.park_uuid = effective.park_uuid
  AND page.shed_uuid = effective.shed_uuid
+ AND COALESCE(page.partition_label, '') = COALESCE(effective.partition_label, '')
  AND page.stage = effective.stage
 JOIN locations shed
   ON shed.tenant_id = $1::uuid
@@ -2162,10 +2191,11 @@ JOIN locations park
  AND park.location_id = effective.park_uuid
  AND park.location_type = 'park'
  AND park.status = 'active'
-GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name
+GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.partition_label, effective.stage, effective.protocol_id, effective.protocol_name
 ORDER BY
   lower(park.name) COLLATE "C" ASC, park.name COLLATE "C" ASC, effective.park_uuid ASC,
   lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
+  COALESCE(effective.partition_label, '') COLLATE "C" ASC,
   effective.stage COLLATE "C" ASC,
   effective.protocol_name COLLATE "C" ASC, effective.protocol_id ASC;
 `
@@ -2992,7 +3022,7 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 		var row domain.ShedSummaryProjection
 		var lastDone, nextDue pgtype.Timestamptz
 		var capacityStatus, shedStatus, driveOperatorNames string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.PartitionLabel, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 		}
 		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
@@ -3309,7 +3339,7 @@ drive_ops AS (
   GROUP BY operator_sources.park_id, operator_sources.shed_name -- operational-location:ignore: owner=ravi issue=OL-17 scope=park-scoped-shed-grain expiry=2026-11-30
 )
 SELECT
-  park_id, park_name, shed_id, shed_name,
+  park_id, park_name, shed_id, shed_name, partition_label,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
   COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
@@ -5450,11 +5480,23 @@ SELECT
   COUNT(DISTINCT oi.target_id)::int AS target_count,
   COUNT(DISTINCT oi.obligation_id)::int AS dose_count,
   COALESCE(operator_days.days, '[]'::jsonb) AS operator_days,
-  COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names
+  COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names,
+  COALESCE(
+    jsonb_agg(DISTINCT jsonb_build_object(
+      'shedId', loc.location_id::text,
+      'shedName', COALESCE(NULLIF(loc.name, ''), loc.location_code, ''),
+      'partition_label', CASE
+        WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+        ELSE btrim(gsp.partition_label)
+      END
+    )) FILTER (WHERE loc.location_id IS NOT NULL),
+    '[]'::jsonb
+  ) AS shed_locations
 FROM obligation_batches b
 JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id AND gsp.shed_id = oi.scope_id
 LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
 LEFT JOIN LATERAL (
   SELECT jsonb_agg(
@@ -5514,8 +5556,9 @@ LIMIT $3
 		var doseCodes []string
 		var targetCount, doseCount int
 		var operatorDaysJSON []byte
+		var shedLocationsJSON []byte
 		var shedNames []string
-		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &operatorDaysJSON, &shedNames); err != nil {
+		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &operatorDaysJSON, &shedNames, &shedLocationsJSON); err != nil {
 			return resp, fmt.Errorf("vaccination command board: drive options scan: %w", err)
 		}
 		var operatorDays []domain.CommandBoardDriveDay
@@ -5524,19 +5567,46 @@ LIMIT $3
 				return resp, fmt.Errorf("vaccination command board: drive option operator days: %w", err)
 			}
 		}
+		var shedLocations []domain.CommandBoardDriveShedLocation
+		if len(shedLocationsJSON) > 0 {
+			if err := json.Unmarshal(shedLocationsJSON, &shedLocations); err != nil {
+				return resp, fmt.Errorf("vaccination command board: drive option shed locations: %w", err)
+			}
+		}
+		for i := range shedLocations {
+			shedLocations[i].OperationalLocationDisplay = oploc.OperationalLocation{
+				ShedName:       shedLocations[i].ShedName,
+				PartitionLabel: shedLocations[i].PartitionLabel,
+			}.Display()
+		}
+		shedIDSet := make(map[string]struct{}, len(shedLocations))
+		shedIDs := make([]string, 0, len(shedLocations))
+		for _, location := range shedLocations {
+			if location.ShedID == "" {
+				continue
+			}
+			if _, ok := shedIDSet[location.ShedID]; ok {
+				continue
+			}
+			shedIDSet[location.ShedID] = struct{}{}
+			shedIDs = append(shedIDs, location.ShedID)
+		}
+		sort.Strings(shedIDs)
 
 		driveName := commandBoardDriveName(doseCodes)
 		option := domain.CommandBoardDriveOption{
-			DriveBatchID: batchID,
-			ParkID:       parkOptionID,
-			ParkName:     parkOptionName,
-			DriveName:    driveName,
-			Status:       status,
-			Label:        commandBoardDriveLabel(driveName, plannedDate, windowStart, status, targetCount),
-			TargetCount:  targetCount,
-			DoseCount:    doseCount,
-			OperatorDays: operatorDays,
-			ShedNames:    shedNames,
+			DriveBatchID:  batchID,
+			ParkID:        parkOptionID,
+			ParkName:      parkOptionName,
+			DriveName:     driveName,
+			Status:        status,
+			Label:         commandBoardDriveLabel(driveName, plannedDate, windowStart, status, targetCount),
+			TargetCount:   targetCount,
+			DoseCount:     doseCount,
+			OperatorDays:  operatorDays,
+			ShedNames:     shedNames,
+			ShedIDs:       shedIDs,
+			ShedLocations: shedLocations,
 		}
 		if plannedDate.Valid {
 			planned := biztime.BusinessDayStart(plannedDate.Time)

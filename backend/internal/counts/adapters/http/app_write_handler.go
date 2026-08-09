@@ -570,15 +570,17 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// Workflow availability was already checked before the event write (CR-05), so an unconfigured
 	// workflow can no longer leave a permanent orphan here.
 	approvalPayload, err := json.Marshal(struct {
-		ShiftingEventID       string  `json:"shifting_event_id"`
-		DestinationParkID     string  `json:"destination_park_id"`
-		DestinationShedID     string  `json:"destination_shed_id"`
-		SourceParkID          *string `json:"source_park_id,omitempty"`
-		SourceShedID          *string `json:"source_shed_id,omitempty"`
-		Priority              string  `json:"priority,omitempty"`
-		Category              string  `json:"category,omitempty"`
-		ManagementStageMode   string  `json:"management_stage_mode"`
-		TargetManagementStage string  `json:"target_management_stage"`
+		ShiftingEventID           string  `json:"shifting_event_id"`
+		DestinationParkID         string  `json:"destination_park_id"`
+		DestinationShedID         string  `json:"destination_shed_id"`
+		DestinationPartitionLabel *string `json:"destination_partition_label,omitempty"`
+		SourceParkID              *string `json:"source_park_id,omitempty"`
+		SourceShedID              *string `json:"source_shed_id,omitempty"`
+		SourcePartitionLabel      *string `json:"source_partition_label,omitempty"`
+		Priority                  string  `json:"priority,omitempty"`
+		Category                  string  `json:"category,omitempty"`
+		ManagementStageMode       string  `json:"management_stage_mode"`
+		TargetManagementStage     string  `json:"target_management_stage"`
 		// The raiser's note travels WITH the approval request, not just on the movement row: the
 		// park head decides from this payload, so a comment the operator wrote to justify the move
 		// has to be in front of them at the moment they approve or reject.
@@ -587,13 +589,15 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		// payload without goat_ids is a corruption signal the approval path must be able to see.
 		GoatIDs []string `json:"goat_ids"`
 	}{
-		ShiftingEventID:   id,
-		DestinationParkID: normalized.DestinationParkID,
-		DestinationShedID: normalized.DestinationShedID,
+		ShiftingEventID:           id,
+		DestinationParkID:         normalized.DestinationParkID,
+		DestinationShedID:         normalized.DestinationShedID,
+		DestinationPartitionLabel: normalized.DestinationPartitionLabel,
 		// The approval payload carries the SAME derived source the event stored, so the request a
 		// park head reads shows the movement's real origin rather than a blank "from".
 		SourceParkID:          sourceParkID,
 		SourceShedID:          sourceShedID,
+		SourcePartitionLabel:  normalized.SourcePartitionLabel,
 		Priority:              normalized.Priority,
 		Category:              normalized.Category,
 		ManagementStageMode:   stageMode,

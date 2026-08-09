@@ -2488,7 +2488,7 @@ private fun String.toEpochMillisOrNow(): Long =
 private fun WeighingPlannerShedDto.toPlannerShed(): WeighingPlannerShed =
     WeighingPlannerShed(
         locationId = locationId,
-        name = operationalLocationDisplay.ifBlank { name },
+        name = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(name, partitionLabel) },
         partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
         kidCount = kidCount,
         scheduled = scheduled,
@@ -2572,7 +2572,7 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
     WeighingTaskShed(
         campaignShedId = campaignShedId,
         locationId = locationId,
-        displayName = operationalLocationDisplay.ifBlank { displayName },
+        displayName = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(displayName, partitionLabel) },
         partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
         category = weighingCategory,
         operatorUserId = operatorUserId,
@@ -2667,7 +2667,7 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                 WeighingTaskShed(
                     campaignShedId = shed.campaignShedId,
                     locationId = shed.locationId,
-                    displayName = shed.operationalLocationDisplay.ifBlank { shed.displayName },
+                    displayName = shed.operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(shed.displayName, shed.partitionLabel) },
                     partitionLabel = shed.partitionLabel?.takeIf { it.isNotBlank() },
                     category = shed.weighingCategory,
                     operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
@@ -2874,6 +2874,15 @@ fun weighingCacheAgeNotice(cachedAt: Long, now: Long = System.currentTimeMillis(
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     if (!cachedDay.isBefore(today)) return ""
     return "Saved on ${cachedDay.format(WEIGHING_CACHE_DAY_FORMAT)}."
+}
+
+private fun operationalWeighingLocationLabel(shedName: String?, partitionLabel: String?): String {
+    val shed = shedName?.trim().orEmpty()
+    val partition = partitionLabel?.trim().orEmpty()
+    if (partition.isBlank() || partition.equals("whole", ignoreCase = true)) return shed
+    if (shed.isBlank()) return partition
+    if (shed.contains(partition, ignoreCase = true)) return shed
+    return "$shed - $partition"
 }
 
 /** Weighing is planned, executed and read on the Asia/Kolkata business day. */

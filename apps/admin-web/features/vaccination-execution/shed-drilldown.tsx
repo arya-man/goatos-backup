@@ -94,9 +94,7 @@ export async function ShedExecutionDetailPage({
   const s = shed.summary;
   // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
   const owner = shed.rows.find((r) => r.owner?.operatorName)?.owner ?? shed.rows[0]?.owner;
-  // Shed display label: use backend-composed operational_location_display (includes partition info if the shed is partitioned),
-  // otherwise fall back to bare shed name. Built outside JSX to avoid line-level name+id pattern detection.
-  const shedDisplayLabel = shed.operationalLocationDisplay || shed.shedName;
+  const shedDisplayLabel = shed.operationalLocationDisplay;
   const blockers = shed.rows.filter((r) => r.blockerReason);
   const driveRowLabels = tableLabels(pageContract, "shed-drive-rows");
 

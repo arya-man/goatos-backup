@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -95,7 +96,7 @@ class FeedTransportViewModel @Inject constructor(
     val state: StateFlow<FeedTransportUiState> = combine(observedPage, flags, window) { (selected, page), current, size ->
         val parks = page.filters.parks.map { FeedDropdownOption(it.id, it.label) }
         val sheds = page.filters.sheds.map {
-            FeedDropdownOption(feedTransportShedFilterKey(it.id, it.partitionLabel.orEmpty()), it.label)
+            FeedDropdownOption(it.id, it.label)
         }
         FeedTransportUiState(
             date = selected.businessDate,
@@ -119,7 +120,7 @@ class FeedTransportViewModel @Inject constructor(
                     it.taskId,
                     it.parkId,
                     it.shedId,
-                    it.operationalLocationDisplay.ifBlank { it.shedLabel },
+                    it.operationalLocationDisplay.ifBlank { operationalLocationLabel(it.shedLabel, it.partitionLabel) },
                     it.parkLabel,
                     it.status,
                     it.reworkReason,
@@ -283,7 +284,8 @@ private fun feedTransportShedFilterKey(shedId: String, partitionLabel: String): 
 private fun parseFeedTransportShedFilterKey(key: String): Pair<String, String> {
     if (key.isBlank()) return "" to ""
     val parts = key.split("\u001f", limit = 2)
-    return parts[0] to parts.getOrElse(1) { "" }
+    val partition = parts.getOrElse(1) { "" }
+    return parts[0] to if (partition == "whole") "" else partition
 }
 
 /**

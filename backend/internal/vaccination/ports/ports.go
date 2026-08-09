@@ -91,5 +91,5 @@ type Repository interface {
 	// proof + obligation state only, never submitted answers) for one vaccination task. shedID is
 	// optional for legacy task-wide readers; mobile submit passes it so park/drive tasks stay
 	// narrowed to the exact shed the operator scanned.
-	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error)
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string, partitionLabel ...string) (domain.ShedCompletionSummary, error)
 }

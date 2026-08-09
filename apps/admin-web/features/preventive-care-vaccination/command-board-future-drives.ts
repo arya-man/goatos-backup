@@ -13,15 +13,18 @@ export interface CommandBoardDriveOption {
   targetCount: number;
   doseCount: number;
   operatorDays?: Array<{ date: string; targetCount: number; doseCount: number }>;
-  // Shed display names. This array contains shed NAMES only, which can be ambiguous when a park has
-  // two sheds with the same name or when multiple partitions (Castro 1, Castro 2) share a base name.
-  // CONTRACT GAP: The backend API response lacks shed_id and partition_label, so the frontend cannot
-  // properly distinguish them. TODO: Add shed_id + partition_label to VaccinationCommandBoardDriveOption.
+  // Legacy display names for the physical sheds in this executable day.
   shedNames: string[];
   // Stable ids for the same sheds. Dedup on these, never on shedNames -- names repeat across
   // parks, so a name-keyed dedup merges two parks' sheds into one row. Optional because older
   // backends did not send it; absent means fall back to name-scoped behaviour within this row.
   shedIds?: string[];
+  shedLocations?: Array<{
+    shedId: string;
+    shedName: string;
+    partition_label?: string | null;
+    operational_location_display?: string | null;
+  }>;
   // Set when the option's counts were reconstructed from the projection matrices instead of being
   // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
   // fold below must not add it to its siblings.
@@ -36,10 +39,7 @@ export interface ScheduledDriveRow {
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
-  // Shed display names. NOTE: Ambiguous when a park has sheds with duplicate names or partitions
-  // with the same display name (see CommandBoardDriveOption contract gap above).
-  // Row is already scoped by parkId + drive + window dates, so sheds are contextually unambiguous
-  // even though names alone would not be sufficient in a multi-park context.
+  // Operational shed display names.
   shedNames: string[];
   // Stable shed ids for the same sheds, in the same scope. Dedup keys on these, never on
   // shedNames: names repeat across parks (two Castro, two Gandhi), so a name-keyed dedup
@@ -141,12 +141,19 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     // name collisions; keep shedNames for display. Sort both for stable output.
     const shedIdSet = new Set(driveRow.shedIds);
     const shedNameSet = new Set(driveRow.shedNames);
-    (option.shedIds ?? []).forEach((id: string) => {
-      shedIdSet.add(id);
-    });
-    (option.shedNames ?? []).forEach((name: string) => {
-      shedNameSet.add(name);
-    });
+    if (option.shedLocations?.length) {
+      option.shedLocations.forEach((location) => {
+        shedIdSet.add(`${location.shedId}|${location.partition_label ?? ""}`);
+        shedNameSet.add(location.operational_location_display || location.shedName);
+      });
+    } else {
+      (option.shedIds ?? []).forEach((id: string) => {
+        shedIdSet.add(id);
+      });
+      (option.shedNames ?? []).forEach((name: string) => {
+        shedNameSet.add(name);
+      });
+    }
     driveRow.shedIds = Array.from(shedIdSet);
     driveRow.shedNames = Array.from(shedNameSet);
   });
@@ -245,9 +252,12 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         targetCount: day.targetCount,
         doseCount: day.doseCount,
         shedNames: [...(option.shedNames ?? [])].sort(),
-        shedIds: [...(option.shedIds ?? [])].sort(),
+        shedIds: [...(option.shedLocations?.map((location) => `${location.shedId}|${location.partition_label ?? ""}`) ?? option.shedIds ?? [])].sort(),
         batchIds: [option.driveBatchId],
       }));
+      const shedNames = option.shedLocations?.length
+        ? option.shedLocations.map((location) => location.operational_location_display || location.shedName)
+        : option.shedNames ?? [];
       return {
         key: `${option.driveBatchId}|${option.parkId ?? ""}`,
         name: commonDriveName(name, option.parkName),
@@ -256,7 +266,7 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         dateKeys,
         targetCount: option.targetCount,
         doseCount: option.doseCount,
-        shedNames: [...(option.shedNames ?? [])].sort(),
+        shedNames: [...shedNames].sort(),
         batchIds: [option.driveBatchId],
         treatments,
       };

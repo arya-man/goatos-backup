@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.CarryVaccine
 import sg.mesha.goatos.feature.sheds.DayCarry
@@ -443,7 +444,7 @@ class ShedsViewModel @Inject constructor(
                 // or a partitioned shed shows its bare name and every partition of that shed
                 // reads identically on the operator's list ("Mandela 2" three times instead of
                 // "Mandela 2 - Part 3"). Falls back to shedName for older API responses.
-                name = first.operationalLocationDisplay.ifBlank { first.shedName },
+                name = first.operationalLocationDisplay.ifBlank { operationalLocationLabel(first.shedName, first.partitionLabel ?: first.partition) },
                 parkId = first.parkId,
                 parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),

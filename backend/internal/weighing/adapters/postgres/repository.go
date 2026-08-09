@@ -1323,7 +1323,7 @@ func (r *Repository) GetLeadershipShedVideos(ctx context.Context, tenantID, camp
 	// predicate a user with a prior non-active row matches twice and fans the
 	// head row out. None of the three can multiply the shed row.
 	err = r.pool.QueryRow(ctx, `
-SELECT cs.campaign_id::text, cs.campaign_shed_id::text, cs.display_name, COALESCE(cs.operator_user_id::text, ''),
+SELECT cs.campaign_id::text, cs.campaign_shed_id::text, cs.display_name, COALESCE(cs.partition_label, ''), COALESCE(cs.operator_user_id::text, ''),
        cs.weighing_category, cs.status, COALESCE(cs.expected_animal_count, 0),
        COALESCE(park.name, ''),
        COALESCE(cs.start_business_date::text, wc.start_business_date::text, ''),
@@ -1346,7 +1346,7 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
     OR wc.park_id = ANY($5::uuid[])
   )`,
 		tenantID, campaignID, campaignShedID, access.Unrestricted, accessParkIDs,
-	).Scan(&result.CampaignID, &result.CampaignShedID, &result.ShedName, &result.OperatorUserID,
+	).Scan(&result.CampaignID, &result.CampaignShedID, &result.ShedName, &result.PartitionLabel, &result.OperatorUserID,
 		&result.WeighingCategory, &result.Status, &result.EstimatedAnimalCount,
 		&result.ParkName, &result.WeighDate, &result.OperatorDisplayName,
 		&periodStart, &periodEnd)
@@ -1360,10 +1360,8 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
 	result.Individual = []domain.Observation{}
 	result.MaxShedVideos = domain.MaxShedProofArtifacts
 	// operational_location_display is REQUIRED by the OpenAPI schema, so it must be
-	// populated here rather than left to the client. Derived by PARSING the catalog
-	// name -- weighing is isolated and may not join goat_shed_partitions; ShedName
-	// already carries the partition ("Godel 1 - Part 3") because it comes from the
-	// same locations catalog every other module reads.
+	// populated here rather than left to the client. The persisted partition label
+	// is authoritative; display parsing is only a compatibility fallback for older rows.
 	applyLeadershipShedPartitionDisplay(&result)
 
 	if result.WeighingCategory == "per_shed_partition" {
@@ -3185,10 +3183,6 @@ parent_options AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
-  WHERE (
-      lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
-      OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
-    )
 ),
 alias_options AS (
   SELECT

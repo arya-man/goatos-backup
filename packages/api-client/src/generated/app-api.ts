@@ -3734,7 +3734,7 @@ export interface components {
             filters: components["schemas"]["FeedTransportFilterOptions"];
         };
         FeedTransportFilterOption: {
-            /** Format: uuid */
+            /** @description Opaque filter key. Shed options use shed_id plus partition grain. */
             id: string;
             label: string;
             partition_label?: string;
@@ -5905,6 +5905,14 @@ export interface components {
             shedNames: string[];
             /** @description Location IDs of the physical sheds assigned to this executable operator day. */
             shedIds?: string[];
+            /** @description Operational shed locations assigned to this executable operator day. Partitioned sheds appear once per real partition, using shedId + partition_label as identity and operational_location_display for UI labels. */
+            shedLocations?: {
+                /** Format: uuid */
+                shedId: string;
+                shedName: string;
+                partition_label?: string;
+                operational_location_display: string;
+            }[];
         };
         /** @description One column of the shed x vaccine matrix. */
         CommandBoardVaccineColumn: {

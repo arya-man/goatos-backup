@@ -90,6 +90,7 @@ func (s *Service) PrepareCreateAdminGoat(ctx context.Context, input CreateAdminG
 	cmd.RequestHash = requestHash
 	cmd.StoredIdempotencyKey = fmt.Sprintf("%s:%s:%s", tenantID, createAdminGoatCommand, clientKey)
 	cmd.IdempotencyScope = createAdminGoatCommand
+	cmd.RequirePartitionGrain = true
 
 	// Resolves custodian/farm/park/shed and checks identifier lifetime conflicts. Read-only.
 	fieldErrors, _, err = validateAdminGoatCreate(ctx, repo, normalized, &cmd)

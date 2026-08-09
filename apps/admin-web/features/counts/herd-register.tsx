@@ -9,6 +9,7 @@ import { dash } from "@/lib/format";
 import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
+  getCountsBreakdown,
   getHerdRegisterSummary,
   listAnimalStages,
   searchGoats,
@@ -26,7 +27,7 @@ import {
   one,
   type RouteSearchParams,
 } from "@/lib/search-params";
-import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
+import { HerdActions, type HerdAnimalStageOption, type HerdOperationalLocationOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -169,13 +170,14 @@ export async function HerdRegisterPage({
   const selectedGoatId = one(sp, "goat_passport");
 
   // Real goats + real location options for the write drawers, in parallel.
-  const [result, summaryResult, locations, stagesResult] = await Promise.all([
+  const [result, summaryResult, locations, stagesResult, breakdownResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
     getHerdRegisterSummary({ park_id: parkId, breed, sex }),
     getHerdRegisterLocations(),
     listAnimalStages(),
+    getCountsBreakdown({ lifecycle_status: status, limit: 1 }),
   ]);
-  const authError = firstAuthRequiredError(result, summaryResult, stagesResult);
+  const authError = firstAuthRequiredError(result, summaryResult, stagesResult, breakdownResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   // A fresh idempotency key per render: a double-submit of the open Register drawer replays the same key
@@ -187,6 +189,15 @@ export async function HerdRegisterPage({
     ? stagesResult.data.items.map((stage) => ({
         code: stage.stage_code,
         label: stage.name ? `${stage.stage_code} · ${stage.name}` : stage.stage_code,
+      }))
+    : [];
+  const operationalLocations: HerdOperationalLocationOption[] = breakdownResult.ok
+    ? breakdownResult.data.facets.sheds.map((shed) => ({
+        key: shed.key,
+        shedId: shed.shed_id,
+        parkId: shed.park_id || null,
+        partitionLabel: shed.partition_label || null,
+        label: shed.operational_location_display || shed.label,
       }))
     : [];
 
@@ -229,6 +240,7 @@ export async function HerdRegisterPage({
         <HerdActions
           parks={locations.parks}
           sheds={locations.sheds}
+          operationalLocations={operationalLocations}
           farms={locations.farms}
           animalStages={animalStages}
           locationsAvailable={locations.available}

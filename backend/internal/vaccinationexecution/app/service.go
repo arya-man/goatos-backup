@@ -220,13 +220,14 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 			protocolSeen[r.ProtocolID] = true
 			protocols = append(protocols, domain.OperationsProtocol{ProtocolID: r.ProtocolID, Name: r.ProtocolName})
 		}
-		key := r.ParkID + "|" + r.ShedID + "|" + r.Stage
+		key := r.ParkID + "|" + r.ShedID + "|" + partitionKey(r.PartitionLabel) + "|" + r.Stage
 		idx, ok := cohortIndex[key]
 		if !ok {
 			idx = len(cohorts)
 			cohortIndex[key] = idx
 			cohorts = append(cohorts, domain.OperationsCohort{
 				ParkID: r.ParkID, ParkName: r.ParkName, ShedID: r.ShedID, ShedName: r.ShedName,
+				PartitionLabel: r.PartitionLabel, OperationalLocationDisplay: operationalLocationDisplay(r.ShedName, r.PartitionLabel),
 				Stage: r.Stage, AgeBand: r.AgeBand, WorkState: domain.WorkStateCompleted, Cells: []domain.OperationsCell{},
 			})
 		}
@@ -843,21 +844,23 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
 		rows = append(rows, domain.ShedSummaryRow{
-			ParkID:             p.ParkID,
-			ParkName:           p.ParkName,
-			ShedID:             p.ShedID,
-			ShedName:           p.ShedName,
-			Animals:            p.Animals,
-			Due:                p.DueAnimals,
-			Done:               p.Animals - p.DueAnimals,
-			Sessions:           p.Sessions,
-			LastDone:           businessDatePtr(p.LastDone),
-			NextDue:            businessDatePtr(p.NextDue),
-			Manager:            owners.Manager,
-			Backup:             owners.Backup,
-			DriveOperatorNames: append([]string(nil), p.DriveOperatorNames...),
-			Capacity:           p.Capacity,
-			Status:             p.Status,
+			ParkID:                     p.ParkID,
+			ParkName:                   p.ParkName,
+			ShedID:                     p.ShedID,
+			ShedName:                   p.ShedName,
+			PartitionLabel:             p.PartitionLabel,
+			OperationalLocationDisplay: operationalLocationDisplay(p.ShedName, p.PartitionLabel),
+			Animals:                    p.Animals,
+			Due:                        p.DueAnimals,
+			Done:                       p.Animals - p.DueAnimals,
+			Sessions:                   p.Sessions,
+			LastDone:                   businessDatePtr(p.LastDone),
+			NextDue:                    businessDatePtr(p.NextDue),
+			Manager:                    owners.Manager,
+			Backup:                     owners.Backup,
+			DriveOperatorNames:         append([]string(nil), p.DriveOperatorNames...),
+			Capacity:                   p.Capacity,
+			Status:                     p.Status,
 		})
 	}
 	limit := q.Limit
@@ -879,6 +882,24 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 			return nil
 		}(),
 	}, nil
+}
+
+func operationalLocationDisplay(shedName string, partitionLabel *string) string {
+	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
+		return shedName
+	}
+	label := strings.TrimSpace(*partitionLabel)
+	if strings.Contains(strings.ToLower(shedName), strings.ToLower(label)) {
+		return shedName
+	}
+	return shedName + " - " + label
+}
+
+func partitionKey(partitionLabel *string) string {
+	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
+		return "whole"
+	}
+	return strings.ToLower(strings.TrimSpace(*partitionLabel))
 }
 
 // ShedDetail returns one shed's header (the same animal-level counts + Manager/Backup + Sessions +

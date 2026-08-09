@@ -285,6 +285,7 @@ WITH claimed AS (
     WHERE other.tenant_id = slipped.tenant_id
       AND other.park_id = slipped.park_id
       AND other.shed_location_id = slipped.shed_location_id
+      AND COALESCE(other.partition_label, '') = COALESCE(slipped.partition_label, '')
       AND other.due_business_date = $2::date
       AND other.work_state IN ('scheduled','delayed')
       AND other.work_item_id <> slipped.work_item_id
