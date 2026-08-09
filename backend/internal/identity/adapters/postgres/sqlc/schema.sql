@@ -6028,6 +6028,7 @@ CREATE TABLE public.feed_transport_tasks (
     tenant_id uuid NOT NULL,
     park_id uuid NOT NULL,
     shed_id uuid NOT NULL,
+    partition_label text,
     business_date date NOT NULL,
     scheduled_at timestamp with time zone NOT NULL,
     status text DEFAULT 'due'::text NOT NULL,
@@ -11601,7 +11602,7 @@ CREATE UNIQUE INDEX feed_transport_attempts_tenant_attempt_uq ON public.feed_tra
 -- Name: feed_transport_tasks_daily_shed_uq; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_transport_tasks_daily_shed_uq ON public.feed_transport_tasks USING btree (tenant_id, business_date, shed_id);
+CREATE UNIQUE INDEX feed_transport_tasks_daily_location_uq ON public.feed_transport_tasks USING btree (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''::text), 'whole'::text));
 
 
 --

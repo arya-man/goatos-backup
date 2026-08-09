@@ -378,17 +378,31 @@ function enrichDriveOptions(
     // BUG FIX (2026-08-07): OL-2 partition collapse. Key by shedId + partition_label instead of shedName.
     // Two same-named sheds across parks and two partitions of one shed must contribute separate counts.
     // Keying by shedName alone merged them, silently summing counts from disjoint physical locations.
-    const byShedKey = new Map<string, { shedName: string; operationalLocationDisplay: string | null; animalCount: number }>();
+    const byShedKey = new Map<string, { shedId: string; shedName: string; partitionLabel: string | null; operationalLocationDisplay: string | null; animalCount: number }>();
     cells.forEach((cell) => {
       const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const existing = byShedKey.get(shedKey);
       if (!existing || cell.animalCount > existing.animalCount) {
-        byShedKey.set(shedKey, { shedName: cell.shedName, operationalLocationDisplay: cell.operational_location_display ?? null, animalCount: cell.animalCount });
+        byShedKey.set(shedKey, {
+          shedId: cell.shedId,
+          shedName: cell.shedName,
+          partitionLabel: cell.partition_label ?? null,
+          operationalLocationDisplay: cell.operational_location_display ?? null,
+          animalCount: cell.animalCount,
+        });
       }
     });
     const shedNames = Array.from(byShedKey.values())
       .map((entry) => entry.operationalLocationDisplay || entry.shedName)
       .sort();
+    const shedLocations = Array.from(byShedKey.values())
+      .map((entry) => ({
+        shedId: entry.shedId,
+        shedName: entry.shedName,
+        partition_label: entry.partitionLabel,
+        operational_location_display: entry.operationalLocationDisplay || entry.shedName,
+      }))
+      .sort((a, b) => `${a.shedId}|${a.partition_label ?? ""}`.localeCompare(`${b.shedId}|${b.partition_label ?? ""}`));
     const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
     let targetCount = 0;
     if ((option.driveName || option.label).includes(" + ")) {
@@ -405,6 +419,8 @@ function enrichDriveOptions(
       targetCount: targetCap > 0 ? Math.min(targetCount, targetCap) : targetCount,
       doseCount,
       shedNames,
+      shedIds: shedLocations.map((location) => location.shedId),
+      shedLocations,
       derivedFromMatrix: true,
     };
   }).filter((option) => option.status !== "planned" || (option.targetCount ?? 0) > 0);

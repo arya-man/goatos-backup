@@ -486,8 +486,12 @@ func buildActionCenterReader(svc actionCenterLister, resolver parkResolver) func
 			if item.ParkName != "" {
 				scope = item.ParkName + " / " + scope
 			}
-			if item.ShedName != "" {
-				scope = scope + " / " + item.ShedName
+			location := item.OperationalLocationDisplay
+			if location == "" {
+				location = item.ShedName
+			}
+			if location != "" {
+				scope = scope + " / " + location
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: item.Category,
@@ -529,8 +533,12 @@ func buildOpsKernelHealthReader(svc opsKernelHealthLister) func(ctx context.Cont
 		})
 		for _, alert := range result.Alerts {
 			scope := alert.ParkName
-			if alert.ShedName != "" {
-				scope = scope + " / " + alert.ShedName
+			location := alert.OperationalLocationDisplay
+			if location == "" {
+				location = alert.ShedName
+			}
+			if location != "" {
+				scope = scope + " / " + location
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: alert.Title,

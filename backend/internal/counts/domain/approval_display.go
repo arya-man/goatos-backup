@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Backend-composed display copy for one approval-queue row.
@@ -105,8 +107,8 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 		if n := fields.count("goat_ids"); n > 0 {
 			add(strconv.Itoa(n) + " " + pluralAnimals(n))
 		}
-		from := names.location(fields.str("source_shed_id"))
-		to := names.location(fields.str("destination_shed_id"))
+		from := operationalApprovalLocation(names.location(fields.str("source_shed_id")), fields.str("source_partition_label"))
+		to := operationalApprovalLocation(names.location(fields.str("destination_shed_id")), fields.str("destination_partition_label"))
 		switch {
 		case from != "" && to != "":
 			add(from + " → " + to)
@@ -121,6 +123,13 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 	}
 
 	return strings.Join(parts, " · ")
+}
+
+func operationalApprovalLocation(shedName, partitionLabel string) string {
+	return oploc.OperationalLocation{
+		ShedName:       strings.TrimSpace(shedName),
+		PartitionLabel: strings.TrimSpace(partitionLabel),
+	}.Display()
 }
 
 func pluralAnimals(n int) string {

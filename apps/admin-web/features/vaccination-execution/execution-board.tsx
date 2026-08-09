@@ -37,7 +37,6 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
-import { operationalLocationLabel } from "@/lib/operational-location";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
@@ -83,14 +82,7 @@ function physicalShedName(row: VaccinationExecutionRow): string {
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
-  return (
-    row.operational_location_display ||
-    operationalLocationLabel({
-      shedName: physicalShedName(row),
-      partitionLabel: row.partition_label,
-      sourceShedName: row.source_shed_name,
-    })
-  );
+  return row.operational_location_display;
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {

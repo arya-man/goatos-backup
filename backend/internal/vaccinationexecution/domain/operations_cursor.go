@@ -15,20 +15,22 @@ const maxOperationsCursorLength = 512
 // The repository orders cohorts by this tuple before expanding each cohort into
 // its protocol cells, so a page never splits a cohort across responses.
 type OperationsCursor struct {
-	ParkID   string
-	ParkName string
-	ShedID   string
-	ShedName string
-	Stage    string
+	ParkID         string
+	ParkName       string
+	ShedID         string
+	ShedName       string
+	PartitionLabel string
+	Stage          string
 }
 
 type operationsCursorPayload struct {
-	Kind     string `json:"k"`
-	ParkID   string `json:"p"`
-	ParkName string `json:"pn,omitempty"`
-	ShedID   string `json:"s"`
-	ShedName string `json:"sn,omitempty"`
-	Stage    string `json:"g"`
+	Kind           string `json:"k"`
+	ParkID         string `json:"p"`
+	ParkName       string `json:"pn,omitempty"`
+	ShedID         string `json:"s"`
+	ShedName       string `json:"sn,omitempty"`
+	PartitionLabel string `json:"pl,omitempty"`
+	Stage          string `json:"g"`
 }
 
 func EncodeOperationsCursor(cursor OperationsCursor) (string, error) {
@@ -37,7 +39,7 @@ func EncodeOperationsCursor(cursor OperationsCursor) (string, error) {
 	}
 	raw, err := json.Marshal(operationsCursorPayload{
 		Kind: "vaccination_operations", ParkID: cursor.ParkID, ParkName: cursor.ParkName,
-		ShedID: cursor.ShedID, ShedName: cursor.ShedName, Stage: cursor.Stage,
+		ShedID: cursor.ShedID, ShedName: cursor.ShedName, PartitionLabel: cursor.PartitionLabel, Stage: cursor.Stage,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode vaccination operations cursor: %w", err)
@@ -67,7 +69,7 @@ func DecodeOperationsCursor(value string) (OperationsCursor, error) {
 	}
 	cursor := OperationsCursor{
 		ParkID: payload.ParkID, ParkName: payload.ParkName,
-		ShedID: payload.ShedID, ShedName: payload.ShedName, Stage: payload.Stage,
+		ShedID: payload.ShedID, ShedName: payload.ShedName, PartitionLabel: payload.PartitionLabel, Stage: payload.Stage,
 	}
 	if err := validateOperationsCursor(cursor); err != nil {
 		return OperationsCursor{}, err
@@ -84,6 +86,9 @@ func validateOperationsCursor(cursor OperationsCursor) error {
 	}
 	if (cursor.ParkName == "") != (cursor.ShedName == "") {
 		return fmt.Errorf("invalid vaccination operations cursor names")
+	}
+	if cursor.PartitionLabel != strings.TrimSpace(cursor.PartitionLabel) || len(cursor.PartitionLabel) > 128 {
+		return fmt.Errorf("invalid vaccination operations cursor partition")
 	}
 	for _, name := range []string{cursor.ParkName, cursor.ShedName} {
 		if name != strings.TrimSpace(name) || len(name) > 256 {

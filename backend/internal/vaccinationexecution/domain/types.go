@@ -261,18 +261,20 @@ type OperationsCell struct {
 }
 
 type OperationsCohort struct {
-	ParkID    string           `json:"parkId"`
-	ParkName  string           `json:"parkName"`
-	ShedID    string           `json:"shedId"`
-	ShedName  string           `json:"shedName"`
-	Stage     string           `json:"stage"`
-	AgeBand   *string          `json:"ageBand,omitempty"`
-	Animals   int              `json:"animals"`
-	LastDose  *time.Time       `json:"lastDose,omitempty"`
-	NextDue   *time.Time       `json:"nextDue,omitempty"`
-	WorkState WorkState        `json:"workState"`
-	Counts    OperationsCounts `json:"counts"`
-	Cells     []OperationsCell `json:"cells"`
+	ParkID                     string           `json:"parkId"`
+	ParkName                   string           `json:"parkName"`
+	ShedID                     string           `json:"shedId"`
+	ShedName                   string           `json:"shedName"`
+	PartitionLabel             *string          `json:"partitionLabel,omitempty"`
+	OperationalLocationDisplay string           `json:"operationalLocationDisplay"`
+	Stage                      string           `json:"stage"`
+	AgeBand                    *string          `json:"ageBand,omitempty"`
+	Animals                    int              `json:"animals"`
+	LastDose                   *time.Time       `json:"lastDose,omitempty"`
+	NextDue                    *time.Time       `json:"nextDue,omitempty"`
+	WorkState                  WorkState        `json:"workState"`
+	Counts                     OperationsCounts `json:"counts"`
+	Cells                      []OperationsCell `json:"cells"`
 }
 
 type OperationsResponse struct {
@@ -289,6 +291,7 @@ type OperationsRow struct {
 	ParkName          string
 	ShedID            string
 	ShedName          string
+	PartitionLabel    *string
 	Stage             string
 	AgeBand           *string
 	ProtocolID        string
@@ -634,18 +637,20 @@ type ShedOwner struct {
 // vaccination visits/days for the shed (usually 1; >1 when the daily cap forces a split). Capacity is
 // the machine capacity state (CEO label rendered by the UI). Status is the merged CEO headline.
 type ShedSummaryRow struct {
-	ParkID   string     `json:"parkId"`
-	ParkName string     `json:"parkName"`
-	ShedID   string     `json:"shedId"`
-	ShedName string     `json:"shedName"`
-	Animals  int        `json:"animals"`
-	Due      int        `json:"due"`
-	Done     int        `json:"done"`
-	Sessions int        `json:"sessions"`
-	LastDone *string    `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
-	NextDue  *string    `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
-	Manager  *ShedOwner `json:"manager,omitempty"`
-	Backup   *ShedOwner `json:"backup,omitempty"`
+	ParkID                     string     `json:"parkId"`
+	ParkName                   string     `json:"parkName"`
+	ShedID                     string     `json:"shedId"`
+	ShedName                   string     `json:"shedName"`
+	PartitionLabel             *string    `json:"partitionLabel,omitempty"`
+	OperationalLocationDisplay string     `json:"operationalLocationDisplay"`
+	Animals                    int        `json:"animals"`
+	Due                        int        `json:"due"`
+	Done                       int        `json:"done"`
+	Sessions                   int        `json:"sessions"`
+	LastDone                   *string    `json:"lastDone,omitempty"` // Asia/Kolkata business date of latest accepted dose
+	NextDue                    *string    `json:"nextDue,omitempty"`  // Asia/Kolkata business date of earliest open obligation
+	Manager                    *ShedOwner `json:"manager,omitempty"`
+	Backup                     *ShedOwner `json:"backup,omitempty"`
 	// DriveOperatorNames are the actual vaccination operators assigned by the operator-cap planner.
 	// This is the ownership field for vaccination drives; Manager/Backup remain legacy shed-owner context.
 	DriveOperatorNames []string       `json:"driveOperatorNames,omitempty"`
@@ -1113,24 +1118,33 @@ type CommandBoardDriveOption struct {
 	// selector entry and their counts read as one drive's. The row grain is therefore
 	// (batch, park), not batch alone -- a batch whose obligations span parks is genuinely
 	// two operator days in two places and must be offered as two choices.
-	ParkID       string                 `json:"parkId,omitempty"`
-	ParkName     string                 `json:"parkName,omitempty"`
-	DriveName    string                 `json:"driveName"`
-	Label        string                 `json:"label"`
-	Status       string                 `json:"status"`
-	PlannedDate  *time.Time             `json:"plannedDate,omitempty"`
-	WindowStart  *time.Time             `json:"windowStart,omitempty"`
-	WindowEnd    *time.Time             `json:"windowEnd,omitempty"`
-	TargetCount  int                    `json:"targetCount"`
-	DoseCount    int                    `json:"doseCount"`
-	OperatorDays []CommandBoardDriveDay `json:"operatorDays,omitempty"`
-	ShedNames    []string               `json:"shedNames"`
+	ParkID        string                          `json:"parkId,omitempty"`
+	ParkName      string                          `json:"parkName,omitempty"`
+	DriveName     string                          `json:"driveName"`
+	Label         string                          `json:"label"`
+	Status        string                          `json:"status"`
+	PlannedDate   *time.Time                      `json:"plannedDate,omitempty"`
+	WindowStart   *time.Time                      `json:"windowStart,omitempty"`
+	WindowEnd     *time.Time                      `json:"windowEnd,omitempty"`
+	TargetCount   int                             `json:"targetCount"`
+	DoseCount     int                             `json:"doseCount"`
+	OperatorDays  []CommandBoardDriveDay          `json:"operatorDays,omitempty"`
+	ShedNames     []string                        `json:"shedNames"`
+	ShedIDs       []string                        `json:"shedIds,omitempty"`
+	ShedLocations []CommandBoardDriveShedLocation `json:"shedLocations,omitempty"`
 }
 
 type CommandBoardDriveDay struct {
 	Date        string `json:"date"`
 	TargetCount int    `json:"targetCount"`
 	DoseCount   int    `json:"doseCount"`
+}
+
+type CommandBoardDriveShedLocation struct {
+	ShedID                     string `json:"shedId"`
+	ShedName                   string `json:"shedName"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 type CommandBoardResponse struct {

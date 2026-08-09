@@ -138,7 +138,10 @@ UNION ALL
 -- The filter DROPDOWN must name the same place the rows name. A bare s.name hides the
 -- partition, so two pens of one shed read as one option and the operator cannot tell which
 -- they picked. Composed here with the same agree-or-go-bare rule the row reads use.
-SELECT 'shed', t.shed_id::text, s.name, coalesce(t.partition_label, '')
+SELECT 'shed',
+       t.shed_id::text || E'\x1f' || COALESCE(NULLIF(BTRIM(t.partition_label), ''), 'whole'),
+       s.name,
+       coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- Partition resolved by a GROUPED JOIN, not a correlated subquery: correlating on t.tenant_id
@@ -163,7 +166,8 @@ ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 		if err := rows.Scan(&kind, &option.ID, &shedName, &partitionLabel); err != nil {
 			return ports.FeedTransportFilterOptions{}, err
 		}
-		// Compose through the shared primitive so the dropdown reads exactly like the rows.
+		// The shed option ID is an opaque operational-location key, not a bare shed UUID.
+		// Compose the label through the shared primitive so the dropdown reads exactly like the rows.
 		option.PartitionLabel = partitionLabel
 		option.Label = oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if kind == "park" {

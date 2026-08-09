@@ -26,7 +26,7 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
-	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error)
+	ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string, partitionLabel ...string) (domain.ShedCompletionSummary, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -363,7 +363,11 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
 		return
 	}
-	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID, shedID)
+	partitionLabel := strings.TrimSpace(r.URL.Query().Get("partition_label"))
+	if partitionLabel == "" {
+		partitionLabel = strings.TrimSpace(r.URL.Query().Get("partitionLabel"))
+	}
+	summary, err := h.svc.ShedCompletionSummary(r.Context(), tenantID(r), taskID, shedID, partitionLabel)
 	if err != nil {
 		if errors.Is(err, vaccports.ErrNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,

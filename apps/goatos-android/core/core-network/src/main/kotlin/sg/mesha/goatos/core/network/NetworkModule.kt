@@ -234,6 +234,7 @@ interface AppApiService {
     suspend fun getShedCompletionSummary(
         @Path("task_id") taskId: String,
         @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
     ): ShedCompletionSummaryDto
 
     /**
@@ -902,8 +903,8 @@ class RetrofitAppApi(
     override suspend fun getTaskOptionValues(taskId: String): TaskOptionValuesResponseDto =
         service.getTaskOptionValues(taskId)
 
-    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
-        service.getShedCompletionSummary(taskId, shedId)
+    override suspend fun getShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): ShedCompletionSummaryDto =
+        service.getShedCompletionSummary(taskId, shedId, partitionLabel)
 
     override suspend fun listWeighingCampaigns(
         scope: String?,

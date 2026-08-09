@@ -1815,7 +1815,7 @@ WHERE vc.tenant_id = $1
 // form answers. Every read here is a single tenant+task (or tenant+batch) equality lookup against
 // an indexed column (sop_task_scan_captures_task_idx, obligation_instances_batch_idx,
 // proof_artifacts_scope_idx) — bounded to one task's shed, never a table scan.
-func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error) {
+func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string, partitionLabels ...string) (domain.ShedCompletionSummary, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1832,6 +1832,10 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		if err != nil {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed id: %w", err)
 		}
+	}
+	partitionLabel := ""
+	if len(partitionLabels) > 0 {
+		partitionLabel = strings.TrimSpace(partitionLabels[0])
 	}
 
 	var (
@@ -1879,9 +1883,11 @@ eligible AS (
   FROM obligation_instances oi
   JOIN batch b ON b.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE oi.tenant_id = $1
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (NOT $3::boolean OR g.shed_id = $4)
+    AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
 ),
 -- expected counts animals in this shed's batch that STILL need vaccination. The exclusion set
 -- MUST match RecordCompletionsFromSubmission's obligation filter exactly ('completed', 'waived',
@@ -2004,7 +2010,7 @@ SELECT
   END
 FROM t
 LEFT JOIN shed ON true`,
-		tenant, task, shed.Valid, shed,
+		tenant, task, shed.Valid, shed, partitionLabel,
 	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -2013,7 +2019,7 @@ LEFT JOIN shed ON true`,
 		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", err)
 	}
 
-	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task, shed)
+	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task, shed, partitionLabel)
 	if err != nil {
 		return domain.ShedCompletionSummary{}, err
 	}
@@ -2026,7 +2032,7 @@ LEFT JOIN shed ON true`,
 	// ReopenObligation on a verifier rejection (internal/vaccination/app/completion.go
 	// RejectExisting -> obligation.ReopenObligation). RoundID is a hash of this fact set, and
 	// RoundSubmitted is computed from the SAME fact set below, so the two can never disagree.
-	roundFacts, err := r.shedCompletionRoundFacts(ctx, tenant, task, shed.Valid, shed)
+	roundFacts, err := r.shedCompletionRoundFacts(ctx, tenant, task, shed.Valid, shed, partitionLabel)
 	if err != nil {
 		return domain.ShedCompletionSummary{}, err
 	}
@@ -2064,7 +2070,7 @@ LEFT JOIN shed ON true`,
 // used to compute RoundID/RoundSubmitted. Unlike `eligible` in the main query, this is NOT
 // filtered to non-terminal obligations -- a completed obligation IS the round's live evidence
 // until it is either accepted (stays completed) or reopened by rejection (goes back to due).
-func (r *Repository) shedCompletionRoundFacts(ctx context.Context, tenant, task pgtype.UUID, hasShed bool, shed pgtype.UUID) ([]shedRoundObligationFact, error) {
+func (r *Repository) shedCompletionRoundFacts(ctx context.Context, tenant, task pgtype.UUID, hasShed bool, shed pgtype.UUID, partitionLabel string) ([]shedRoundObligationFact, error) {
 	// projection-review: membership=obligation instances in this task's batch (obligation_batches.sop_task_id filters exactly one batch); group_key=(tenant_id, task_id) → one batch_id per SOP task; join_cardinality=one row per obligation_instance in the batch, each obligation appearing once (obligation_id is unique, no fan-out); pagination=none — whole-batch obligation list returned without LIMIT (shed drives have dozens, not thousands of obligations); scope=explicit — hasShed and shed_id filter constrain to target shed: obligation_instances via obligation_batches.batch_id resolve only to THIS task, and goats.shed_id filter further scopes to the requested shed.
 	rows, err := r.pool.Query(ctx, `
 WITH t AS (
@@ -2081,9 +2087,11 @@ SELECT oi.obligation_id::text, oi.row_version, oi.status
 FROM obligation_instances oi
 JOIN batch b ON b.batch_id = oi.batch_id
 JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id
 WHERE oi.tenant_id = $1
   AND (NOT $3::boolean OR g.shed_id = $4)
-ORDER BY oi.obligation_id`, tenant, task, hasShed, shed)
+  AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
+ORDER BY oi.obligation_id`, tenant, task, hasShed, shed, partitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: shed completion round facts: %w", err)
 	}
@@ -2104,7 +2112,7 @@ ORDER BY oi.obligation_id`, tenant, task, hasShed, shed)
 
 // shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in
 // this task's shed/batch, bounded by the same batch_id index as the summary counts above.
-func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task, shed pgtype.UUID) ([]domain.VaccineBreakdownItem, error) {
+func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task, shed pgtype.UUID, partitionLabel string) ([]domain.VaccineBreakdownItem, error) {
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id); group_key=(tenant_id, task_id) -> one batch_id; join_cardinality=one row per obligation_instance in the batch — protocol_rule_dimensions is many-rows-per-rule, so it is collapsed to ONE label per rule via LEFT JOIN LATERAL ... LIMIT 1 (NOT a plain JOIN) to stop count(*) double-counting an obligation when a rule has multiple selector/dimension rows; pagination=whole-shed totals, LIMIT 50 caps the number of DISTINCT vaccine labels (a shed drive has a handful of vaccines), never the per-vaccine COUNT; scope=explicit — obligations come only from THIS task's batch_id, so other sheds/parks never contribute.
 	// grain: one row per vaccine label for this shed drive. status: excludes terminal ('completed','waived','canceled','superseded') to mirror the summary's expected bucket.
 	rows, err := r.pool.Query(ctx, `
@@ -2123,6 +2131,7 @@ SELECT COALESCE(v.vaccine, NULLIF(pv.rule_dsl -> 'vaccine' ->> 'name', ''), NULL
 FROM obligation_instances oi
 JOIN batch b ON b.batch_id = oi.batch_id
 JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id
 JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
  AND pr.protocol_version_id = oi.protocol_version_id
@@ -2151,9 +2160,10 @@ LEFT JOIN LATERAL (
 WHERE oi.tenant_id = $1
   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
   AND (NOT $3::boolean OR g.shed_id = $4)
+  AND ($5::text = '' OR NULLIF(gsp.partition_label, 'whole') = $5::text)
 GROUP BY 1
 ORDER BY 1
-LIMIT 50`, tenant, task, shed.Valid, shed)
+LIMIT 50`, tenant, task, shed.Valid, shed, partitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown: %w", err)
 	}

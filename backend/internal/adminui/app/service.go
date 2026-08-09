@@ -4886,6 +4886,7 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 				option("species", "Species", "", ""),
 				option("park", "Park", "", ""),
 				option("shed", "Shed", "", ""),
+				option("partition_label", "Partition", "", ""),
 				option("breed", "Breed", "", ""),
 				option("sex", "Sex", "", ""),
 				option("dob", "DOB", "", ""),
