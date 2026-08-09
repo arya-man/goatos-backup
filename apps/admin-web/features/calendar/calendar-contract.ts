@@ -320,7 +320,7 @@ export function parseLinks(event: CalendarEvent, pageContract: AdminUiPageContra
     tone: optionTone(pageContract, "calendar_links", key) as Tone,
   });
   if (linkPresent(links, "vaccination")) out.push(link("vaccination", "/vaccination"));
-  if (linkPresent(links, "drive") && event.shed_id) out.push(link("drive", `/vaccination/execution/sheds/${encodeURIComponent(event.shed_id)}`));
+  if (linkPresent(links, "drive") && event.shed_id) out.push(link("drive", driveExecutionPath(event.shed_id, eventPartitionLabel(event))));
   if (linkPresent(links, "workflow")) out.push(link("workflow", `/workflows/${encodeURIComponent(event.event_id)}`));
   if (linkPresent(links, "action_center")) out.push(link("action_center", "/action-center"));
   if (linkPresent(links, "adherence")) out.push(link("adherence", "/protocol-adherence"));
@@ -333,6 +333,19 @@ export function parseLinks(event: CalendarEvent, pageContract: AdminUiPageContra
 export function driveShedId(event: CalendarEvent): string | null {
   const links: CalendarEventLinks = event.links ?? {};
   return linkPresent(links, "drive") && event.shed_id ? event.shed_id : null;
+}
+
+export function driveExecutionPath(shedId: string, partitionLabel?: string | null): string {
+  const base = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
+  const partition = (partitionLabel ?? "").trim();
+  if (!partition) return base;
+  return `${base}?partition_label=${encodeURIComponent(partition)}`;
+}
+
+export function eventPartitionLabel(event: CalendarEvent): string | null {
+  if (event.partition_label) return event.partition_label;
+  const labels = event.shed_partition_labels?.filter((label) => label && label.trim() !== "") ?? [];
+  return labels.length === 1 ? labels[0] : null;
 }
 
 export function hasWorkflowLink(event: CalendarEvent): boolean {

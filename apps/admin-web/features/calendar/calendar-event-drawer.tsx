@@ -23,7 +23,9 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   blockEntries,
   contractStateLabel,
+  driveExecutionPath,
   driveShedId,
+  eventPartitionLabel,
   eventTypeMeta,
   hasWorkflowLink,
   ownerColor,
@@ -390,7 +392,7 @@ function CalendarEventDrawerPanel({
   const shedId = driveShedId(event);
   const driveHref = shedId
     ? scopeHref(
-        `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
+        driveExecutionPath(shedId, eventPartitionLabel(event)),
         scope,
       )
     : undefined;

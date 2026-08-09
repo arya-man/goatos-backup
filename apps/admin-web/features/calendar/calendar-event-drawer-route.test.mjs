@@ -5,6 +5,7 @@ import test from "node:test";
 const pageSource = readFileSync(new URL("./calendar.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./calendar-event-drawer.tsx", import.meta.url), "utf8");
 const driveDetailSource = readFileSync(new URL("./calendar-drive-detail.tsx", import.meta.url), "utf8");
+const contractSource = readFileSync(new URL("./calendar-contract.ts", import.meta.url), "utf8");
 
 test("calendar summary events open a hash-backed local drawer", () => {
   assert.match(pageSource, /LocalOverlayLink/);
@@ -25,4 +26,10 @@ test("calendar drive detail roster opens the goat passport drawer with vaccinati
   assert.match(driveDetailSource, /HerdPassportLocalDrawer/);
   assert.match(driveDetailSource, /HerdPassportDrawerItem/);
   assert.doesNotMatch(driveDetailSource, /<td>\{item\.display_id \|\| "—"\}<\/td>/);
+});
+
+test("calendar drive links preserve operational partition identity", () => {
+  assert.match(contractSource, /driveExecutionPath\(event\.shed_id,\s*eventPartitionLabel\(event\)\)/);
+  assert.match(contractSource, /partition_label=\$\{encodeURIComponent\(partition\)\}/);
+  assert.match(drawerSource, /driveExecutionPath\(shedId,\s*eventPartitionLabel\(event\)\)/);
 });
