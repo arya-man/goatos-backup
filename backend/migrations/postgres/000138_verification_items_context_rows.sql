@@ -27,6 +27,11 @@
 --
 -- Lock safety: a constant DEFAULT makes this metadata-only on PG11+ (no table rewrite). The array
 -- CHECK is added NOT VALID and validated separately so the write lock is never held across a scan.
+-- Metadata-only DDL still needs ACCESS EXCLUSIVE briefly; fail and retry the deploy instead of
+-- waiting unbounded behind a long-running transaction while blocking new work on this hot table.
+SET LOCAL lock_timeout = '2s';
+SET LOCAL statement_timeout = '30s';
+
 ALTER TABLE public.verification_items
   ADD COLUMN IF NOT EXISTS context_rows jsonb DEFAULT '[]'::jsonb NOT NULL;
 
@@ -42,6 +47,9 @@ COMMENT ON COLUMN public.verification_items.context_rows IS
   'Ordered [{"label","value"}] of backend-composed context the producing module attached at enqueue (e.g. the frozen expected ration for a feed packing session). Rendered verbatim by verifier surfaces; never parsed for business logic.';
 
 -- +goose Down
+SET LOCAL lock_timeout = '2s';
+SET LOCAL statement_timeout = '30s';
+
 ALTER TABLE public.verification_items
   DROP CONSTRAINT IF EXISTS verification_items_context_rows_is_array;
 ALTER TABLE public.verification_items

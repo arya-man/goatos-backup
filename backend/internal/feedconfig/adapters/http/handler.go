@@ -690,11 +690,11 @@ func (h *Handler) UpsertExperimentConfig(w http.ResponseWriter, r *http.Request)
 	httpresponse.WriteJSON(w, http.StatusOK, result)
 }
 
-// setExperimentShedStatusRequest switches a whole shed between the experiment workflow and the
-// normal per-head ration grid.
+// setExperimentShedStatusRequest switches one pen between the experiment workflow and the normal
+// per-head ration grid. The legacy type and route names remain for compatibility.
 //
 // Status is a plain REQUIRED string with no default. It is the field that decides which planner
-// feeds this shed, so an absent value cannot be filled in: 'active' would enrol the shed onto
+// feeds this pen, so an absent value cannot be filled in: 'active' would enrol the pen onto
 // authored absolute kg and 'retired' would return it to head_count x grams_per_head, and both are
 // changes to what its animals eat.
 type setExperimentShedStatusRequest struct {
@@ -850,6 +850,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	case errors.Is(err, ports.ErrFutureDatedRow):
 		h.writeError(w, r, http.StatusConflict, "future_dated_config",
 			"the currently-open configuration row takes effect on a later date; resolve it before editing", nil)
+	case errors.Is(err, ports.ErrExperimentPenAlreadyConfigured):
+		h.writeError(w, r, http.StatusConflict, "experiment_pen_already_configured",
+			"this pen already has experiment configuration; refresh and edit its cells instead", nil)
 	case errors.Is(err, ports.ErrFeedItemExists):
 		// 409, not 400 and not a silent success. The author asked to ADD a name the vocabulary
 		// already holds; reporting success would leave them believing there are now two entries when

@@ -676,7 +676,7 @@ type ExperimentBatchCellInput struct {
 	AbsoluteKg    *string
 }
 
-// UpsertExperimentConfigBatchInput authors every feed item of ONE pen in one atomic write.
+// UpsertExperimentConfigBatchInput enrolls every feed item of ONE unconfigured pen atomically.
 type UpsertExperimentConfigBatchInput struct {
 	TenantID           string
 	ActorRef           string
@@ -691,7 +691,7 @@ type UpsertExperimentConfigBatchInput struct {
 	RequestFingerprint string
 }
 
-// UpsertExperimentConfigBatch validates and applies a whole pen's authored quantities atomically.
+// UpsertExperimentConfigBatch validates and enrolls a whole pen's authored quantities atomically.
 //
 // Every cell is validated BEFORE the transaction opens. A batch that would reject its fourth cell
 // must not have written its first three: the point of this endpoint is that a pen is never left
@@ -761,7 +761,7 @@ func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExpe
 	})
 }
 
-// SetExperimentShedStatusInput switches a WHOLE SHED between the experiment workflow and the normal
+// SetExperimentShedStatusInput switches ONE PEN between the experiment workflow and the normal
 // per-head ration grid.
 //
 // Status is REQUIRED and validated, never defaulted: the two values are the two workflows, and

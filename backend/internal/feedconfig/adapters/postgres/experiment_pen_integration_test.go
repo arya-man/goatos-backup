@@ -454,6 +454,168 @@ SELECT count(*) FROM feed_experiment_config WHERE tenant_id = $1::uuid AND shed_
 	}
 }
 
+// TestExperimentConfigPagingKeepsAPensCellsTogether proves that the public page unit is a PEN,
+// not an individual feed-item cell. Splitting one pen across pages lets the admin UI construct a
+// plausible but incomplete set of available items and can overwrite a cell from the later page.
+func TestExperimentConfigPagingKeepsAPensCellsTogether(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	for i, item := range []string{"Concentrate", "Hybrid", "COFS", "Silage", "Mineral", "Salt"} {
+		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-page-a-"+item, fcPenA, item, "1.000")); err != nil {
+			t.Fatalf("author pen A item %d: %v", i, err)
+		}
+	}
+	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-page-b", fcPenB, "Concentrate", "2.000")); err != nil {
+		t.Fatalf("author pen B: %v", err)
+	}
+
+	first, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1},
+	})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(first.Items) != 6 {
+		t.Fatalf("first page contains %d cells, want all 6 cells of one pen", len(first.Items))
+	}
+	if !first.HasMore {
+		t.Fatalf("first page has_more = false, want a second pen page")
+	}
+	for _, cell := range first.Items {
+		if cell.PartitionLabel != fcPenA {
+			t.Fatalf("first page mixed pen %q into %q", cell.PartitionLabel, fcPenA)
+		}
+	}
+
+	second, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1, Offset: 1},
+	})
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(second.Items) != 1 || second.Items[0].PartitionLabel != fcPenB {
+		t.Fatalf("second page = %#v, want the complete second pen", second.Items)
+	}
+	if second.HasMore {
+		t.Fatalf("second page has_more = true, want end of pen catalog")
+	}
+}
+
+// TestRetiredPartitionsAreNeitherListedNorWritable pins the operational-location lifecycle rule:
+// retirement removes a pen from the active catalog without erasing its historical label.
+func TestRetiredPartitionsAreNeitherListedNorWritable(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	if _, err := pool.Exec(ctx, `
+UPDATE shed_partitions SET status = 'retired'
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND partition_label = $3`, fcTenant, fcPennedShed, fcPenA); err != nil {
+		t.Fatalf("retire partition: %v", err)
+	}
+	page, err := repo.ListPens(ctx, domain.PenQuery{TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 50}})
+	if err != nil {
+		t.Fatalf("list pens: %v", err)
+	}
+	for _, pen := range page.Items {
+		if pen.ShedID == fcPennedShed && pen.PartitionLabel == fcPenA {
+			t.Fatalf("retired pen remains in active pen catalog: %#v", pen)
+		}
+	}
+	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("retired-pen-write", fcPenA, "Concentrate", "1.000")); !errors.Is(err, ports.ErrPartitionNotFound) {
+		t.Fatalf("write to retired pen err = %v, want %v", err, ports.ErrPartitionNotFound)
+	}
+}
+
+// TestBatchEnrollmentRejectsAnAlreadyConfiguredPen prevents a stale enrollment form from turning
+// its submitted subset into a misleading claim that the complete pen configuration was saved.
+func TestBatchEnrollmentRejectsAnAlreadyConfiguredPen(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	for _, item := range []string{"Concentrate", "Hybrid"} {
+		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("existing-"+item, fcPenA, item, "1.000")); err != nil {
+			t.Fatalf("seed existing pen: %v", err)
+		}
+	}
+	_, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+		WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: "stale-enrol", RequestFingerprint: "fp-stale-enrol"},
+		ParkID:        fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenA, ExperimentCategory: "Arm A",
+		Cells: []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "9.000"}},
+	})
+	if !errors.Is(err, ports.ErrExperimentPenAlreadyConfigured) {
+		t.Fatalf("stale enrollment err = %v, want %v", err, ports.ErrExperimentPenAlreadyConfigured)
+	}
+	got := penCells(t, ctx, pool, fcPenA)
+	if len(got) != 2 || got["Concentrate"] != "1.000" || got["Hybrid"] != "1.000" {
+		t.Fatalf("rejected stale enrollment changed existing cells: %#v", got)
+	}
+}
+
+func TestConcurrentBatchEnrollmentsCannotMergeOrOverwrite(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+
+	type result struct {
+		name string
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	batches := []struct {
+		name  string
+		cells []domain.ExperimentBatchCell
+	}{
+		{"first", []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}, {FeedItemLabel: "Hybrid", AbsoluteKg: "2.000"}}},
+		{"second", []domain.ExperimentBatchCell{{FeedItemLabel: "COFS", AbsoluteKg: "3.000"}, {FeedItemLabel: "Silage", AbsoluteKg: "4.000"}}},
+	}
+	for _, batch := range batches {
+		batch := batch
+		go func() {
+			<-start
+			_, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+				WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: "concurrent-" + batch.name, RequestFingerprint: "fp-concurrent-" + batch.name},
+				ParkID:        fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenB, ExperimentCategory: "Arm A", Cells: batch.cells,
+			})
+			results <- result{name: batch.name, err: err}
+		}()
+	}
+	close(start)
+	var winner string
+	conflicts := 0
+	for range batches {
+		got := <-results
+		switch {
+		case got.err == nil:
+			if winner != "" {
+				t.Fatalf("both concurrent enrollments succeeded: %q and %q", winner, got.name)
+			}
+			winner = got.name
+		case errors.Is(got.err, ports.ErrExperimentPenAlreadyConfigured):
+			conflicts++
+		default:
+			t.Fatalf("%s enrollment err = %v", got.name, got.err)
+		}
+	}
+	if winner == "" || conflicts != 1 {
+		t.Fatalf("winner = %q conflicts = %d, want one of each", winner, conflicts)
+	}
+	got := penCells(t, ctx, pool, fcPenB)
+	if len(got) != 2 {
+		t.Fatalf("concurrent enrollment produced a merged/partial set: %#v", got)
+	}
+	if winner == "first" && (got["Concentrate"] != "1.000" || got["Hybrid"] != "2.000") {
+		t.Fatalf("stored cells do not equal winning first batch: %#v", got)
+	}
+	if winner == "second" && (got["COFS"] != "3.000" || got["Silage"] != "4.000") {
+		t.Fatalf("stored cells do not equal winning second batch: %#v", got)
+	}
+}
+
 // TestListPensReturnsTheHumanLabelAndItsConfiguredFlag pins the READ the enroller depends on.
 //
 // Two things it must never do, both of which have shipped in this codebase before: return

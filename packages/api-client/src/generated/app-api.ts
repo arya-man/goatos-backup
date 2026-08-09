@@ -1722,7 +1722,7 @@ export interface paths {
         };
         /**
          * List hand-authored experiment sheds, for one park or the whole tenant.
-         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them.
+         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them. Pagination counts complete operational pens, not individual cells: every feed-item row for a selected pen is returned on the same page, and limit/offset therefore refer to pens.
          */
         get: operations["listFeedConfigExperiment"];
         put?: never;
@@ -1746,7 +1746,7 @@ export interface paths {
         };
         /**
          * List operational locations (sheds and their pens).
-         * @description Returns every active shed in scope, and every pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
+         * @description Returns every active shed in scope, and every active pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
          */
         get: operations["listFeedConfigPens"];
         put?: never;
@@ -1767,8 +1767,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Author every feed item of one pen atomically.
-         * @description Authors the complete set of absolute-kg quantities for ONE pen in a single transaction. The whole set commits or none of it does, and that is a safety property rather than a convenience: a pen's authored cells are the COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a missing item -- so a partly-applied enrolment leaves the pen ON the experiment workflow fed only the items that committed, on a sheet that looks complete. The experiment arm and head count are carried once for the pen, never per item. A feed item named twice is rejected rather than de-duplicated, because the two cells collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a rejected request, never an instruction to feed nothing.
+         * Enrol one previously-unconfigured pen atomically.
+         * @description Authors the complete set of absolute-kg quantities for ONE pen in a single transaction. The whole set commits or none of it does, and that is a safety property rather than a convenience: a pen's authored cells are the COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a missing item -- so a partly-applied enrolment leaves the pen ON the experiment workflow fed only the items that committed, on a sheet that looks complete. The experiment arm and head count are carried once for the pen, never per item. A feed item named twice is rejected rather than de-duplicated, because the two cells collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a rejected request, never an instruction to feed nothing. If the pen already has any authored cell, the request returns 409 rather than treating a stale or concurrent enrollment form as a partial update; existing pens are changed through the explicit cell editor.
          */
         post: operations["upsertFeedConfigExperimentBatch"];
         delete?: never;
@@ -1787,8 +1787,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Switch a whole shed between the experiment workflow and the normal ration grid.
-         * @description Flips the status of EVERY one of the shed's authored experiment rows in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the shed the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). It is whole-shed because a planner owns a shed rather than a cell, so a half-enrolled shed has no representable feed. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a shed can be restored without re-keying them. A shed with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
+         * Switch one pen between the experiment workflow and the normal ration grid.
+         * @description Flips the status of EVERY authored experiment row of the addressed pen in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the pen the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). All cells of that pen flip atomically because a half-enrolled pen has no representable feed; sibling pens in the same shed are untouched. partition_label is required for a subdivided shed and blank for an undivided shed. The legacy path name is retained for compatibility. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a pen can be restored without re-keying them. A pen with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
          */
         post: operations["setFeedConfigExperimentShedStatus"];
         delete?: never;
@@ -3940,7 +3940,7 @@ export interface components {
             /** @description WHICH PEN of the shed is being authored -- echo back the partition_label the row was rendered with. Part of the row's identity: the natural key is (tenant, park, shed, partition, feed_item), so omitting it on a partitioned shed writes the shed-wide row instead of the pen the author clicked. Absent means an undivided shed. */
             partition_label?: string | null;
             feed_item: string;
-            /** @description Authored ABSOLUTE kg for the whole shed. REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
+            /** @description Authored ABSOLUTE kg for the addressed pen (or undivided shed). REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
             absolute_kg: number;
             /** @description INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records "not recorded", which stays distinct from an authored 0. */
             head_count?: number | null;
@@ -12228,7 +12228,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One bounded page of authored experiment cells. */
+            /** @description One bounded page of complete experiment pens and all of their authored cells. */
             200: {
                 headers: {
                     [name: string]: unknown;
