@@ -3185,6 +3185,10 @@ parent_options AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
+  WHERE (
+      lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+      OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+    )
 ),
 alias_options AS (
   SELECT
@@ -3219,6 +3223,8 @@ unpartitioned AS (
   JOIN locations shed
     ON shed.tenant_id=$1::uuid
    AND shed.location_id=r.requested_location_id
+   AND shed.status='active'
+   AND shed.retired_at IS NULL
   WHERE NOT EXISTS (
     SELECT 1 FROM shed_partitions sp
     WHERE sp.tenant_id=shed.tenant_id
@@ -3283,7 +3289,7 @@ FROM unpartitioned`, tenantID, locationIDs)
 				matched = &options[j]
 				break
 			}
-			if requestedLabel == "" && strings.EqualFold(displayName, operationalLocationDisplay(option.canonicalLocationID, option.shedName, option.label)) {
+			if requestedLabel == "" && matchesOperationalLocationDisplay(displayName, option.canonicalLocationID, option.shedName, option.label) {
 				matched = &options[j]
 				break
 			}

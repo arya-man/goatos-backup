@@ -967,7 +967,7 @@ val MIGRATION_34_35: Migration = object : Migration(34, 35) {
 
 val MIGRATION_35_36: Migration = object : Migration(35, 36) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("DROP TABLE IF EXISTS `weighing_planner_shed_row`")
+        db.execSQL("ALTER TABLE `weighing_planner_shed_row` RENAME TO `weighing_planner_shed_row_v35`")
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `weighing_planner_shed_row` (" +
                 "`queryKey` TEXT NOT NULL, " +
@@ -981,6 +981,13 @@ val MIGRATION_35_36: Migration = object : Migration(35, 36) {
                 "`updatedAt` INTEGER NOT NULL, " +
                 "PRIMARY KEY(`queryKey`, `locationId`, `partitionKey`))",
         )
+        db.execSQL(
+            "INSERT INTO `weighing_planner_shed_row` " +
+                "(`queryKey`, `locationId`, `partitionKey`, `parkId`, `parkName`, `sortIndex`, `shedJson`, `existingCampaignJson`, `updatedAt`) " +
+                "SELECT `queryKey`, `locationId`, '', `parkId`, `parkName`, `sortIndex`, `shedJson`, `existingCampaignJson`, `updatedAt` " +
+                "FROM `weighing_planner_shed_row_v35`",
+        )
+        db.execSQL("DROP TABLE `weighing_planner_shed_row_v35`")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)")
     }
 }

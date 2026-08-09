@@ -122,39 +122,7 @@ class GoatDatabaseUpgradeCrashTest {
         //    If any migration is wrong (e.g. the missing roster-cache tables), Room throws here —
         //    the crash an updated APK would hit on first launch.
         val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
-            .addMigrations(
-                MIGRATION_1_2,
-                MIGRATION_2_3,
-                MIGRATION_3_4,
-                MIGRATION_4_5,
-                MIGRATION_5_6,
-                MIGRATION_6_7,
-                MIGRATION_7_8,
-                MIGRATION_8_9,
-                MIGRATION_9_10,
-                MIGRATION_10_11,
-                MIGRATION_11_12,
-                MIGRATION_12_13,
-                MIGRATION_13_14,
-                MIGRATION_14_15,
-                MIGRATION_15_16,
-                MIGRATION_16_17,
-                MIGRATION_17_18,
-                MIGRATION_18_19,
-                MIGRATION_19_20,
-                MIGRATION_20_21,
-                MIGRATION_21_22,
-                MIGRATION_22_23,
-                MIGRATION_23_24,
-                MIGRATION_24_25,
-                MIGRATION_25_26,
-                MIGRATION_26_27,
-                MIGRATION_27_28,
-                MIGRATION_28_29,
-                MIGRATION_29_30,
-                MIGRATION_30_31,
-                MIGRATION_31_32,
-            )
+            .addMigrations(*ALL_TEST_MIGRATIONS)
             .build()
         try {
             // Force Room to actually open + migrate + validate (builders are lazy).
@@ -481,39 +449,7 @@ class GoatDatabaseUpgradeCrashTest {
         //    MIGRATION_13_14 (scan_roster_row seq + scan_roster_cache drop), MIGRATION_14_15
         //    (seven Counts tables), then MIGRATION_15_16 (backend scan timestamp cache).
         val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
-            .addMigrations(
-                MIGRATION_1_2,
-                MIGRATION_2_3,
-                MIGRATION_3_4,
-                MIGRATION_4_5,
-                MIGRATION_5_6,
-                MIGRATION_6_7,
-                MIGRATION_7_8,
-                MIGRATION_8_9,
-                MIGRATION_9_10,
-                MIGRATION_10_11,
-                MIGRATION_11_12,
-                MIGRATION_12_13,
-                MIGRATION_13_14,
-                MIGRATION_14_15,
-                MIGRATION_15_16,
-                MIGRATION_16_17,
-                MIGRATION_17_18,
-                MIGRATION_18_19,
-                MIGRATION_19_20,
-                MIGRATION_20_21,
-                MIGRATION_21_22,
-                MIGRATION_22_23,
-                MIGRATION_23_24,
-                MIGRATION_24_25,
-                MIGRATION_25_26,
-                MIGRATION_26_27,
-                MIGRATION_27_28,
-                MIGRATION_28_29,
-                MIGRATION_29_30,
-                MIGRATION_30_31,
-                MIGRATION_31_32,
-            )
+            .addMigrations(*ALL_TEST_MIGRATIONS)
             .build()
         try {
             upgraded.openHelper.writableDatabase // force open + migrate + validate
@@ -1140,14 +1076,14 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
             MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
-            MIGRATION_31_32,
+            MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —
-         *  i.e. everything except MIGRATION_25_26 onwards, the last SEVEN entries of
+         *  i.e. everything except MIGRATION_25_26 onwards, the last ELEVEN entries of
          *  ALL_TEST_MIGRATIONS. Keep this drop count in lockstep with the array above: adding a
          *  migration without bumping it silently writes a wrong-version file. */
-        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(7)
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(11)
     }
 }
 
