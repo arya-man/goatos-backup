@@ -449,6 +449,8 @@ class ShedsViewModel @Inject constructor(
                 operatorName = first.owner?.operatorName.orEmpty(),
                 physicalShed = first.physicalShed.ifBlank { first.shedName },
                 partition = first.partition,
+                partitionLabel = first.partitionLabel
+                    ?: first.partition.takeIf { executionPartitionKey(it) != "whole" },
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
@@ -511,7 +513,7 @@ class ShedsViewModel @Inject constructor(
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
-            shedCount = rowsForSelectedDay.map { it.shedId }.distinct().size,
+            shedCount = shedRows.size,
             dueCount = if (pageComplete) totals.open else 0,
             doneCount = if (pageComplete) totalsEffectiveDone else 0,
             shedCountLabel = "${shedRows.size} sheds",
@@ -710,13 +712,14 @@ private fun VaccinationExecutionRowDto.adherenceDriveKey(): String? =
 
 private data class ExecutionIdentity(
     val shedId: String,
+    val partitionKey: String,
     val driveId: String?,
     val batchId: String?,
     val taskId: String?,
     val sopVersionId: String?,
     val taskRowVersion: Int?,
 ) {
-    val cardId: String = executionCardId(shedId, taskId, batchId, driveId)
+    val cardId: String = executionCardId(shedId, taskId, batchId, driveId, partitionKey)
 }
 
 /**
@@ -729,9 +732,12 @@ internal fun executionCardId(
     taskId: String?,
     batchId: String?,
     driveId: String?,
+    partitionLabel: String? = null,
 ): String = buildString {
     append("shed:")
     append(shedId)
+    append("|partition:")
+    append(executionPartitionKey(partitionLabel))
     when {
         !taskId.isNullOrBlank() -> append("|task:").append(taskId)
         !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
@@ -741,12 +747,19 @@ internal fun executionCardId(
 
 private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
     shedId = shedId,
+    partitionKey = executionPartitionKey(partitionLabel ?: partition),
     driveId = driveId,
     batchId = batchId,
     taskId = sopTaskId,
     sopVersionId = sopVersionId,
     taskRowVersion = sopTaskRowVersion,
 )
+
+private fun executionPartitionKey(raw: String?): String {
+    val normalized = raw.orEmpty().trim().lowercase()
+        .replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
+}
 
 private fun List<ExecutionParkOptionDto>.toShedParkFilters(selectedParkId: String?): List<ShedParkFilter> =
     mapNotNull { option ->

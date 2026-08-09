@@ -527,7 +527,12 @@ function shedEventId(row: VaccinationExecutionRow): string {
 
 function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typeof parseScope>, pageContract: AdminUiPageContract): LocalOverlayDrawerItem {
   const driveLabel = executionDriveLabel(row);
-  const detailHref = scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`, scope, { mode: "park", park: row.parkId });
+  const detailHref = scopeHref(
+    `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`,
+    scope,
+    { mode: "park", park: row.parkId },
+    { partition_label: row.partition_label ?? undefined },
+  );
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return {
     id: shedEventId(row),

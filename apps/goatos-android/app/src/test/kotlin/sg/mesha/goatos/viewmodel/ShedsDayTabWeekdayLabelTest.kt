@@ -128,40 +128,40 @@ private class WeekdayEmptyExecutionRepository(
         includeFilterOptions: Boolean,
     ): Result<Unit> = error("unused")
 
-    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
+    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): VaccinationExecutionShedDrilldownDto =
         error("unused")
 
     override fun observeShed(
-        shedId: String, asOf: String?, dueBefore: String?, limit: Int?,
+        shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?,
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> = error("unused")
 
-    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
+    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): Result<Unit> =
         error("unused")
 
-    override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String): ScanRosterRowEntity? =
+    override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String, partitionLabel: String?): ScanRosterRowEntity? =
         error("unused")
 
-    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?): Flow<List<StatusCount>> =
+    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<StatusCount>> =
         error("unused")
 
-    override suspend fun getScanRosterStatusCountsFor(shedId: String, taskId: String?, obligationIds: List<String>): List<StatusCount> =
+    override suspend fun getScanRosterStatusCountsFor(shedId: String, taskId: String?, obligationIds: List<String>, partitionLabel: String?): List<StatusCount> =
         error("unused")
 
-    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?): List<StatusCount> =
+    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> =
         error("unused")
 
-    override fun observeScanRosterRows(shedId: String, taskId: String?, windowSize: Int): Flow<List<ScanRosterRowEntity>> =
+    override fun observeScanRosterRows(shedId: String, taskId: String?, windowSize: Int, partitionLabel: String?): Flow<List<ScanRosterRowEntity>> =
         error("unused")
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> =
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
         error("unused")
 
-    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         error("unused")
 
-    override suspend fun scanRosterRowsByGoatIds(shedId: String, taskId: String?, goatIds: List<String>): List<ScanRosterRowEntity> =
+    override suspend fun scanRosterRowsByGoatIds(shedId: String, taskId: String?, goatIds: List<String>, partitionLabel: String?): List<ScanRosterRowEntity> =
         error("unused")
 
-    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> =
+    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> =
         error("unused")
 }

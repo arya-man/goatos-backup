@@ -363,6 +363,34 @@ func TestListVaccinationExecutionOperatorScopeRespectsShedPartitionsOneToManyPag
 		testTenant, testBatch, otherOperator, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
+	allPartitions, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:  testTenant,
+		ShedID:    strPtr(testShed),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("all-partition execution query error = %v", err)
+	}
+	if len(allPartitions) != 2 || allPartitions[0].Partition == allPartitions[1].Partition {
+		t.Fatalf("all-partition rows = %#v, want separate Part 1 and Part 2 cohorts", allPartitions)
+	}
+
+	part2 := "Part 2"
+	part2Rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
+		TenantID:       testTenant,
+		ShedID:         strPtr(testShed),
+		PartitionLabel: &part2,
+		DueBefore:      time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("Part 2 execution query error = %v", err)
+	}
+	if len(part2Rows) != 1 || part2Rows[0].Partition != "Part 2" || part2Rows[0].ObligationCount != 1 {
+		t.Fatalf("Part 2 rows = %#v, want only the Part 2 cohort", part2Rows)
+	}
+
 	operatorA, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:             testTenant,
 		DueBefore:            time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -1132,14 +1160,26 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
 		testTenant, testBatch, otherOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "operator a second roster partition assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	operatorA, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
 	if err != nil {
 		t.Fatalf("ScanRoster(operator A): %v", err)
 	}
-	if len(operatorA.Rows) != 1 || operatorA.Rows[0].GoatID != testGoat {
-		t.Fatalf("operator A roster rows=%#v, want only Part 1 goat", operatorA.Rows)
+	if len(operatorA.Rows) != 2 {
+		t.Fatalf("operator A roster rows=%#v, want both assigned sibling partitions", operatorA.Rows)
+	}
+
+	operatorAPart2, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "2", TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
+	if err != nil {
+		t.Fatalf("ScanRoster(operator A, Part 2): %v", err)
+	}
+	if len(operatorAPart2.Rows) != 1 || operatorAPart2.Rows[0].GoatID != secondGoat {
+		t.Fatalf("operator A Part 2 roster rows=%#v, want only Part 2 goat", operatorAPart2.Rows)
 	}
 
 	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
@@ -1936,6 +1976,7 @@ func TestVaccinationExecutionProductionQueryPlanUsesIndexes(t *testing.T) {
 		int64(0), // $13 cursorDueMicros
 		"",       // $14 cursorRowKey
 		"",       // $15 operatorScopeActorID (none)
+		"",       // $16 partitionLabel (all partitions)
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination execution query: %v", err)
@@ -2944,7 +2985,7 @@ func TestPartitionLabelReflectsCurrentLocationNotStaleAssignmentSnapshot(t *test
 	seedVaccinationExecutionProjection(t, ctx, pool)
 
 	// Move the goat to a different partition (goat_shed_partitions stores current location).
-	// The assignment still carries the old partition ('whole'), but resolved_partitions CTE
+	// The assignment still carries the old partition ('whole'), but the execution partition key
 	// must use the CURRENT goat location from goat_shed_partitions.
 	testShed2 := "70000000-0000-4000-8000-000000000099"
 	execProjectionSQL(t, ctx, pool, "create second subdivided shed",

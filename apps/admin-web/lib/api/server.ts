@@ -1508,7 +1508,7 @@ export async function postponeVaccinationDriveDate(body: {
 
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
-  params: { asOf?: string } = {},
+  params: { asOf?: string; partitionLabel?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionShedDrilldown>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1517,7 +1517,7 @@ export async function getVaccinationExecutionShedDrilldown(
   return request(() =>
     client.request<VaccinationExecutionShedDrilldown>(path, {
       cache: "no-store",
-      query: compactQuery({ as_of: params.asOf }),
+      query: compactQuery({ as_of: params.asOf, partition_label: params.partitionLabel }),
     }),
   );
 }

@@ -19,16 +19,26 @@ class ShedsExecutionIdentityTest {
         val gandhiOne = executionCardId("shed-gandhi-1", "task-park", "batch-park", "drive-park")
         val gandhiTwo = executionCardId("shed-gandhi-2", "task-park", "batch-park", "drive-park")
 
-        assertEquals("shed:shed-gandhi-1|task:task-park", gandhiOne)
+        assertEquals("shed:shed-gandhi-1|partition:whole|task:task-park", gandhiOne)
         assertEquals(gandhiOne, executionCardId("shed-gandhi-1", "task-park", "batch-park", "drive-park"))
         assertNotEquals(gandhiOne, gandhiTwo)
     }
 
     @Test
     fun `shed key falls back through batch drive and shed identity`() {
-        assertEquals("shed:shed-1|batch:batch-1", executionCardId("shed-1", null, "batch-1", "drive-1"))
-        assertEquals("shed:shed-1|drive:drive-1", executionCardId("shed-1", null, null, "drive-1"))
-        assertEquals("shed:shed-1", executionCardId("shed-1", null, null, null))
+        assertEquals("shed:shed-1|partition:whole|batch:batch-1", executionCardId("shed-1", null, "batch-1", "drive-1"))
+        assertEquals("shed:shed-1|partition:whole|drive:drive-1", executionCardId("shed-1", null, null, "drive-1"))
+        assertEquals("shed:shed-1|partition:whole", executionCardId("shed-1", null, null, null))
+    }
+
+    @Test
+    fun `sibling partitions under one shed produce distinct card keys`() {
+        val part1 = executionCardId("shed-castro", "task-a", "batch-a", null, "Part 1")
+        val part2 = executionCardId("shed-castro", "task-a", "batch-a", null, "2")
+
+        assertEquals("shed:shed-castro|partition:1|task:task-a", part1)
+        assertEquals("shed:shed-castro|partition:2|task:task-a", part2)
+        assertNotEquals(part1, part2)
     }
 
     @Test

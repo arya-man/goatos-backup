@@ -60,15 +60,34 @@ function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: 
   );
 }
 
-export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContract }: { shedId: string; scope?: Scope; asOf?: string; pageContract: AdminUiPageContract }) {
-  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf });
+export async function ShedExecutionDetailPage({
+  shedId,
+  partitionLabel,
+  scope,
+  asOf,
+  pageContract,
+}: {
+  shedId: string;
+  partitionLabel?: string;
+  scope?: Scope;
+  asOf?: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf, partitionLabel });
   const fallbackBackHref = scope ? `${scopeHref("/vaccination", scope)}#execution` : "/vaccination#execution";
   if (!result.ok) {
     return <NotFoundOrError shedId={shedId} message={result.error.message} backHref={fallbackBackHref} pageContract={pageContract} />;
   }
   const shed = result.data;
   if (scope && scope.mode !== "park" && shed.parkId) {
-    redirect(scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: shed.parkId }));
+    redirect(
+      scopeHref(
+        `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
+        scope,
+        { mode: "park", park: shed.parkId },
+        { partition_label: partitionLabel },
+      ),
+    );
   }
   const backHref = scope ? `${scopeHref("/vaccination", scope, { mode: "park", park: shed.parkId })}#execution` : "/vaccination#execution";
 

@@ -391,7 +391,7 @@ private class FakeShedsPinVmExecutionRepository(
         includeFilterOptions: Boolean,
     ): Result<Unit> = Result.success(Unit)
 
-    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): VaccinationExecutionShedDrilldownDto =
+    override suspend fun shed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): VaccinationExecutionShedDrilldownDto =
         error("unused")
 
     override fun observeShed(
@@ -399,46 +399,51 @@ private class FakeShedsPinVmExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> = error("unused")
 
-    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
+    override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?, partitionLabel: String?): Result<Unit> =
         error("unused")
 
     override suspend fun findScanRosterByTag(
         shedId: String,
         taskId: String?,
         normalizedTag: String,
+        partitionLabel: String?,
     ): ScanRosterRowEntity? = null
 
     override fun observeScanRosterRows(
         shedId: String,
         taskId: String?,
         windowSize: Int,
+        partitionLabel: String?,
     ): Flow<List<ScanRosterRowEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
 
-    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?): Flow<List<String>> =
+    override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
 
     override suspend fun scanRosterRowsByGoatIds(
         shedId: String,
         taskId: String?,
         goatIds: List<String>,
+        partitionLabel: String?,
     ): List<ScanRosterRowEntity> = emptyList()
 
-    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> = Result.success(Unit)
 
-    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?): Flow<List<StatusCount>> =
+    override fun observeScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<StatusCount>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
         obligationIds: List<String>,
+        partitionLabel: String?,
     ): List<StatusCount> = emptyList()
 
-    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?): List<StatusCount> = emptyList()
+    override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> = emptyList()
 }
 
 private class FakeShedsPinVmBootstrapRepository : BootstrapRepository {

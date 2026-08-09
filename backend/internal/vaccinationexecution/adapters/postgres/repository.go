@@ -118,6 +118,10 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	if q.Severity != nil {
 		severity = string(*q.Severity)
 	}
+	partitionLabel := ""
+	if q.PartitionLabel != nil {
+		partitionLabel = strings.TrimSpace(*q.PartitionLabel)
+	}
 	cursorPresent := q.Cursor != nil
 	var cursorRank int
 	var cursorDueMicros int64
@@ -139,7 +143,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
-		q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID)
+		q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
@@ -153,7 +157,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 	for rows.Next() {
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
-		var obligationID, sopTaskID, sopVersionID, completionID pgtype.Text
+		var sourceShedName, obligationID, sopTaskID, sopVersionID, completionID pgtype.Text
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
@@ -167,6 +171,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&p.ShedName,
 			&p.PhysicalShed,
 			&p.Partition,
+			&sourceShedName,
 			&p.AnimalStage,
 			&batchID,
 			&p.ProtocolName,
@@ -209,6 +214,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
 		}
 		p.BatchID = textPtr(batchID)
+		p.SourceShedName = textPtr(sourceShedName)
 		p.DueAt = timePtr(dueAt)
 		p.ObligationCount = int(obligationCount)
 		p.ScheduledCount = int(scheduledCount)
@@ -1202,7 +1208,9 @@ raw AS (
     COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
     COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
     COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
-    COALESCE(vda_member.partition_label, vda_guess.partition_label) AS partition_label,
+    COALESCE(NULLIF(btrim(gsp.partition_label), ''), 'whole') AS partition_label,
+    regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id AS sop_version_id,
@@ -1401,6 +1409,7 @@ animal_rollup AS (
   SELECT
     located.park_uuid,
     located.shed_uuid,
+    located.partition_key,
     located.batch_id,
     located.animal_id,
     BOOL_OR(located.eff_status = 'scheduled') AS has_scheduled,
@@ -1424,38 +1433,13 @@ animal_rollup AS (
       $15::text = ''
       OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
     )
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.animal_id
-),
-resolved_partitions AS (
-  -- OL-13: Resolve current partition labels from the catalog, using the agree-or-go-bare rule:
-  -- emit a partition ONLY when every relevant animal resolves to the SAME real (non-'whole') partition;
-  -- otherwise NULL (bare shed name). This prevents stale partition_label snapshots from
-  -- vaccination_drive_assignments from being displayed after a shed is re-partitioned.
-  -- Scope: include only animals assigned to the query's operator (when OperatorScopeActorID is provided).
-  SELECT DISTINCT ON (located.park_uuid, located.shed_uuid)
-    located.park_uuid,
-    located.shed_uuid,
-    CASE
-      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
-        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
-      ELSE NULL
-    END AS partition_label
-  FROM located
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = $1::uuid
-   AND gsp.goat_id = located.animal_id
-   AND gsp.shed_id = located.shed_uuid
-  WHERE located.animal_id IS NOT NULL
-    AND (
-      $15::text = ''
-      OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
-    )
-  GROUP BY located.park_uuid, located.shed_uuid
+  GROUP BY located.park_uuid, located.shed_uuid, located.partition_key, located.batch_id, located.animal_id
 ),
 animal_counts AS (
   SELECT
     animal_rollup.park_uuid,
     animal_rollup.shed_uuid,
+    animal_rollup.partition_key,
     animal_rollup.batch_id,
     COUNT(*)::bigint AS obligation_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
@@ -1471,14 +1455,15 @@ animal_counts AS (
     COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_shed_proof)::bigint AS proof_submitted_count
   FROM animal_rollup
-  GROUP BY animal_rollup.park_uuid, animal_rollup.shed_uuid, animal_rollup.batch_id
+  GROUP BY animal_rollup.park_uuid, animal_rollup.shed_uuid, animal_rollup.partition_key, animal_rollup.batch_id
 ),
--- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id) so mobile PA/shed cards count distinct drive animals, not protocol obligations/doses; join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at animal grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,partition_key,batch_id) so sibling partitions under one physical shed remain separate mobile/admin execution cards while counts stay at distinct-animal grain; join_cardinality=completions pre-aggregates 0:N completion history to one effective row per obligation, goat/batch/task joins are keyed 1:1, drive assignments are collapsed through LEFT JOIN LATERAL ... LIMIT 1 before grouping, and animal-stage joins use tenant-scoped unique id/code keys so COUNT/ARRAY_AGG stay at animal grain; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed/partition via located.park_uuid/shed_uuid/partition_key and tenant-scoped location joins.
 -- projection-review: bucket-grain=business-day eff_status and work_state overdue compare the IST (Asia/Kolkata) calendar DATE of the execution date against the IST date of as_of ($7), so a row whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
 grouped AS (
   SELECT
     located.park_uuid,
     located.shed_uuid,
+    located.partition_key,
     located.batch_id,
     (ARRAY_AGG(located.rule_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.rule_id DESC))[1] AS rule_id,
     (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
@@ -1540,11 +1525,12 @@ grouped AS (
       MAX(shed.name)
     ) AS physical_shed,
     COALESCE(
-      resolved_partitions.partition_label,
       (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
         FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
       'whole'
     ) AS partition_label,
+    (ARRAY_AGG(located.source_shed_name ORDER BY located.execution_due_at DESC NULLS LAST, located.source_shed_name ASC NULLS LAST)
+      FILTER (WHERE NULLIF(located.source_shed_name, '') IS NOT NULL))[1] AS source_shed_name,
     -- This value is rendered directly on mobile shed cards. Prefer the governed
     -- human name; stage_code (K1/K2/...) is an internal fallback only.
     COALESCE(
@@ -1596,10 +1582,8 @@ grouped AS (
   JOIN animal_counts
     ON animal_counts.park_uuid = located.park_uuid
    AND animal_counts.shed_uuid = located.shed_uuid
+   AND animal_counts.partition_key = located.partition_key
    AND animal_counts.batch_id IS NOT DISTINCT FROM located.batch_id
-  LEFT JOIN resolved_partitions
-    ON resolved_partitions.park_uuid = located.park_uuid
-   AND resolved_partitions.shed_uuid = located.shed_uuid
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
@@ -1607,7 +1591,11 @@ grouped AS (
       $15::text = ''
       OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
     )
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, resolved_partitions.partition_label
+    AND (
+      $16::text = ''
+      OR located.partition_key = regexp_replace(lower(btrim($16::text)), '^part[[:space:]]+', '')
+    )
+  GROUP BY located.park_uuid, located.shed_uuid, located.partition_key, located.batch_id
 ),
 enriched AS (
   SELECT
@@ -1693,6 +1681,7 @@ classified AS (
       9223372036854775807::bigint
     ) AS sort_due_micros,
     stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' ||
+      stateful.partition_key || '|' ||
       COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') || '|' ||
       stateful.obligation_id::text AS sort_row_key,
     CASE
@@ -1730,6 +1719,7 @@ SELECT
   shed.name AS shed_name,
   grouped.physical_shed,
   grouped.partition_label,
+  grouped.source_shed_name,
   grouped.animal_stage,
   grouped.batch_id::text AS batch_id,
   grouped.protocol_name,
@@ -2210,7 +2200,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	// Park-scope clamp (defence in depth): a park-scoped app actor may only read rosters for sheds
 	// in their authorized parks. Tenant-wide (or grant-less internal) callers pass nil = no filter.
 	restrictParks := authorizedParkFilter(ctx, q.TenantID)
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID)
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID, strings.TrimSpace(q.PartitionLabel))
 	if err != nil {
 		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
@@ -2259,7 +2249,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 }
 
 const scanRosterSQL = `
--- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed, additionally bounded to the operator's drive-assignment partition when operator-scoped; group_key=(tenant_id,shed_id,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional task_id/batch_id pinning, operator partition, and authorized park filter.
+-- projection-review: membership=one task-pinned shed roster row per vaccination obligation for the selected shed, additionally bounded to the operator's drive-assignment partition when operator-scoped and the caller's explicit partition when supplied; group_key=(tenant_id,shed_id,partition_key,task_id,goat_id,obligation_id); join_cardinality=goat/protocol/tag joins are tenant-keyed and the scan capture table is collapsed through LEFT JOIN LATERAL ... LIMIT 1 so multiple scans cannot duplicate an obligation row; pagination=keyset over (goat_id,obligation_id) after status/scanned_at projection, so page boundaries do not change row membership; scope=tenant plus explicit shed_id, optional partition/task_id/batch_id pinning, operator partition, and authorized park filter.
 WITH operator_scope_member AS (
   SELECT wm.workforce_member_id
   FROM workforce_members wm
@@ -2444,6 +2434,11 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
   AND vda.assignment_planned_at IS NOT NULL
+  AND (
+    $10::text = ''
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($10::text)), '^part[[:space:]]+', '')
+  )
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)

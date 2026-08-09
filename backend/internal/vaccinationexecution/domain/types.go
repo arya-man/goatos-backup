@@ -78,17 +78,20 @@ type Owner struct {
 }
 
 type ExecutionRow struct {
-	ParkID        string `json:"parkId"`
-	ParkName      string `json:"parkName"`
-	ShedID        string `json:"shedId"`
-	ShedName      string `json:"shedName"`
-	PhysicalShed  string `json:"physicalShed,omitempty"`
-	Partition     string `json:"partition,omitempty"`
-	AnimalStage   string `json:"animalStage"`
-	TargetCount   int    `json:"targetCount"`
-	OpenCount     int    `json:"openCount"`
-	DoneCount     int    `json:"doneCount"`
-	AcceptedCount int    `json:"acceptedCount"`
+	ParkID                     string  `json:"parkId"`
+	ParkName                   string  `json:"parkName"`
+	ShedID                     string  `json:"shedId"`
+	ShedName                   string  `json:"shedName"`
+	PhysicalShed               string  `json:"physicalShed,omitempty"`
+	Partition                  string  `json:"partition,omitempty"`
+	PartitionLabel             *string `json:"partition_label"`
+	SourceShedName             *string `json:"source_shed_name,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	AnimalStage                string  `json:"animalStage"`
+	TargetCount                int     `json:"targetCount"`
+	OpenCount                  int     `json:"openCount"`
+	DoneCount                  int     `json:"doneCount"`
+	AcceptedCount              int     `json:"acceptedCount"`
 	// ReviewCount is the number of items currently AWAITING A VERDICT (completion recorded but
 	// not yet accepted or rejected) -- it must always match what the verifier's own
 	// /verification/queue returns for the same scope. It EXCLUDES rejected items: a rejection is
@@ -185,20 +188,25 @@ type ShedDrilldownSummary struct {
 }
 
 type ShedDrilldown struct {
-	ParkID       string               `json:"parkId"`
-	ParkName     string               `json:"parkName"`
-	ShedID       string               `json:"shedId"`
-	ShedName     string               `json:"shedName"`
-	AnimalStages []string             `json:"animalStages"`
-	Drives       []DriveSummary       `json:"drives"`
-	Rows         []ExecutionRow       `json:"rows"`
-	Summary      ShedDrilldownSummary `json:"summary"`
+	ParkID                     string               `json:"parkId"`
+	ParkName                   string               `json:"parkName"`
+	ShedID                     string               `json:"shedId"`
+	ShedName                   string               `json:"shedName"`
+	PartitionLabel             *string              `json:"partitionLabel"`
+	OperationalLocationDisplay string               `json:"operationalLocationDisplay"`
+	AnimalStages               []string             `json:"animalStages"`
+	Drives                     []DriveSummary       `json:"drives"`
+	Rows                       []ExecutionRow       `json:"rows"`
+	Summary                    ShedDrilldownSummary `json:"summary"`
 }
 
 type ExecutionQuery struct {
 	TenantID string
 	ParkID   *string
 	ShedID   *string
+	// PartitionLabel narrows a shed drilldown to one operational partition. Nil keeps
+	// the physical-shed aggregate for callers that intentionally request it.
+	PartitionLabel *string
 	// OperatorScopeActorID is set only for app/mobile execution reads. It is the
 	// authenticated actor id and the repository resolves it to the matching
 	// workforce member before returning assigned operator work. Admin reads leave
@@ -386,6 +394,7 @@ type ScanRosterRow struct {
 type ScanRosterQuery struct {
 	TenantID             string
 	ShedID               string
+	PartitionLabel       string
 	TaskID               string
 	OperatorScopeActorID string
 	Cursor               *ScanRosterCursor
@@ -434,6 +443,7 @@ type ExecutionProjection struct {
 	ShedName             string
 	PhysicalShed         string
 	Partition            string
+	SourceShedName       *string
 	AnimalStage          string
 	BatchID              *string
 	ProtocolName         string

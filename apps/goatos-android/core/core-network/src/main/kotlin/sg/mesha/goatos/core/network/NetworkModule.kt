@@ -174,6 +174,7 @@ interface AppApiService {
         @Query("as_of") asOf: String?,
         @Query("due_before") dueBefore: String?,
         @Query("limit") limit: Int?,
+        @Query("partition_label") partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto
 
     @GET("calendar/vaccination/events")
@@ -430,6 +431,7 @@ interface AppApiService {
         @Query("task_id") taskId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
+        @Query("partition_label") partitionLabel: String?,
     ): ScanRosterResponseDto
 
     @POST("app/vaccination/obligations/{obligation_id}/reschedule")
@@ -831,8 +833,9 @@ class RetrofitAppApi(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto =
-        service.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit)
+        service.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit, partitionLabel)
 
     override suspend fun listCalendarVaccinationEvents(
         parkId: String?,
@@ -1059,7 +1062,8 @@ class RetrofitAppApi(
         taskId: String?,
         cursor: String?,
         limit: Int?,
-    ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit)
+        partitionLabel: String?,
+    ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit, partitionLabel)
 
     override suspend fun rescheduleObligation(
         obligationId: String,

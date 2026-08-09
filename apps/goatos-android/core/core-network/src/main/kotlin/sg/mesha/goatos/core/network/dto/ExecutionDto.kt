@@ -147,6 +147,8 @@ data class VaccinationExecutionShedDrilldownDto(
     @SerialName("parkName") val parkName: String = "",
     @SerialName("shedId") val shedId: String = "",
     @SerialName("shedName") val shedName: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("operationalLocationDisplay") val operationalLocationDisplay: String = "",
     @SerialName("animalStages") val animalStages: List<String> = emptyList(),
     @SerialName("drives") val drives: List<VaccinationExecutionDriveSummaryDto> = emptyList(),
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
