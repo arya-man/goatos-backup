@@ -164,14 +164,16 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 		if sex, ok := params["sex"].(string); ok && sex != "" {
 			q.Sex = &sex
 		}
+		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
+		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
+		if hasPartitionFilter {
+			q.PartitionLabel = &partitionFilter
+		}
 
 		result, err := svc.GetBreakdown(ctx, q)
 		if err != nil {
 			return nil, err
 		}
-
-		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
-		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
 
 		facts := []ceodomain.Fact{{
 			Label: "Active animals",

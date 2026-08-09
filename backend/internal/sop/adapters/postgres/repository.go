@@ -1259,6 +1259,11 @@ WHERE p.tenant_id = $1::uuid
         (nullif($4, '')::uuid IS NOT NULL AND p.scope_id = nullif($4, '')::uuid)
         OR (nullif($4, '')::uuid IS NULL AND ts.scope_type = 'shed' AND p.scope_id = ts.scope_id)
       )
+      AND (
+        nullif($5::text, '') IS NULL
+        OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+         = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+      )
       AND (p.subject_id IS NULL OR p.subject_id = p.scope_id))
     OR
     ($3 <> 'shed'
@@ -1272,6 +1277,7 @@ ORDER BY created_at, proof_id`,
 		taskID,
 		proofSubject,
 		shedID,
+		partitionLabel,
 	)
 	if err != nil {
 		return nil, err
