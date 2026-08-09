@@ -70,6 +70,15 @@ build_sandbox() {
       print "optional_step() { local n=\"$1\"; shift; echo \"STUB-STEP ${n}\"; RESULTS+=(\"PASS  ${n} (stub)\"); }"
       done=1
     }
+    /gradle-worktree-lock\.sh"/ && !lock_done {
+      print
+      print "gradle_lock_acquire() { return 0; }"
+      print "gradle_lock_install_trap() { return 0; }"
+      print "gradle_lock_clear_trap() { return 0; }"
+      print "gradle_lock_release() { return 0; }"
+      lock_done=1
+      next
+    }
     { print }
   ' "$SANDBOX/tools/ci/run-local-ci.sh" >"$target.stubbed" && mv "$target.stubbed" "$target"
   grep -q '^step() { local n=' "$target" || { fail "could not stub run-local-ci.sh in the sandbox"; return 1; }
@@ -154,6 +163,16 @@ recipe="$(make -n "$TARGET" 2>/dev/null | grep -E 'run-local-ci\.sh' | head -1)"
   exit "$rc"
 }
 note "recipe: $recipe"
+
+resolved_arg="$(printf '%s\n' "$recipe" | sed -E 's/.*run-local-ci\.sh[[:space:]]*//; s/[[:space:]].*//')"
+case "$resolved_arg" in
+  auto|all|"")
+    ;;
+  *)
+    fail "\`make $TARGET\` resolves to \`run-local-ci.sh $resolved_arg\` — an explicit-job PARTIAL run, which writes NO receipt. Following the instruction would have left the receipt UNTOUCHED and can never clear the block."
+    exit "$rc"
+    ;;
+esac
 
 # ---------- 2b. the target must stay receipt-writing under HOSTILE make vars ---
 # The first version of this target passed $(MODE) straight through, so
