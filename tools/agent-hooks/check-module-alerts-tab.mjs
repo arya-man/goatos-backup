@@ -60,13 +60,15 @@ const ICONS =
   "apps/goatos-android/core/core-designsystem/src/main/kotlin/sg/mesha/goatos/core/designsystem/icon/MeshaIcons.kt";
 const NAVHOST = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt";
 
-// Modules with no alerts feed BUILT yet. Each entry must say why and what unblocks it.
-// Removing an entry is the goal; adding one is a maintainer decision, not a convenience.
+// Modules with no activated Alerts lens over shared task/contact truth yet. A legacy
+// notification_requests compatibility feed does not close this gap. Each entry must
+// say why and what unblocks it. Removing an entry is the goal; adding one is a
+// maintainer decision, not a convenience.
 const PENDING_ALERTS_FEED = {
   counts:
-    "No counts notification feed exists on any branch. The only counts-shaped alerts today are the VERIFIER's shifting_move queue, which belongs to the verification module, not to Counts' own bar.",
+    "GET /app/counts/alerts exists as a legacy per-recipient notification_requests compatibility feed, but Counts has no activated module-scoped lens over shared task/contact truth. The legacy source must be suppressed and retired at cutover, not promoted to canonical work state.",
   feed_direction:
-    "No feed notification feed exists on any branch -- there is no /feed/alerts route, and only vaccination and weighing own an alerts feed today. Feed's alert-shaped items are the VERIFIER's feed_packing / feed_distribution / feed_transport queues, which belong to the verification module, not to Feed's own bar. Same shape as counts above.",
+    "GET /app/feed/alerts exists as a legacy per-recipient notification_requests compatibility feed, but Feed has no activated module-scoped lens/nav over shared task/contact truth. The direct feed must be suppressed and retired during cutover, not preserved as work authority.",
   aas_health:
     "Health shipped its execution screens in this change with no notification feed behind them: no /health/alerts route and no health alert producer exists on any branch. Giving the bar an Alerts tab now would route operators to an empty screen.",
   milk:

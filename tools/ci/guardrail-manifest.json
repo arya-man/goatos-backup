@@ -1,8 +1,8 @@
 {
   "$schema": "./guardrail-manifest.schema.notes",
-  "description": "Single source of truth for every machine guardrail. check-guardrail-registration.mjs enforces that this manifest stays in sync with the guard scripts on disk, the Makefile `guardrails:` target, and tools/ci/run-local-ci.sh. Each entry declares: the Make target, the real-check command, the adversarial self-test command (or an explicit exemption reason), the owning documentation, and whether the guard is required by full local CI (tools/ci/run-local-ci.sh run_guardrails).",
+  "description": "Declarative inventory for machine guardrails. The current check-guardrail-registration.mjs enforces auto-enumerated script coverage, required declarations, and textual Make-target/CI-step reachability only. It does not yet prove semantic recipe execution, ordinary affected-job routing, existence/uniqueness of every referenced resource, or spoof resistance; F0 in the current remediation ledger must add those checks. Each entry declares the target, real check, adversarial self-test (or explicit exemption), owning documentation, and intended ordinary-CI status.",
   "conventions": {
-    "requiredInCI": "true => the guard's ciStep MUST appear in tools/ci/run-local-ci.sh AND (when makeTarget is set) the makeTarget MUST appear in the Makefile `guardrails:` target body.",
+    "requiredInCI": "true => the guard is intended to run from a standard run_common/component job in tools/ci/run-local-ci.sh, and when makeTarget is set that target is intended to appear in Makefile:guardrails. The current meta-guard checks textual reachability; F0 must prove actual invocation and reject compatibility-only, commented, echoed, dead-branch, or wrong-target wiring.",
     "selfTest": "Every guard MUST declare a selfTest command OR a selfTestExemptReason. A guard with neither fails registration.",
     "autoEnumerationScope": "check-guardrail-registration.mjs enumerates every check-*.mjs AND check-*.sh (excluding *.test.sh) under tools/agent-hooks/ and tools/ci/ and fails if any is absent from `guards[].script`. Guards outside those two directories, and non-mjs/non-sh guards, are registered by hand and are NOT auto-enumerated."
   },
@@ -499,7 +499,7 @@
       "owningDoc": ".agents/skills/nav-composition/SKILL.md",
       "requiredInCI": false,
       "ciStep": "nav-composition-guard",
-      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
+      "notes": "`make guardrails` invokes this target, but no ordinary `tools/ci/run-local-ci.sh` component job invokes it today. requiredInCI=false records that current gap; F0 must either wire the affected mobile job or retain a reviewed exemption with a precise reason."
     },
     {
       "id": "nav-entry-point-placement",
@@ -804,7 +804,7 @@
       "owningDoc": "docs/features/weighing/TRD.md",
       "requiredInCI": true,
       "ciStep": "weighing-kernel-phase2-guard",
-      "notes": "Weighing PHASE 2 time-driven kernel: the publish transaction must materialize durable weighing_work_items; every work-item claim must be keyset-chunked with FOR UPDATE SKIP LOCKED plus LIMIT and a work_item_id cursor (no OFFSET, no polling full scan); weighing kernel time comparisons must stay Asia/Kolkata BUSINESS DAY (no time.Hour/Minute offsets, no now() +/- hour interval); the cadence must be registered on a supervisor cadence inside the EXISTING backend/cmd/kernel-worker (no new worker binary, no cron); and day-start/rolled-forward/delayed recipients must resolve from role grants and assignment rows through the existing weighing lifecycle consumer, never a hardcoded email/phone/token."
+      "notes": "PRE-CUTOVER compatibility continuity guard, not permanent coordination authority. It currently protects the deployed Weighing source work ledger/stage while shared task materialization is absent. F0/task-kernel cutover must replace its private-coordination requirements with receipt/version-fenced outward materialization, parity/reconciliation, no duplicate tasks or contacts, shared contact authority, and no inbound Weighing dependency before retiring or demoting the legacy lane. Until cutover, the publish transaction must materialize durable weighing_work_items; claims remain bounded/keyseted; business time remains Asia/Kolkata day grain; and recipients are never hardcoded."
     },
     {
       "id": "weighing-one-operator-per-bucket",
@@ -851,12 +851,13 @@
     {
       "id": "screen-view-authoring",
       "script": "tools/agent-hooks/check-screen-view-authoring.mjs",
-      "makeTarget": "telemetry-guard-ratchet-v2",
+      "makeTarget": null,
       "realCheck": "node tools/agent-hooks/check-screen-view-authoring.mjs",
       "selfTest": "node tools/agent-hooks/check-screen-view-authoring.mjs --self-test",
       "owningDoc": "docs/TELEMETRY.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-local-overlay-guard"
+      "requiredInCI": false,
+      "ciStep": "check-screen-view-authoring.mjs",
+      "notes": "Authoring wrapper only. The underlying telemetry guard runs elsewhere, but this wrapper has no Make target, ordinary CI step, or live PostToolUse wiring. F0 owns a truthful registration/wiring decision."
     },
     {
       "id": "android-screenshot-proof",
@@ -950,7 +951,7 @@
       "owningDoc": "docs/runbooks/local-gcp-kernel-parity.md",
       "requiredInCI": false,
       "ciStep": "local-gcp-kernel-parity-guard",
-      "notes": "requiredInCI=false is a statement of fact, not an aspiration: `local-gcp-kernel-parity-guard` appears in the Makefile only, and in no job of tools/ci/run-local-ci.sh nor in the `guardrails:` target. It lints the rendered compose.local-kernel.yml topology for the opt-in local GCP parity stack. Its Make target runs the .test.sh self-test before the real check."
+      "notes": "requiredInCI=false records that no ordinary tools/ci/run-local-ci.sh component job invokes this target. `make guardrails` does invoke it, and its Make target runs the .test.sh self-test before the real check. F0 must decide and enforce ordinary affected-job routing or a precise reviewed exemption."
     },
     {
       "id": "local-single-db",
@@ -1001,7 +1002,7 @@
       "makeTarget": null,
       "realCheck": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh",
       "selfTestExemptReason": "Editor-hook wrapper (PostToolUse in .claude/settings.json), not a CI gate: it re-runs the already-registered weighing isolation guard at edit time so the failure surfaces at the decision point instead of hours later in the matrix. The underlying guard carries the real check and its own coverage; a self-test here would only assert that a hook shells out.",
-      "owningDoc": "docs/decisions/weighing-free-flow.md",
+      "owningDoc": "docs/features/weighing/TRD.md",
       "requiredInCI": false,
       "ciStep": "check-weighing-isolation-on-edit.sh"
     },

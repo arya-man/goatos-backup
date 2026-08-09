@@ -10,6 +10,9 @@ Fresh-main counter-review snapshot:
 Final counter-review correction snapshot:
 `07640ad5388ffb6ed87701ea7f4f522c92fb3e82`
 
+Governance, migration-tail, and Weighing non-deviation revalidation snapshot:
+`d64e38790f010cd05b1c4f2df833a81024dce02c`
+
 Review date: 2026-08-09
 
 This is the current implementation queue for the whole-project audit. The
@@ -22,6 +25,17 @@ This is a source review, not proof of the deployed Cloud Run revision, live
 database schema, DLQ contents, bucket policy, device delivery, or historical
 production data. Verify those surfaces in the closure packet for each affected
 batch.
+
+The d64e387 pass revalidated the execution/landing contracts, current migration
+tail, and Weighing integration boundary; it did not re-run every historical
+finding's full production-path audit. Upstream migration `000141` repairs
+Weighing partition operational identity and closes or narrows none of
+`WEIGH-001..006`, so those six remain open. The five commits after the prior
+`c3ac4e0` governance review touch only Android upload-permission/icon/telemetry
+coverage, admin-web optimistic URL filters, and their frontend guard. The
+telemetry-only Feed/Sync edits close or narrow none of the recorded mobile
+correctness rows. Every selected batch still performs fresh-main
+re-adjudication before implementation.
 
 ## Current tally
 
@@ -79,20 +93,29 @@ Severity means:
 1. Work a root batch, not a convenient symptom. Do not mark an individual row
    closed while another layer can recreate the same failure.
 2. Preserve stable IDs in commits and proof packets.
-3. Apply the current closure gate below: production writer and reader proof,
+3. Before coding, fill the batch record and prevention matrix in
+   `context/execution/defect-prevention-execution-contract.md`. Every selected
+   root must name its canonical invariant, failing production path, persistent
+   control, structural guard or stronger-control rationale, adversarial
+   self-test, ordinary local-CI route, operational recovery, and skill/
+   anti-pattern closeout.
+4. Apply the current closure gate below: production writer and reader proof,
    retry/replay/idempotency, authorization, real PostgreSQL where applicable,
    contract/client proof, observability, relevant ordinary CI, and independent
    counter-review.
-4. Do not edit applied migrations. Use the next free forward migration at the
+5. Do not edit applied migrations. Use the next free forward migration at the
    time of implementation and re-check the migration tail immediately before
    naming it.
-5. A static fix is not a deployed fix. Record the exact deployed revision,
+6. A static fix is not a deployed fix. Record the exact deployed revision,
    schema version, repair outcome, and remaining DLQ/backlog after rollout.
 
 The older `consolidated-ledger-defect-closure-program.md` belongs to the
 separate last-35 namespace. Its proof ideas may be reused, but its C35 ordering,
 whole-old-ledger requirements, and historical push instructions do not govern
-this queue. Land current work through the repository's `make land-main` gate.
+this queue. Ordinary work and this documentation foundation land through the
+repository's `make land-main` gate. The approved implementation program uses
+one integration PR and, after F0 builds it, only
+`make land-integration-pr PR=<number>`.
 
 ### Current closure gate
 
@@ -107,11 +130,28 @@ axis below:
 - bounded query plan and pagination/memory proof where row count can grow;
 - OpenAPI/generated-client/web/Android/Room/offline proof where applicable;
 - metrics, alerts, DLQ/repair, and deployed-revision/schema verification;
-- ordinary affected-component CI plus the relevant guard self-tests;
+- ordinary affected-component CI plus the relevant guard real checks and
+  adversarial self-tests;
+- the strongest applicable recurrence control: DB/transaction/type/schema,
+  structural guard, production-path regression, and bounded operational
+  reconciliation; any omitted leg has a concrete stronger-control rationale;
+- relevant `AGENTS.md`, skill/reference, phase, decision, anti-pattern, and
+  runbook updates so another module or agent cannot recreate the root pattern;
 - an independent counter-review that reconciles every count and status.
 
 A compile, mock, screenshot, skipped workflow, prose assertion, successful
 enqueue, or source-only audit is not closure proof by itself.
+
+For operational findings and every kernel milestone, closure also requires
+proof that the feature follows the non-deviation lock: event, stable task source
+identity, real owner, pinned clock,
+hierarchy/work-unit, proof, separate sign-off leaf, acknowledgement/contact
+policy, close/reopen propagation, shared read surfaces, and reconciliation. A
+separate durable materialization exception owned by a real configuration/
+operations resolver records owner-resolution failure; it never owns the task,
+and the unresolved task stays shadowed. A module-private task, scheduler, owner
+fallback, overdue rule, escalation ladder, verification queue, or screen-only follow-up state is a regression even
+when its local tests pass.
 
 ## Fix order
 
@@ -148,7 +188,8 @@ obligation producer, but it blocks safe multi-module escalation activation.
 Implementation instructions:
 
 1. Create a forward-only `-- +goose NO TRANSACTION` migration using the next
-   free version (`000141` at the audited SHA). Include exactly one Up and one
+   free version (`000142` at fresh `origin/main` d64e38790; recheck immediately
+   before authoring). Include exactly one Up and one
    Down marker. Make Down explicitly refuse with a clear irreversible-migration
    error; a successful no-op Down would let migration metadata lie while the
    expanded constraint remains.
@@ -229,12 +270,19 @@ emitted director roles.
 Implementation instructions:
 
 1. Reconcile or disable the active staging deploy workflow so it matches the
-   deploy contract.
-2. Preserve the already-built `make land-main` freshness, clean-tree, rebase,
-   exact-SHA receipt, race recheck, and remote verification. Separately harden
-   staging release: remove or tightly govern `GOATOS_ALLOW_DIRTY_RELEASE` and
-   `GOATOS_BYPASS_LOCAL_CI`, require the full SHA and matching receipt, and build
-   Docker/Cloud Deploy from an explicit clean archive rather than ambient `.`.
+   deploy contract. Resolve the contradictory authority carried by
+   `docs/runbooks/deployment.md`, `docs/runbooks/github-workflows.md`,
+   `.github/workflows/stg-pr-gate.yml`, and `.github/workflows/stg-deploy.yml`
+   against `AGENTS.md` and `docs/runbooks/stg-deploy.md`; mark superseded
+   instructions non-authoritative or remove them in the same change.
+2. Preserve the already-built ordinary `make land-main` freshness, clean-tree,
+   exact-SHA receipt, race recheck, and remote verification. Remove the agent
+   `GOATOS_BYPASS_LOCAL_CI=1` path, or replace it with a fail-closed break-glass
+   record containing incident, reason, authorized approver, expiry, audit, and
+   blocking follow-up; self-test every bypass spelling. Separately harden
+   staging release: remove or tightly govern `GOATOS_ALLOW_DIRTY_RELEASE`,
+   require the full SHA and matching receipt, and build Docker/Cloud Deploy from
+   an explicit clean archive rather than ambient `.`.
 3. Pin base images by digest. Publish and verify full-SHA immutable image
    identities and deployed digests.
 4. Fetch and peel remote tags before treating an existing release tag as valid.
@@ -273,6 +321,46 @@ Implementation instructions:
     supply a reproducible prod Firebase configuration contract; give
     operator-mobile its own TypeScript plus `nav_chrome`; isolate the investor
     React/Next workspace and prove a clean aggregate build.
+12. Implement `make land-integration-pr PR=<number>` for the sole program PR.
+    Verify clean non-main integration branch, Mesha identity, `vgoats/goatos`,
+    same-repo open PR with base `main`, local HEAD equal to remote PR head,
+    current `origin/main` as an ancestor, one open program PR, reconciled proof
+    index/ledger, exact-head local-CI receipt, and every selected certification
+    lane. Refetch, use the existing guarded fast-forward push so tested HEAD
+    itself becomes `main`, then require fresh `origin/main == HEAD` and the PR to
+    report merged. Self-test stale/moving main, stale PR head, wrong repo/base,
+    wrong identity, dirty/detached/main checkout, missing receipt, and wrong PR
+    state. The long-running branch merges fresh main; it does not rewrite
+    reviewed commits through rebase.
+13. Define and verify the machine-readable SHA-keyed proof/review receipt and
+    committed proof-index schema from the prevention contract. Ordinary
+    `ci-local` is only deterministic affected CI; migrations, real PostgreSQL,
+    device, browser, deploy, and live-state proof are separately selected,
+    mandatory certification lanes. A skipped lane is not green.
+14. Strengthen `check-guardrail-registration.mjs` beyond string mentions:
+    require unique IDs/scripts, existing owner docs/checks/self-tests, actual
+    Make recipe invocation, actual ordinary affected-job routing, and a reason
+    for every `requiredInCI:false`. Add spoof fixtures for comments, `echo`, dead
+    branches, wrong targets/steps, and absent files. Repair the known
+    `nav-composition`, `screen-view-authoring`, local-GCP parity, and missing
+    Weighing-owner-doc manifest claims.
+15. Prevent ratchet laundering. Compare candidate ratchet keys/counts to fresh
+    `origin/main` and reject new keys or count increases even after
+    `--regenerate`, unless a versioned reviewed exception records owner, reason,
+    and expiry. Self-test add-debt -> regenerate -> candidate still fails, and
+    document count-only blind spots that need a diff-scoped semantic guard.
+16. Add an operational-task-kernel non-deviation guard with adversarial tests,
+    manifest registration, Make target, and ordinary affected-CI routing. Back
+    it with a machine-readable module integration registry. It must reject new
+    or newly canonical module-private task/work-item authorities, schedulers,
+    owner fallbacks, overdue clocks, direct escalation/contact ladders,
+    verification queues, and task screens unless they are declared legacy
+    sources with a bounded shadow/cutover/retirement record. Test renamed tables,
+    raw SQL in `DO` blocks, aliased stage registration, indirect consumers,
+    screen-only lists, and false exemptions. Preserve Weighing free-flow while
+    requiring its outward materializer; reclassify the current
+    `weighing-kernel-phase2` guard as compatibility-only and replace its private
+    coordination requirements at cutover.
 
 Proof must cover dirty/untracked rejection, tag mismatch, exact SHA/digest,
 validator self-tests including nested procedural DML, populated upgrade,
@@ -387,10 +475,27 @@ silently dropped.
 
 Fix these findings in Weighing-owned schema, services, and tests. Do not make
 Weighing read `task_nodes`, `sop_*`, `obligation_*`, roster ownership, animal
-lifecycle, generic cadence, or overdue/missed concepts. A later leadership
-oversight view may consume Weighing outbox events outward only, after an explicit
-scope ruling and any required guard amendment. Generic work state must never
-gate weigh capture or close.
+lifecycle, generic cadence, or overdue/missed concepts. Generic work state must
+never gate weigh capture, submit, verdict, reopen, or close.
+
+W0 no longer implies a permanent coordination island. After its source findings
+close, the task kernel must consume Weighing's durable events outward-only and
+map Weighing-owned campaign/work-item identity, assignee, authored plan date,
+proof, verdict, close, and reopen facts into the shared task hierarchy and
+contact waterfall. The consumer belongs to the shared kernel, not the Weighing
+module; it is idempotent, version-fenced, replayable, observable, and reconciled.
+It must not invent recurrence or read herd/roster/SOP/obligation data through
+Weighing. This is the maintainer-approved integration that preserves free-flow
+execution while eliminating a private task island.
+
+Inventory and migrate/suppress every existing private coordination lane at
+cutover: `weighing_work_items` as an app-visible work authority, the
+`WeighingKernelStage` day-start/rolled-forward/delayed scheduling state, direct
+notificationbridge routing, module-local verification ownership, and duplicate
+Today/Action Center reads. Weighing-owned source rows/events remain the domain
+facts, but after parity the shared task node is the app-visible coordination
+truth. Prove no duplicate task, notification, verifier leaf, or reopen/close
+transition during shadow, cutover, rollback, and replay.
 
 ### M0 — repair Feed and mobile offline behavior by root
 

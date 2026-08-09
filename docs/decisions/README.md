@@ -7,6 +7,14 @@ link it from `context/README.md`.
 
 Active ADRs:
 
+- `docs/decisions/operational-task-kernel-non-deviation.md` - Accepted
+  governing decision: every operational module participates in one shared,
+  event-driven task/ticketing waterfall. Older module-specific task, scheduler,
+  alert-feed, owner, clock, escalation, and verification decisions are
+  compatibility sources only where they conflict; strict modules such as
+  Weighing integrate outward by durable events without an inbound execution
+  dependency.
+
 - `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` - Accepted
   5,000-to-50,000-animal deployment envelope: replace the 17 scheduled Cloud Run
   Job fleet with one HA modular kernel worker, drop disposable projection

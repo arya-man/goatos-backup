@@ -11,6 +11,19 @@ Fresh-main counter-review snapshot:
 Final counter-review correction snapshot:
 `07640ad5388ffb6ed87701ea7f4f522c92fb3e82`
 
+Governance, migration-tail, and Weighing non-deviation revalidation snapshot:
+`d64e38790f010cd05b1c4f2df833a81024dce02c`
+
+This latest pass revalidates the plan contract and current migration tail, not
+every historical finding end to end. Migration `000141` is already occupied by
+Weighing partition operational identity and does not close or narrow
+`WEIGH-001..006`. The five commits after the prior `c3ac4e0` governance review
+touch only Android upload-permission/icon/telemetry coverage, admin-web
+optimistic URL filters, and their frontend guard; they do not change the kernel,
+migration tail, or Weighing findings. The telemetry-only Feed/Sync edits do not
+close or narrow the recorded mobile correctness rows.
+Implementation rechecks fresh main and the migration tail at each batch start.
+
 Companion bug queue:
 [current whole-project remediation ledger](../repo-audits/current-whole-project-remediation-ledger.md)
 
@@ -38,6 +51,33 @@ generic owner/clock contract, or generic upward close/reopen mechanism. Keep
 those domain rows authoritative for domain facts; add canonical shared rows only
 for cross-module coordination facts.
 
+### Non-deviation lock
+
+Maintainer decision, 2026-08-10: Goat OS remains one event-driven,
+interlinked task/ticketing waterfall. Every operational module attaches to this
+shared chain:
+
+```text
+business event -> canonical transaction + audit/outbox -> owned task + clock
+-> bounded hierarchy -> acknowledgement-gated contact waterfall -> proof
+-> separate verification/sign-off task -> close/reopen rollup -> shared reads
+```
+
+Modules retain their domain facts and state machines, but may not create,
+retain as canonical, or exempt a private app-visible task authority, scheduler,
+owner fallback, overdue calculation, reminder/escalation ladder, verification
+queue, or screen-only follow-up state. Existing module-local coordination is migration input, not a
+template for further fragmentation. A strict execution boundary changes the
+adapter direction; it never permits a private coordination island. If an
+adapter is incomplete, the module remains shadowed or blocked until ownership,
+clock, reconciliation, and cutover are proven.
+
+Any proposed deviation requires an explicit maintainer decision and same-change
+updates to `context/architecture/operational-kernel.md`, this plan,
+`context/execution/defect-prevention-execution-contract.md`, the relevant
+skills/anti-patterns, and structural guard plus adversarial tests. Ambiguity is
+not approval.
+
 ## Fix first, design in parallel
 
 Kernel design can run while independent application bugs are being repaired,
@@ -57,6 +97,13 @@ Do not wait for every P2 cleanup item. Do wait for the companion ledger's N0,
 F0, S0, and the selected module's D0 roots. New shared schema must not encode
 today's missing receipts, stale leases, silent recipient loss, cross-park scope
 bugs, or invalid notification values.
+
+Every prerequisite fix and kernel milestone also obeys
+`context/execution/defect-prevention-execution-contract.md`. Implementing the
+behavior without the failing-before production-path regression, durable
+recurrence control, adversarial guard proof where detectable, ordinary local-CI
+wiring, recovery/observability, and independent current-SHA review does not
+unlock the next milestone.
 
 ## What exists today
 
@@ -111,8 +158,8 @@ Each contributes at least one independent CHECK-constrained state column;
 31 columns. This is an audited coordination-focused lower bound, not a claim
 that secondary procurement, escalation, import, or technical statuses do not
 exist. The implementation must regenerate this inventory/query at cutover and
-state every inclusion and exclusion; it must not use the count to pull Weighing
-inside the generic boundary.
+state every inclusion and exclusion; it must not use the count to add an inbound
+generic-kernel dependency inside Weighing.
 
 ## Architecture boundaries
 
@@ -129,15 +176,25 @@ transition. A task command must not update another module's tables directly.
 
 ### `task_nodes` is canonical coordination state, not a read projection
 
-At the active scale envelope, screens read canonical indexed SQL. Do not build
-an eventually consistent task projection per module. The owning app transaction
-must write the domain change, task coordination change, audit/history,
-idempotency, and outbox atomically through a shared transaction-aware port.
+At the active scale envelope, screens read canonical indexed SQL. Do not build a
+screen-specific task projection per module. There are exactly two permitted
+write shapes:
 
-If a source cannot meet that contract, keep it off the generic board until an
-explicit ADR defines lag, failure visibility, reconciliation, and cutover. An
-outbox-only asynchronous adapter may feed analytics or an external oversight
-view; it must not silently become the source of today's operational task truth.
+1. By default, the owning app transaction writes the domain change, task
+   coordination change, audit/history, idempotency, and outbox atomically
+   through a shared transaction-aware port.
+2. A module with a recorded strict isolation boundary, currently Weighing,
+   writes the domain change, audit/history, idempotency, and a complete durable
+   outbox event atomically. A shared-kernel consumer outside that module writes
+   the task node and an event receipt in its own idempotent, version-fenced
+   transaction. Materialization exceptions, lag alerts, bounded replay, and a
+   source reconciler are mandatory.
+
+The second shape is a durable kernel materializer, not a screen projection or a
+best-effort analytics feed. Its rows remain shadowed until backfill parity,
+live-lag, replay, and reconciliation gates pass. The isolated module never
+reads or writes `task_nodes`, and generic task state never gates its domain
+execution. A source that satisfies neither shape stays off the generic board.
 
 ### No fake owner
 
@@ -165,13 +222,32 @@ and separate eligible-pool Today predicate. Keep claim pools out of the
 Vaccination K1/K2 slice and the generic board until that complete contract is
 approved; an unresolved assigned task must never fall back into a pool.
 
-### Weighing remains isolated
+### Weighing execution stays isolated; its coordination joins the kernel
 
-Weighing must not read task, SOP, obligation, roster, animal-lifecycle, cadence,
-overdue, or missed state, and generic tasks must never gate capture or close.
-Repair `WEIGH-001..006` inside Weighing. If leadership later needs a generic
-oversight view, consume Weighing outbox events outward only after an explicit
-scope ruling and guard amendment. Weighing is not an initial task-node adapter.
+Weighing must not read task, SOP, obligation, roster, animal-lifecycle, generic
+cadence, overdue, or missed state, and generic task state must never gate scan,
+submit, verify, reopen, or close. That protected free-flow execution boundary
+remains unchanged.
+
+It is not an exemption from the interlinked task/ticketing system. After
+`WEIGH-001..006` are repaired, the shared kernel consumes Weighing's existing
+durable outbox events outward-only to materialize campaign, shed/work-item,
+operator, and verifier/sign-off coordination nodes. The adapter uses
+Weighing-owned source identity, assignee, planned/due business date, state, and
+proof/verdict events; it does not query herd, roster, SOP, obligation, or other
+module tables from Weighing. Its clock maps the explicitly authored Weighing
+plan date/window and must not invent a recurring cadence or expected-next-weigh
+rule. Missing ownership creates a separately owned task-kernel materialization
+exception and keeps that coordination row shadowed; it never becomes a fake
+owner or a Weighing capture gate.
+
+The outbox write remains atomic with the Weighing domain transition. The shared
+consumer is idempotent, version-fenced, bounded, observable, replayable, and
+reconciled against Weighing source rows before its task nodes become app-visible.
+This one-way adapter preserves strict module isolation while ensuring Today,
+hierarchy, contact waterfall, verification/sign-off, and shared command lenses
+do not form a second invisible Weighing island. Weighing is not the first
+task-node vertical, but it is a required post-W0 onboarding.
 
 ## Canonical data contracts
 
@@ -366,6 +442,26 @@ These are dependency milestones, not promises of calendar weeks. Independent
 items inside a milestone may run in parallel. Re-estimate after schema/API
 review and the first real-PostgreSQL proof.
 
+### PR topology and coordination
+
+Expose one draft integration PR against `main` for the complete approved
+program. The maintainer does not manage milestone PRs. F0/N0, S0, module-owned
+D0 fixes, W0, and disjoint M0 sub-batches may run on parallel internal
+branches/worktrees, but agents return focused commits and proof to one
+coordinator; they do not open external PRs.
+
+The coordinator owns the integration branch, migration sequence, shared
+registries, OpenAPI roots, ledger, and conflict-heavy files. K1 -> K2 -> K3 is an
+internal dependency stack: integrate each only after its parent milestone is
+green. Review every incremental commit range plus the cumulative PR diff against
+fresh `origin/main`. Merge fresh main into the one integration branch at
+controlled checkpoints, rerun the complete affected CI and earlier contract
+tests, and refresh the PR proof. F0 must provide
+`make land-integration-pr PR=<number>` as the repo-owned exact-head gate defined
+in the prevention contract. The final program cannot land through ordinary
+`make land-main`; the tested remote PR head must fast-forward `main`, then equal
+fresh `origin/main` exactly and report merged.
+
 ### K0 — prerequisite correctness
 
 - Complete companion-ledger N0 and the applicable F0/S0 gates.
@@ -416,9 +512,11 @@ policy decision is recorded in its canonical source.
   history, assignment, exception, and escalation table to the hot-migration
   validator inventory in the introducing migration.
 
-Exit: every shadow task has a real owner and policy-pinned clock or a loud
-materialization exception; replay creates no duplicate; source and task changes
-commit atomically. A K1 kill switch stops new shadow writes without deleting
+Exit: every materialized shadow task has a real owner and policy-pinned clock;
+an unresolved source instead creates a separately owned, loud materialization
+exception and no app-visible task. Replay creates no duplicate; source and task
+changes commit under one of the two permitted durable write shapes. A K1 kill
+switch stops new shadow writes without deleting
 compatible schema or evidence, and the backfill/reconciler can resume safely.
 
 ### K2 — personal Today and generic FCM escalation
@@ -511,7 +609,9 @@ watermarks, exceptions, retries, and rollback.
 Use Health as the structural reference for three levels. Vaccination is the
 first business vertical only after its source defects and stable epic identity
 are fixed. Onboard Feed/Milk/Procurement/Shifting only after their companion
-ledger batches. Keep Weighing outside this adapter list.
+ledger batches. Onboard Weighing after W0 through the outward-only event adapter
+defined above; it must join shared coordination without gaining an inbound
+dependency on task, SOP, obligation, roster, herd, or lifecycle state.
 
 ### K5 — channels and scale-out
 
@@ -540,6 +640,15 @@ Every milestone must supply:
 - backlog age, materialization failure, uncovered duty, reconciliation drift,
   escalation deadline, delivery failure, DLQ, and no-output observability.
 
+Every milestone must also complete the prevention matrix from
+`context/execution/defect-prevention-execution-contract.md`: canonical rule,
+root-cause production enforcement, red/green regression, persistent control,
+structural guard or stronger-control rationale, an adversarial self-test when a
+structural guard applies (otherwise the relevant production-path proof for the
+stronger control), ordinary local-CI routing, cross-surface parity, operational
+recovery, skill/anti-pattern sync, and independent current-SHA counter-review.
+These are exit criteria, not a later hardening phase.
+
 If a required interruption, race, process-death, or real-PostgreSQL harness does
 not yet exist for that exact production path, building the harness is milestone
 work, not a reason to substitute a mock or prose proof.
@@ -561,7 +670,11 @@ change:
 - a hard-window terminal state is the durable violation record;
 - approved leadership sign-off is represented as a real owned task.
 
-These remain explicit maintainer choices before activation:
+These remain unresolved activation gates. The coordinator first derives them
+from existing canonical decisions, source workflow evidence, and accepted
+module-specific policy. If authority is genuinely absent or contradictory, keep
+only that adapter/cutover fail-closed as blocked-with-evidence and continue all
+independent work; do not ask the maintainer to manage routine implementation:
 
 1. timing classes and ladder intervals for workflows that do not already have a
    locked workflow-specific policy; inherit recorded Vaccination cadence unless
@@ -569,15 +682,13 @@ These remain explicit maintainer choices before activation:
 2. strict-window ownership outside normal shift hours;
 3. representation of genuine physical work completed before a death/sale event
    arrived, while immutable evidence remains preserved;
-4. whether any generic oversight of Weighing is allowed beyond outward events,
-   because the specific free-flow guard is more restrictive than the generic
-   target rule.
-5. which, if any, current queue-like workflows are true claim pools instead of
+4. which, if any, current queue-like workflows are true claim pools instead of
    duty-owned work, and the accountable pool owner/SLA and atomic claim policy
    for each approved pool.
 
-“Ambiguity is not approval” still applies. Record the choice and update the
-affected canonical decision/guard in the same change; do not guess in code.
+“Ambiguity is not approval” still applies. Record any evidence-backed choice and
+update the affected canonical decision/guard in the same change; never guess a
+medical, security, tenant-isolation, or ownership rule in code.
 
 ## Retirement gate
 
@@ -622,7 +733,8 @@ The current-source review requires these corrections:
 - separate work deadline from next contact time and pin a versioned policy;
 - define tenant parent integrity, immutable ancestry, depth/tier rules,
   assignment history, counter locks, race fencing, and reconciliation;
-- keep Weighing outside generic task dependencies;
+- connect Weighing outward through its durable events while preserving the ban
+  on inbound generic-task or cross-module dependencies in Weighing execution;
 - remove unsafe retirement claims and require live compatibility proof.
 
 Those are implementation corrections, not a rejection of the target task

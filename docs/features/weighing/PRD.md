@@ -2,7 +2,7 @@
 
 **Status:** Draft v1 · **Date:** 2026-07-27
 **Companion:** [TRD.md](./TRD.md)
-**Source hierarchy:** maintainer clarification in the 2026-07-27 working session; existing Vaccination execution behavior for rolling task/window UX; `context/source-findings/goats-and-parks-source-findings.md`, `context/source-findings/goats-and-parks-source-extract.md`, and `context/source-findings/sheds-db-source-findings.md` for herd, RFID, shed, and weight source semantics.
+**Source hierarchy:** the 2026-08-10 operational-task-kernel non-deviation decision governs app-visible task/owner/clock/contact behavior; maintainer clarification in the 2026-07-27 working session governs Weighing capture; `context/source-findings/goats-and-parks-source-findings.md`, `context/source-findings/goats-and-parks-source-extract.md`, and `context/source-findings/sheds-db-source-findings.md` provide herd, RFID, shed, and weight source semantics.
 **Explicitly not a clone:** Preventive Care Vaccination has clinical due windows, vaccine rules, and strict obligation completion. Weighing reuses the shed/partition work-session pattern, but it has different evidence and completion rules.
 
 ---
@@ -18,13 +18,13 @@ field team which sheds to cover, and the operator records weights outside a
 first-class Goat OS task.
 
 Weighing v1 adds a kids-only, shed/partition execution workflow on Android.
-Leadership selects the kid sheds/partitions to cover. The app turns that
-selection into rolling operator work cards spread across about three work days,
-keeps the work open until finished, and records each animal's RFID, weight,
-original expected shed, actual scanned shed context, and mandatory per-animal
-proof video for `individual_animal` rows. For `per_shed_partition` rows, it
-records the selected shed/partition weighing result and required shed/partition
-proof video without creating individual animal weights.
+Leadership selects the kid sheds/partitions to cover and assigns each physical
+bucket to one operator. Weighing records bucket-local RFID, weight, selected
+shed context, and mandatory per-animal proof video for `individual_animal` rows.
+For `per_shed_partition` rows, it records the selected shed/partition result and
+required proof without creating individual animal weights. The shared task
+kernel turns those source facts into operator/verifier work, clocks, contacts,
+and cross-module rollup.
 
 ## 1.1 Vaccination lessons this feature must absorb
 
@@ -38,7 +38,7 @@ avoid from the first build:
 | Idempotency keys were too broad for shed/partition submit. | Weighing idempotency must include campaign, work group, animal, operator, and proof intent. |
 | Android scan screens lost shed/partition identity in titles/routes. | Weighing screens must always display the active work group and expected shed/partition context. |
 | Permission checks allowed scan/submit paths before the correct proof/capability gate. | Weighing submit must be blocked until the user has execution capability and every completed animal has mandatory proof. |
-| Admin/leadership cards drifted from backend contract fields. | Leadership progress, mismatch, unavailable, and delayed labels must be backend-owned contract fields, not hardcoded UI guesses. |
+| Admin/leadership cards drifted from backend contract fields. | Leadership captured/proof/verdict labels and shared task owner/clock/delay labels must be backend-owned contract fields, not hardcoded UI guesses. |
 | Retry/fanout failures made proof/progress appear stuck until a later repair. | Weighing must have durable retry, recovery, and supervisor-visible degraded states for media upload, observation acceptance, projection, and notification fanout. |
 | Android offline and route identity bugs let the app reopen the wrong shed/task after process death or scan. | Weighing routes, Room rows, and outbox commands must carry campaign, group, shed/partition, animal, and proof identity end to end. |
 
@@ -50,12 +50,18 @@ accepted.
 
 ## 2. Actors and authority
 
+The actors below author and execute Weighing source facts. Cross-module
+task/owner/clock/Today/contact authority belongs to the shared task kernel under
+the 2026-08-10 non-deviation decision. Weighing supplies stable campaign/bucket,
+assigned operator, authored plan date, proof/verdict, and close/reopen events
+outward-only; generic coordination never gates capture.
+
 | Actor | Product authority |
 |---|---|
-| CEO/CXO | Create and monitor weekly weighing tasks across farms/sheds. |
+| CEO/CXO | Create authored weighing campaigns across farms/sheds and monitor their source and shared-task state. |
 | Preventive Director | Review/monitor weighing tasks and execute scan/submit when assigned operational work. Dinakar belongs here for v1, but he does not create or publish tasks. |
 | Operator | Execute assigned weighing work on Android. Amit is the v1 operator. |
-| System | Builds shed/partition work groups, rolls unfinished work forward, records scans/proofs, updates progress/read models, and raises delayed-work visibility. |
+| System | Weighing builds source campaign/bucket facts and records scans/proofs; the shared task kernel owns app-visible work, clock/delay, hierarchy, contacts, verifier/sign-off, and rollup. |
 
 V1 must not add Dinakar to field-operator capacity. Dinakar is a director
 persona with execution permission, so he may scan/submit assigned work, but he
@@ -63,47 +69,22 @@ does not contribute to the operator capacity model.
 
 ## 3. Core product model
 
-Weighing v1 is a **kids-only weekly work container for the operator UI**. Adults
-are not part of this slice. The source/v1 cadence is:
+Weighing is a manually authored campaign over selected physical shed/partition
+buckets. It has no expected-animal roster, membership denominator, missing-
+animal state, or automatic recurring cadence. Leadership may choose an authored
+campaign period, start date, selected buckets, category, and operator. Those are
+Weighing source facts.
 
-| Animal group | Source weighing cadence | V1 behavior |
-|---|---|---|
-| Kids / K and F kid groups | Every Monday | Only active v1 campaign. All kids are covered across about three operator work days, and the task rolls until finished. |
-| Adult goats | Source says monthly on the 15th, but Aryaman clarified "adults not doing" for this build. | Out of scope for v1. Do not expose an adult monthly lane, do not auto-schedule adults, and do not allow adult sheds as manual exceptions until product reopens the scope. |
+The shared task kernel maps the authored date/window into its versioned clock
+policy and owns Today, due/delayed visibility, contacts, acknowledgement, and
+rollup. It must not invent an expected-next-weigh rule, auto-create a Monday or
+monthly campaign, or infer recurrence from an old display period. A missed
+authored date never blocks free-flow capture.
 
-CEO/CXO may create the week's active task on any day inside the week. From that
-day, the selected kid sheds become active weighing work. The system should
-suggest three practical daily work groups using a capacity target, but the task
-stays open and keeps rolling until the selected shed/partition work is finished.
-
-Example:
-
-| Field | Example |
-|---|---|
-| Week | 2026-07-26 to 2026-08-01 |
-| Scheduled/created date | 2026-07-29 |
-| Selected sheds | Kid sheds S1, S2, S3, S4, S5 |
-| Total expected animals | 324 |
-| Planning cap | 100 animals/day |
-| Expected plan | About three work days from 2026-07-29 onward, rolling if needed. |
-| Allowed reality | Work may finish later, for example 2026-08-02 or 2026-08-03. |
-
-The cap is a planning guide. It must not force operators to hit exactly 100
-animals per day. If the suggested day group is `S1=80 + S2=20`, and Amit weighs
-only `S1=80` on that day, the app must allow completion for that day's actual
-work and roll `S2=20` forward.
-
-Weighing work has three separate clocks:
-
-| Clock | Meaning |
-|---|---|
-| Campaign week | The leadership planning bucket shown in week tabs. |
-| Start business date | The date from which operator work becomes visible. |
-| Execution/roll-forward date | The date on which unfinished work is currently shown to the operator. |
-
-The UI must never collapse these into one "due date." A task created on
-2026-07-29 for the 2026-07-26 to 2026-08-01 week remains the same weekly
-campaign even if unfinished work rolls to 2026-08-02 or later.
+Planning capacity is optional grouping guidance based on explicitly selected
+buckets, never an expected count or completion denominator. The operator may
+scan any number of identifiers in an assigned bucket, and completion/progress is
+expressed only in observed/proof/verdict counts or selected-scope results.
 
 ## 4. Scheduling UX
 
@@ -124,37 +105,34 @@ Sidebar visibility is backend-contract and capability driven:
 CEO/CXO planning flow:
 
 1. Open Weighing.
-2. Select a week tab, matching the Vaccination weekly mental model.
-3. Create or edit that week's weighing task.
-4. Confirm the v1 lane: weekly kids/K/F work only.
+2. Select the authored campaign period/date lens.
+3. Create or edit the campaign.
+4. Confirm the explicitly authored scope; no recurring lane is inferred.
 5. Select one farm/park scope as needed.
-6. Select multiple kid sheds/partitions.
-7. Review any shed/partition containing adult or mixed membership as excluded or
-   requiring source-data review; adults are not scheduled in v1.
-8. Review total expected animals and suggested daily groups.
+6. Select multiple shed/partition buckets from the allowed physical catalog.
+7. Review category and operator per selected bucket; do not inspect resident
+   animals to decide whether the bucket may be selected.
+8. Review optional bucket grouping/capacity guidance without an expected count.
 9. Confirm assignment to the operator.
 
-The UI must say this is a weekly weighing task that starts from the selected
-business date and rolls forward until done for kids. It should not imply the
-work must finish inside the calendar week, and it must not show or silently
-schedule adult monthly work in v1.
+The UI states the authored campaign date/window and selected buckets. It must
+not claim a recurring schedule or silently create future work.
 
-Week tabs must preserve the planning bucket. A campaign created inside a week
-remains visible from that week tab even after open work rolls beyond week end,
-while the operator queue shows the same open work on its current rolled-forward
-business date.
+Week tabs are a display lens over authored campaign dates, not a recurrence
+engine. A campaign remains visible from its authored-date lens while the shared
+task queue reports its current clock state.
 
-If the same week already has an active weighing campaign for the same farm/park
-and overlapping selected sheds, the UI must show the existing campaign and ask
-for edit/extend/cancel rather than creating a duplicate silent task.
+If the same authored date/window already has an active weighing campaign for the
+same farm/park and overlapping selected sheds, the UI must show the existing
+campaign and ask for edit/extend/cancel rather than creating a duplicate silent
+task.
 
-Each week tab must show one backend-owned campaign state: `no_task`, `draft`,
-`planned`, `published`, `in_progress`, `delayed`, `completed`, or `canceled`.
+Each period/date lens may show Weighing source campaign state. App-visible task,
+due/delayed, and contact state comes from the shared task kernel.
 CEO/CXO opening a week sees create/edit controls. CEO/CXO and preventive
 director/Dinakar both see the active campaign card first, including start date,
-kids-only lane, selected sheds/partitions, expected count, operator, suggested
-finish, actual progress, and whether the campaign has rolled beyond the selected
-week.
+selected sheds/partitions, operator, authored date/window, observed progress,
+and shared task-clock status.
 
 ## 4.1 Measurement category per shed/partition
 
@@ -288,25 +266,22 @@ Reviewer contract for Weighing V1:
 - The E2E fixture may contain shed/partition business names, but contract
   `location_type` values are the API enum values (`shed`, `cohort`, `pen`).
 
-## 5. Grouping rules
+## 5. Source bucket and shared hierarchy rules
 
-Weighing uses vaccination-style **shed/partition work grouping**, but not
-vaccination's clinical planner.
+Weighing preserves physical shed/partition buckets as source facts. The shared
+task kernel materializes those buckets as owned work-unit/operator/verifier
+leaves; Weighing does not own a second app-visible scheduler or clock.
 
 Rules:
 
 - Preserve shed/partition atomicity. Do not split a shed or partition just to
   perfectly hit the daily cap.
-- Club smaller sheds/partitions together when the combined count fits reasonably
-  under the daily cap and the same operator owns those shed buckets.
-- If one shed/partition itself exceeds the daily cap, keep it as one work group
-  and allow the group to span multiple days.
-- If the operator finishes less than the suggested cap, roll the remaining
-  shed/partition work forward.
-- If the task extends one or two days beyond the selected week, keep it open and
-  visibly delayed instead of blocking execution.
-- Planning estimates are not submit requirements. Operator execution records the
-  rows actually captured in the selected shed bucket.
+- Leadership may group selected buckets for display or field routing when the
+  same operator owns them, but grouping never invents an animal count.
+- One bucket may remain open across business days. The shared task clock owns
+  Today/delay/roll-forward visibility; Weighing capture remains executable.
+- Planning guidance is not a submit requirement. Operator execution records
+  only rows actually captured in the selected bucket.
 - A single campaign can have multiple operators only by assigning different
   shed/partition buckets to different operators. Do not assign two operators to
   the same individual shed bucket in v1.
@@ -315,49 +290,23 @@ Mock split:
 
 | Campaign | Shed bucket | Operator | Result |
 |---|---|---|---|
-| CBE / week of 2026-07-27 | Yashoda 1 | Kumar Sharath | Kumar sees and submits only Yashoda 1. |
-| CBE / week of 2026-07-27 | Yashoda 2 | Pramod | Pramod sees and submits only Yashoda 2. |
-| CBE / week of 2026-07-27 | Yashoda 3 | Dinakar | Dinakar sees and submits only Yashoda 3 if explicitly assigned. |
+| CBE / authored campaign 2026-07-27 | Yashoda 1 | Kumar Sharath | Kumar sees and submits only Yashoda 1. |
+| CBE / authored campaign 2026-07-27 | Yashoda 2 | Pramod | Pramod sees and submits only Yashoda 2. |
+| CBE / authored campaign 2026-07-27 | Yashoda 3 | Dinakar | Dinakar sees and submits only Yashoda 3 if explicitly assigned. |
 
 CEO/CXO and director monitor views see the whole campaign. Operators see only
 their assigned shed buckets.
 
-Example:
-
-| Shed | Expected animals |
-|---|---:|
-| S1 | 80 |
-| S2 | 30 |
-| S3 | 50 |
-| S4 | 70 |
-| S5 | 20 |
-
-Valid suggested groups:
-
-| Suggested day | Group | Count |
-|---|---|---:|
-| Day 1 | S1 + S5 | 100 |
-| Day 2 | S2 + S3 | 80 |
-| Day 3 | S4 | 70 |
-
-Another valid execution reality:
-
-| Business date | Actual completed | Remaining behavior |
-|---|---|---|
-| Day 1 | S1 only, 80 animals | S5 rolls forward. |
-| Day 2 | S5 + S2, 50 animals | Allowed even below cap. |
-
-Capacity is not a promise that every business date contains exactly 100 animals.
-It is a planning target used to create stable chunks. Leadership should see
-`planned_count`, `completed_count`, `remaining_count`, and `rolled_forward_count`
-as backend-supplied values so a below-cap day reads as normal field reality, not
-as UI arithmetic failure.
+Example: a campaign may select S1, S2, and S3, assigning S1/S2 to one operator
+and S3 to another. Each physical bucket remains a stable source identity and
+operator leaf. Progress reports captured/proof/verdict counts by bucket. It does
+not estimate or display how many unscanned animals ought to exist there.
 
 ## 6. Operator execution
 
-The operator opens the assigned weighing card and sees the current rolling work
-group. The screen should be optimized for repeated RFID scan, weight entry, and
-proof capture.
+The operator opens the shared assigned task and enters its exact Weighing source
+bucket. The capture screen is optimized for repeated RFID scan, weight entry,
+and proof capture; shared task state never gates those source writes.
 
 Android must treat Room as the local source of truth for this flow. The app may
 refresh from network in the background, but the visible work card, scan roster,
@@ -454,21 +403,28 @@ overwrite.
 
 ## 10. Progress, delay, and leadership visibility
 
+Weighing source rows answer physical campaign/capture/proof questions. After
+task-kernel cutover, shared task reads are canonical for owner, Today,
+due/delayed/overdue, contact/acknowledgement, verifier/sign-off, and hierarchy.
+The current local work-item/process-state/alerts lanes are compatibility inputs
+to shadow, reconcile, and suppress; they cannot remain a second authority.
+
 Leadership needs to know:
 
-- Which weekly weighing tasks exist.
+- Which authored weighing campaigns and shared task hierarchies exist.
 - Which sheds/partitions were selected.
 - For individual buckets: captured RFID/tag rows, accepted weight+video rows,
   pending upload/sync rows, and rows needing correction.
 - Which operator owns execution.
 - Which day the task started.
-- Whether the task has rolled beyond the week or expected finish date.
+- Whether the shared task clock has passed the authored date/window.
 - Which scanned RFID/tag values have fresh Weighing observations.
 - Which per-shed/partition selected scopes have completed proof-backed weighing
   results without animal latest-weight updates.
 
-Delay is an operational signal, not a task failure. If a task spills past the
-week, show it as delayed/open and keep it executable.
+Delay is an operational signal, not a task failure. When the shared task clock
+passes the authored window, show the task as delayed/open and keep Weighing
+execution available.
 
 Progress buckets must be category-aware, disjoint, and explainable.
 
@@ -492,9 +448,9 @@ per_shed_partition_selected_scopes
 + per_shed_partition_closed_by_leadership
 ```
 
-Per-shed/partition progress is based on accepted selected-scope observations,
-not expected-animal rows. These rows are excluded from animal latest-weight truth
-and must not mark every expected animal as individually weighed.
+Per-shed/partition progress is based on accepted selected-scope observations.
+These rows are excluded from animal latest-weight truth and must never imply
+that unobserved animals were individually weighed.
 
 Wrong-shed and not-in-campaign counts are not V1 submit gates. A future
 analytics layer may compare Weighing scans to Herd Register truth, but that must
@@ -512,7 +468,8 @@ Leadership and operator recovery screens must make incomplete work actionable:
 
 Leadership progress card contract:
 
-- Header: campaign date range, cadence lane, status, operator, and start date.
+- Header: authored campaign date/window, source status, operator, and shared
+  task-clock state.
 - Primary counts: individual captured rows, individual accepted rows,
   individual pending-sync/proof rows, individual correction-needed rows,
   per-shed/partition selected scopes completed/pending/proof-blocked, and closed
@@ -530,7 +487,7 @@ contract.
 
 Leadership assistant/reporting must answer:
 
-- Which kids-only weighing campaigns are active this week?
+- Which kids-only weighing campaigns are active in the selected date/window?
 - Which sheds are delayed and by how many days?
 - How many individual captured rows are accepted, pending upload/sync, needing
   correction, or closed?
@@ -539,8 +496,10 @@ Leadership assistant/reporting must answer:
 - Which RFID/tag values appear in more than one Weighing bucket?
 - Which captured rows are missing mandatory proof or have failed upload?
 
-Assistant answers must come from Weighing read models, not raw observation rows
-or frontend-calculated totals.
+Campaign, capture, proof, and verdict answers come from governed Weighing source
+reads, never raw page-local arithmetic. Owner, clock, delay, contact,
+acknowledgement, sign-off, hierarchy, and cross-module rollup answers come from
+governed shared task reads.
 
 All progress summaries must be whole-campaign or whole-filter summaries. They
 must remain correct if the UI page size changes from 20 to 10, if a selected
@@ -552,14 +511,16 @@ the same session.
 The full canonical lifecycle lives in [TRD.md §1.0](./TRD.md#10-authoritative-lifecycle-maintainer-decision-2026-07-31);
 product-facing summary:
 
-1. CEO/Growth Director creates the weighing task by park/date/shed buckets.
+1. CEO/CXO creates the Weighing source campaign by park/date/shed
+   buckets; its outward event materializes the shared work-unit hierarchy.
 2. Each shed bucket has exactly one assigned operator.
 3. The operator scans any number of RFIDs in their bucket and captures
    weight+video (individual) or total weight/count/videos (lump-sum).
 4. Submit means "I am done for now with this bucket" — it does not mean the
    work is verified or closed.
-5. Submitted observations queue for the verifier, who approves or bounces each
-   one for rework back to the same operator.
+5. Submitted observations create a separately owned shared verifier/sign-off
+   sibling leaf; the verifier approves or bounces each one for rework back to
+   the same operator.
 6. Only after every submitted video in the bucket is verified can CEO/Growth
    Director close the bucket.
 7. CEO/Growth Director can reopen a submitted or closed bucket; the same
@@ -576,14 +537,15 @@ product-facing summary:
 V1 must be designed for the current Goat OS 5k-to-50k animal envelope. Product
 acceptance includes these visible outcomes:
 
-- Weighing overview, operator worklist, and animal rows open quickly from
-  backend-owned summaries and paged detail rows.
+- Weighing capture detail opens quickly from Weighing-owned summaries and paged
+  rows; operator worklist and leadership coordination read shared task truth
+  after cutover.
 - Leadership can inspect a campaign with many sheds without waiting for a
   tenant-wide animal scan.
 - Operator scan feedback stays fast because RFID matching uses indexed local
   state, not a linear search through the entire campaign.
-- Missing animals are explained from current canonical state without rebuilding
-  every open campaign on every read.
+- Captured and selected-scope rows remain explainable without scanning the Herd
+  Register or rebuilding every open campaign on every read.
 - Assignment, reminder, delay, and proof-recovery notifications are durable. A
   failed push can retry or land in a visible repair path; it is not just a log.
 - Support/debug views can answer: which campaign, work group, shed/partition,
@@ -603,16 +565,17 @@ acceptance includes these visible outcomes:
 - Letting weighing directly mutate animal lifecycle/location state.
 - Reusing Vaccination's shed/partition proof policy as a substitute for per-animal
   video.
-- Reusing generic SOP task state as the only source of Weighing progress.
+- Reading or gating Weighing execution on generic task, SOP, obligation, roster,
+  herd, or lifecycle state. Outward shared task coordination is nevertheless
+  mandatory and canonical for app-visible work after cutover.
 
 ## 12. Acceptance criteria
 
-- CEO/CXO can create a weekly kids-only weighing task by selecting kid
-  sheds/partitions.
+- CEO/CXO can create a manually authored kids-only weighing campaign by
+  selecting kid sheds/partitions and an explicit date/window.
 - Preventive director/Dinakar can review, monitor, scan, and submit assigned
   weighing work, but cannot create, publish, or edit the task plan in v1.
-- Adult monthly weighing is not available in v1: adult sheds are excluded from
-  the weekly lane and cannot be added as manual exceptions.
+- Adult weighing is not available in v1: adult sheds cannot be selected.
 - Leadership can mark each selected kid shed/partition as individual animal
   weighing or per-shed/partition weighing.
 - Assigned shed operators receive their own execution work; reviewer/director
@@ -620,8 +583,8 @@ acceptance includes these visible outcomes:
   bucket.
 - Suggested work groups preserve shed/partition atomicity and use the daily cap
   only as planning guidance.
-- Unfinished groups roll forward until complete, including beyond the calendar
-  week.
+- Unfinished source buckets remain executable; the shared task kernel owns
+  delayed visibility and any policy-governed roll-forward behavior.
 - For individual animal sheds/partitions, the operator can scan RFID, enter
   weight, and attach mandatory per-animal video for each completed animal row.
 - For per-shed/partition sheds/partitions, the operator can record the selected
@@ -649,7 +612,7 @@ acceptance includes these visible outcomes:
 ## 13. Product non-negotiables before build
 
 - Backend contracts own all status labels, counts, disabled reasons, media
-  availability states, and tap/deep-link targets.
+  upload/recovery states, and tap/deep-link targets.
 - Leadership and operator screens must distinguish pending, delayed,
   sync-pending, sync-failed, proof-failed, and correction-needed states.
 - A row scanned into a Weighing bucket can be accepted as a Weighing

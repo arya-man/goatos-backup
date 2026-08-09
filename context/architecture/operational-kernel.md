@@ -6,20 +6,49 @@ Purpose: define the permanent architecture lens for every Goat OS feature.
 
 ## Golden Rule
 
+Maintainer non-deviation decision, 2026-08-10: Goat OS is one event-driven,
+interlinked task/ticketing waterfall. This is a permanent product boundary, not
+an optional pattern. A module may own domain facts and its execution state
+machine, but it may not own a separate app-visible task authority, owner
+fallback, due/overdue calculation, scheduler, reminder/escalation ladder,
+verification queue, or follow-up screen outside the shared operational kernel.
+
 Every feature must be designed as part of the same operational kernel:
 
 ```text
 business event
   -> canonical transaction
   -> audit + outbox
-  -> trigger evaluation
-  -> obligation / work item / batch
-  -> sweeper / scheduler / reminder
-  -> notification / escalation
-  -> proof / verification / completion
+  -> stable owned task node + policy-pinned clock
+  -> bounded parent/child hierarchy
+  -> trigger / scheduler / reminder
+  -> acknowledgement-gated contact waterfall
+  -> proof
+  -> separately owned verification/sign-off task
+  -> close/reopen rollup
   -> process read models
   -> leadership answer: is the process followed, where broken, who owns next?
 ```
+
+The normal integration shape writes domain state, task coordination, audit,
+idempotency, and outbox through one transaction-aware port. A recorded strict
+module boundary changes direction, not participation: that module atomically
+writes domain state, audit, idempotency, and a complete outbox event; a
+shared-kernel consumer outside the module materializes task coordination in a
+receipt-backed, idempotent, version-fenced transaction with lag visibility,
+bounded replay, and source reconciliation. Weighing uses this outward-only
+shape so raw scan-and-submit remains free-flow and never reads generic task,
+SOP, obligation, roster, herd, or lifecycle state. Generic task state never
+gates Weighing execution, but Weighing's app-visible owner, clock, hierarchy,
+contact, proof, sign-off, and rollup still belong to the shared kernel.
+
+Operational work that cannot satisfy one of those two shapes remains shadowed
+or blocked. A screen projection, notification side effect, or best-effort event
+consumer is not task truth. Any proposed exception requires an explicit
+maintainer decision and same-change updates to this document, the execution
+plan, the prevention contract, the relevant structural guard, and adversarial
+tests. See `context/execution/operational-task-kernel-remediation-plan.md` and
+`context/execution/defect-prevention-execution-contract.md`.
 
 Goat OS is not a set of isolated screens. The kernel exists to answer the CEO and
 operator question for every domain:

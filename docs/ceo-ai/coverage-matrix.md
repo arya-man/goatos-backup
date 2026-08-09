@@ -68,7 +68,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | Process-integrity evidence media resolver (func:WithMediaResolver, func:ActionCenter) | api + view:action_center_current | Coverage clarification: no new assistant tool, Cube metric, or `ceo_ai` reporting view. The existing Action Center / Protocol Adherence / Control Tower / Workflow read surfaces are still covered by `action_center_current`; this change only enriches their shared process-integrity `evidence` payload with proof-media download links resolved through the existing proof/verification signed-URL path. |
 | GET /vaccination/capacity-config | api | Capacity behind backlog explanations |
 | GET /vaccination/verification-queue | api + view:verification_queue_status | Proof gaps |
-| GET /weighing/campaigns | api | Leadership planning/monitoring read for weekly kids weighing campaigns; aggregate/status surface only. |
+| GET /weighing/campaigns | api | Leadership source planning/monitoring read for manually authored kids weighing campaigns; aggregate/capture surface only. Shared task reads own app-visible owner/clock/contact state after cutover. |
 | GET /app/weighing/campaigns | EXCLUDED | Operator execution list; leadership uses `/weighing/campaigns`. |
 | Weighing shed-level operator assignments (`weighing_campaign_sheds.operator_user_id`) | api | Assistant coverage stays on `GET /weighing/campaigns`: leadership sees the campaign, selected shed buckets, per-shed owner/status, and progress rollups there. Operator-scoped mobile filtering and write authorization are execution behavior, not a separate CEO AI tool, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface. |
 | func:ListCampaignsForOperator, func:ListScopeRoster, func:ListScopeRosterForOperator | EXCLUDED | Operator-only execution read helpers for mobile shed buckets. They exist to keep `/app/weighing/campaigns` and `/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster` scoped before pagination/row return. The two roster readers now serve the bucket's SCAN HISTORY only — free-flow has no expected roster to read, so the herd-keyed roster query, its `animal_id` cursor, and the `include_roster` switch are gone (the `items` / `next_cursor` response fields are retained, always empty, purely so an already-installed app keeps its wire shape). Their signatures shrank accordingly; that is why this row's fingerprint moved, not because a new leadership surface appeared. Leadership assistant coverage remains `GET /weighing/campaigns` plus `ceo_ai.weighing_capture_activity` / `ceo_ai.weighing_verification_status` (migration `000080`); no MCP/Toolbox, Cube, or `ceo_ai` SQL fallback surface is added. ISOLATION: these reads touch weighing tables only — no goats, goat_identifiers, herd_animals, protocol, or vaccination join, and no expected-roster denominator, per the free-flow ruling behind `000078`/`000079`. |
@@ -81,7 +81,15 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon (func:AbandonScope) | EXCLUDED | Leadership write path that ends a weighing bucket whose work will never finish, WITHOUT the verification gate that the normal close now enforces. Deliberately a separate endpoint/event (`weighing.shed.abandoned`, audit `weighing.scope_abandoned`) so "ended without verification" is never mistaken for "verified and closed". It adds no new CEO assistant read API, Cube metric, MCP/Toolbox tool, or `ceo_ai` SQL fallback surface; leadership sees the outcome through existing `GET /weighing/campaigns` status reads. |
 | func:AbandonScope, func:pendingVerificationCount (weighing close gate) | EXCLUDED | Write-path helpers for the maintainer-decided close gate: normal close is blocked while any submitted weighing video is still unverified, and abandon is the explicit reason-bearing way out. Neither adds a leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
 | POST /app/weighing/campaigns/{campaign_id}/animal-observations, /shed-observations | EXCLUDED | Operator write-flow submissions with mandatory proof; leadership sees progress/review state through `/weighing/campaigns`. |
-| GET /app/weighing/alerts (func:ListAlerts, weighing service + postgres adapter) | EXCLUDED | The weighing module's own lifecycle ALERTS feed: the weighing work-state transitions (assigned / submitted / reopened / rework / closed) that were already routed to the CALLER, read back from `notification_requests`. It is a PER-RECIPIENT INBOX, not a reporting surface — every row is scoped to one person's `context->>'member_id'` and bounded to a rolling 30-day window, so it can answer "what happened to me lately", never "how is weighing going". Asking it a leadership question would give the CEO only the subset of transitions that happened to be pushed to the CEO's own devices, which is a strictly worse and non-deterministic answer than the real rollups. Leadership weighing coverage therefore stays exactly where migration `000080` put it: `ceo_ai.weighing_capture_activity` + `ceo_ai.weighing_verification_status`, plus `GET /weighing/campaigns` as the planning/monitoring read API. No new Cube metric, `ceo_ai.*` view, MCP/Toolbox tool, or KPI is added. Notification DELIVERY health already has its own view (`ceo_ai.notification_delivery_health`) and is unchanged. ISOLATION: this read touches `notification_requests` and `workforce_members` only — it joins no goats, goat_identifiers, herd_animals, obligation, protocol, or vaccination object, and reports no expected-roster denominator, per the free-flow ruling behind `000078`/`000079`. |
+
+The four module Alerts rows below describe pre-cutover compatibility feeds only.
+Their `notification_requests` rows are delivery evidence, never task/work truth.
+After each module's cutover, its route may remain as a module-scoped lens over
+shared task/contact state, but the direct module feed must be suppressed before
+shared contacts activate and retired only after replay, parity, and zero-use
+proof.
+
+| GET /app/weighing/alerts (func:ListAlerts, weighing service + postgres adapter) | EXCLUDED | **Legacy compatibility inbox until shared-task cutover; not future task/contact authority.** The weighing module's own lifecycle ALERTS feed reads work-state transitions already routed to the caller from `notification_requests`. At cutover, suppress this direct lane before shared contacts activate; Today/alerts read shared task truth, and retire the endpoint only after replay and zero-use proof. It remains a per-recipient inbox rather than a CEO metric. Weighing isolation is unchanged: no goat/herd/obligation/protocol/vaccination join or expected-roster denominator is permitted. |
 | GET /app/vaccination/alerts (func:ListAlerts, vaccinationexecution service + postgres adapter) | EXCLUDED | The vaccination module's own lifecycle ALERTS feed, and the exact twin of the weighing row above. It reads back the vaccination work-state transitions already ROUTED TO THE CALLER (`vaccination.record.closed`, `vaccination.proof.rework`, `vaccination.proof.approved`, `vaccination.proof.pending.verifier`, `vaccination.proof.pending.leadership`) from `notification_requests`, discriminated by `context->>'message_key' LIKE 'vaccination.%'`. It is a PER-RECIPIENT INBOX, not a reporting surface: every row is filtered to one person's `context->>'member_id'` and bounded to a rolling 30-day window, so it can answer "what happened to me lately" and never "how is vaccination going". Asking it a leadership question would return only the subset of transitions that happened to be routed to that principal, which is strictly worse and non-deterministic next to the real rollups. Leadership vaccination coverage is unchanged and stays on the governed vaccination aggregates, `ceo_ai.*` views and the vaccination read APIs. No new Cube metric, `ceo_ai.*` view, MCP/Toolbox tool, or KPI is added. Notification DELIVERY health keeps its own view (`ceo_ai.notification_delivery_health`) and is untouched. |
 | GET /app/feed/alerts (func:ListAlerts, feeddirection service + postgres adapter) | EXCLUDED | The feed module's own lifecycle ALERTS feed, the exact twin of the weighing/vaccination rows above. It reads back the feed work-state transitions already ROUTED TO THE CALLER (`feed.record.closed`, `feed.proof.rework`, `feed.proof.approved`, `feed.proof.pending.verifier`, `feed.proof.pending.leadership`, covering both gated feed completions — packing and distribution — plus feed transport) from `notification_requests`, discriminated by `context->>'message_key' LIKE 'feed.%'`. It is a PER-RECIPIENT INBOX, not a reporting surface: every row is filtered to one person's `context->>'member_id'` and bounded to a rolling 30-day window, so it can answer "what happened to me lately" and never "how is feed going". Leadership feed coverage is unchanged and stays on the governed feed read APIs (`/feed-direction/preview`, `/feed-packing/worklist`, `/feed-transport/tasks`) and any existing `ceo_ai.*` feed views. No new Cube metric, `ceo_ai.*` view, MCP/Toolbox tool, or KPI is added. Notification DELIVERY health keeps its own view (`ceo_ai.notification_delivery_health`) and is untouched. |
 | GET /app/counts/alerts (func:ListAlerts, counts service + postgres adapter) | EXCLUDED | The counts module's own lifecycle ALERTS feed, the exact twin of the weighing/vaccination/feed rows above. It reads back the counts (shifting/movement) work-state transitions already ROUTED TO THE CALLER (`counts.record.closed`, `counts.proof.rework`, `counts.proof.approved`, `counts.proof.pending.verifier`, `counts.proof.pending.leadership`) from `notification_requests`, discriminated by `context->>'message_key' LIKE 'counts.%'`. It is a PER-RECIPIENT INBOX, not a reporting surface: every row is filtered to one person's `context->>'member_id'` and bounded to a rolling 30-day window. COUNTS IS AN OFF FEATURE (AGENTS.md) and this route does not change that — it is gated on the dedicated `counts.alerts_read` permission (health_director) plus `counts.write`/`verification.review`, never `counts.read`, so it cannot be mistaken for turning the Counts census surface on. Leadership counts coverage is unchanged; no new Cube metric, `ceo_ai.*` view, MCP/Toolbox tool, or KPI is added. Notification DELIVERY health keeps its own view (`ceo_ai.notification_delivery_health`) and is untouched. |
@@ -89,7 +97,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | func:MarkVerdictApplied, func:AckWeighingVerificationApplied, func:VerdictState, func:WithApplyAcker | EXCLUDED | The verdict APPLY-ACK seam. A verifier's decision is applied asynchronously by a durable-bus consumer, so "decided" and "in effect" used to be indistinguishable from every read surface — the item left the pending queue the instant the verdict was recorded, which read as done even when the applier had not run. These carry the receipt (`applier_ack_expected` / `applied_at`) and derive `awaiting_review | applying | settled` for the VERIFIER's own queue. Per-item workflow state for the person acting, not a reporting surface: leadership weighing coverage stays at `ceo_ai.weighing_capture_activity` + `ceo_ai.weighing_verification_status` (migration 000080) plus `GET /weighing/campaigns`. No new Cube metric, `ceo_ai.*` view, or Toolbox tool. |
 | func:RecordOutboxFailed | EXCLUDED | Outbox TERMINAL-visibility instrumentation. An `invalid_event_envelope` or permanent publish failure previously emitted no log and no counter, so a domain event could die with nobody informed — 12 did. This adds a WARN line and a `kernel.outbox.failed` counter. Platform diagnostics consumed by logs/metrics, never by leadership: delivery health already has `ceo_ai.notification_delivery_health`. No new read API, Cube metric, `ceo_ai.*` view, or Toolbox tool. |
 | func:Error, func:Unwrap (weighing ports.CaptureIncomplete) | EXCLUDED | Error-type plumbing for the submit-time weight+video pair gate. Enforcement failing silently as `RowsAffected()==0` used to surface as a 404 about a shed the operator is standing in; this carries which animals lack a weight or a finished video so the client can name them. Operator-facing error copy, not a leadership read. |
-| func:NewWeighingReworkDigestStage, func:SweepReworkDigests, func:Name, func:Run (weighing rework digest stage) | EXCLUDED | The per-shed rework DIGEST sweeper. A verifier rejecting 5 animals in one shed used to send the operator 5 separate pushes for one trip back to the shed; this coalesces them into one push naming the animals. A bounded operational-kernel stage plus its claim query — operator notification plumbing, not a leadership read. No new Cube metric, `ceo_ai.*` view, or Toolbox tool. |
+| func:NewWeighingReworkDigestStage, func:SweepReworkDigests, func:Name, func:Run (weighing rework digest stage) | EXCLUDED | **Legacy compatibility contact stage.** It currently coalesces rework pushes and is not a leadership read. Shared task sign-off/rework/contact policy becomes sole authority at cutover; shadow, dedupe, and suppress this direct sender before activation, then retire it after retained-event and zero-use proof. |
 | func:DeleteUnattachedProof, func:DeleteUpload, func:StatObject, func:EnsureObjectAvailable, func:EnsureEvidenceAvailable | EXCLUDED | Proof-evidence integrity plumbing, shared by every module that captures proof. `DeleteUnattachedProof`/`DeleteUpload` scope the re-record cleanup to the proof's own uploader (it previously checked tenant but not owner). `StatObject`/`EnsureObjectAvailable`/`EnsureEvidenceAvailable` let a verdict verify the proof object still EXISTS before an APPROVE, rather than trusting that a signed link can be issued from the DB row — deliberately at decision time for ONE item, never on the queue read. Write-path/authorization plumbing with no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
 | func:NewWeighingLifecycleEventConsumer | EXCLUDED | Phase 1 write-path consumer factory; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
 | func:Register (weighing lifecycle event consumer) | EXCLUDED | Phase 1 write-path consumer registration into kernel; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
@@ -232,7 +240,7 @@ tracked as gaps below.
 | workforce_members, workforce_positions, workforce_absences, workforce_roster_assignments, org_role_catalog | workforce_coverage_status |
 | vaccination_drive_assignment_members | EXCLUDED (operational scheduler-written membership) — the exact obligation/goat set behind each `vaccination_drive_assignments` row. It exists so a death/sale/cull decrements the exact assignment arm and so CT/PA/WF/AC can report an animal's own operator-day instead of inferring it from an aggregate. Leadership never reads membership directly; it reads the drive/operator aggregates this table makes correct (`view:vaccination_operator_status`, `GET /vaccination/schedule`). |
 | vaccination_prearrival_history_entries (migration 000041) | vaccination_prearrival_history_review — COVERED, not excluded. The accepted/rejected split on supplier-attested pre-arrival vaccination claims for PROCURED animals is a real leadership signal (trusted-history share, rejected-claim rate and reason = supplier data quality + avoided re-injection). Coverage: `ceo_ai.vaccination_prearrival_history_review` (migration 000043) → MCP Toolbox tool `mesha_prearrival_history_review` (in `mesha_ceo_toolset`) → read-only SQL fallback over the same view. No governed Cube metric yet: rejected-rate is not an official tracked KPI today, so this stays tier-3/4 (add a Cube metric if leadership starts trending it). Golden eval question: `prearrival-history-rejected-share` (`tools/ceo-ai/eval/golden/vaccination.json`). |
-| weighing_campaigns, weighing_campaign_sheds, weighing_observations, weighing_shed_observations, weighing_work_items | `ceo_ai.weighing_capture_activity` + `ceo_ai.weighing_verification_status` (migration 000080) — COVERED; this no longer "graduates after the first reporting requirement". One row per weighing bucket (capture rollups + work-item state) and a park/shed verification rollup scoped to `module = 'weighing'`. Both views read weighing's own tables only: weighing is free-flow and fully herd-isolated, so they never join goats, goat_identifiers, herd_animals, protocol_rules, or any vaccination/clinical table. `GET /weighing/campaigns` remains the leadership planning/monitoring read API. Partitioned sheds are represented at operational-shed grain: `weighing_campaign_sheds.location_id` is the parent physical shed and `partition_label` distinguishes Castro - 1/Castro - 2 siblings, matching the operational-location contract below. |
+| weighing_campaigns, weighing_campaign_sheds, weighing_observations, weighing_shed_observations, weighing_work_items | `ceo_ai.weighing_capture_activity` + `ceo_ai.weighing_verification_status` (migration 000080) — COVERED for immutable Weighing campaign/capture/proof/verdict facts. The views remain herd-isolated and never join goat/animal, protocol, vaccination, or clinical state. Partitioned sheds use operational-shed grain: `weighing_campaign_sheds.location_id` is the parent physical shed and `partition_label` distinguishes siblings such as Castro - 1/Castro - 2. After shared-task cutover, owner/clock/Today/delay/contact/sign-off/hierarchy status comes from governed shared task reads; `weighing_work_items` remains only a legacy/source reconciliation input and cannot compete as task truth. `GET /weighing/campaigns` remains the leadership source planning/capture API. |
 | weighing_expected_animals | REMOVED — not a coverage gap. Dropped outright by migration `000079` when weighing became fully free-flow: a weighing scan has no expected animal set, so there is nothing left to report. Named here so the surface is explicitly closed rather than silently disappearing. See also `000078` (dropped `weighing_observations.animal_id`) and `tools/agent-hooks/check-weighing-free-flow-guard.mjs`. |
 | audit_log | audit_activity_summary |
 | breeds, animal_stage_lookup, vaccines, parties, vaccination_capacity_config | reference/config — EXCLUDED (support tables, surfaced via joins, not standalone leadership reads) |
@@ -833,13 +841,14 @@ never a bare count — see
 exposes no aggregate, no metric, and no leadership-facing read. Leadership sees
 the same places through the existing operational read APIs.
 
-**EXCLUDED — `func:ReactivateWorkItemsForBucket`** (weighing kernel) — a
+**EXCLUDED — `func:ReactivateWorkItemsForBucket`** (legacy Weighing compatibility lane) — a
 single indexed UPDATE that returns a weighing work item to `scheduled` when its
 bucket leaves a terminal status via rework or reopen (defect B09: reopen left
 kernel work terminal, so Calendar and Control Tower kept reporting finished
 work). It is a write-path state-transition helper called inside the owning
-transaction, not a read surface. Leadership continues to read weighing progress
-through `GET /weighing/campaigns` and the Control Tower process-state summary.
+transaction, not a read surface. At task-kernel cutover, the outward reopen
+event drives shared ancestor/task reopening; this local helper is reconciled and
+demoted so it cannot remain a competing Calendar/Control Tower authority.
 
 **EXCLUDED — `func:NewVaccineLabelResolver`, `func:ResolveVaccineLabels`,
 `func:WithVaccineLabels`, `func:WithLocationNames`** (notificationbridge) —
@@ -853,16 +862,15 @@ notification builder — one batched query per event, never per recipient. No
 aggregate, no metric, no leadership-facing read: leadership sees the same
 vaccines and places through the existing vaccination and weighing read APIs.
 
-**EXCLUDED — `func:ListAlerts`** (verification HTTP adapter) — the verifier's
-per-feature alerts list, `GET /verify/alerts?category=<verification category>`.
-It returns the pending verification items of ONE module (vaccination, weighing,
-feed, counts) for the verifier who must action them, so the drawer's per-feature
-Alerts tab shows that feature's own work (maintainer decision 2026-08-02:
-"alerts per feature wise", role-specific). It is an operator-facing worklist
-scoped to a single role, not an aggregate or KPI: same rows, same grain, and the
-same `verification_items` source the existing verification queue already serves.
-Leadership continues to see verification health through the module read APIs and
-the Control Tower process-state summary, not through this endpoint.
+**EXCLUDED — `func:ListAlerts`** (verification HTTP adapter) — the current
+pre-cutover verifier's per-feature compatibility list,
+`GET /verify/alerts?category=<verification category>`. It returns pending
+`verification_items` for one module and is not a leadership aggregate or KPI.
+At task-kernel cutover each actionable item maps to a separately owned shared
+sign-off leaf; module Alerts become lenses over shared task/sign-off truth and
+this local work authority is suppressed or retired after parity and zero-use
+proof. Leadership task/verification status then comes from governed shared task
+reads plus module source facts, not this endpoint.
 
 **EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000090) —
 bookkeeping for the batched weighing data repairs. It records how far a one-time
@@ -909,24 +917,23 @@ unfinished weighing rolls onto a day where another task already covers that
 one, so two people can never owe the same shed on the same real day. Nothing is
 re-assigned and no capture moves.
 
-These are write-path state-transition columns and one cadence event consumed by
+These are legacy write-path state-transition columns and one cadence event consumed by
 the notification bridge, inside the owning transaction — not a read surface, no
 aggregate, no metric, no new KPI. `closed_reason` is a machine token
 (`merged_on_carry_over`); the farm-readable sentence is composed by the
-notification consumer. Leadership continues to read weighing progress through
-`GET /weighing/campaigns` and the Control Tower process-state summary, whose
-numbers are unchanged: a merged carry-over leaves exactly one open work item for
-that shed-day, which is what those surfaces already count.
+notification consumer. Shared task materialization must preserve the one-open-
+work-unit invariant, shadow/reconcile the carry-over result, suppress the direct
+contact before shared contact activation, and make shared reads authoritative at
+cutover. These local fields then remain source compatibility/evidence only.
 
-**EXCLUDED — `route:/vaccination/alerts`** (Android navigation) — the
-vaccination alerts feed's address, moved off the generic `/alerts` so every
-feature's alerts are addressed by the feature that owns them
-(`docs/decisions/module-alerts-tab.md`). Same feed, same rows, same
-`notification_requests` source and the same per-recipient scoping as before;
-only the route string changed, and the old generic route was deleted rather than
-aliased. It is an operator/leadership worklist for ONE feature, not an aggregate:
-leadership sees vaccination health through the existing vaccination read APIs and
-the Control Tower summary.
+**EXCLUDED — `route:/vaccination/alerts`** (Android navigation) — the current
+pre-cutover address of Vaccination's compatibility alerts feed, moved off the
+generic `/alerts`. Its `notification_requests` rows are transport/delivery
+evidence, not work truth. At shared-task cutover the route may remain only as a
+module-scoped lens over shared task/contact state; the direct feed must be
+suppressed before shared contacts activate and retired after replay, parity, and
+zero-use proof. Leadership vaccination health remains on the governed
+vaccination reads and Control Tower summary, not this per-recipient route.
 
 **EXCLUDED — `func:Error`, `func:Unwrap` on `FinishedShedConflict`** (weighing
 ports) — the two error-interface methods of the typed refusal that blocks MOVING
@@ -939,9 +946,10 @@ They render an error string and unwrap to `ErrFinishedShedBlocksReschedule` —
 no query, no aggregate, no metric, no read surface, and nothing a leader can ask
 a question about. It is the same shape as the existing `ShedScheduleConflict`,
 which is already excluded above for the same reason. Leadership continues to see
-weighing progress through `GET /weighing/campaigns` and the Control Tower
-process-state summary; a refused edit writes nothing, so those numbers are
-unchanged by definition.
+source weighing progress through `GET /weighing/campaigns`; the current Control
+Tower process-state summary is a pre-cutover compatibility read. Shared task
+reads own owner/clock/delay/contact/sign-off status after cutover. A refused edit
+writes nothing, so source facts are unchanged by definition.
 
 **EXCLUDED — `func:AnimalProofWasRejected`** (weighing postgres adapter) — a
 boolean guard read asking whether a proof is already attached to an observation a
@@ -950,9 +958,11 @@ rejected. It DOES read weighing_observations -- stating otherwise would hide a r
 surface -- but only to answer one write path's precondition, returning a single
 boolean to the caller. It is excluded because nothing in the leadership surface
 reads it, not because it touches no data; if a leader ever needs rejected-proof
-counts, that is a NEW read to add here, not this one. Leadership continues to see weighing progress
-through `GET /weighing/campaigns`, `GET /app/weighing/leadership/sheds` and the
-Control Tower process-state summary.
+counts, that is a NEW read to add here, not this one. Leadership continues to see
+source weighing progress through `GET /weighing/campaigns` and
+`GET /app/weighing/leadership/sheds`. The current Control Tower process-state
+summary is pre-cutover compatibility; shared task reads own coordination status
+after cutover.
 
 **EXCLUDED — `func:Error`, `func:Is`, `func:ReworkNotRecapturedFor`** (weighing
 ports) — the error-interface methods and constructor of the typed refusal that

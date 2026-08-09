@@ -1,22 +1,23 @@
 # Every feature's bottom bar carries its own Alerts tab
 
-**Status:** ratified — maintainer decision, 2026-08-03.
+**Status:** ratified navigation decision, coordination source superseded by the
+2026-08-10 operational task-kernel non-deviation ADR.
 **Machine guard:** `make module-alerts-tab-guard`
 (`tools/agent-hooks/check-module-alerts-tab.mjs`), required by local CI.
 
 ## What an Alerts feed is for
 
-It answers one question for the person holding the phone: **what does this feature
-need from me that I have not done yet?** It is not a notification log and not an
-audit trail — it is the durable in-app copy of the work-state transitions routed to
-THIS person for THIS feature, so a push that was swiped away, delivered to a phone
-that was off, or blocked by a permission prompt is not the only place that fact
-exists.
+It answers one question for the person holding the phone: **what does this
+feature need from me that I have not done yet?** The module-scoped bottom-bar
+lens and route remain valid navigation. Its work truth comes from the shared
+task/contact kernel, not `notification_requests` and not a module-private task
+feed. Delivery requests are transport evidence; they cannot define whether work
+still exists, who owns it, or what action is next.
 
-Nothing new is produced for a feed. Every row already exists as a routed
-`notification_requests` row written by that module's notification consumers; the
-feed READS what was already routed. If a transition deserves an alert, it first
-deserves an event.
+During migration, a legacy module feed may read already-routed notification rows
+only as a compatibility source. Shadow/compare it against shared task/contact
+state, suppress the legacy producer before shared contacts activate, and retire
+the feed after replay and zero-use proof. No new module-private feed is allowed.
 
 Routing follows the next-action owner, which is why the same feed shows different
 rows to different people: work assigned goes DOWN to the operator, a submission for
@@ -30,7 +31,9 @@ verification goes UP, a rework or reopen goes DOWN again, a closure goes UP.
 Concretely, for every module the backend serves as `available` with its own bottom bar:
 
 1. The module contributes an **Alerts** nav item.
-2. The href is that module's **own** feed. A module never borrows another module's feed.
+2. The href is that module's own **lens route** over shared task/contact truth. A
+   module never borrows another module's lens, but it also never owns a separate
+   backend work authority.
 3. The tab is titled just **"Alerts"** in every locale (`labelKey: "nav.alerts"`). The
    href carries the scoping, not the label. Per-feature label keys
    (`nav.alerts.vaccination`, `nav.alerts.weighing`, …) were deleted and must not return —
@@ -76,36 +79,43 @@ For every `moduleStatusAvailable` module with nav contributions in
 | nav key maps to `Bell` | the generic module glyph rendering as "Alerts" |
 | href is hosted in `AppNavHost` | tapping the tab does nothing |
 | href is in `supportedRootDestinations` | deep links landing on the home screen |
-| href starts with the module's own prefix | a generic address that reads as a shared feed and gets copied into another feature's bar |
+| href starts with the module's own prefix | a lens opening in the wrong feature context; the backend source remains shared task/contact truth |
 
 The `verification` module is exempt from the registry parse: its bar is composed per
 reviewed feature at runtime (`verificationModuleForFeature`), and its alerts items are
 covered by that path's own tests.
 
-## Pending feeds (the visible debt)
+## Pending shared-task lenses (the visible debt)
 
-A module with genuinely no feed yet is listed in `PENDING_ALERTS_FEED` inside the guard,
-with a reason. It is a tracked gap, not an opt-out: adding a new module to that list
-requires editing the guard in the same commit, so it shows up in review.
+A module with no activated lens over shared task/contact truth is listed in
+`PENDING_ALERTS_FEED` inside the guard, with a reason. A legacy
+`notification_requests` compatibility feed does not close that gap. It is a
+tracked gap, not an opt-out: adding a new module to that list requires editing
+the guard in the same commit, so it shows up in review.
 
-- **counts** — no counts notification feed exists on any branch. The only counts-shaped
-  alerts today are the *verifier's* `shifting_move` queue, which belongs to the
-  verification module's bar, not to Counts' own.
+- **counts** — `GET /app/counts/alerts` exists as a legacy, per-recipient
+  `notification_requests` compatibility feed. Counts has no activated
+  module-scoped lens over shared task/contact truth yet, so the existing route
+  must not be mistaken for canonical work state or preserved as the final
+  implementation.
+- **feed_direction** — `GET /app/feed/alerts` exists as the equivalent legacy
+  compatibility feed. Feed has no activated module-scoped shared-task lens/nav
+  yet; the direct notification-backed source is suppressed and retired during
+  cutover rather than promoted to work truth.
 
 Removing an entry from that list is the goal. The guard fails if a module is waived **and**
 has an alerts tab, so stale waivers cannot hide the next regression.
 
 ## Route naming
 
-Every feed is addressed by the feature that owns it: `/vaccination/alerts`,
+Every lens is addressed by its feature context: `/vaccination/alerts`,
 `/weighing/alerts`. The verification module scopes by query category instead
 (`/verify/alerts?category=…`) because one verifier reviews several features from one
 bar; it is exempt from the prefix check.
 
-There is **no generic `/alerts` route**. It was deleted, not kept as an alias: a
-generic address is what made the vaccination feed look shared, which is how it ended
-up in weighing's bar. Keeping it "just for old links" would have preserved exactly the
-thing the rule bans.
+There is **no generic `/alerts` UI route**. Shared backend task/contact truth does
+not require one generic navigation address; module-scoped lens routes preserve
+the person's feature context.
 
 The alias was checked before removal rather than assumed: nothing ever produced
 `/alerts` as a notification tap target. The bridge emits only `/vaccination`,
@@ -115,4 +125,6 @@ stranded. Profile's notifications action now opens `/vaccination/alerts` by name
 ## Related
 
 - `docs/decisions/role-module-nav-composition.md` — drawer vs bottom bar, and where "You" lives.
+- `docs/decisions/operational-task-kernel-non-deviation.md` — shared work/contact
+  authority and legacy-feed cutover.
 - `AGENTS.md` → user-facing copy firewall — why the tab is never titled with internal wording.

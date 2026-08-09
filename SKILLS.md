@@ -236,7 +236,17 @@ load:
 
 ```text
 context/execution/operational-task-kernel-remediation-plan.md
+context/execution/defect-prevention-execution-contract.md
+context/execution/operational-kernel-program-state.md
 ```
+
+The prevention contract is also mandatory for every bug fix, audit batch,
+migration, new feature, and cross-surface contract change. It defines the
+failing-before proof, recurrence control, guard/self-test/ordinary-CI wiring,
+anti-pattern and skill closeout, recovery evidence, and independent review that
+must ship with the behavior. For operational work it locks every module to the
+shared event-driven task/ticketing waterfall; a private task, scheduler,
+ownership, overdue, escalation, or verification path is not an allowed shortcut.
 
 Then load only the needed reference:
 
@@ -264,8 +274,10 @@ Before implementing any phase:
 4. Load the reference files relevant to the changed area.
 5. If the phase introduces a new permanent rule, module, tool, API pattern, or
    workflow, update the relevant skill reference before coding.
-6. Keep deep product truth in context/ and docs/phases/.
-7. Keep skill references short routing/playbook files, not duplicate specs.
+6. Fill the prevention matrix in
+   `context/execution/defect-prevention-execution-contract.md` before coding.
+7. Keep deep product truth in context/ and docs/phases/.
+8. Keep skill references short routing/playbook files, not duplicate specs.
 ```
 
 Current override:
