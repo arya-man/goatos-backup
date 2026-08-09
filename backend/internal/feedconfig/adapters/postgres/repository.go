@@ -409,9 +409,34 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	//
 	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
 	const query = `
+WITH ranked_pens AS (
+  SELECT p.*,
+         row_number() OVER (
+           ORDER BY p.park_name, p.park_id, p.shed_id, p.partition_key
+         ) AS pen_number,
+         count(*) OVER () AS pen_count
+  FROM (
+    SELECT DISTINCT c.park_id,
+           COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
+           c.shed_id,
+           c.partition_key
+    FROM feed_experiment_config c
+    LEFT JOIN locations park
+           ON park.tenant_id = c.tenant_id
+          AND park.location_id = c.park_id
+    WHERE c.tenant_id = $1::uuid
+      AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
+      AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
+      AND ($4::text IS NULL OR c.status = $4::text)
+  ) p
+), page_pens AS (
+  SELECT *, pen_count > ($6::bigint + $5::bigint) AS has_more
+  FROM ranked_pens
+  WHERE pen_number > $6::bigint AND pen_number <= ($6::bigint + $5::bigint)
+)
 SELECT c.experiment_config_id::text,
        c.park_id::text,
-       COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
+       p.park_name,
        c.shed_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
        COALESCE(c.partition_label, '') AS partition_label,
@@ -419,23 +444,24 @@ SELECT c.experiment_config_id::text,
        c.absolute_kg::text,
        c.head_count,
        c.experiment_category,
-       c.status
-FROM feed_experiment_config c
+       c.status,
+       p.has_more
+FROM page_pens p
+JOIN feed_experiment_config c
+  ON c.park_id = p.park_id
+ AND c.shed_id = p.shed_id
+ AND c.partition_key = p.partition_key
 LEFT JOIN locations shed
        ON shed.tenant_id = c.tenant_id
       AND shed.location_id = c.shed_id
-LEFT JOIN locations park
-       ON park.tenant_id = c.tenant_id
-      AND park.location_id = c.park_id
 WHERE c.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
   AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
   AND ($4::text IS NULL OR c.status = $4::text)
-ORDER BY park.name, park.location_id, c.shed_id, c.partition_key, c.feed_item_key, c.experiment_config_id
-LIMIT $5 OFFSET $6`
+ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
-		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit+1, q.Page.Offset)
+		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset)
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
@@ -444,12 +470,13 @@ LIMIT $5 OFFSET $6`
 	out := domain.ExperimentConfigPage{Items: []domain.ExperimentConfig{}, Limit: q.Page.Limit, Offset: q.Page.Offset}
 	for rows.Next() {
 		var item domain.ExperimentConfig
+		var hasMore bool
 		// head_count stays a pointer all the way to the wire: NULL means the population was not
 		// recorded alongside the quantity, and rendering that as 0 would state the shed is empty.
 		var headCount *int32
 		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ParkName, &item.ShedID,
 			&item.ShedName, &item.PartitionLabel, &item.FeedItemLabel,
-			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status); err != nil {
+			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status, &hasMore); err != nil {
 			return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: scan experiment config: %w", err)
 		}
 		item.HeadCount = headCount
@@ -465,17 +492,18 @@ LIMIT $5 OFFSET $6`
 			ShedName:       item.ShedName,
 			PartitionLabel: item.PartitionLabel,
 		}.Display()
+		out.HasMore = hasMore
 		out.Items = append(out.Items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
-	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
 	return out, nil
 }
 
-// UpsertExperimentConfigBatch authors every feed item of ONE pen in a single statement inside a
-// single transaction.
+// UpsertExperimentConfigBatch enrolls every feed item of ONE previously-unconfigured pen in a
+// single statement inside a single transaction. Existing pens fail closed so a stale form cannot
+// present a subset as a complete enrollment; individual cells have an explicit edit path.
 //
 // ONE STATEMENT, NOT A LOOP. The cells are passed as parallel arrays and expanded with UNNEST, so N
 // authored items cost one round trip rather than N (the banned n-plus-one shape), and every cell
@@ -483,15 +511,9 @@ LIMIT $5 OFFSET $6`
 // is always the same cell in both -- building one from a filtered copy and the other from the
 // original is the parallel-array grain bug that silently pairs a quantity with the wrong feed item.
 //
-// ON CONFLICT targets the natural key's own columns, INCLUDING the two GENERATED ones
-// (partition_key, feed_item_key). They are not inserted -- Postgres computes them -- but naming them
-// as the conflict target is what makes the upsert land on the same row the unique index protects.
-// Targeting (tenant, park, shed, feed_item_key) alone would collapse every pen of a partitioned shed
-// onto one row, which is exactly what migration 000122 widened the key to prevent.
-//
-// status is forced back to 'active' on conflict for the same reason the single-cell write does it: a
-// quantity stored on a retired row is a number nothing reads, so re-authoring a cell is an
-// unambiguous statement that this pen is on the experiment workflow.
+// There is deliberately no ON CONFLICT update: the shed lock and existence check make this a
+// create-only enrollment. An existing natural key means the caller's view is stale, never that an
+// arbitrary submitted subset should overwrite the authoritative cells already stored for the pen.
 func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error) {
 	return r.runWrite(ctx, domain.WriteKindExperimentConfig, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
@@ -500,8 +522,23 @@ func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain
 		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
 		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
+		}
+		var alreadyConfigured bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM feed_experiment_config
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+    AND partition_key = `+partitionKeyMatch("$4")+`
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&alreadyConfigured); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen enrollment: %w", err)
+		}
+		if alreadyConfigured {
+			return writeEffect{}, ports.ErrExperimentPenAlreadyConfigured
 		}
 
 		items := make([]string, 0, len(cmd.Cells))
@@ -520,12 +557,6 @@ INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label
 SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
        cell.kg::numeric, $5, $6, 'active', nullif($7,'')::uuid
 FROM unnest($8::text[], $9::text[]) AS cell(item, kg)
-ON CONFLICT (tenant_id, park_id, shed_id, partition_key, feed_item_key) DO UPDATE
-SET absolute_kg         = EXCLUDED.absolute_kg,
-    head_count          = EXCLUDED.head_count,
-    experiment_category = EXCLUDED.experiment_category,
-    status              = 'active',
-    updated_at          = now()
 RETURNING experiment_config_id::text, feed_item_key`,
 			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
 			cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, kgs)
@@ -606,6 +637,7 @@ FROM locations shed
 LEFT JOIN shed_partitions sp
        ON sp.tenant_id = shed.tenant_id
       AND sp.shed_id = shed.location_id
+      AND sp.status = 'active'
 WHERE shed.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR shed.parent_location_id = $2::uuid)
   AND shed.location_type = 'shed'
@@ -986,6 +1018,9 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
 		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
 		}
@@ -1191,7 +1226,10 @@ func partitionKeyMatch(placeholder string) string {
 func requirePartitionInShed(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
 	var subdivided bool
 	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (SELECT 1 FROM shed_partitions WHERE tenant_id = $1::uuid AND shed_id = $2::uuid)`,
+SELECT EXISTS (
+  SELECT 1 FROM shed_partitions
+  WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND status = 'active'
+)`,
 		tenantID, shedID).Scan(&subdivided); err != nil {
 		return fmt.Errorf("feedconfig: resolve shed partitions: %w", err)
 	}
@@ -1215,6 +1253,7 @@ SELECT true
 FROM shed_partitions
 WHERE tenant_id = $1::uuid
   AND shed_id = $2::uuid
+  AND status = 'active'
   AND feed_config_norm(partition_label) = feed_config_norm($3)`,
 		tenantID, shedID, wanted).Scan(&exists)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1222,6 +1261,21 @@ WHERE tenant_id = $1::uuid
 	}
 	if err != nil {
 		return fmt.Errorf("feedconfig: resolve partition in shed: %w", err)
+	}
+	return nil
+}
+
+// lockShedForExperimentWrite gives enrollment and single-cell authoring the same serialization
+// point. Without it, a stale batch can observe an empty pen while a concurrent cell insert is in
+// flight and race its create-only insert against a cell the other writer just authored.
+func lockShedForExperimentWrite(ctx context.Context, tx pgx.Tx, tenantID, shedID string) error {
+	var locked bool
+	if err := tx.QueryRow(ctx, `
+SELECT true
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = $2::uuid
+FOR UPDATE`, tenantID, shedID).Scan(&locked); err != nil {
+		return fmt.Errorf("feedconfig: lock shed for experiment write: %w", err)
 	}
 	return nil
 }
@@ -1251,15 +1305,15 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 	return nil
 }
 
-// SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal
-// per-head ration grid.
+// SetExperimentShedStatus switches ONE PEN between the experiment workflow and the normal per-head
+// ration grid. The legacy method and route names remain for API compatibility.
 //
 // ONE set-based UPDATE over the shed's rows, not a loop: the flip must be atomic in the business
-// sense as well as the transactional one. A shed with some rows active and some retired would be
+// sense as well as the transactional one. A pen with some rows active and some retired would be
 // enrolled (ExperimentPlanner.Applies matches on ANY active row) but fed only a subset of its
-// authored items — a partially-fed experiment shed, which is worse than either whole state.
+// authored items — a partially-fed experiment pen, which is worse than either whole state.
 //
-// A shed with NO rows is ErrShedNotFound rather than a silent success. There is no experiment
+// A pen with NO rows is ErrShedNotFound rather than a silent success. There is no experiment
 // configuration to switch, and inventing empty rows to carry a status would author cells nobody
 // entered; a caller wanting to enrol a shed authors its first quantity instead.
 func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.SetExperimentShedStatusCommand) (domain.WriteResult, error) {

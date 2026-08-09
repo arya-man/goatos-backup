@@ -41,6 +41,10 @@ var (
 	// screen that lists them.
 	ErrPartitionRequired = errors.New("feedconfig: partition required for a subdivided shed")
 
+	// ErrExperimentPenAlreadyConfigured prevents the enrollment endpoint from acting as a partial
+	// update when a stale or concurrent form addresses a pen that has already been enrolled.
+	ErrExperimentPenAlreadyConfigured = errors.New("feedconfig: experiment pen is already configured")
+
 	// ErrFeedItemExists is returned when a catalog entry with the same normalized label is already
 	// present in the tenant.
 	//
@@ -134,21 +138,22 @@ type Repository interface {
 	// explain an old feed sheet. The write ledger still records who changed what and when.
 	UpsertExperimentConfig(ctx context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error)
 
-	// UpsertExperimentConfigBatch authors EVERY feed item of one pen atomically.
+	// UpsertExperimentConfigBatch ENROLLS every feed item of one unconfigured pen atomically.
 	//
 	// It is not a convenience wrapper around N single-cell writes. A pen's authored cells are the
 	// COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a
 	// missing item -- so a partly-applied enrolment silently underfeeds live animals on a sheet that
-	// looks complete. The whole set commits or none of it does.
+	// looks complete. The whole set commits or none of it does. An already-configured pen returns
+	// ErrExperimentPenAlreadyConfigured and must be changed through explicit cell edits.
 	UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error)
 
-	// SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal
-	// per-head ration grid, by flipping the status of every one of that shed's rows in one statement.
+	// SetExperimentShedStatus switches ONE PEN between the experiment workflow and the normal
+	// per-head ration grid, by flipping every authored cell of that pen in one statement.
 	//
 	// This is a change to WHAT ANIMALS ARE FED, not a visibility toggle: the direction path reads
 	// only active rows, and a shed with none falls through to NormalPlanner and is fed
-	// head_count x grams_per_head x shed_factor. It is whole-shed because a planner owns a shed, not
-	// a cell -- a half-enrolled shed has no representable feed.
+	// head_count x grams_per_head x shed_factor. It is complete-pen because a half-enrolled pen has
+	// no representable feed; sibling pens in the same shed remain independent.
 	//
 	// ErrShedNotFound when the shed has no rows at all: there is no experiment configuration to
 	// switch, and creating empty rows to carry a status would author cells nobody entered.
