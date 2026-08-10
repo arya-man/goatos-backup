@@ -312,6 +312,13 @@ func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBa
 	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignFourWeek, "2026-07-29")
 	repo := NewRepository(pool, 5*time.Second)
 
+	// The base fixture already has an open bucket for repoPerShed on 2026-07-29.
+	// Mark it completed before seeding another same-day bucket; the real open
+	// uniqueness guard keys by operational shed + partition + start date.
+	execWeighingTestSQL(t, ctx, pool,
+		`UPDATE weighing_campaign_sheds SET status='completed' WHERE campaign_shed_id=$1::uuid`,
+		repoShedScope)
+	seedLoadBucket(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoPerShed, "per_shed_partition")
 	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 24.53125, 64,
 		time.Date(2026, 7, 6, 6, 0, 0, 0, time.UTC))
 	seedLoadBucket(t, ctx, pool, shedWeightsScopeFourWeek, shedWeightsCampaignFourWeek, repoPerShed, "per_shed_partition")
@@ -355,6 +362,9 @@ func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
 	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignShortSpan, "2026-07-29")
 	repo := NewRepository(pool, 5*time.Second)
 
+	execWeighingTestSQL(t, ctx, pool,
+		`UPDATE weighing_campaign_sheds SET status='completed' WHERE campaign_shed_id=$1::uuid`,
+		repoShedScope)
 	seedLoadBucket(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoPerShed, "per_shed_partition")
 	seedLoadLumpWeigh(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoShedProofTwo, 29.21875, 64,
 		time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))

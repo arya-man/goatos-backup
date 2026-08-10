@@ -183,6 +183,10 @@ Review checkpoints:
   predicate sub-shape.
 - The predicate was fixed, so the aggregate is assumed fixed. Check the
   `GROUP BY` and the compared-against key set separately.
+- A downstream CTE uses a new identity column because the base table has it, but
+  the upstream `scoped`/carrier CTE never projected it. `SELECT *` only preserves
+  columns already in that CTE; require a compile/DB-backed test or source guard
+  for load-bearing CTE columns.
 - A sibling surface (Passport, Calendar list) is correct, so the new surface is
   assumed correct — they are separate hand-copied predicates until a parity
   test proves one shared source.

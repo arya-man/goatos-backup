@@ -85,7 +85,7 @@ WITH scoped AS (
   -- excluded: a canceled bucket is work that was called off, so counting it in
   -- sheds_in_scope would inflate the "20 of 27" denominator with sheds nobody
   -- intended to weigh.
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.weighing_category,
+  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.partition_label, cs.weighing_category,
          cs.status AS bucket_status, c.park_id, c.period_start_date, cs.created_at
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c

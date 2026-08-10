@@ -1549,7 +1549,7 @@ Session 2026-08-07 found ~15 live defects, ALL from ONE class: partition/locatio
 
 3. **Never add a struct field without wiring it end-to-end.** FOUR instances: field DECLARED never populated (twice), schema declared what Go never emitted (twice), wire name renamed on one side only. A field nothing fills reads as done — worse than omitting it.
 
-4. **Scan-count discipline:** adding a struct field without adding the SQL column is a RUNTIME failure (`number of field descriptions must equal number of destinations`). Adding a partition column and renaming a CTE column broke a query so badly it could not even EXPLAIN.
+4. **Scan-count discipline:** adding a struct field without adding the SQL column is a RUNTIME failure (`number of field descriptions must equal number of destinations`). Adding a partition column and renaming a CTE column broke a query so badly it could not even EXPLAIN. If a downstream CTE groups, orders, scans, or renders a column, every upstream `SELECT s.*`/`SELECT *` carrier must explicitly project that column in the same patch.
 
 5. **`jsonb_array_elements(x)::text` is NOT `jsonb_array_elements_text(x)`.** The first leaves JSON quoting and turns JSON null into the 4-character string `"null"` (non-empty, passes all "has partition?" checks) — fabricating a partition on a shed with none.
 
