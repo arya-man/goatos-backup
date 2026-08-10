@@ -238,6 +238,12 @@ function selfTest() {
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
     "}",
   ].join("\n");
+  const badOrInverseMultiline = [
+    "if (sdkInt < Build.VERSION_CODES.TIRAMISU ||",
+    "    shouldAskForNotificationPermission()) {",
+    "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
   const badCommentedCondition = [
     "// if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {",
     "val mandatoryPermissions = listOf(",
@@ -279,6 +285,7 @@ function selfTest() {
     scanText("bad-closed-positive-branch.kt", badClosedPositiveBranch).length === 1 &&
     scanText("bad-else-branch.kt", badElseBranch).length === 1 &&
     scanText("bad-or-refinement.kt", badOrRefinement).length === 1 &&
+    scanText("bad-or-inverse-multiline.kt", badOrInverseMultiline).length === 1 &&
     scanText("bad-commented-condition.kt", badCommentedCondition).length === 1 &&
     scanText("good-multiline-condition.kt", goodMultilineCondition).length === 0 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
