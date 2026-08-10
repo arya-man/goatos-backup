@@ -8929,6 +8929,12 @@ components:
     FeedDirectionRow:
       type: object
       additionalProperties: false
+      description: >-
+        ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen
+        holding several breeds or management stages is ONE row whose descriptive columns list every
+        value present (` + `-joined) and whose quantities are summed, never several rows an operator
+        has to re-add at the pen door. The packing worklist is built at the same grain, so a row and
+        the bag packed for it always describe the same pen.
       required:
         - park_id
         - park_label
@@ -8976,23 +8982,24 @@ components:
             spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY
             workflow from the animals actually in the shed: an experiment row has no ration grain,
             but its animals still carry a management stage. It never carries the experiment arm,
-            which has its own `experiment_arm` field. A shed holding two stages reports both,
-            joined by ` + `.
+            which has its own `experiment_arm` field. A pen holding two stages reports both,
+            joined by ` + `, dominant (largest head count) first.
         breed:
           type: string
           description: >-
             The raw live breed label. Reported alongside `ration_group` because they differ in ways
             an operator needs to see: Beetal and Sirohi are two breeds sharing one
             `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every
-            workflow from the animals in the shed; a multi-breed shed reports every breed joined by
-            ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one.
+            workflow from the animals in the pen; a multi-breed pen reports every breed joined by
+            ` + ` (`Beetal + Sojat`), dominant first, rather than naming one and implying it is the
+            only one. THE ROW IS NOT SPLIT PER BREED -- see the row's own grain description.
         ration_group:
           type: string
           description: >-
-            What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an
-            absolute hand-authored kg never consults the breed -> ration-group map, so there is no
-            group to report. That is a real state, not missing data, and must render as a deliberate
-            blank.
+            What the breed resolved to in the ration grid, joined by ` + ` when the pen holds more
+            than one (`Beetal/Sirohi + Kid`). EMPTY on an experiment row, correctly: an absolute
+            hand-authored kg never consults the breed -> ration-group map, so there is no group to
+            report. That is a real state, not missing data, and must render as a deliberate blank.
         experiment_arm:
           type: string
           description: >-
@@ -9035,6 +9042,20 @@ components:
             this total is partial.
         blocked:
           type: boolean
+          description: >-
+            True when part of this pen's ration is unauthored, so `session_total_kg` covers only
+            part of the pen. The quantities that ARE configured still carry numbers -- the operator
+            feeds those animals and records their video -- and `blocked_reasons` names the gap. An
+            item where NOTHING resolved has a null `quantity_kg` and is never rendered as 0.
+        blocked_reasons:
+          type: array
+          description: >-
+            The distinct gaps behind `blocked`, each naming the exact missing coordinate (park /
+            ration group / tag / feed item) so an operator can locate and close it. Absent on a
+            fully resolved row. Present because one row covers a whole pen: when only part of the
+            pen's ration is authored, the row must say WHICH part is missing.
+          items:
+            $ref: "#/components/schemas/FeedDirectionBlockedReason"
         overdue_pending:
           type: boolean
           description: >-
@@ -9043,10 +9064,10 @@ components:
         completed:
           type: boolean
           description: >-
-            True when this shed-session has a recorded completion (`feed.direction.completed`). The
+            True when this pen's session has a recorded completion (`feed.direction.completed`). The
             ration numbers are generated the same way; this reports that the feeding was carried
-            out. A whole shed-session is completed at once, so every ration grain of the same
-            (shed, session) reports `completed` together.
+            out. Completion is recorded per (shed, partition, session, workflow), which is exactly
+            this row's grain, so it maps 1:1.
     FeedDirectionFeedItemTotal:
       type: object
       additionalProperties: false
