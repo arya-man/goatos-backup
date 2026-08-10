@@ -405,8 +405,9 @@ DECLARE
   parent_row public.locations%ROWTYPE;
   candidate_id uuid;
   candidate_count integer;
+  mapped_valid boolean;
 BEGIN
-  IF NEW.status <> 'active' OR NEW.operational_location_id IS NOT NULL THEN
+  IF NEW.status <> 'active' THEN
     RETURN NEW;
   END IF;
 
@@ -419,6 +420,30 @@ BEGIN
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
+  END IF;
+
+  IF NEW.operational_location_id IS NOT NULL THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.locations pen
+      WHERE pen.tenant_id = NEW.tenant_id
+        AND pen.location_id = NEW.operational_location_id
+        AND pen.parent_location_id = NEW.shed_id
+        AND pen.location_type = 'pen'
+        AND pen.status = 'active'
+    )
+    INTO mapped_valid;
+
+    IF mapped_valid THEN
+      RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id THEN
+      NEW.operational_location_id := NULL;
+    ELSE
+      RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
+        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+    END IF;
   END IF;
 
   SELECT count(*), (array_agg(pen.location_id ORDER BY pen.location_id))[1]
