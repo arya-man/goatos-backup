@@ -34,9 +34,12 @@ type feedEventEnvelope struct {
 	AggregateID   string
 	// IdempotencyKey is the event's stable identity for redelivery.
 	IdempotencyKey string
-	// SubjectType/SubjectID name the thing the event is ABOUT (a shed, for every feed event today).
-	SubjectType string
-	SubjectID   string
+	// There is deliberately NO SubjectType field. Every feed event is ABOUT a shed, and a shed's
+	// schema subject_type is "location" -- the enum has no "shed" member. Leaving it as a per-caller
+	// string meant three call sites each spelling it, and all three spelled it "shed"; a
+	// mutation test proved a single call site could drift back without any test noticing, because a
+	// builder test constructs its own value. The subject is now derived from ShedID below, so the
+	// mistake is unavailable rather than merely discouraged -- the same reasoning as platform/oploc.
 	// TenantID/ParkID/ShedID become the visibility scope a consumer filters on.
 	TenantID string
 	ParkID   string
@@ -63,7 +66,10 @@ func (e feedEventEnvelope) build() map[string]any {
 	stamp := occurred.UTC().Format("2006-01-02T15:04:05.000000Z")
 	recorded := time.Now().UTC().Format("2006-01-02T15:04:05.000000Z")
 
-	actor := map[string]any{"actor_type": "system", "actor_id": nil}
+	// "system_rule", NOT "system". The schema's actor_type enum is human | system_rule | import_job |
+	// device | ai_proposal, and it sets additionalProperties:false -- a plausible-sounding value that
+	// is not in the enum fails validation exactly as a missing field does.
+	actor := map[string]any{"actor_type": "system_rule", "actor_id": nil}
 	if e.ActorID != "" {
 		actor = map[string]any{"actor_type": "human", "actor_id": e.ActorID}
 	}
@@ -90,8 +96,8 @@ func (e feedEventEnvelope) build() map[string]any {
 		"producer":        map[string]any{"service": "goatos-api", "module": "feeddirection", "version": nil},
 		"idempotency_key": e.IdempotencyKey,
 		"actor":           actor,
-		"subject_type":    e.SubjectType,
-		"subject_id":      e.SubjectID,
+		"subject_type":    "location",
+		"subject_id":      e.ShedID,
 		// The feed events carry no media of their own: the proof video lives on the verification item
 		// that approved the completion. An empty array is the honest value and is REQUIRED -- the
 		// field being absent is what fails validation.

@@ -41,6 +41,9 @@ ALTER TABLE feed_packing_completions
 --
 -- Only 'pending' items are touched. An already-approved or already-rejected item is a verdict that
 -- was really cast and is left exactly as it is.
+-- Bounded lock: verification_items is a hot table, so this UPDATE waits a few seconds for its lock
+-- and fails fast rather than queueing behind a long reader and stalling every writer behind it.
+SET lock_timeout = '5s';
 WITH ranked AS (
   SELECT
     completion_id,
@@ -100,13 +103,27 @@ SET session_no = 0,
 WHERE session_no <> 0;
 
 -- ---------------------------------------------------------------------------
--- 4. Swap the natural key
+-- 4. ADD the pen-day key. The session-bearing one is KEPT for the rollout.
 -- ---------------------------------------------------------------------------
--- Dropped first: the two indexes cannot coexist while every row carries session_no 0, and creating
--- the new one before dropping the old would leave the old index uniquing on a column that is now
--- constant -- which is the same constraint, spelled worse.
-DROP INDEX IF EXISTS feed_packing_completions_natural_uq;
-CREATE UNIQUE INDEX IF NOT EXISTS feed_packing_completions_natural_uq
+-- EXPAND half of an expand/contract rollout. The old index is deliberately NOT dropped here.
+--
+-- WHY (rolling-deploy safety). The deployed binary inserts with
+--   ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow)
+-- and Postgres requires a unique index MATCHING that exact column list. Dropping it in the same
+-- migration that adds the pen-day one means every still-running old API instance fails EVERY
+-- packing submission with 42P10 ("no unique or exclusion constraint matching the ON CONFLICT
+-- specification") for the length of the rollout. Migrations are applied BEFORE the new revision
+-- serves, so that window is guaranteed, not hypothetical.
+--
+-- Both indexes coexist safely. The pen-day index is strictly STRICTER: anything it admits, the
+-- session-bearing one admits too. Step 3 above already collapsed the duplicates that would have
+-- violated it, so adding it cannot fail on existing rows. During the window an old instance
+-- submitting a genuine SECOND session for an already-packed pen gets a loud unique violation
+-- instead of a silent double-record -- which is exactly the semantic change being rolled out.
+--
+-- The CONTRACT half (dropping the old index) is migration 000149, to be applied only once no old
+-- instance is left. Do not merge the two back together.
+CREATE UNIQUE INDEX IF NOT EXISTS feed_packing_completions_pen_day_uq
   ON feed_packing_completions (tenant_id, park_id, shed_id, partition_key, target_date, workflow);
 
 -- ---------------------------------------------------------------------------
@@ -119,6 +136,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS feed_packing_completions_natural_uq
 -- Anchored with a strict prefix match so a label that never carried the prefix is untouched, and
 -- the pen is taken from the text AFTER the separator rather than being recomposed, so this cannot
 -- invent a partition for a shed that has none.
+-- Bounded lock: verification_items is a hot table, so this UPDATE waits a few seconds for its lock
+-- and fails fast rather than queueing behind a long reader and stalling every writer behind it.
+SET lock_timeout = '5s';
 UPDATE verification_items
 SET subject_label = btrim(substring(subject_label FROM position(' · ' IN subject_label) + 3)),
     updated_at = now()

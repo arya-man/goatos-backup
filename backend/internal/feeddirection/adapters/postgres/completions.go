@@ -287,8 +287,6 @@ func insertFeedDirectionCompletedOutbox(ctx context.Context, tx pgx.Tx, p ports.
 		AggregateType:  feedDirectionCompletedAggregateType,
 		AggregateID:    completionID,
 		IdempotencyKey: idempotencyKey,
-		SubjectType:    "shed",
-		SubjectID:      p.ShedID,
 		TenantID:       p.TenantID,
 		ParkID:         p.ParkID,
 		ShedID:         p.ShedID,

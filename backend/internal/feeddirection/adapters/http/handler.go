@@ -727,6 +727,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrPackingAlreadyRecorded):
+		// 409 and CODED, so the client can tell it apart from a transient failure and stop retrying.
+		// A pen-day accepts exactly one video; a second, different one cannot be stored, so it must
+		// not be answered with success. Answering 200 here silently discarded an operator's recording.
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			codedError{Code: "packing_already_recorded", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportParkForbidden):

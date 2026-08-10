@@ -23,6 +23,23 @@ var (
 	// ErrPackingStoreUnavailable is returned when a packing completion is attempted but no
 	// PackingCompletionStore is wired -- a deployment/wiring error, surfaced as a 500.
 	ErrPackingStoreUnavailable = errors.New("feeddirection: packing completion store is not configured")
+	// ErrPackingAlreadyRecorded is returned when a pen-day ALREADY holds a DIFFERENT packing video --
+	// it is awaiting verification, or already verified -- and a second, different one arrives.
+	//
+	// A pen-day accepts exactly ONE video (maintainer decision 2026-08-10), so this is not a replay
+	// and must NOT be answered with success. Returning success here is silent data loss: the operator
+	// is told their recording was accepted while nothing records it and no verifier ever sees it.
+	//
+	// It is deliberately NOT triggered by a genuine retry. An identical request replays on its
+	// idempotency key, and a re-send of the SAME proof under a new key still matches the stored
+	// proof_ref and stays an idempotent no-op. Only a DIFFERENT video conflicts.
+	//
+	// The case that forced this: the pen-day merge left the phone able to hold TWO legacy queued
+	// packing rows for one pen -- Morning and Evening, each with its own video and its own
+	// idempotency key. Both drain to the same pen-day row, and the second used to come back 200 with
+	// its video discarded. That is the accepted-and-ignored failure the strict `session_no` rejection
+	// exists to prevent, reappearing one layer above the API.
+	ErrPackingAlreadyRecorded = errors.New("feeddirection: this pen-day already has a different packing video recorded")
 )
 
 // CompletePackingParams is the persisted gated-completion write, at the PEN-DAY grain

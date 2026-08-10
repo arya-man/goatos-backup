@@ -11865,7 +11865,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The shed-session is recorded pending_verification (or was already completed). The packing session is not done until a verifier approves. */
+            /** @description The pen-day is recorded pending_verification (or already held THIS SAME video). The packing is not done until a verifier approves. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11878,7 +11878,21 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
+            /**
+             * @description Either the `Idempotency-Key` was reused with a different payload, or this pen-day already holds a DIFFERENT packing video (`code: packing_already_recorded`).
+             *
+             *     A pen-day accepts exactly ONE video, so a second, different one is a CONFLICT and not a replay -- it cannot be stored, and answering success would tell the operator their recording was accepted while nothing recorded it and no verifier ever saw it. A genuine re-send is unaffected: an identical request replays on its idempotency key, and re-sending the SAME `packing_proof_ref` under a new key still matches the stored proof and returns `200`.
+             *
+             *     The client must treat this as TERMINAL and surface it, never retry it.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description The mandatory packing video is missing (`code: proof_required`). */
             422: {
                 headers: {

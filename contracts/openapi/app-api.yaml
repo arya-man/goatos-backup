@@ -3863,8 +3863,8 @@ paths:
       responses:
         "200":
           description: >-
-            The shed-session is recorded pending_verification (or was already completed). The packing
-            session is not done until a verifier approves.
+            The pen-day is recorded pending_verification (or already held THIS SAME video). The
+            packing is not done until a verifier approves.
           content:
             application/json:
               schema:
@@ -3878,7 +3878,24 @@ paths:
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
-          $ref: "#/components/responses/WriteConflict"
+          description: >-
+            Either the `Idempotency-Key` was reused with a different payload, or this pen-day already
+            holds a DIFFERENT packing video (`code: packing_already_recorded`).
+
+
+            A pen-day accepts exactly ONE video, so a second, different one is a CONFLICT and not a
+            replay -- it cannot be stored, and answering success would tell the operator their
+            recording was accepted while nothing recorded it and no verifier ever saw it. A genuine
+            re-send is unaffected: an identical request replays on its idempotency key, and re-sending
+            the SAME `packing_proof_ref` under a new key still matches the stored proof and returns
+            `200`.
+
+
+            The client must treat this as TERMINAL and surface it, never retry it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "422":
           description: >-
             The mandatory packing video is missing (`code: proof_required`).

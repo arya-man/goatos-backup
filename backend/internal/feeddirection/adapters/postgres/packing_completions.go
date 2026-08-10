@@ -152,16 +152,18 @@ RETURNING completion_id::text, row_version`,
 		packingProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Natural-key conflict: a row for this PEN-DAY already exists. Its state decides the outcome.
-		var existingStatus string
+		// Natural-key conflict: a row for this PEN-DAY already exists. Its state AND its stored video
+		// decide the outcome -- the proof_ref is read because a second, DIFFERENT video is a conflict,
+		// not a replay. See ports.ErrPackingAlreadyRecorded.
+		var existingStatus, existingProof string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version
+SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, '')
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $6 AND target_date = $4::date AND workflow = $5`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
 			domain.PartitionMatchKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
 		switch existingStatus {
@@ -186,12 +188,21 @@ RETURNING row_version`,
 			if err := writePackingAudit(ctx, tx, p, completionID, feedPackingPendingAction); err != nil {
 				return ports.CompletePackingResult{}, err
 			}
-		case domain.PackingStatusPendingVerification:
-			// Already awaiting verification: idempotent no-op, no new verification item.
-			status = domain.PackingStatusPendingVerification
-		case domain.PackingStatusCompleted:
-			// Already verified/completed: no-op.
-			status = domain.PackingStatusCompleted
+		case domain.PackingStatusPendingVerification, domain.PackingStatusCompleted:
+			// The pen-day already holds a video. Whether this is an idempotent no-op or a CONFLICT
+			// depends entirely on whether it is the SAME video.
+			//
+			// SAME proof -> a genuine re-send under a different idempotency key. Nothing to do, and
+			// answering success is correct: the operator's recording IS on the row.
+			//
+			// DIFFERENT proof -> a second, distinct recording for a unit that accepts exactly one. It
+			// cannot be stored, so it must not be acknowledged. Returning success here told the
+			// operator their video was accepted while nothing recorded it and no verifier ever saw
+			// it -- silent loss of work they had physically done.
+			if packingProof != existingProof {
+				return ports.CompletePackingResult{}, ports.ErrPackingAlreadyRecorded
+			}
+			status = existingStatus
 		default:
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: unexpected packing status %q", existingStatus)
 		}
@@ -671,8 +682,6 @@ func insertFeedPackingCompletedOutbox(ctx context.Context, tx pgx.Tx, o feedPack
 		AggregateType:  feedPackingCompletedAggregateType,
 		AggregateID:    o.CompletionID,
 		IdempotencyKey: idempotencyKey,
-		SubjectType:    "shed",
-		SubjectID:      o.ShedID,
 		TenantID:       o.TenantID,
 		ParkID:         o.ParkID,
 		ShedID:         o.ShedID,
