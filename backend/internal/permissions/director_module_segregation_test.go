@@ -163,13 +163,37 @@ func TestFeedTransportReadDoesNotConferSubmit(t *testing.T) {
 	if RolesAuthorize([]string{RoleFeedDirector}, submit.Permissions, submit.AdminOnly) {
 		t.Error("feed_director must NOT submit a transport proof: directing is not executing")
 	}
-	// The roles that execute keep both halves -- widening the read must not have narrowed anyone.
-	for _, role := range []string{RoleOperator, RoleParkHead, RoleCEOInternal} {
+	// Ground execution keeps both halves. CEO joins feed_director on the read-only side: leadership
+	// can inspect status, but must not submit feed transport/direction proof.
+	for _, role := range []string{RoleOperator, RoleParkHead} {
 		if !RolesAuthorize([]string{role}, list.Permissions, list.AdminOnly) {
 			t.Errorf("%s lost the transport worklist read", role)
 		}
 		if !RolesAuthorize([]string{role}, submit.Permissions, submit.AdminOnly) {
 			t.Errorf("%s lost the transport submit", role)
+		}
+	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, list.Permissions, list.AdminOnly) {
+		t.Error("ceo_internal lost the transport worklist read")
+	}
+	if RolesAuthorize([]string{RoleCEOInternal}, submit.Permissions, submit.AdminOnly) {
+		t.Error("ceo_internal must NOT submit a transport proof: leadership is read/oversee, not execute")
+	}
+}
+
+func TestFeedDirectionDistributionCompleteIsGroundExecutionOnly(t *testing.T) {
+	route, ok := Match("POST", "/feed-direction/distribution/complete")
+	if !ok {
+		t.Fatal("POST /feed-direction/distribution/complete is not a registered route")
+	}
+	for _, role := range []string{RoleOperator, RoleParkHead} {
+		if !RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Errorf("%s must keep feed distribution execution", role)
+		}
+	}
+	for _, role := range []string{RoleFeedDirector, RoleCEOInternal} {
+		if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
+			t.Errorf("%s must NOT execute feed distribution proof", role)
 		}
 	}
 }

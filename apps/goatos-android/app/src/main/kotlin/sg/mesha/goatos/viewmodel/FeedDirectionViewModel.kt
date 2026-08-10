@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -54,11 +55,13 @@ import javax.inject.Inject
 class FeedDirectionViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
+    private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     private val _filters = MutableStateFlow(FeedDirectionSelection())
+    private val _canExecuteDirection = MutableStateFlow(false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observed: StateFlow<FeedDirectionEnvelope> = _filters
@@ -82,16 +85,17 @@ class FeedDirectionViewModel @Inject constructor(
     val state: StateFlow<FeedDirectionUiState> = combine(
         observed,
         _filters,
+        _canExecuteDirection,
         _isRefreshing,
         _isOffline,
-    ) { envelope, selection, isRefreshing, isOffline ->
+    ) { envelope, selection, canExecuteDirection, isRefreshing, isOffline ->
         val dto = envelope.resource.data
         val hasSummary = dto != null
         FeedDirectionUiState(
             title = TITLE,
             targetDateLabel = selection.targetDate,
             today = todayIso(),
-            canCapture = selection.targetDate == todayIso(),
+            canCapture = canExecuteDirection && selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
             summary = dto?.toSummaryUi() ?: FeedDirectionSummaryUi(),
             hasSummary = hasSummary,
@@ -135,6 +139,13 @@ class FeedDirectionViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.FEED_DIRECTION_VIEWED)
+        viewModelScope.launch {
+            _canExecuteDirection.value = runCatching {
+                bootstrapRepository.operatorProfile()?.primaryRoleHint == ROLE_OPERATOR
+            }.onFailure {
+                crashReporter.recordException(it, "feed direction execute-role bootstrap failed")
+            }.getOrDefault(false)
+        }
     }
 
     fun onRowsLoadFailed(error: Throwable) {
@@ -338,6 +349,7 @@ class FeedDirectionViewModel @Inject constructor(
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
         const val KIND_DIRECTION = "direction"
+        const val ROLE_OPERATOR = "operator"
         const val TITLE = "Feed Direction"
         const val LOADING_MESSAGE = "Loading feed sheet…"
         const val EMPTY_MESSAGE = "No feed rows for this farm and day"

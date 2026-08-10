@@ -2275,19 +2275,21 @@ fun AppNavHost(
                         // instant FeedCompleteScreen — docs/decisions/feed-distribution-verification.md.
                         is FeedDirectionEvent.OpenRow -> {
                             vm.onEvent(event)
-                            navController.navigate(
-                                Routes.feedDistributionCompleteRoute(
-                                    parkId = event.parkId,
-                                    shedId = event.shedId,
-                                    sessionNo = event.sessionNo,
-                                    workflow = event.workflow,
-                                    targetDate = state.targetDateLabel,
-                                    shedLabel = event.shedLabel,
-                                    sessionLabel = event.sessionLabel,
-                                    partitionLabel = event.partitionLabel,
-                                    lifecycleStatus = event.lifecycleStatus,
-                                ),
-                            ) { launchSingleTop = true }
+                            if (state.canCapture) {
+                                navController.navigate(
+                                    Routes.feedDistributionCompleteRoute(
+                                        parkId = event.parkId,
+                                        shedId = event.shedId,
+                                        sessionNo = event.sessionNo,
+                                        workflow = event.workflow,
+                                        targetDate = state.targetDateLabel,
+                                        shedLabel = event.shedLabel,
+                                        sessionLabel = event.sessionLabel,
+                                        partitionLabel = event.partitionLabel,
+                                        lifecycleStatus = event.lifecycleStatus,
+                                    ),
+                                ) { launchSingleTop = true }
+                            }
                         }
                         else -> vm.onEvent(event)
                     }

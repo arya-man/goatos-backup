@@ -77,6 +77,9 @@ if [ -n "$pid" ]; then
   # Only ever reclaim OUR OWN phone-qa API. Any other holder is someone else's work.
   if ps -o command= -p "$pid" 2>/dev/null | grep -q 'goatos-api-phone-qa'; then
     log "reclaiming port $host_port from a previous phone-qa API (pid $pid)"
+    launchctl bootout "$launch_domain/$label" >/dev/null 2>&1 || true
+    kill "$pid" >/dev/null 2>&1 || true
+    api_healthy=0
   else
     die "port $host_port is in use by pid $pid, which is NOT a phone-qa API; pick another GOATOS_PHONE_QA_PORT"
   fi

@@ -136,8 +136,8 @@ data class FeedDirectionUiState(
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
     val today: String = "",
-    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
-    // capture flow while this is false.
+    // True only when this actor may execute Feed Direction and targetDateLabel == today. Feed
+    // director / CEO read users stay view-only: rows must not open the capture flow.
     val canCapture: Boolean = true,
     val filters: FeedFilterUi = FeedFilterUi(),
     val summary: FeedDirectionSummaryUi = FeedDirectionSummaryUi(),
@@ -245,9 +245,9 @@ fun FeedDirectionScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    // Past-day rows are VIEW ONLY: `canCapture = false` disables the card's clickable
-                    // modifier below, so a tap never reaches this lambda and OpenRow — hence the
-                    // verifier-gated capture screen — is never dispatched for a non-today day.
+                    // Read-only rows disable the card's clickable modifier below, so a tap never
+                    // reaches this lambda and OpenRow — hence the verifier-gated capture screen —
+                    // is never dispatched for directors/CEO or a non-today day.
                     FeedDirectionRowCard(row, canCapture = state.canCapture) {
                         onEvent(
                             FeedDirectionEvent.OpenRow(

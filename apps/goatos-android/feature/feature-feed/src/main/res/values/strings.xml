@@ -30,7 +30,7 @@
     <string name="feed_date_prev_description">Previous day</string>
     <string name="feed_date_next_description">Next day</string>
     <string name="feed_date_today_chip">Today</string>
-    <string name="feed_date_read_only_banner">Viewing a past day — read-only</string>
+    <string name="feed_date_read_only_banner">Read-only view</string>
 
     <string name="feed_totals_title">Totals (whole farm)</string>
     <string name="feed_stat_sheds">Sheds</string>

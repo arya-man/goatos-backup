@@ -33,7 +33,8 @@ android_dir="$repo_root/apps/goatos-android"
 # same in non-interactive shells.
 # shellcheck source=tools/dev/android-env.sh
 source "$repo_root/tools/dev/android-env.sh"
-api_base="http://localhost:8080"
+host_api_port="${GOATOS_PHONE_QA_PORT:-8080}"
+api_base="http://localhost:${host_api_port}"
 bootstrap_path="/app/bootstrap"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 # The Android dev build starts in the field-operator surface. The old CEO default could read the
@@ -228,19 +229,19 @@ aud="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 maxttl="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 
 ensure_backend
-log "backend health: $(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || echo unreachable) (expect 204); minting a dev token that /app/bootstrap accepts..."
+log "backend health: $(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || echo unreachable) on host :$host_api_port (expect 204); minting a dev token that /app/bootstrap accepts..."
 
 token=""
 # 1) explicit env secret
 if [ -n "${GOATOS_AUTH_HS256_SECRET:-}" ]; then
   t="$(mint_with "$GOATOS_AUTH_HS256_SECRET")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: \$GOATOS_AUTH_HS256_SECRET"; fi
 fi
-# 2) live :8080 process env
+# 2) live host API process env
 if [ -z "$token" ]; then
-  apipid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  apipid="$(lsof -ti tcp:"$host_api_port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
   if [ -n "$apipid" ]; then
     s="$(ps eww "$apipid" 2>/dev/null | tr ' ' '\n' | grep '^GOATOS_AUTH_HS256_SECRET=' | head -1 | cut -d= -f2- || true)"
-    t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: live :8080 process env"; fi
+    t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: live :$host_api_port process env"; fi
   fi
 fi
 # 3) supervised-script default
@@ -248,7 +249,7 @@ if [ -z "$token" ]; then
   s="$(eval "$(grep -E '^export GOATOS_AUTH_HS256_SECRET=' "$supervisor" 2>/dev/null)"; printf '%s' "${GOATOS_AUTH_HS256_SECRET:-}")"
   t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: run-local-stack-supervised.sh default"; fi
 fi
-[ -n "$token" ] || die "could not mint a token the backend accepts (is the stack up on :8080? secret mismatch?). Start it with: make dev-local-service-start"
+[ -n "$token" ] || die "could not mint a token the backend accepts (is the stack up on :$host_api_port? secret mismatch?). Start it with: make dev-local-service-start"
 
 # bake into ~/.gradle/gradle.properties (token value never printed)
 mkdir -p "$(dirname "$gradle_props")"; touch "$gradle_props"
@@ -302,7 +303,6 @@ device_user="$(adb -s "$dev" shell am get-current-user 2>/dev/null | tr -d '\r' 
 # Hardcoding tcp:8080 tcp:8080 here CLOBBERED that remap on every install, pointing all four
 # devices at a port with nothing on it -- which is exactly the "Couldn't reach the server" screen
 # that read as an app bug for a whole QA session (2026-08-08).
-host_api_port="${GOATOS_PHONE_QA_PORT:-8080}"
 adb -s "$dev" reverse tcp:8080 tcp:"$host_api_port" >/dev/null
 log "adb reverse tcp:8080 -> laptop:$host_api_port (device localhost now reaches the laptop backend)"
 adb -s "$dev" shell am start --user "$device_user" -n sg.mesha.goatos.dev/sg.mesha.goatos.MainActivity >/dev/null 2>&1 || true

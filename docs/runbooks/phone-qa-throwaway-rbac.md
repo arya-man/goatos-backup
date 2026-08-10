@@ -8,10 +8,11 @@ app seed.
 `goatos-local-current` on `127.0.0.1:5433` is the normal local app database. Do
 not mutate it for quick phone role tests.
 
-The phone QA database is disposable and should run on `127.0.0.1:15544`. The
-phone still calls `localhost:8080`; `adb reverse tcp:8080 tcp:8080` makes that
-hit the laptop backend, and that backend must be started with the `15544`
-database URL.
+The phone QA database is disposable and must run on `127.0.0.1:15544`. The
+phone still calls its own `localhost:8080`, but the sanctioned runner maps that
+device port to a non-default laptop API port: `GOATOS_PHONE_QA_PORT`, default
+`8081`. Never bind phone QA to laptop `8080`; that port is the ordinary dev API
+and may point at a local replica of STG-shaped data.
 
 ## Start And Seed
 
@@ -42,15 +43,20 @@ QA identities below hold a `user_scope_grants` row with `status = 'active'` --
 a pending-only grant produces runtime 403s on the phone. A non-zero exit means
 the fixture is not usable; recreate the container rather than patching around it.
 
-Then start the API on `127.0.0.1:8080` with the same `DATABASE_URL`, install the
-app, and bake a dev token:
+Then start the API through the phone-QA wrapper with the same `DATABASE_URL`,
+install the app, and bake a dev token:
 
 ```bash
 GOATOS_LOCAL_USER_ID=90000000-0000-4000-8000-000000000102 \
+GOATOS_PHONE_QA_PORT=8081 \
 DATABASE_URL="$DATABASE_URL" \
 GOATOS_ENV=local \
 tools/local/phone-qa-throwaway-run.sh
 ```
+
+`tools/local/phone-qa-throwaway-run.sh` starts or reuses the laptop API on
+`:8081`, maps device `localhost:8080` to laptop `:8081`, and calls
+`tools/dev/android-dev-run.sh` with the same host port for token validation.
 
 ## Test Users
 
