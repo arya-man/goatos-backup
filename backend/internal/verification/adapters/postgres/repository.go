@@ -1912,7 +1912,7 @@ WHERE tenant_id = $4::uuid
 
 // verificationItemPendingPayload is the verification.item.pending outbox payload. Field set is fixed
 // by contract with the notification producer session (build-handover-20260713.md §1 P0 1a "the Max
-// seam"): tenant/item identity + classification + WHO to route to (operator/shed/park) + WHEN
+// seam"): tenant/item identity + classification + WHO to route to (operator/shed/partition/park) + WHEN
 // captured, so the notifier can resolve the Verifier's assignment without a callback into this
 // module.
 func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[string]any {
@@ -1930,16 +1930,17 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 			"ref_type":      in.Source.RefType,
 			"ref_id":        in.Source.RefID,
 		},
-		"operator_id": derefStr(in.OperatorID),
-		"shed_id":     derefStr(in.ShedID),
-		"park_id":     derefStr(in.ParkID),
-		"captured_at": in.CapturedAt.UTC().Format(time.RFC3339Nano),
+		"operator_id":     derefStr(in.OperatorID),
+		"shed_id":         derefStr(in.ShedID),
+		"partition_label": derefStr(in.PartitionLabel),
+		"park_id":         derefStr(in.ParkID),
+		"captured_at":     in.CapturedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
 // verificationVerdictPayload is the verification.verdict.approved / verification.verdict.rework
 // outbox payload. Carries the SAME who-to-route-to fields as the pending payload (operator_id,
-// shed_id, park_id) plus the decision + reason, so the notifier can apply its own routing (rework ->
+// shed_id, partition_label, park_id) plus the decision + reason, so the notifier can apply its own routing (rework ->
 // operator + park head; approved -> digest/no-op) without a callback into this module.
 //
 // It also carries source.evidence_id: the proof the verifier ACTUALLY reviewed, taken from the
@@ -1968,10 +1969,11 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 		// "subject + body" concatenation always took the empty branch. The field exists on the row
 		// (verification_items.subject_label, populated by RecordVerdict's own scanItemRow read
 		// immediately above) -- it just was not being put on the wire.
-		"subject_label": derefStr(item.SubjectLabel),
-		"operator_id":   derefStr(item.OperatorID),
-		"shed_id":       derefStr(item.ShedID),
-		"park_id":       derefStr(item.ParkID),
+		"subject_label":   derefStr(item.SubjectLabel),
+		"operator_id":     derefStr(item.OperatorID),
+		"shed_id":         derefStr(item.ShedID),
+		"partition_label": derefStr(item.PartitionLabel),
+		"park_id":         derefStr(item.ParkID),
 		"source": map[string]any{
 			"module":        item.Source.Module,
 			"task_id":       derefStr(item.Source.TaskID),

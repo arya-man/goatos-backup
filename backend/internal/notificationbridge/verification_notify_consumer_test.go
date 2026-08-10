@@ -374,6 +374,62 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	}
 }
 
+func TestVerificationEventConsumer_ReworkTargetPreservesSiblingPartitions(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer := vecSetup(t)
+
+	const shedID = "fa000000-0000-4000-8000-0000000000d1"
+	tests := []struct {
+		itemID         string
+		partitionLabel string
+		wantTarget     string
+	}{
+		{
+			itemID:         "fa000000-0000-4000-8000-0000000000d2",
+			partitionLabel: "Part 1",
+			wantTarget:     "/vaccination/record/" + shedID + "?partition_label=Part+1",
+		},
+		{
+			itemID:         "fa000000-0000-4000-8000-0000000000d3",
+			partitionLabel: "Part 2",
+			wantTarget:     "/vaccination/record/" + shedID + "?partition_label=Part+2",
+		},
+	}
+
+	for _, tc := range tests {
+		payload, err := json.Marshal(map[string]any{
+			"tenant_id":       vnTenant,
+			"item_id":         tc.itemID,
+			"vertical":        "preventive_care",
+			"module":          "vaccination",
+			"category":        "vaccination_proof",
+			"operator_id":     vecOperatorUser,
+			"park_id":         vnPark,
+			"shed_id":         shedID,
+			"partition_label": tc.partitionLabel,
+			"decision":        "rejected",
+			"status":          "rejected",
+			"source": map[string]any{
+				"module":   "vaccination",
+				"ref_type": "vaccination_goat",
+				"ref_id":   tc.itemID,
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal %s payload: %v", tc.partitionLabel, err)
+		}
+		if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework, tc.itemID, payload)); err != nil {
+			t.Fatalf("handle %s rework: %v", tc.partitionLabel, err)
+		}
+		if got := vecContextValueForToken(t, ctx, pool, tc.itemID, vnOperatorToken, "target"); got != tc.wantTarget {
+			t.Fatalf("%s target = %q, want %q", tc.partitionLabel, got, tc.wantTarget)
+		}
+		if got := vecContextValueForToken(t, ctx, pool, tc.itemID, vnOperatorToken, "partition_label"); got != tc.partitionLabel {
+			t.Fatalf("%s context partition_label = %q, want %q", tc.partitionLabel, got, tc.partitionLabel)
+		}
+	}
+}
+
 // TestVerificationEventConsumer_LegacyDedup: a generic verification_item that mirrors a legacy
 // vaccination SOP verification (source.module=vaccination, source.ref_type=sop_submission) is
 // ALREADY notified by the legacy vaccination.verify.rejected path for operator + park head, so the
