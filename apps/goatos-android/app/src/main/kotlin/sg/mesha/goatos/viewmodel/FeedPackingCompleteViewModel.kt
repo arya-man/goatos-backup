@@ -66,34 +66,32 @@ class FeedPackingCompleteViewModel @Inject constructor(
     // resolves the default park.
     private val parkId: String = savedStateHandle.get<String>(ARG_PARK_ID)?.takeIf { it != "-" }.orEmpty()
     private val shedId: String = savedStateHandle.get<String>(ARG_SHED_ID).orEmpty()
-    private val sessionNo: Int = savedStateHandle.get<String>(ARG_SESSION_NO)?.toIntOrNull() ?: 0
     private val workflow: String = savedStateHandle.get<String>(ARG_WORKFLOW).orEmpty()
     private val targetDate: String = savedStateHandle.get<String>(ARG_TARGET_DATE).orEmpty()
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
-    private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
+    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the pen-day is
     // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
     // an operator was shown an empty form for work already submitted (STG 2026-08-09).
     private val alreadySubmitted: Boolean =
         !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
 
-    // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
-    // proof drains strictly before the gated completion that references it. The PEN and the DAY are
-    // both part of this key: see feedCaptureGroupKey for what dropping either did to the field.
+    // The day-shed-PEN partition orders BOTH the proof AND the completion, so the proof drains
+    // strictly before the gated completion that references it. The PEN and the DAY are both part of
+    // this key: see feedPackingCaptureGroupKey for what dropping either did to the field. There is
+    // no session segment -- one video covers the pen's whole day.
     private val groupKey =
-        feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
+        feedPackingCaptureGroupKey(shedId, partitionLabel, workflow, targetDate)
 
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
 
-    /** Durable per shed-session; see the shared store's kdoc for why SavedStateHandle lost the clip. */
+    /** Durable per pen-day; see the shared store's kdoc for why SavedStateHandle lost the clip. */
     private var draft = CaptureDraft()
 
     private val _state = MutableStateFlow(
         FeedPackingCompleteUiState(
             shedLabel = shedLabel,
-            sessionLabel = sessionLabel,
             workflowLabel = workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
             alreadySubmitted = alreadySubmitted,
         ),
@@ -158,8 +156,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
                 // capture_source + the capture window. This flow permits only the live in-app
                 // camera; omitting them is rejected 400 invalid_proof.
+                // No session_no: the clip is the pen's whole DAY, so stamping it with a session
+                // would label the proof as covering one half of what it actually shows.
                 metadata = mapOf(
-                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
                     META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
                     META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
@@ -218,7 +217,6 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     parkId = parkId,
                     shedId = shedId,
                     partitionLabel = partitionLabel,
-                    sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
                     packingProofOutboxItemId = videoItem,
@@ -282,11 +280,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
     companion object {
         const val ARG_PARK_ID = "park_id"
         const val ARG_SHED_ID = "shed_id"
-        const val ARG_SESSION_NO = "session_no"
         const val ARG_WORKFLOW = "workflow"
         const val ARG_TARGET_DATE = "target_date"
         const val ARG_SHED_LABEL = "shed_label"
-        const val ARG_SESSION_LABEL = "session_label"
 
         /** The PEN worked. Part of the completion's identity: without it one pen's video closed
          *  out every pen of the shed (STG 2026-08-08). */
@@ -297,7 +293,6 @@ class FeedPackingCompleteViewModel @Inject constructor(
         private const val STEP_VIDEO = "video"
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedPacking.completeKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedPacking.videoKey"
-        private const val META_SESSION_NO = "session_no"
         private const val META_CAPTURE_SOURCE = "capture_source"
         private const val META_CAPTURED_START_MS = "captured_start_ms"
         private const val META_CAPTURED_END_MS = "captured_end_ms"

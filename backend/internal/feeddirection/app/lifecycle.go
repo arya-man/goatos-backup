@@ -290,18 +290,21 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// Session filter (worklist has no shed filter, so the shedID arg is empty). Applied to the whole
-	// frozen scope before paging + summary, so both the page and the summary describe the same session.
-	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
+	// No session filter: a packing line is a whole pen-day and every session belongs to it. The
+	// worklist has no shed filter either, so the frozen scope is served as loaded.
 
-	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging (a packing row IS a
-	// shed-session, so the completion key matches). Filtering here — not on the built page — keeps the
-	// page/summary consistent and pagination correct, exactly as the direction path does.
+	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
+	// its summary describe the same status set and pagination stays correct.
+	//
+	// Keyed with packingCompletedKey, NOT the direction stamper: the packing status map is keyed at
+	// the pen-DAY grain, so stamping direction rows with the session-bearing key would miss on every
+	// single row. Every row would read `pending`, a `completed` filter would return an empty
+	// worklist, and a submitted pen would offer itself for filming again.
 	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
-	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	scopeRows = stampAndFilterDirectionRowsForPacking(scopeRows, statusMap, q.Status)
 
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
@@ -439,8 +442,9 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		tenantID:   q.TenantID,
 		parkID:     q.ParkID,
 		targetDate: q.TargetDate,
-		sessionNo:  q.SessionNo,
-		limit:      MaxShedPageLimit,
+		// sessionNo 0 = generate EVERY session. A packing line carries the whole pen-day, so
+		// generating one session would build a card missing half its bags.
+		limit: MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -454,12 +458,13 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		return domain.PackingPage{}, err
 	}
 
-	// Filter DirectionRows by packing status before the shed paging, then stamp the built rows.
+	// Filter DirectionRows by packing status before the shed paging, then stamp the built rows. The
+	// pen-day-keyed stamper, for the reason given in servePacking.
 	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
-	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	scopeRows = stampAndFilterDirectionRowsForPacking(scopeRows, statusMap, q.Status)
 
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
