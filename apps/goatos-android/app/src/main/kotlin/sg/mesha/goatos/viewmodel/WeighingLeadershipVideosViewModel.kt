@@ -65,7 +65,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             WeighingLeadershipVideosUiState(
                 loading = isLoading,
                 loadingMore = isAppending,
-                sheds = sheds.mapIndexed(::toUi),
+                sheds = sheds.map(::toUi),
                 // With nothing cached the failure IS the answer; with a cached gallery it is only a
                 // staleness note, so a bad network never clears the reader's screen.
                 error = error?.takeIf { sheds.isEmpty() },
@@ -167,8 +167,8 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         }
     }
 
-    private fun toUi(index: Int, shed: WeighingLeadershipShed): WeighingLeadershipShedUi {
-        val shedUiId = shed.leadershipVideosIdentityKey(index)
+    private fun toUi(shed: WeighingLeadershipShed): WeighingLeadershipShedUi {
+        val shedUiId = shed.leadershipVideosIdentityKey()
         return WeighingLeadershipShedUi(
             id = shedUiId,
             campaignShedId = shed.campaignShedId,
@@ -202,8 +202,8 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         )
     }
 
-    private fun WeighingLeadershipShed.leadershipVideosIdentityKey(index: Int): String =
-        listOf(campaignShedId, category, periodLabel, status, index)
+    private fun WeighingLeadershipShed.leadershipVideosIdentityKey(): String =
+        listOf(shedKey, category, periodLabel, status)
             .joinToString(":")
 
     private fun formatWeight(value: Double): String =

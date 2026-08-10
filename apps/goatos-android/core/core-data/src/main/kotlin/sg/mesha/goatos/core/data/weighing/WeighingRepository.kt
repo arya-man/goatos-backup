@@ -268,6 +268,8 @@ data class WeighingLeadershipAnimal(
 )
 
 data class WeighingLeadershipShed(
+    /** Stable Room/backend bucket key: campaignId:campaignShedId. */
+    val shedKey: String,
     val campaignId: String,
     val campaignShedId: String,
     val shedName: String,
@@ -2598,6 +2600,7 @@ private fun WeighingLeadershipShedEntity.toLeadershipShed(
 ): WeighingLeadershipShed {
     val lump = lumpSumJson?.let { json.decodeFromString<WeighingObservationDto>(it) }
     return WeighingLeadershipShed(
+        shedKey = shedKey,
         campaignId = campaignId,
         campaignShedId = campaignShedId,
         shedName = shedName,
@@ -2829,6 +2832,7 @@ private fun normalizedProofArtifactIds(primary: String?, ids: List<String>): Lis
 private fun WeighingLeadershipShedVideosDto.toLeadershipShed(periodLabel: String): WeighingLeadershipShed {
     val lump = lumpSum
     return WeighingLeadershipShed(
+        shedKey = weighingShedKey(campaignId, campaignShedId),
         campaignId = campaignId,
         campaignShedId = campaignShedId,
         shedName = shedName,
