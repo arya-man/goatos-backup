@@ -854,6 +854,36 @@ BEGIN
       RETURN NEW;
     END IF;
 
+    PERFORM pg_advisory_xact_lock(hashtextextended(
+      NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
+      149
+    ));
+
+    IF TG_OP = 'UPDATE'
+      AND OLD.status = 'active'
+      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id THEN
+      IF EXISTS (
+        SELECT 1
+        FROM public.goats g
+        WHERE g.tenant_id = NEW.tenant_id
+          AND g.current_location_id = NEW.operational_location_id
+          AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+          AND g.merged_into_goat_id IS NULL
+      ) THEN
+        RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+          NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+      END IF;
+
+      UPDATE public.locations pen
+      SET status = 'inactive',
+          updated_at = now()
+      WHERE pen.tenant_id = NEW.tenant_id
+        AND pen.location_id = NEW.operational_location_id
+        AND pen.parent_location_id = NEW.shed_id
+        AND pen.location_type = 'pen'
+        AND pen.status = 'active';
+    END IF;
+
     SELECT EXISTS (
       SELECT 1
       FROM public.locations pen
@@ -875,7 +905,7 @@ BEGIN
 
   PERFORM pg_advisory_xact_lock(hashtextextended(
     NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
-    148
+    149
   ));
 
   IF NEW.operational_location_id IS NOT NULL THEN
