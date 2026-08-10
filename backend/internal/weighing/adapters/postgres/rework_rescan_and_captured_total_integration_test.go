@@ -234,6 +234,21 @@ func TestReworkVerdictAllowsLumpSumReplacement(t *testing.T) {
 		t.Fatalf("apply rework verdict: %v", err)
 	}
 
+	// The verifier path withdraws the rejected shed proof to free the one-open
+	// submission slot. The bucket card still has to show the operator that this is
+	// a sent-back/rework task until a replacement proof exists.
+	rejectedPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
+	if err != nil {
+		t.Fatalf("list campaign sheds after rework verdict: %v", err)
+	}
+	rejectedBucket := b05FindCampaignShed(t, rejectedPage.Items, repoShedScope)
+	if rejectedBucket.ReworkCount != 1 {
+		t.Fatalf("withdrawn rejected shed proof rework_count=%d, want 1 so the operator card shows Sent back", rejectedBucket.ReworkCount)
+	}
+	if rejectedBucket.LatestReworkReason != "video unusable, re-shoot" {
+		t.Fatalf("latest rework reason=%q, want verifier reason", rejectedBucket.LatestReworkReason)
+	}
+
 	// FAILING BEHAVIOR THIS PROVES FIXED: without markObservationRework stamping
 	// withdrawn_at on the rejected row (and deleting its idempotency record), this
 	// replacement submission would trip weighing_shed_observations_one_open_scope_uidx
@@ -258,6 +273,14 @@ func TestReworkVerdictAllowsLumpSumReplacement(t *testing.T) {
 	}
 	if replacement.WeightKg != 310 {
 		t.Fatalf("replacement weight=%v, want 310", replacement.WeightKg)
+	}
+	replacedPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
+	if err != nil {
+		t.Fatalf("list campaign sheds after replacement: %v", err)
+	}
+	replacedBucket := b05FindCampaignShed(t, replacedPage.Items, repoShedScope)
+	if replacedBucket.ReworkCount != 0 {
+		t.Fatalf("replacement shed proof rework_count=%d, want 0 so the card stops showing Sent back after redo", replacedBucket.ReworkCount)
 	}
 
 	// The rejected first attempt must remain immutable history (withdrawn, not
@@ -342,4 +365,15 @@ func TestCampaignCapturedTotalCountsFreeFlowScansWithZeroExpectedAnimalRows(t *t
 	if single.Progress.IndividualCompletedCount != capturedCount {
 		t.Fatalf("single-campaign captured total=%d, want %d", single.Progress.IndividualCompletedCount, capturedCount)
 	}
+}
+
+func b05FindCampaignShed(t *testing.T, sheds []domain.CampaignShed, campaignShedID string) domain.CampaignShed {
+	t.Helper()
+	for _, shed := range sheds {
+		if shed.CampaignShedID == campaignShedID {
+			return shed
+		}
+	}
+	t.Fatalf("campaign shed %s not found in page", campaignShedID)
+	return domain.CampaignShed{}
 }

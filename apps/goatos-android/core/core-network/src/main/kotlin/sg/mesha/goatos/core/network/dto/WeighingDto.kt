@@ -39,6 +39,8 @@ data class WeighingCampaignShedDto(
      */
     @SerialName("operator_display_name") val operatorDisplayName: String = "",
     @SerialName("status") val status: String = "",
+    @SerialName("planned_business_date") val plannedBusinessDate: String = "",
+    @SerialName("due_business_date") val dueBusinessDate: String = "",
     /** Backend-owned count of animals still open in THIS shed bucket. Absent when the
      *  backend read model does not publish shed-grain remaining truth yet; the client
      *  must then render a count-free close label instead of inventing a number. */
@@ -47,6 +49,7 @@ data class WeighingCampaignShedDto(
     @SerialName("pending_verification_count") val pendingVerificationCount: Int = 0,
     /** Strict subset of [pendingVerificationCount] a verifier bounced back to the operator. */
     @SerialName("rework_count") val reworkCount: Int = 0,
+    @SerialName("latest_rework_reason") val latestReworkReason: String = "",
     /** True only when this bucket is submitted and every observation on it is verified. */
     @SerialName("ready_to_close") val readyToClose: Boolean = false,
     /**

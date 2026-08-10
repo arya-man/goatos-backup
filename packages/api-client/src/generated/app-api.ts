@@ -6751,10 +6751,22 @@ export interface components {
             /** Format: uuid */
             operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
+            /**
+             * Format: date
+             * @description Business date originally planned for this operator bucket.
+             */
+            planned_business_date?: string;
+            /**
+             * Format: date
+             * @description Current due business date after roll-forward.
+             */
+            due_business_date?: string;
             /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
             pending_verification_count: number;
             /** @description The subset of pending_verification_count that a verifier actively bounced back to the operator. A strict subset, never added to the pending count. */
             rework_count?: number;
+            /** @description Most recent verifier-provided rework reason for this bucket, when available. */
+            latest_rework_reason?: string;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
             /** @description FACT 1 of 2. How many ANIMALS this bucket has a RECORDED weight for, submitted or not: one per individual observation, plus the recorded head count of the standing (non-withdrawn) shed proof for a lump-sum bucket. ANIMAL grain, not record grain -- it replaces captured_count, which counted the lump-sum proof ROW and so read as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for the same work. Identical predicate to WeighingOperatorSummary.animals_weighed_count, so no two surfaces can disagree. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing weighings by it would render a share of a total that does not exist. Clients report this number as-is and must never turn it into a percentage or a progress bar fill. */

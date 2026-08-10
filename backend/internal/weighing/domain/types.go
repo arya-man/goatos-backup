@@ -348,6 +348,8 @@ type CampaignShed struct {
 	// Empty WITH a non-empty OperatorUserID is a roster gap, not "not assigned".
 	OperatorDisplayName string `json:"operator_display_name"`
 	Status              string `json:"status"`
+	PlannedBusinessDate string `json:"planned_business_date,omitempty"`
+	DueBusinessDate     string `json:"due_business_date,omitempty"`
 	// PendingVerificationCount is the exact count of this bucket's SUBMITTED
 	// observations (weighing_observations with submitted_at set, plus any
 	// weighing_shed_observations row) whose verification_status is not yet
@@ -359,6 +361,10 @@ type CampaignShed struct {
 	// again. It is a strict subset, never added to the pending count: an
 	// observation is either awaiting a first look or bounced, never both.
 	ReworkCount int `json:"rework_count"`
+	// LatestReworkReason is the most recent verifier-provided reason among this
+	// bucket's active rework observations. It is for operator clarity only; an
+	// empty value still means the bucket was sent back when ReworkCount > 0.
+	LatestReworkReason string `json:"latest_rework_reason,omitempty"`
 	// VerifiedCount is the counterpart ReworkCount had no partner for: the
 	// submitted observations in this bucket a verifier ACCEPTED.
 	//

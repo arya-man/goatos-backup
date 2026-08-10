@@ -17,8 +17,13 @@
     <string name="weighing_category_lumpsum">Lumpsum</string>
     <string name="weighing_category_individual">Individual</string>
     <string name="weighing_action_scan_animals">Scan animals →</string>
+    <string name="weighing_action_redo_proof">Redo weighing proof →</string>
     <string name="weighing_assignment_summary_individual">Free-flow RFID, weight, and video capture</string>
     <string name="weighing_assignment_summary_lumpsum">Shed video and lump-sum total weight</string>
+    <string name="weighing_assignment_summary_sent_back">Verifier rejected video</string>
+    <string name="weighing_assignment_summary_sent_back_date">%1$s · Verifier rejected video</string>
+    <string name="weighing_assignment_summary_sent_back_reason">Verifier rejected video: %1$s</string>
+    <string name="weighing_assignment_summary_sent_back_date_reason">%1$s · Verifier rejected video: %2$s</string>
     <string name="weighing_action_record_lumpsum">Record shed →</string>
     <string name="weighing_category_individual_title">Individual</string>
     <string name="weighing_category_lump_sum_title">Lumpsum</string>
@@ -28,6 +33,7 @@
     <string name="weighing_status_submitted">Submitted</string>
     <string name="weighing_status_closed">Closed</string>
     <string name="weighing_status_canceled">Canceled</string>
+    <string name="weighing_status_sent_back">Sent back</string>
     <string name="weighing_status_not_started">Not started</string>
     <string name="weighing_kg">kg</string>
 
@@ -45,6 +51,7 @@
     <string name="weighing_all_parks">All parks</string>
     <string name="weighing_reopen">Reopen</string>
     <string name="weighing_pending_verification">Pending verification</string>
+    <string name="weighing_pending_verification_with_date">%1$s · Pending verification</string>
     <string name="weighing_pull_to_refresh_hint">Pull to refresh after leadership publishes the weekly plan.</string>
     <string name="weighing_icon_kg">KG</string>
     <string name="weighing_icon_rfid">RFID</string>

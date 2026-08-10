@@ -10,8 +10,13 @@
     <string name="weighing_category_lumpsum">మొత్తం బరువు</string>
     <string name="weighing_category_individual">వ్యక్తిగతం</string>
     <string name="weighing_action_scan_animals">జంతువులను స్కాన్ చేయండి →</string>
+    <string name="weighing_action_redo_proof">బరువు రుజువు మళ్లీ చేయండి →</string>
     <string name="weighing_assignment_summary_individual">స్వేచ్ఛా RFID, బరువు మరియు వీడియో సేకరణ</string>
     <string name="weighing_assignment_summary_lumpsum">షెడ్ వీడియో మరియు మొత్తం బరువు</string>
+    <string name="weighing_assignment_summary_sent_back">వీడియో ధృవీకరణలో తిరస్కరించబడింది</string>
+    <string name="weighing_assignment_summary_sent_back_date">%1$s · వీడియో ధృవీకరణలో తిరస్కరించబడింది</string>
+    <string name="weighing_assignment_summary_sent_back_reason">వీడియో ధృవీకరణలో తిరస్కరించబడింది: %1$s</string>
+    <string name="weighing_assignment_summary_sent_back_date_reason">%1$s · వీడియో ధృవీకరణలో తిరస్కరించబడింది: %2$s</string>
     <string name="weighing_action_record_lumpsum">షెడ్ నమోదు చేయండి →</string>
     <string name="weighing_category_individual_title">వ్యక్తిగతం</string>
     <string name="weighing_category_lump_sum_title">మొత్తం బరువు</string>
@@ -21,6 +26,7 @@
     <string name="weighing_status_submitted">సమర్పించబడింది</string>
     <string name="weighing_status_closed">మూసివేయబడింది</string>
     <string name="weighing_status_canceled">రద్దు</string>
+    <string name="weighing_status_sent_back">తిరిగి పంపబడింది</string>
     <string name="weighing_status_not_started">ప్రారంభం కాలేదు</string>
     <string name="weighing_kg">కేజీ</string>
 
@@ -38,6 +44,7 @@
     <string name="weighing_all_parks">అన్ని పార్కులు</string>
     <string name="weighing_reopen">మళ్లీ తెరవండి</string>
     <string name="weighing_pending_verification">ధృవీకరణ పెండింగ్</string>
+    <string name="weighing_pending_verification_with_date">%1$s · ధృవీకరణ పెండింగ్</string>
     <string name="weighing_pull_to_refresh_hint">నాయకత్వం వారపు ప్రణాళిక ప్రచురించిన తర్వాత లాగి రిఫ్రెష్ చేయండి.</string>
     <string name="weighing_icon_kg">కేజీ</string>
     <string name="weighing_icon_rfid">RFID</string>

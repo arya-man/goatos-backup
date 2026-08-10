@@ -10,8 +10,13 @@
     <string name="weighing_category_lumpsum">कुल वज़न</string>
     <string name="weighing_category_individual">व्यक्तिगत</string>
     <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>
+    <string name="weighing_action_redo_proof">वज़न प्रमाण फिर करें →</string>
     <string name="weighing_assignment_summary_individual">मुक्त RFID, वज़न और वीडियो कैप्चर</string>
     <string name="weighing_assignment_summary_lumpsum">शेड वीडियो और कुल वज़न</string>
+    <string name="weighing_assignment_summary_sent_back">वीडियो जाँच में अस्वीकार हुआ</string>
+    <string name="weighing_assignment_summary_sent_back_date">%1$s · वीडियो जाँच में अस्वीकार हुआ</string>
+    <string name="weighing_assignment_summary_sent_back_reason">वीडियो जाँच में अस्वीकार हुआ: %1$s</string>
+    <string name="weighing_assignment_summary_sent_back_date_reason">%1$s · वीडियो जाँच में अस्वीकार हुआ: %2$s</string>
     <string name="weighing_action_record_lumpsum">शेड दर्ज करें →</string>
     <string name="weighing_category_individual_title">व्यक्तिगत</string>
     <string name="weighing_category_lump_sum_title">कुल वज़न</string>
@@ -21,6 +26,7 @@
     <string name="weighing_status_submitted">भेजा गया</string>
     <string name="weighing_status_closed">बंद</string>
     <string name="weighing_status_canceled">रद्द</string>
+    <string name="weighing_status_sent_back">वापस भेजा गया</string>
     <string name="weighing_status_not_started">शुरू नहीं हुआ</string>
     <string name="weighing_kg">किग्रा</string>
 
@@ -38,6 +44,7 @@
     <string name="weighing_all_parks">सभी पार्क</string>
     <string name="weighing_reopen">फिर खोलें</string>
     <string name="weighing_pending_verification">जाँच बाकी है</string>
+    <string name="weighing_pending_verification_with_date">%1$s · जाँच बाकी है</string>
     <string name="weighing_pull_to_refresh_hint">नेतृत्व द्वारा साप्ताहिक योजना प्रकाशित करने के बाद खींचकर रीफ़्रेश करें।</string>
     <string name="weighing_icon_kg">किग्रा</string>
     <string name="weighing_icon_rfid">RFID</string>

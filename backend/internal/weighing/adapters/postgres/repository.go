@@ -3358,10 +3358,14 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// "Roster gap (operator not found)" placeholder for every assigned shed.
 	rows, err := tx.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+  COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
   ON op.tenant_id=cs.tenant_id AND op.user_id=cs.operator_user_id AND op.status='active'
+LEFT JOIN weighing_work_items wi
+  ON wi.tenant_id=cs.tenant_id
+ AND wi.campaign_shed_id=cs.campaign_shed_id
 WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid
 ORDER BY cs.display_name`, tenantID, campaignID)
 	if err != nil {
@@ -3372,6 +3376,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 		var shed domain.CampaignShed
 		var partitionLabel string
 		var submitted int
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
@@ -3401,10 +3406,14 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	// operator's display name.
 	rows, err := r.pool.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+  COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
   ON op.tenant_id=cs.tenant_id AND op.user_id=cs.operator_user_id AND op.status='active'
+LEFT JOIN weighing_work_items wi
+  ON wi.tenant_id=cs.tenant_id
+ AND wi.campaign_shed_id=cs.campaign_shed_id
 WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id = ANY($2::uuid[])
   AND ($3::uuid IS NULL OR cs.operator_user_id=$3::uuid)
@@ -3416,6 +3425,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 		var shed domain.CampaignShed
 		var partitionLabel string
 		var submitted int
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err

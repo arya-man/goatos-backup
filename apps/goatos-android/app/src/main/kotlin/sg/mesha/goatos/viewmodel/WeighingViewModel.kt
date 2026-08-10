@@ -3139,10 +3139,15 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         label = label,
         category = category,
         operatorName = operatorDisplayName,
+        backendStatus = status,
         status = status.readableWeighingStatus(),
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
         readyToClose = readyToClose,
         pendingVerificationCount = pendingVerificationCount,
+        reworkCount = reworkCount,
+        latestReworkReason = latestReworkReason,
+        plannedBusinessDate = plannedBusinessDate,
+        dueBusinessDate = dueBusinessDate,
     )
 
 private fun WeighingAssignment.assignmentIdentityKey(): String =

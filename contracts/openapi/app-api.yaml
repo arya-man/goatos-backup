@@ -17921,6 +17921,14 @@ components:
           format: uuid
         status:
           $ref: "#/components/schemas/WeighingCampaignShedStatus"
+        planned_business_date:
+          type: string
+          format: date
+          description: Business date originally planned for this operator bucket.
+        due_business_date:
+          type: string
+          format: date
+          description: Current due business date after roll-forward.
         pending_verification_count:
           type: integer
           minimum: 0
@@ -17935,6 +17943,9 @@ components:
           description: >-
             The subset of pending_verification_count that a verifier actively bounced back
             to the operator. A strict subset, never added to the pending count.
+        latest_rework_reason:
+          type: string
+          description: Most recent verifier-provided rework reason for this bucket, when available.
         ready_to_close:
           type: boolean
           description: >-
