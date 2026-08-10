@@ -83,10 +83,38 @@ function codeLine(line, state) {
   return stripLineComment(stripBlockComments(line, state));
 }
 
-function isPositiveNotificationSdkCondition(line) {
-  const match = line.match(/\bif\s*\(([^)]*)\)\s*\{?/);
-  if (!match) return false;
-  const condition = match[1];
+function parseIfConditionFromWindow(lines, index) {
+  const start = Math.max(0, index - 6);
+  const window = lines.slice(start, index + 1).join(" ");
+  const candidates = [...window.matchAll(/\\bif\\s*\\(/g)];
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const openAt = candidates[i].index + candidates[i][0].length;
+    let depth = 0;
+    for (let cursor = openAt; cursor < window.length; cursor += 1) {
+      const char = window[cursor];
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        if (depth === 0) {
+          return window.slice(openAt, cursor).trim();
+        }
+        depth -= 1;
+      }
+    }
+  }
+  return "";
+}
+
+function isPositiveNotificationSdkCondition(lines, index, line) {
+  const hasOpenParen = line.includes("(");
+  const hasCloseParen = line.includes(")");
+  const hasIf = /\bif\s*\(/.test(line);
+  let condition;
+  if (hasIf && hasOpenParen && hasCloseParen) {
+    const match = line.match(/\\bif\\s*\\(([^)]*)\\)\\s*\\{?/);
+    condition = match ? match[1] : "";
+  }
+  if (!condition) condition = parseIfConditionFromWindow(lines, index);
   if (condition.includes("||")) return false;
 
   return (
@@ -102,7 +130,8 @@ function notificationLineIsSdkGated(lines, index) {
   const stack = [];
   for (let lineIndex = 0; lineIndex <= index; lineIndex += 1) {
     const line = codeLine(lines[lineIndex], state);
-    const positiveGate = isPositiveNotificationSdkCondition(line);
+    const hasOpenBrace = line.includes("{");
+    const positiveGate = hasOpenBrace ? isPositiveNotificationSdkCondition(lines, lineIndex, line) : false;
     for (const match of line.matchAll(/[{}]/g)) {
       if (match[0] === "}") {
         if (stack.length > 0) stack[stack.length - 1].depth -= 1;
@@ -205,6 +234,12 @@ function selfTest() {
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
     "}",
   ].join("\n");
+  const goodMultilineCondition = [
+    "if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&",
+    "    shouldAskForNotificationPermission()) {",
+    "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -234,6 +269,7 @@ function selfTest() {
     scanText("bad-closed-positive-branch.kt", badClosedPositiveBranch).length === 1 &&
     scanText("bad-else-branch.kt", badElseBranch).length === 1 &&
     scanText("bad-or-refinement.kt", badOrRefinement).length === 1 &&
+    scanText("good-multiline-condition.kt", goodMultilineCondition).length === 0 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
     scanText("good-list-inside-gate.kt", goodListInsideGate).length === 0 &&
