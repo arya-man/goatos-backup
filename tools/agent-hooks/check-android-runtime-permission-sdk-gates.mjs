@@ -83,10 +83,6 @@ function codeLine(line, state) {
   return stripLineComment(stripBlockComments(line, state));
 }
 
-function netBraceDelta(line) {
-  return (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-}
-
 function isPositiveNotificationSdkCondition(line) {
   return (
     /\bif\s*\([^)]*(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)[^)]*\)\s*\{?/.test(line) ||
@@ -102,15 +98,14 @@ function notificationLineIsSdkGated(lines, index) {
   for (let lineIndex = 0; lineIndex <= index; lineIndex += 1) {
     const line = codeLine(lines[lineIndex], state);
     const positiveGate = isPositiveNotificationSdkCondition(line);
-    const delta = netBraceDelta(line);
-    if (positiveGate && delta > 0) {
-      stack.push({ positiveGate: true, depth: delta });
-    } else if (delta > 0) {
-      stack.push({ positiveGate: false, depth: delta });
-    } else if (stack.length > 0) {
-      stack[stack.length - 1].depth += delta;
+    for (const match of line.matchAll(/[{}]/g)) {
+      if (match[0] === "}") {
+        if (stack.length > 0) stack[stack.length - 1].depth -= 1;
+        while (stack.length > 0 && stack[stack.length - 1].depth <= 0) stack.pop();
+      } else {
+        stack.push({ positiveGate, depth: 1 });
+      }
     }
-    while (stack.length > 0 && stack[stack.length - 1].depth <= 0) stack.pop();
   }
   return stack.some((entry) => entry.positiveGate);
 }
@@ -193,6 +188,13 @@ function selfTest() {
     "    Manifest.permission.POST_NOTIFICATIONS,",
     ")",
   ].join("\n");
+  const badElseBranch = [
+    "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
+    "    analytics.markNotificationCapable()",
+    "} else {",
+    "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -220,6 +222,7 @@ function selfTest() {
     scanText("bad-comment-only.kt", badCommentOnly).length === 1 &&
     scanText("bad-inverted.kt", badInverted).length === 1 &&
     scanText("bad-closed-positive-branch.kt", badClosedPositiveBranch).length === 1 &&
+    scanText("bad-else-branch.kt", badElseBranch).length === 1 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
     scanText("good-list-inside-gate.kt", goodListInsideGate).length === 0 &&
