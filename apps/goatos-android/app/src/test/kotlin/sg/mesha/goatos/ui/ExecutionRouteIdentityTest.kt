@@ -1,6 +1,8 @@
 package sg.mesha.goatos.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Path
@@ -39,6 +41,16 @@ class ExecutionRouteIdentityTest {
 
         assertTrue(route.contains("shedId=shed-a"))
         assertTrue(route.contains("partitionLabel=Part%202"))
+    }
+
+    @Test
+    fun `notification rework targets preserve sibling partitions`() {
+        val partOne = pushTargetRoute("/vaccination/record/shed-a?partition_label=Part+1")
+        val partTwo = pushTargetRoute("/vaccination/record/shed-a?partition_label=Part+2")
+
+        assertEquals(Routes.recordRoute("shed-a", "Part 1"), partOne)
+        assertEquals(Routes.recordRoute("shed-a", "Part 2"), partTwo)
+        assertNotEquals(partOne, partTwo)
     }
 
     @Test

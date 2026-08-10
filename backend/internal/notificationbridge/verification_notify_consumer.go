@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -305,25 +306,26 @@ type verificationSource struct {
 // VerificationEventPayload is the outbox payload emitted by the verification repository for all
 // three events (verificationItemPendingPayload / verificationVerdictPayload). Field set is fixed
 // by that producer contract: tenant/item identity + classification + who-to-route-to
-// (operator/shed/park) + the decision/reason + the source back-reference used for legacy dedup.
+// (operator/shed/partition/park) + the decision/reason + the source back-reference used for legacy dedup.
 type VerificationEventPayload struct {
-	TenantID     string             `json:"tenant_id"`
-	ItemID       string             `json:"item_id"`
-	Vertical     string             `json:"vertical"`
-	Module       string             `json:"module"`
-	Category     string             `json:"category"`
-	SubjectLabel string             `json:"subject_label"`
-	OperatorID   string             `json:"operator_id"`
-	ShedID       string             `json:"shed_id"`
-	ParkID       string             `json:"park_id"`
-	Decision     string             `json:"decision"` // "approved" | "rejected" (verdict events)
-	Status       string             `json:"status"`   // status alias kept alongside decision
-	Reason       string             `json:"reason"`   // optional rework reason
-	VerifiedBy   string             `json:"verified_by"`
-	ClosedBy     string             `json:"closed_by"`
-	BatchID      string             `json:"batch_id"`
-	CapturedAt   string             `json:"captured_at"`
-	Source       verificationSource `json:"source"`
+	TenantID       string             `json:"tenant_id"`
+	ItemID         string             `json:"item_id"`
+	Vertical       string             `json:"vertical"`
+	Module         string             `json:"module"`
+	Category       string             `json:"category"`
+	SubjectLabel   string             `json:"subject_label"`
+	OperatorID     string             `json:"operator_id"`
+	ShedID         string             `json:"shed_id"`
+	PartitionLabel string             `json:"partition_label"`
+	ParkID         string             `json:"park_id"`
+	Decision       string             `json:"decision"` // "approved" | "rejected" (verdict events)
+	Status         string             `json:"status"`   // status alias kept alongside decision
+	Reason         string             `json:"reason"`   // optional rework reason
+	VerifiedBy     string             `json:"verified_by"`
+	ClosedBy       string             `json:"closed_by"`
+	BatchID        string             `json:"batch_id"`
+	CapturedAt     string             `json:"captured_at"`
+	Source         verificationSource `json:"source"`
 }
 
 // legacyHandledVaccination reports whether this item is ALSO covered by the legacy
@@ -630,17 +632,18 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":         "verification_approved",
-			"screen":       profile.approvedScreen,
-			"target":       profile.approvedTarget,
-			"message_key":  profile.messageKeyPrefix + ".proof.approved",
-			"item_id":      itemID,
-			"park_id":      parkID,
-			"shed_id":      p.ShedID,
-			"category":     p.Category,
-			"group_key":    "verification:" + parkID + ":" + p.Category,
-			"collapse_key": "verification:" + parkID + ":" + p.Category,
-			"priority":     priorityNormal,
+			"type":            "verification_approved",
+			"screen":          profile.approvedScreen,
+			"target":          profile.approvedTarget,
+			"message_key":     profile.messageKeyPrefix + ".proof.approved",
+			"item_id":         itemID,
+			"park_id":         parkID,
+			"shed_id":         p.ShedID,
+			"partition_label": p.PartitionLabel,
+			"category":        p.Category,
+			"group_key":       "verification:" + parkID + ":" + p.Category,
+			"collapse_key":    "verification:" + parkID + ":" + p.Category,
+			"priority":        priorityNormal,
 		},
 		Recipients: recipients,
 	})
@@ -988,15 +991,16 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	verifierBody := animalSummary + profile.verifierBodySuffix
 	leadershipBody := animalSummary + profile.leadershipBodySuffix
 	baseContext := map[string]string{
-		"type":         NotificationTypeVerificationPending,
-		"item_id":      itemID,
-		"park_id":      parkID,
-		"shed_id":      p.ShedID,
-		"category":     p.Category,
-		"subject":      animalSummary,
-		"group_key":    "verification:" + parkID + ":" + p.Category,
-		"collapse_key": "verification:" + parkID + ":" + p.Category,
-		"priority":     priorityNormal,
+		"type":            NotificationTypeVerificationPending,
+		"item_id":         itemID,
+		"park_id":         parkID,
+		"shed_id":         p.ShedID,
+		"partition_label": p.PartitionLabel,
+		"category":        p.Category,
+		"subject":         animalSummary,
+		"group_key":       "verification:" + parkID + ":" + p.Category,
+		"collapse_key":    "verification:" + parkID + ":" + p.Category,
+		"priority":        priorityNormal,
 	}
 	if len(verifierRecipients) > 0 {
 		verifierContext := cloneContext(baseContext)
@@ -1178,12 +1182,16 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	// C-defect-C: reworkTarget used to be the module's generic landing ("/vaccination"), so the
 	// tap opened the module overview instead of the shed the rejected capture belongs to. The
 	// Android resolver (apps/goatos-android .../push/PushTargetResolver.kt workTargetRoute)
-	// already knows how to turn a "record/{shedId}" path segment into Routes.recordRoute(shedId)
-	// -- the exact shed-scoped record screen -- so emit that shape whenever the payload names a
-	// shed, and only fall back to the module landing when it does not.
+	// already knows how to turn a "record/{shedId}" path segment and optional partition_label query
+	// into Routes.recordRoute(shedId, partitionLabel) -- the exact operational-location record
+	// screen -- so emit that shape whenever the payload names a shed, and only fall back to the
+	// module landing when it does not.
 	target := profile.reworkTarget
 	if shedID := strings.TrimSpace(p.ShedID); shedID != "" {
 		target = profile.reworkTarget + "/record/" + shedID
+		if partitionLabel := strings.TrimSpace(p.PartitionLabel); partitionLabel != "" {
+			target += "?partition_label=" + url.QueryEscape(partitionLabel)
+		}
 	}
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -1198,18 +1206,19 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":         NotificationTypeRework,
-			"screen":       profile.reworkScreen,
-			"target":       target,
-			"message_key":  profile.messageKeyPrefix + ".proof.rework",
-			"reason":       p.Reason,
-			"item_id":      itemID,
-			"park_id":      parkID,
-			"shed_id":      p.ShedID,
-			"category":     p.Category,
-			"group_key":    "verification:" + parkID + ":" + p.Category,
-			"collapse_key": "verification:" + parkID + ":" + p.Category,
-			"priority":     priorityHigh,
+			"type":            NotificationTypeRework,
+			"screen":          profile.reworkScreen,
+			"target":          target,
+			"message_key":     profile.messageKeyPrefix + ".proof.rework",
+			"reason":          p.Reason,
+			"item_id":         itemID,
+			"park_id":         parkID,
+			"shed_id":         p.ShedID,
+			"partition_label": p.PartitionLabel,
+			"category":        p.Category,
+			"group_key":       "verification:" + parkID + ":" + p.Category,
+			"collapse_key":    "verification:" + parkID + ":" + p.Category,
+			"priority":        priorityHigh,
 		},
 		Recipients: recipients,
 	})
