@@ -90,7 +90,7 @@ function parseIfConditionFromWindow(lines, index) {
     .slice(start, index + 1)
     .map((line) => codeLine(line, state))
     .join(" ");
-  const candidates = [...window.matchAll(/\\bif\\s*\\(/g)];
+  const candidates = [...window.matchAll(/\bif\s*\(/g)];
   for (let i = candidates.length - 1; i >= 0; i -= 1) {
     const openAt = candidates[i].index + candidates[i][0].length;
     let depth = 0;
@@ -115,7 +115,7 @@ function isPositiveNotificationSdkCondition(lines, index, line) {
   const hasIf = /\bif\s*\(/.test(line);
   let condition;
   if (hasIf && hasOpenParen && hasCloseParen) {
-    const match = line.match(/\\bif\\s*\\(([^)]*)\\)\\s*\\{?/);
+    const match = line.match(/\bif\s*\(([^)]*)\)\s*\{?/);
     condition = match ? match[1] : "";
   }
   if (!condition) condition = parseIfConditionFromWindow(lines, index);
