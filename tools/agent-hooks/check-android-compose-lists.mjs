@@ -591,11 +591,13 @@ function selfTest() {
     ["items(rows, key = { it.parentLocationId.toString() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.shedId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.shedId.orEmpty() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedId.trim() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionLocationItem(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentShedId }) { Text(it.operationalLocationDisplay) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { item -> item.parentLocationId }) { item -> itemContent(item) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { row -> row.shedId }) { row -> OperationalLocationRow(row) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { row -> row.shedId }) { row -> CustomPartitionLocationRow(row) }", "lazy-list-parent-location-key"],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));
