@@ -15,6 +15,10 @@
 -- truly unpartitioned sheds. The old indexes keyed only location_id, so choosing
 -- Castro - 1 occupied all of Castro and same-campaign edits could not carry two
 -- partitions of one physical shed.
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
 
 WITH alias_matches AS (
   SELECT
@@ -111,6 +115,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_open_date_partit
 
 DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
 DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
 DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
 
 -- +goose Down
