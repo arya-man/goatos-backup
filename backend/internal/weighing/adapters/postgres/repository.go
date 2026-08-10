@@ -3174,7 +3174,8 @@ parent_options AS (
     parent.location_id::text AS canonical_location_id,
     parent.name AS parent_shed_name,
     sp.partition_label,
-    true AS partitioned
+    true AS partitioned,
+    0 AS option_priority
   FROM requested r
   JOIN locations parent
     ON parent.tenant_id=$1::uuid
@@ -3190,11 +3191,14 @@ alias_options AS (
     parent.location_id::text AS canonical_location_id,
     parent.name AS parent_shed_name,
     sp.partition_label,
-    true AS partitioned
+    true AS partitioned,
+    1 AS option_priority
   FROM requested r
   JOIN locations alias
     ON alias.tenant_id=$1::uuid
    AND alias.location_id=r.requested_location_id
+   AND alias.location_type='shed'
+   AND alias.status <> 'active'
   JOIN locations parent
     ON parent.tenant_id=alias.tenant_id
    AND parent.parent_location_id=alias.parent_location_id
@@ -3205,6 +3209,10 @@ alias_options AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
+  WHERE (
+    lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+    OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
+  )
 ),
 unpartitioned AS (
   SELECT
@@ -3212,7 +3220,8 @@ unpartitioned AS (
     shed.location_id::text AS canonical_location_id,
     shed.name AS parent_shed_name,
     NULL::text AS partition_label,
-    false AS partitioned
+    false AS partitioned,
+    2 AS option_priority
   FROM requested r
   JOIN locations shed
     ON shed.tenant_id=$1::uuid
@@ -3227,13 +3236,17 @@ unpartitioned AS (
   )
 )
 SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
-FROM parent_options
-UNION ALL
-SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
-FROM alias_options
-UNION ALL
-SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
-FROM unpartitioned`, tenantID, locationIDs)
+FROM (
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  FROM parent_options
+  UNION ALL
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  FROM alias_options
+  UNION ALL
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  FROM unpartitioned
+) options
+ORDER BY requested_location_id, option_priority, parent_shed_name, partition_label`, tenantID, locationIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -3278,15 +3291,21 @@ FROM unpartitioned`, tenantID, locationIDs)
 		}
 		var matched *partitionOption
 		for j := range options {
-			option := options[j]
-			if requestedLabel != "" && strings.EqualFold(requestedLabel, option.label) {
-				matched = &options[j]
-				break
+			candidate := &options[j]
+			candidateMatches := false
+			if requestedLabel != "" && strings.EqualFold(requestedLabel, candidate.label) {
+				candidateMatches = true
 			}
-			if requestedLabel == "" && matchesOperationalLocationDisplay(displayName, option.canonicalLocationID, option.shedName, option.label) {
-				matched = &options[j]
-				break
+			if requestedLabel == "" && matchesOperationalLocationDisplay(displayName, candidate.canonicalLocationID, candidate.shedName, candidate.label) {
+				candidateMatches = true
 			}
+			if !candidateMatches {
+				continue
+			}
+			if matched != nil && (matched.canonicalLocationID != candidate.canonicalLocationID || !strings.EqualFold(matched.label, candidate.label)) {
+				return nil, ports.ErrInvalidArgument
+			}
+			matched = candidate
 		}
 		if matched == nil {
 			return nil, ports.ErrInvalidArgument
