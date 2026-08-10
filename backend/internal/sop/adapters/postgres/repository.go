@@ -1091,6 +1091,9 @@ func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, task
 	if maxProofs <= 0 {
 		maxProofs = 5
 	}
+	if err := r.validateShedPartition(ctx, nil, tenantID, shedID, partitionLabel); err != nil {
+		return ports.ShedCompletionReadiness{}, err
+	}
 	var expected, handled, proofReady int64
 	err := r.pool.QueryRow(ctx, `
 WITH batch AS (
@@ -1342,16 +1345,23 @@ func (r *Repository) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand
 		task, _, _, err := r.GetTask(ctx, cmd.TenantID, existing.TaskID)
 		return existing, task, true, err
 	}
-	var currentState string
+	var currentState, taskScopeType, taskScopeID string
 	if err := tx.QueryRow(ctx, `
-SELECT state
+SELECT state, scope_type, scope_id::text
 FROM sop_tasks
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid`,
 		cmd.TenantID,
 		cmd.TaskID,
-	).Scan(&currentState); err != nil {
+	).Scan(&currentState, &taskScopeType, &taskScopeID); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapUpdateErr(err)
+	}
+	submitShedID := shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
+	if submitShedID == "" && taskScopeType == "shed" {
+		submitShedID = taskScopeID
+	}
+	if err := r.validateShedPartition(ctx, tx, cmd.TenantID, submitShedID, cmd.Body.PartitionLabel); err != nil {
+		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	if currentState == "accepted" {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrConflict
@@ -2123,7 +2133,48 @@ WHERE gsp.tenant_id = $1::uuid
 			filtered = append(filtered, item)
 		}
 	}
+	if len(filtered) != len(keys) {
+		return nil, ports.ErrInvalidFilter
+	}
 	return filtered, nil
+}
+
+func (r *Repository) validateShedPartition(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
+	shedID = strings.TrimSpace(shedID)
+	if shedID == "" {
+		return nil
+	}
+	const q = `
+SELECT
+  count(*) FILTER (WHERE status = 'active') AS active_partitions,
+  count(*) FILTER (
+    WHERE status = 'active'
+      AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+        = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ) AS matching_partitions
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid`
+	var active, matching int
+	var err error
+	if tx != nil {
+		err = tx.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+	} else {
+		err = r.pool.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+	}
+	if err != nil {
+		return err
+	}
+	if active == 0 {
+		if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+			return ports.ErrInvalidFilter
+		}
+		return nil
+	}
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) || matching == 0 {
+		return ports.ErrInvalidFilter
+	}
+	return nil
 }
 
 func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {

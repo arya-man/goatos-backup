@@ -38,7 +38,7 @@ VALUES ($1::uuid, 'Weighing Forward Safety', 'active')
 ON CONFLICT (tenant_id) DO NOTHING`, tenant)
 	exec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
-exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Castro', 'active'),
        ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'active'),
        ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Castro 1', 'review')`, tenant, castro, castroOne, park, castroReview)
@@ -50,7 +50,7 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
   (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, planned_cap_per_day, operator_user_id, created_by, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-08-01', '2026-08-07', '2026-08-03', 100, $4::uuid, $5::uuid, 'published')`,
 		campaign, tenant, park, operator, creator)
-exec(`INSERT INTO weighing_campaign_sheds
+	exec(`INSERT INTO weighing_campaign_sheds
   (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, weighing_category, operator_user_id, park_id, start_business_date, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', NULL, 'individual_animal', $5::uuid, $6::uuid, '2026-08-03', 'pending')`,
 		campaignShed, campaign, tenant, castroOne, operator, park)

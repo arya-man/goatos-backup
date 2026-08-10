@@ -229,6 +229,7 @@ type AcceptIntake struct {
 	GoatIDs                   []string
 	ParkLocationID            string
 	ShedLocationID            string
+	PartitionLabel            string
 	AcceptedAt                time.Time
 	AcceptedAtSet             bool // true when the client supplied accepted_at (participates in the fingerprint)
 	EntryDate                 time.Time

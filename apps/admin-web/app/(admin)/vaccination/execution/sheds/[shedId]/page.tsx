@@ -1,4 +1,4 @@
-import { ShedExecutionDetailPage } from "@/features/vaccination-execution/shed-drilldown";
+import { ShedExecutionDetailPage } from "@/features/vaccination-execution";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope } from "@/lib/scope";

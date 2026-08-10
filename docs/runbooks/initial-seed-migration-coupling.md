@@ -111,6 +111,14 @@ not-due, and unknown physical reads. Seed verification for these tables is only
 that the migration applied and Submit can validate/finalize runtime captures
 when they exist.
 
+`sop_submissions.partition_label` is runtime submit identity, not source seed
+truth. Clean-slate seed starts with no SOP submissions, so migration
+`000147_sop_submissions_partition_label.sql` has no seed row to backfill. For an
+already-seeded database, apply the migration before API/app startup; new
+partition-scoped submits must write the physical partition label, while older
+whole-shed submissions remain `NULL` and continue to read as whole-shed
+history.
+
 The standard setup shape is:
 
 ```text

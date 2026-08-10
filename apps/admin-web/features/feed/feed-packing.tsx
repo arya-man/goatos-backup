@@ -272,7 +272,7 @@ export async function FeedPackingPage({
                   const visibleItems = visibleOperationalFeedItems(row.items);
                   const nothingToFeed = isNothingToFeed(row.items);
                   const span = itemLineCount(visibleItems);
-                  const rowKey = `${row.shed_id}|${row.session_no}`;
+                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
@@ -285,7 +285,7 @@ export async function FeedPackingPage({
                               park is named by the Park filter above. */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
                               <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                               {/* No experiment arm here. A packer's unit of work is the bag: the
                                   Experiment tag already says this shed's quantity is hand-authored

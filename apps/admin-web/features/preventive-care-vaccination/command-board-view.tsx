@@ -733,25 +733,25 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             counts and no future dates by design — a count invites reconciling it against the dose
             matrix, and the two use different grains. */}
         {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
-          // Keyed by shedId, NEVER by shedName. The live tenant runs 175 sheds under 99 distinct
-          // names ("Godel 1" exists in two parks), so grouping by name merges two parks' sheds into
-          // one row and reports one park's red cell against the other park's shed.
+          // Keyed by the operational location, not just parent shed. Partitioned sheds emit one
+          // backend row per physical pen, so shedId alone would overwrite sibling partitions.
           const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
           const shedOrder: string[] = [];
           const shedLabel = new Map<string, { name: string; park?: string }>();
           const nameCount = new Map<string, Set<string>>();
           view.shedVaccineMatrix.forEach((cell) => {
-            let row = cellsByShed.get(cell.shedId);
+            const opKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+            let row = cellsByShed.get(opKey);
             if (!row) {
               row = new Map();
-              cellsByShed.set(cell.shedId, row);
-              shedOrder.push(cell.shedId);
-              shedLabel.set(cell.shedId, { name: cell.shedName, park: cell.parkName });
+              cellsByShed.set(opKey, row);
+              shedOrder.push(opKey);
+              shedLabel.set(opKey, { name: cell.operational_location_display || cell.shedName, park: cell.parkName });
             }
             row.set(cell.vaccineCode, cell);
-            const ids = nameCount.get(cell.shedName) ?? new Set<string>();
-            ids.add(cell.shedId);
-            nameCount.set(cell.shedName, ids);
+            const ids = nameCount.get(cell.operational_location_display || cell.shedName) ?? new Set<string>();
+            ids.add(opKey);
+            nameCount.set(cell.operational_location_display || cell.shedName, ids);
           });
           // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
           // summary read "every shed is up to date on every vaccine" while three sheds sat amber

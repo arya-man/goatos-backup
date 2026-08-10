@@ -252,8 +252,8 @@ export async function WeighingWeightsPage({
     .slice()
     .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
     .map((row) => ({
-      key: row.location_id,
-      label: row.shed_display_name,
+      key: `${row.location_id}|${row.partition_label ?? ""}`,
+      label: row.operational_location_display || row.shed_display_name,
       value: Number(row.average_weight_kg.toFixed(1)),
     }));
 
@@ -302,7 +302,7 @@ export async function WeighingWeightsPage({
     ...visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
-        key: `${row.location_id}-shed`,
+        key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
         // Park-qualified, and carrying the span it was measured over. Two parks both
         // hold a "Castro 2", so an unqualified shed name puts two different sheds on
         // the chart under one name. The span is on the label because a figure drawn
@@ -310,7 +310,7 @@ export async function WeighingWeightsPage({
         // reads +1,532 g/day over a 2-day gap, which is 1.5 kg per kid per day and
         // impossible. It is shown rather than filtered: the number is real, its span
         // is the reason not to trust it.
-        label: `${row.park_name} ${row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
+        label: `${row.park_name} ${row.operational_location_display || row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
         value: Math.round(row.shed_average_gain_g_per_day as number),
       })),
   ].sort((a, b) => b.value - a.value);
@@ -609,10 +609,10 @@ export async function WeighingWeightsPage({
                   {slice.map((row) => {
                     const mode = modeTag(row, pageContract);
                     return (
-                      <tr key={row.location_id}>
+                      <tr key={`${row.location_id}|${row.partition_label ?? ""}`}>
                         <td>{row.park_name}</td>
                         <td>
-                          <b>{row.shed_display_name}</b>
+                          <b>{row.operational_location_display || row.shed_display_name}</b>
                         </td>
                         <td>
                           <Tag tone={mode.tone}>{mode.label}</Tag>

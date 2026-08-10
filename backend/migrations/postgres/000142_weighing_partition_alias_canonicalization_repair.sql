@@ -16,7 +16,7 @@ WITH alias_matches AS (
     ON alias.tenant_id=wcs.tenant_id
    AND alias.location_id=wcs.location_id
    AND alias.location_type='shed'
-   AND alias.status <> 'active'
+   AND alias.status='inactive'
   JOIN public.locations parent
     ON parent.tenant_id=alias.tenant_id
    AND parent.parent_location_id=alias.parent_location_id
@@ -51,7 +51,7 @@ BEGIN
     ON loc.tenant_id=wcs.tenant_id
    AND loc.location_id=wcs.location_id
    AND loc.location_type='shed'
-   AND loc.status <> 'active'
+   AND loc.status='inactive'
   WHERE wcs.status NOT IN ('canceled', 'closed', 'completed');
 
   IF blocked_count > 0 THEN

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -46,6 +47,7 @@ const growthPairsCTE = `
 base AS (
   SELECT wo.observation_id, wo.weight_kg::float8 AS weight_kg, wo.accepted_at,
          wo.verification_status, wcs.location_id, wcs.display_name AS shed_name,
+         COALESCE(wcs.partition_label, '') AS partition_label,
          lower(btrim(wo.scanned_identifier)) AS animal_key
   FROM weighing_observations wo
   JOIN weighing_campaign_sheds wcs
@@ -68,7 +70,7 @@ ordered AS (
   WINDOW w AS (PARTITION BY animal_key ORDER BY accepted_at, observation_id)
 ),
 pairs AS (
-  SELECT animal_key, location_id, shed_name, observation_id, prev_observation_id,
+  SELECT animal_key, location_id, shed_name, partition_label, observation_id, prev_observation_id,
          verification_status, prev_verification_status, accepted_at, prev_accepted_at,
          -- Carried so a caller can state the actual change ("19.0 -> 18.2 kg"), not just a rate.
          weight_kg, prev_weight,
@@ -326,7 +328,9 @@ inperiod AS (
   SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
 ),
 period_weights AS (
-  SELECT wcs.location_id, wcs.display_name AS shed_name, wo.weight_kg::float8 AS weight_kg,
+  SELECT wcs.location_id, wcs.display_name AS shed_name,
+         COALESCE(wcs.partition_label, '') AS partition_label,
+         wo.weight_kg::float8 AS weight_kg,
          lower(btrim(wo.scanned_identifier)) AS animal_key
   FROM weighing_observations wo
   JOIN weighing_campaign_sheds wcs
@@ -340,24 +344,24 @@ period_weights AS (
     AND wo.accepted_at < $4::timestamptz
 ),
 shed_weight AS (
-  SELECT location_id, MAX(shed_name) AS shed_name,
+  SELECT location_id, partition_label, MAX(shed_name) AS shed_name,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY weight_kg) AS median_weight_kg,
          COUNT(DISTINCT animal_key) AS n
   FROM period_weights
-  GROUP BY location_id
+  GROUP BY location_id, partition_label
 ),
 shed_adg AS (
-  SELECT location_id,
+  SELECT location_id, partition_label,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS median_adg,
          COUNT(*) AS pair_count
   FROM inperiod
-  GROUP BY location_id
+  GROUP BY location_id, partition_label
 )
-SELECT sw.location_id, sw.shed_name, sw.n, sw.median_weight_kg,
+SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.n, sw.median_weight_kg,
        COALESCE(sa.median_adg, 0), COALESCE(sa.pair_count, 0)
 FROM shed_weight sw
-LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id
-ORDER BY sw.shed_name`
+LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
+ORDER BY sw.shed_name, sw.partition_label`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart)
 	if err != nil {
 		return nil, err
@@ -366,10 +370,15 @@ ORDER BY sw.shed_name`
 	out := []domain.GrowthShedLeaderboardRow{}
 	for rows.Next() {
 		var row domain.GrowthShedLeaderboardRow
-		if err := rows.Scan(&row.LocationID, &row.DisplayName, &row.AnimalCount, &row.MedianWeightKg,
+		if err := rows.Scan(&row.LocationID, &row.DisplayName, &row.PartitionLabel, &row.AnimalCount, &row.MedianWeightKg,
 			&row.MedianADGGPerDay, &row.ADGPairCount); err != nil {
 			return nil, err
 		}
+		row.OperationalLocationDisplay = (oploc.OperationalLocation{
+			ShedID:         row.LocationID,
+			ShedName:       row.DisplayName,
+			PartitionLabel: row.PartitionLabel,
+		}).Display()
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -483,7 +492,7 @@ func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, pa
 	// be derived from the delta between two shed-level averages.
 	// projection-review: membership=weighing_shed_observations; group_key=location_id_week; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	rows, err := r.pool.Query(ctx, `
-SELECT wcs.location_id, wcs.display_name,
+SELECT wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''),
        (date_trunc('week', wso.accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start,
        AVG(wso.average_weight_kg::float8) AS avg_weight_kg,
        SUM(wso.animal_count) AS head_count
@@ -498,8 +507,8 @@ WHERE wso.tenant_id = $1::uuid
   AND wso.withdrawn_at IS NULL
   AND wso.accepted_at >= $3::timestamptz
   AND wso.accepted_at < $4::timestamptz
-GROUP BY wcs.location_id, wcs.display_name, week_start
-ORDER BY wcs.display_name, week_start`, tenantID, parkIDs, periodStart, periodEnd)
+GROUP BY wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''), week_start
+ORDER BY wcs.display_name, COALESCE(wcs.partition_label, ''), week_start`, tenantID, parkIDs, periodStart, periodEnd)
 	if err != nil {
 		return domain.GrowthLumpSum{}, err
 	}
@@ -508,9 +517,14 @@ ORDER BY wcs.display_name, week_start`, tenantID, parkIDs, periodStart, periodEn
 	for rows.Next() {
 		var p domain.GrowthLumpSumShedTrendPoint
 		var weekStart time.Time
-		if err := rows.Scan(&p.LocationID, &p.DisplayName, &weekStart, &p.AverageWeightKg, &p.HeadCount); err != nil {
+		if err := rows.Scan(&p.LocationID, &p.DisplayName, &p.PartitionLabel, &weekStart, &p.AverageWeightKg, &p.HeadCount); err != nil {
 			return domain.GrowthLumpSum{}, err
 		}
+		p.OperationalLocationDisplay = (oploc.OperationalLocation{
+			ShedID:         p.LocationID,
+			ShedName:       p.DisplayName,
+			PartitionLabel: p.PartitionLabel,
+		}).Display()
 		p.WeekStart = weekStart.Format("2006-01-02")
 		out.ShedWeekTrend = append(out.ShedWeekTrend, p)
 	}

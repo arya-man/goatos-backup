@@ -1135,6 +1135,8 @@ type FeedDirectionIssueRow struct {
 	AmendedAt               pgtype.Timestamptz
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
+	PartitionLabel          pgtype.Text
+	PartitionKey            pgtype.Text
 }
 
 type FeedDirectionSessionCompletion struct {
@@ -1174,6 +1176,8 @@ type FeedDistributionCompletion struct {
 	RowVersion           int32
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
+	PartitionLabel       pgtype.Text
+	PartitionKey         pgtype.Text
 }
 
 type FeedExperimentConfig struct {
@@ -1227,6 +1231,8 @@ type FeedPackingCompletion struct {
 	RowVersion      int32
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	PartitionLabel  pgtype.Text
+	PartitionKey    pgtype.Text
 }
 
 type FeedRationGroup struct {
@@ -1360,6 +1366,7 @@ type FeedTransportTask struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	RowVersion       int32
+	PartitionLabel   string
 }
 
 type Goat struct {
@@ -1465,16 +1472,18 @@ type GoatIdentityEvent struct {
 }
 
 type GoatLocationHistory struct {
-	LocationHistoryID pgtype.UUID
-	TenantID          pgtype.UUID
-	GoatID            pgtype.UUID
-	FromLocationID    pgtype.UUID
-	ToLocationID      pgtype.UUID
-	Reason            pgtype.Text
-	OccurredAt        pgtype.Timestamptz
-	RecordedAt        pgtype.Timestamptz
-	ActorID           pgtype.UUID
-	SourceRecordID    pgtype.Text
+	LocationHistoryID  pgtype.UUID
+	TenantID           pgtype.UUID
+	GoatID             pgtype.UUID
+	FromLocationID     pgtype.UUID
+	ToLocationID       pgtype.UUID
+	Reason             pgtype.Text
+	OccurredAt         pgtype.Timestamptz
+	RecordedAt         pgtype.Timestamptz
+	ActorID            pgtype.UUID
+	SourceRecordID     pgtype.Text
+	FromPartitionLabel pgtype.Text
+	ToPartitionLabel   pgtype.Text
 }
 
 type GoatMergeLink struct {
@@ -2728,6 +2737,7 @@ type SopSubmission struct {
 	SubmittedAt      pgtype.Timestamptz
 	AcceptedAt       pgtype.Timestamptz
 	RowVersion       int32
+	PartitionLabel   pgtype.Text
 }
 
 type SopSubmissionItem struct {
@@ -3232,6 +3242,7 @@ type VerificationItem struct {
 	AppliedByModule    pgtype.Text
 	SubjectNote        pgtype.Text
 	PartitionLabel     pgtype.Text
+	ContextRows        []byte
 }
 
 type VerificationReviewEvent struct {
@@ -3359,6 +3370,17 @@ type WeighingRepairBatchProgress struct {
 	StartedAt    pgtype.Timestamptz
 	LastBatchAt  pgtype.Timestamptz
 	CompletedAt  pgtype.Timestamptz
+}
+
+type WeighingShedLoadTag struct {
+	TenantID   pgtype.UUID
+	LocationID pgtype.UUID
+	LoadRef    string
+	OwnerName  string
+	PlacedOn   pgtype.Date
+	Notes      string
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
 }
 
 type WeighingShedObservation struct {

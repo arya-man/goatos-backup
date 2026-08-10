@@ -1012,6 +1012,7 @@ val MIGRATION_35_36: Migration = object : Migration(35, 36) {
 }
 
 private fun weighingPartitionKeyFromShedJson(shedJson: String): String =
+    // exception:exempt best-effort migration of an existing cache row; malformed cached JSON safely falls back to whole-shed identity and is refreshed from the planner catalog.
     runCatching { JSONObject(shedJson).optString("partition_label", "").trim().lowercase() }
         .getOrDefault("")
 

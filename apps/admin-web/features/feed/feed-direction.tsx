@@ -308,7 +308,7 @@ export async function FeedDirectionPage({
                   // render as a stated "nothing to feed", never as an empty hole in the table.
                   const nothingToFeed = isNothingToFeed(row.items);
                   const span = itemLineCount(visibleItems);
-                  const rowKey = `${row.shed_id}|${row.ration_group}|${row.breed}|${row.session_no}`;
+                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.ration_group}|${row.breed}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
@@ -321,7 +321,7 @@ export async function FeedDirectionPage({
                               adminui/app/service.go pages(). */}
                           <td rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>{row.shed_label}</span>
+                              <span style={{ fontWeight: 650 }}>{row.operational_location_display || row.shed_label}</span>
                               <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap" }}>
                                 <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                                 {row.overdue_pending ? <FeedOverdueShiftingChip pageContract={pageContract} /> : null}

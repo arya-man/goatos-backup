@@ -5,7 +5,7 @@ import "server-only";
 // carry their parent park id so the Register drawer can scope the shed select to the chosen park. On any
 // error each list is empty and the drawer renders an honest "locations unavailable" blocker rather than a
 // faked dropdown.
-import { listFeedConfigPens, listLocations, type LocationSummary } from "@/lib/api/server";
+import { listFeedConfigPens, listLocations, type ApiResult, type FeedConfigPenPage, type LocationSummary } from "@/lib/api/server";
 
 export type LocationOption = {
   id: string;
@@ -38,6 +38,27 @@ function shedUsable(l: LocationSummary): boolean {
   return l.operational.usable_for_vaccination && !l.operational.is_holding;
 }
 
+export async function listAllFeedConfigPens(params: { park_id?: string } = {}): Promise<ApiResult<FeedConfigPenPage>> {
+  const limit = 200;
+  const pages = await Promise.all(
+    Array.from({ length: 20 }, (_, page) => listFeedConfigPens({ ...params, limit, offset: page * limit })),
+  );
+  const firstError = pages.find((page) => !page.ok);
+  if (firstError && !firstError.ok) return firstError;
+
+  const okPages = pages.filter((page): page is { ok: true; data: FeedConfigPenPage } => page.ok);
+  const visiblePages = okPages.slice(0, okPages.findIndex((page) => !page.data.has_more) + 1 || okPages.length);
+  const [firstPage] = visiblePages;
+  return {
+    ok: true,
+    data: {
+      ...(firstPage?.data ?? { items: [], limit, offset: 0, has_more: false }),
+      items: visiblePages.flatMap((page) => page.data.items),
+      has_more: okPages.at(-1)?.data.has_more ?? false,
+    },
+  };
+}
+
 /**
  * Census location options — every ACTIVE farm and shed, with no vaccination-usability filter.
  *
@@ -67,7 +88,7 @@ export async function getHerdRegisterLocations(): Promise<HerdRegisterLocations>
     listLocations({ type: "park", status: "active" }),
     listLocations({ type: "shed", status: "active" }),
     listLocations({ type: "farm", status: "active" }),
-    listFeedConfigPens({ limit: 500 }),
+    listAllFeedConfigPens(),
   ]);
 
   const usableSheds = sheds.ok ? sheds.data.items.filter(shedUsable).map(toOption) : [];

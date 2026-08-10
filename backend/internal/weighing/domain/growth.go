@@ -89,11 +89,13 @@ type GrowthTrendPoint struct {
 
 // GrowthShedLeaderboardRow is one shed's ADG/weight summary for the period.
 type GrowthShedLeaderboardRow struct {
-	LocationID       string  `json:"location_id"`
-	DisplayName      string  `json:"display_name"`
-	AnimalCount      int     `json:"n"`
-	MedianWeightKg   float64 `json:"median_weight_kg"`
-	MedianADGGPerDay float64 `json:"median_adg_g_per_day"`
+	LocationID                 string  `json:"location_id"`
+	DisplayName                string  `json:"display_name"`
+	PartitionLabel             string  `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	AnimalCount                int     `json:"n"`
+	MedianWeightKg             float64 `json:"median_weight_kg"`
+	MedianADGGPerDay           float64 `json:"median_adg_g_per_day"`
 	// ADGPairCount is how many qualifying ADG pairs this shed's median is based on. Can be
 	// less than AnimalCount -- a shed can have animals weighed once (no pair yet).
 	ADGPairCount int `json:"adg_pair_count"`
@@ -134,11 +136,13 @@ type GrowthSaleReadiness struct {
 // answers a different, valid question: "is this shed's average getting
 // heavier" -- not "are these specific animals growing".
 type GrowthLumpSumShedTrendPoint struct {
-	LocationID      string  `json:"location_id"`
-	DisplayName     string  `json:"display_name"`
-	WeekStart       string  `json:"week_start"`
-	AverageWeightKg float64 `json:"average_weight_kg"`
-	HeadCount       int     `json:"head_count"`
+	LocationID                 string  `json:"location_id"`
+	DisplayName                string  `json:"display_name"`
+	PartitionLabel             string  `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	WeekStart                  string  `json:"week_start"`
+	AverageWeightKg            float64 `json:"average_weight_kg"`
+	HeadCount                  int     `json:"head_count"`
 }
 
 // GrowthLumpSum is the lump-sum (per-shed-partition) aggregate, reported

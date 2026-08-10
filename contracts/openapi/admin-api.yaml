@@ -7497,6 +7497,11 @@ components:
         shed_location_id:
           type: string
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          description: Physical partition within shed_location_id. Required when that shed has active partitions.
         accepted_at:
           type:
             - string

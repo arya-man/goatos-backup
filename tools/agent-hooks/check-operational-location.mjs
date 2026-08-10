@@ -831,7 +831,7 @@ const REQUIRED_PATTERNS = [
   {
     id: "herd-register-partition-catalog-picker",
     file: "apps/admin-web/lib/api/herd-locations.ts",
-    all: [/listFeedConfigPens\(\{ limit: 500 \}\)/, /partition_label/, /operational_location_display/],
+    all: [/listAllFeedConfigPens\(/, /partition_label/, /operational_location_display/],
     msg: "herd register location helper must include partition catalog rows so empty partitions are valid registration/shifting destinations",
   },
   {

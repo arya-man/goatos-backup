@@ -8980,6 +8980,7 @@ components:
         - park_label
         - shed_id
         - shed_label
+        - operational_location_display
         - shed_tag
         - breed
         - ration_group
@@ -9015,6 +9016,9 @@ components:
             Clients MUST render shed + partition together ("Castro 1", "Godel 2 - Part 3") and must
             never display the bare shed name for a partitioned row, or two different pens appear as
             two identical lines.
+        operational_location_display:
+          type: string
+          description: Backend-composed physical feed location label. Render verbatim.
         shed_tag:
           type: string
           description: >-
@@ -9356,6 +9360,7 @@ components:
         - park_label
         - shed_id
         - shed_label
+        - operational_location_display
         - session_no
         - session_label
         - workflow
@@ -9385,6 +9390,9 @@ components:
             MUST render shed + partition together: two "Castro" lines with no partition leave the
             packer unable to tell which pen either bag is for, and one shed's partitions can carry
             very different quantities when some run an authored experiment and the rest the grid.
+        operational_location_display:
+          type: string
+          description: Backend-composed physical feed location label. Render verbatim.
         session_no:
           type: integer
         session_label:
@@ -19127,6 +19135,7 @@ components:
       required:
         - location_id
         - display_name
+        - operational_location_display
         - n
         - median_weight_kg
         - median_adg_g_per_day
@@ -19136,6 +19145,10 @@ components:
           type: string
           format: uuid
         display_name:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         n:
           type: integer
@@ -19195,6 +19208,7 @@ components:
       required:
         - location_id
         - display_name
+        - operational_location_display
         - week_start
         - average_weight_kg
         - head_count
@@ -19203,6 +19217,10 @@ components:
           type: string
           format: uuid
         display_name:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         week_start:
           type: string
@@ -19314,12 +19332,13 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        ONE shed's most recent weigh. Grain is the physical shed, not the campaign bucket.
+        ONE operational shed's most recent weigh. Grain is the physical shed partition, not the campaign bucket.
       required:
         - location_id
         - park_id
         - park_name
         - shed_display_name
+        - operational_location_display
         - weighing_category
         - animals_weighed
         - average_weight_kg
@@ -19339,6 +19358,11 @@ components:
           description: >-
             Canonical shed name from the location record, never the free-text name typed
             when the task was planned.
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
+          description: Backend-composed physical weighing location label. Render verbatim.
         weighing_category:
           type: string
           enum: [individual_animal, per_shed_partition]
