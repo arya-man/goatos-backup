@@ -65,17 +65,18 @@ class GoatDatabaseMigrationTest {
     }
 
     @Test
-    fun `migration 35 to 36 makes weighing planner shed cache partition keyed`() {
+    fun `migration 35 to 36 backfills weighing planner partition key from shed json`() {
         helper.createDatabase(DB_NAME, 35).apply {
             execSQL(
                 "INSERT INTO `weighing_planner_shed_row` " +
                     "(`queryKey`, `locationId`, `parkId`, `parkName`, `sortIndex`, `shedJson`, `existingCampaignJson`, `updatedAt`) " +
-                    "VALUES ('2026-08-10|park-1', 'castro-parent', 'park-1', 'CPT', 0, '{}', NULL, 1)",
+                    "VALUES ('2026-08-10|park-1', 'castro-parent', 'park-1', 'CPT', 0, " +
+                    "'{\"location_id\":\"castro-parent\",\"partition_label\":\"Part 3\"}', NULL, 1)",
             )
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(DB_NAME, CURRENT_VERSION, true, MIGRATION_35_36)
+        val db = helper.runMigrationsAndValidate(DB_NAME, 36, true, MIGRATION_35_36)
         db.query("PRAGMA table_info(`weighing_planner_shed_row`)").use { cursor ->
             val primaryKeyColumns = mutableListOf<String>()
             while (cursor.moveToNext()) {
@@ -90,8 +91,42 @@ class GoatDatabaseMigrationTest {
         }
         db.query("SELECT `partitionKey`, `shedJson` FROM `weighing_planner_shed_row` WHERE `queryKey`='2026-08-10|park-1' AND `locationId`='castro-parent'").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
-            assertEquals("", cursor.getString(0))
-            assertEquals("{}", cursor.getString(1))
+            assertEquals("part 3", cursor.getString(0))
+            assertEquals(
+                "{\"location_id\":\"castro-parent\",\"partition_label\":\"Part 3\"}",
+                cursor.getString(1),
+            )
+        }
+        db.close()
+    }
+
+    @Test
+    fun `migration 36 to 37 keeps legacy capture evidence fail closed in whole scope`() {
+        helper.createDatabase(DB_NAME, 36).apply {
+            execSQL(
+                "INSERT INTO `scanned_goat_capture` " +
+                    "(`id`, `taskId`, `fieldKey`, `tag`, `goatId`, `obligationId`, `capturedAtMs`, `syncStatus`) " +
+                    "VALUES ('scan-1', 'task-1', '__scan_roster__', 'TAG-1', 'goat-1', 'obl-1', 1, 'PENDING')",
+            )
+            execSQL(
+                "INSERT INTO `proof_capture` " +
+                    "(`id`, `taskId`, `fieldKey`, `proofSubject`, `subjectId`, `localUri`, `mimeType`, `caption`, " +
+                    "`capturedAtMs`, `capturedStartMs`, `capturedEndMs`, `capturedByPrincipalId`, `syncStatus`, " +
+                    "`idempotencyKey`, `outboxItemId`, `serverProofId`, `lastError`, `captureSource`) " +
+                    "VALUES ('proof-1', 'task-1', 'shed_video', 'shed', 'shed-1', 'file://proof.mp4', " +
+                    "'video/mp4', NULL, 1, 1, 2, 'operator-1', 'PENDING', 'proof-key-1', NULL, NULL, NULL, 'in_app_camera')",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 37, true, MIGRATION_36_37)
+        db.query("SELECT `partitionKey` FROM `scanned_goat_capture` WHERE `id`='scan-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("whole", cursor.getString(0))
+        }
+        db.query("SELECT `partitionKey` FROM `proof_capture` WHERE `id`='proof-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("whole", cursor.getString(0))
         }
         db.close()
     }
@@ -149,6 +184,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_33_34.migrate(db)
         MIGRATION_34_35.migrate(db)
         MIGRATION_35_36.migrate(db)
+        MIGRATION_36_37.migrate(db)
         return db
     }
 
@@ -167,7 +203,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 36
+        const val CURRENT_VERSION = 37
     }
 }
 

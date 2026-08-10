@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
@@ -91,6 +92,93 @@ class CaptureRepositoryTest {
             assertEquals("scan:task-1:goat_scan:tag001:ov0", sync.scanCalls[0].idempotencyKey)
             assertEquals("goat-1", sync.scanCalls[0].request.goatId)
             assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `sibling partitions of one task keep scan and proof evidence separate`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val scans = DefaultScanCaptureRepository(
+                db.scannedGoatDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+            )
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            scans.recordScan(
+                taskId = "task-partitions",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-SHARED",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                partitionLabel = "Part 1",
+            )
+            scans.recordScan(
+                taskId = "task-partitions",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-SHARED",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                partitionLabel = "2",
+            )
+
+            val oneProofPerPartition = ProofPolicy(
+                proofMode = "shed_level_video",
+                subjectScope = "shed",
+                expectedSubjects = listOf("shed"),
+                maximumCount = 1,
+                maximumCountPerSubject = 1,
+            )
+            proofs.capture(
+                taskId = "task-partitions",
+                fieldKey = "shed_video",
+                subject = ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "file://part-1.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = oneProofPerPartition,
+                partitionLabel = "Part 1",
+            )
+            proofs.capture(
+                taskId = "task-partitions",
+                fieldKey = "shed_video",
+                subject = ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "file://part-2.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 3L,
+                capturedEndMs = 4L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = oneProofPerPartition,
+                partitionLabel = "2",
+            )
+
+            assertEquals(listOf("goat-1"), scans.observeAllForTask("task-partitions", "1").first().map { it.goatId })
+            assertEquals(listOf("goat-2"), scans.observeAllForTask("task-partitions", "Part 2").first().map { it.goatId })
+            assertEquals(listOf("file://part-1.mp4"), proofs.observeProofs("task-partitions", "1").first().map { it.localUri })
+            assertEquals(listOf("file://part-2.mp4"), proofs.observeProofs("task-partitions", "Part 2").first().map { it.localUri })
+            assertEquals(listOf("1", "2"), sync.scanCalls.map { it.partitionKey })
+            assertTrue(sync.scanCalls[0].idempotencyKey.contains(":partition:1:"))
+            assertTrue(sync.scanCalls[1].idempotencyKey.contains(":partition:2:"))
         } finally {
             db.close()
         }
@@ -1432,7 +1520,7 @@ private class FakeSyncRepository(
     private val cancelAlwaysMisses: Boolean = false,
 ) : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
-    data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
+    data class ScanCall(val idempotencyKey: String, val partitionKey: String, val request: ScanCaptureRequestDto)
     data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
@@ -1493,9 +1581,10 @@ private class FakeSyncRepository(
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String,
         request: ScanCaptureRequestDto,
     ): AppResult<String> {
-        scanCalls += ScanCall(idempotencyKey, request)
+        scanCalls += ScanCall(idempotencyKey, partitionKey, request)
         return AppResult.Ok("scan-outbox-${scanCalls.size}")
     }
 
@@ -1623,16 +1712,18 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         delegate.markWorkflowDeathDraftsSubmitting(workflowId)
     override fun observeForTask(taskId: String, limit: Int): Flow<List<ProofCaptureEntity>> =
         delegate.observeForTask(taskId, limit)
+    override fun observeForTaskPartition(taskId: String, partitionKey: String, limit: Int): Flow<List<ProofCaptureEntity>> =
+        delegate.observeForTaskPartition(taskId, partitionKey, limit)
     override suspend fun listForTask(taskId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listForTask(taskId, limit)
     override suspend fun listForTaskCleanupPage(taskId: String, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listForTaskCleanupPage(taskId, afterCapturedAtMs, afterId, limit)
     override suspend fun listRecoverableUploadsPage(capturedBeforeMs: Long, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listRecoverableUploadsPage(capturedBeforeMs, afterCapturedAtMs, afterId, limit)
-    override suspend fun activeCountForSubject(taskId: String, subjectId: String): Int =
-        delegate.activeCountForSubject(taskId, subjectId)
-    override suspend fun activeCountForSubjectType(taskId: String, proofSubject: String): Int =
-        delegate.activeCountForSubjectType(taskId, proofSubject)
+    override suspend fun activeCountForSubject(taskId: String, partitionKey: String, subjectId: String): Int =
+        delegate.activeCountForSubject(taskId, partitionKey, subjectId)
+    override suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int =
+        delegate.activeCountForSubjectType(taskId, partitionKey, proofSubject)
     override suspend fun findById(id: String): ProofCaptureEntity? = delegate.findById(id)
     override suspend fun setOutboxItemId(id: String, outboxItemId: String) = delegate.setOutboxItemId(id, outboxItemId)
     override suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?) {

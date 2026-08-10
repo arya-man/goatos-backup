@@ -31,6 +31,8 @@ data class ScannedGoatRow(
      * completion or breaks offline scanning.
      */
     val syncStatus: CaptureSyncStatus = CaptureSyncStatus.PENDING,
+    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    val partitionKey: String = "whole",
 )
 
 enum class RfidScanAttemptOutcome(val wireValue: String) {
@@ -95,6 +97,8 @@ data class ProofCaptureRow(
     val syncStatus: CaptureSyncStatus,
     val serverProofId: String?,
     val lastError: String?,
+    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    val partitionKey: String = "whole",
 ) {
     val durationMs: Long get() = (capturedEndMs - capturedStartMs).coerceAtLeast(0)
 }

@@ -137,7 +137,7 @@ class ScanViewModel @Inject constructor(
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val observedProofs: StateFlow<List<ProofCaptureRow>?> =
-        (taskId?.let { proofCaptureRepository.observeProofs(it) } ?: flowOf(emptyList()))
+        (taskId?.let { proofCaptureRepository.observeProofs(it, partitionLabel) } ?: flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
@@ -165,7 +165,7 @@ class ScanViewModel @Inject constructor(
      */
     private val persistedScans: StateFlow<List<ScannedGoatRow>> =
         (taskId?.let { id ->
-            scanCaptureRepository.observeScannedTags(id, ROSTER_SCAN_FIELD_KEY)
+            scanCaptureRepository.observeScannedTags(id, ROSTER_SCAN_FIELD_KEY, partitionLabel)
         } ?: flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -507,7 +507,7 @@ class ScanViewModel @Inject constructor(
         AnalyticsFunnels.trackScanStarted(analytics, id)
         taskId?.let { selectedTaskId ->
             viewModelScope.launch {
-                scanCaptureRepository.enqueuePendingScans(selectedTaskId, ROSTER_SCAN_FIELD_KEY)
+                scanCaptureRepository.enqueuePendingScans(selectedTaskId, ROSTER_SCAN_FIELD_KEY, partitionLabel)
             }
         }
         refresh()
@@ -714,6 +714,7 @@ class ScanViewModel @Inject constructor(
                 obligationId = row.obligationId,
                 obligationRowVersion = row.obligationRowVersion,
                 capturedAtMs = capturedAtMs,
+                partitionLabel = partitionLabel,
             )
         }
     }
@@ -1185,6 +1186,7 @@ class ScanViewModel @Inject constructor(
                     capturedEndMs = captured.endedAtMs,
                     capturedByPrincipalId = currentPrincipalId,
                     proofPolicy = policy,
+                    partitionLabel = partitionLabel,
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
             } finally {

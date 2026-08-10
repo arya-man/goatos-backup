@@ -280,8 +280,63 @@ class ExecutionRepositoryPaginationTest {
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
 
-            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
             assertEquals(listOf("scan-pending"), scans.map { it.id })
+        }
+    }
+
+    @Test
+    fun `partition roster refresh never prunes a sibling partition capture`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-part-1",
+                    taskId = TASK_ID,
+                    partitionKey = "1",
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-part-2",
+                    taskId = TASK_ID,
+                    partitionKey = "2",
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-2",
+                    goatId = "goat-2",
+                    obligationId = "obl-2",
+                    capturedAtMs = 2L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.response = { cursor ->
+                check(cursor == null)
+                ScanRosterResponseDto(
+                    source = "api",
+                    rows = listOf(
+                        ScanRosterRowDto(
+                            goatId = "goat-1",
+                            primaryTag = "tag-1",
+                            vaccineLabel = "FMD",
+                            status = "due",
+                            obligationId = "obl-1",
+                        ),
+                    ),
+                )
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
+
+            assertTrue(database.scannedGoatDao().listForField(TASK_ID, "1", "__scan_roster__").isEmpty())
+            assertEquals(
+                listOf("scan-part-2"),
+                database.scannedGoatDao().listForField(TASK_ID, "2", "__scan_roster__").map { it.id },
+            )
         }
     }
 
@@ -315,7 +370,7 @@ class ExecutionRepositoryPaginationTest {
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
 
-            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
             assertEquals(listOf("scan-synced"), scans.map { it.id })
         }
     }
@@ -383,7 +438,7 @@ class ExecutionRepositoryPaginationTest {
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
 
-            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
             assertEquals(listOf("scan-synced"), scans.map { it.id })
         }
     }

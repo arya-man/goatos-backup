@@ -259,7 +259,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
     ],
-    version = 36,
+    version = 37,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -329,6 +329,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v36 (see [MIGRATION_35_36]) adds partitionKey to weighing_planner_shed_row and promotes the
     // cache key to (queryKey, locationId, partitionKey), so sibling shed partitions cannot replace
     // each other offline.
+    // v37 (see [MIGRATION_36_37]) scopes scan and proof capture evidence to the operational
+    // partition so one task spanning sibling partitions cannot mix their local submissions.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

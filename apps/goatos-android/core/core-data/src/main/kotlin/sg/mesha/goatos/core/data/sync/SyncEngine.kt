@@ -355,6 +355,7 @@ class SyncEngine(
                 val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
                 scannedGoatDao?.markFieldTagStatus(
                     taskId = payload.taskId,
+                    partitionKey = payload.partitionKey,
                     fieldKey = payload.request.fieldKey,
                     tag = payload.request.tag,
                     status = CaptureSyncStatus.SYNCED.name,

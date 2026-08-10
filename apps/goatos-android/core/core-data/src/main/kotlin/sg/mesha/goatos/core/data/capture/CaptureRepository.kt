@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.data.executionPartitionKey
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
@@ -41,18 +42,22 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStat
 /**
  * Room-first SSOT for a task's `goat_scan` recording-form field
  * (docs/mobile/proof-capture-sync-and-e2e.md §1). Every completed tag is written to Room
- * BEFORE it is reflected in the UI, deduped by (task, field, tag) at the DB layer — the UI
+ * BEFORE it is reflected in the UI, deduped by (task, partition, field, tag) at the DB layer — the UI
  * observes [observeScannedTags]/[observeScannedCount], it never owns the list as transient
  * ViewModel state.
+ *
+ * `partitionLabel` is part of the operational identity for every execution read and write.
+ * Callers opening a partition must pass that route label consistently; `null` means the shed is
+ * unpartitioned and is normalized to `whole`, never "all partitions".
  */
 interface ScanCaptureRepository {
-    fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>>
-    fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int>
+    fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String? = null): Flow<List<ScannedGoatRow>>
+    fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String? = null): Flow<Int>
 
-    /** Every scanned tag across every `goat_scan` field of [taskId] — the single Flow a
+    /** Every scanned tag across every `goat_scan` field of [taskId] in [partitionLabel] — the single Flow a
      *  ViewModel observes (one field or several); group by [ScannedGoatRow.fieldKey] for a
      *  per-field count/list. */
-    fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>>
+    fun observeAllForTask(taskId: String, partitionLabel: String? = null): Flow<List<ScannedGoatRow>>
 
     /** Persists one completed tag read to Room first; a repeat tag for the same field is a
      *  silent no-op (dedup).
@@ -70,28 +75,32 @@ interface ScanCaptureRepository {
         obligationId: String? = null,
         obligationRowVersion: Int = 0,
         capturedAtMs: Long? = null,
+        partitionLabel: String? = null,
     )
 
     /** Persists a free-flow scan locally without creating a vaccination scan outbox item.
-     * Returns false when the same normalized tag already exists for this task/field. */
+     * Returns false when the same normalized tag already exists for this task/partition/field. */
     suspend fun recordLocalScanIfAbsent(
         taskId: String,
         fieldKey: String,
         tag: String,
         capturedAtMs: Long? = null,
+        partitionLabel: String? = null,
     ): Boolean
 
     /** Re-enqueues already-durable Room scan rows as backend draft captures. This is idempotent
      *  and exists for app/process re-entry after a prior build or crash left local evidence without
      *  a matching outbox row. */
-    suspend fun enqueuePendingScans(taskId: String, fieldKey: String)
+    suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String? = null)
 
-    suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String)
+    suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String? = null)
 
-    /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
+    /** All scanned tags across every `goat_scan` field of [taskId] in [partitionLabel] — used to build the
      *  shed-submit answer payload. */
-    suspend fun tagsForTask(taskId: String): List<String>
+    suspend fun tagsForTask(taskId: String, partitionLabel: String? = null): List<String>
 
+    /** Full task-retirement cleanup. Deliberately removes every partition; execution screens must
+     *  never use this to clear one submitted partition. */
     suspend fun clearForTask(taskId: String)
 }
 
@@ -103,14 +112,18 @@ class DefaultScanCaptureRepository(
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : ScanCaptureRepository {
 
-    override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> =
-        dao.observeForField(taskId, fieldKey).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
+    override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        dao.observeForField(taskId, executionPartitionKey(partitionLabel), fieldKey)
+            .map { rows -> rows.map { it.toRow() } }
+            .flowOn(dispatchers.default)
 
-    override fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int> =
-        dao.observeCountForField(taskId, fieldKey).flowOn(dispatchers.default)
+    override fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String?): Flow<Int> =
+        dao.observeCountForField(taskId, executionPartitionKey(partitionLabel), fieldKey).flowOn(dispatchers.default)
 
-    override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> =
-        dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
+    override fun observeAllForTask(taskId: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        dao.observeForTask(taskId, executionPartitionKey(partitionLabel))
+            .map { rows -> rows.map { it.toRow() } }
+            .flowOn(dispatchers.default)
 
     override suspend fun recordScan(
         taskId: String,
@@ -120,6 +133,7 @@ class DefaultScanCaptureRepository(
         obligationId: String?,
         obligationRowVersion: Int,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
@@ -133,6 +147,7 @@ class DefaultScanCaptureRepository(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
+                    partitionKey = executionPartitionKey(partitionLabel),
                     fieldKey = fieldKey,
                     tag = trimmed,
                     goatId = goatId?.takeIf { it.isNotBlank() },
@@ -151,6 +166,7 @@ class DefaultScanCaptureRepository(
             obligationId = obligationId,
             obligationRowVersion = obligationRowVersion,
             capturedAtMs = durableCapturedAtMs,
+            partitionKey = executionPartitionKey(partitionLabel),
         )
     }
 
@@ -159,6 +175,7 @@ class DefaultScanCaptureRepository(
         fieldKey: String,
         tag: String,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ): Boolean {
         val normalized = tag.filter { it.isLetterOrDigit() }.lowercase()
         if (normalized.isBlank()) return false
@@ -168,6 +185,7 @@ class DefaultScanCaptureRepository(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
+                    partitionKey = executionPartitionKey(partitionLabel),
                     fieldKey = fieldKey,
                     tag = normalized,
                     goatId = null,
@@ -179,10 +197,11 @@ class DefaultScanCaptureRepository(
         }
     }
 
-    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String?) {
         if (syncRepository == null) return
+        val partitionKey = executionPartitionKey(partitionLabel)
         val rows = withContext(dispatchers.io) {
-            dao.listForField(taskId, fieldKey)
+            dao.listForField(taskId, partitionKey, fieldKey)
         }
         rows.forEach { row ->
             enqueueScanCapture(
@@ -192,13 +211,15 @@ class DefaultScanCaptureRepository(
                 goatId = row.goatId,
                 obligationId = row.obligationId,
                 capturedAtMs = row.capturedAtMs,
+                partitionKey = row.partitionKey,
             )
         }
     }
 
-    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = withContext(dispatchers.io) {
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String?) = withContext(dispatchers.io) {
         dao.markFieldTagStatus(
             taskId = taskId,
+            partitionKey = executionPartitionKey(partitionLabel),
             fieldKey = fieldKey,
             tag = tag.filter { it.isLetterOrDigit() }.lowercase(),
             status = EntitySyncStatus.SYNCED.name,
@@ -213,12 +234,14 @@ class DefaultScanCaptureRepository(
         obligationId: String?,
         obligationRowVersion: Int = 0,
         capturedAtMs: Long,
+        partitionKey: String,
     ) {
-        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, tag, obligationRowVersion)
+        val syncKey = scanCaptureIdempotencyKey(taskId, partitionKey, fieldKey, tag, obligationRowVersion)
         when (val result = syncRepository?.enqueueScanCapture(
             taskId = taskId,
-            groupKey = taskId,
+            groupKey = "$taskId|$partitionKey",
             idempotencyKey = syncKey,
+            partitionKey = partitionKey,
             request = ScanCaptureRequestDto(
                 fieldKey = fieldKey,
                 tag = tag,
@@ -243,8 +266,8 @@ class DefaultScanCaptureRepository(
         repo.retry(outboxItemId)
     }
 
-    override suspend fun tagsForTask(taskId: String): List<String> = withContext(dispatchers.io) {
-        dao.listForTask(taskId).map { it.tag }
+    override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> = withContext(dispatchers.io) {
+        dao.listForTask(taskId, executionPartitionKey(partitionLabel)).map { it.tag }
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
@@ -268,6 +291,7 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
         "FAILED" -> CaptureSyncStatus.FAILED
         else -> CaptureSyncStatus.PENDING
     },
+    partitionKey = partitionKey,
 )
 
 /**
@@ -282,8 +306,16 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
  * threaded a row_version yet (pre-existing callers, [enqueuePendingScans] recovery), matching
  * every fresh row's baseline cycle so first-time enqueues are unaffected.
  */
-private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String, obligationRowVersion: Int = 0): String =
-    "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}:ov$obligationRowVersion"
+private fun scanCaptureIdempotencyKey(
+    taskId: String,
+    partitionKey: String,
+    fieldKey: String,
+    tag: String,
+    obligationRowVersion: Int = 0,
+): String {
+    val partitionSegment = if (partitionKey == "whole") "" else ":partition:$partitionKey"
+    return "scan:$taskId$partitionSegment:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}:ov$obligationRowVersion"
+}
 
 interface ScanAttemptRepository {
     fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>>
@@ -440,13 +472,15 @@ private fun normalizeTag(tag: String): String = tag.filter { it.isLetterOrDigit(
  * flow (register metadata -> stream the video bytes to the signed URL -> call the completion
  * endpoint — see [sg.mesha.goatos.core.data.sync.SyncEngine.dispatchProofUpload]), so a row only
  * reaches [CaptureSyncStatus.SYNCED] once the video is actually durable server-side.
+ *
+ * `partitionLabel` is part of the operational identity for execution evidence. `null` means the
+ * unpartitioned `whole` scope, not a task-wide wildcard.
  */
 interface ProofCaptureRepository {
-    fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>>
+    fun observeProofs(taskId: String, partitionLabel: String? = null): Flow<List<ProofCaptureRow>>
 
     /** Persists a captured video to Room first, then queues its metadata registration.
-     *  Returns [AppResult.Err] (no Room write) if the per-task cap
-     *  ([sg.mesha.goatos.core.database.capture.ProofCaptureDao.MAX_PROOFS_PER_TASK]) is
+     *  Returns [AppResult.Err] (no Room write) if the proof policy's per-partition subject cap is
      *  already reached.
      *
      *  [proofPolicy] (R50-027) drives the per-subject cap and the `capture_source` metadata sent
@@ -468,6 +502,7 @@ interface ProofCaptureRepository {
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy = ProofPolicy.Default,
+        partitionLabel: String? = null,
     ): AppResult<ProofCaptureRow>
 
     suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit>
@@ -516,8 +551,8 @@ class DefaultProofCaptureRepository(
         }
     }
 
-    override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
-        dao.observeForTask(taskId)
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
+        dao.observeForTaskPartition(taskId, executionPartitionKey(partitionLabel))
             .map { rows ->
                 reconcileOutboxTerminalState(rows)
                 rows.map { it.toRow() }
@@ -538,7 +573,9 @@ class DefaultProofCaptureRepository(
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
+        partitionLabel: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
+        val partitionKey = executionPartitionKey(partitionLabel)
         val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
         if (subject == ProofSubject.GOAT && effectiveSubjectId == null) {
             return@withContext AppResult.Err("Select a scanned goat before recording proof.")
@@ -553,14 +590,14 @@ class DefaultProofCaptureRepository(
         }
         val existing = when {
             subject == ProofSubject.GOAT && effectiveSubjectId != null ->
-                dao.activeCountForSubject(taskId, effectiveSubjectId)
+                dao.activeCountForSubject(taskId, partitionKey, effectiveSubjectId)
             subject != ProofSubject.GOAT && effectiveSubjectId != null ->
-                dao.activeCountForSubject(taskId, effectiveSubjectId)
+                dao.activeCountForSubject(taskId, partitionKey, effectiveSubjectId)
             // R50-027: a generic (shed/vial/administration) capture has no per-goat subjectId, so
-            // count active proofs of that subject TYPE for the task — otherwise the cap saw 0 and
+            // count active proofs of that subject TYPE for this operational partition — otherwise the cap saw 0 and
             // never applied, leaving generic proofs unbounded.
             subject != ProofSubject.GOAT && effectiveSubjectId == null ->
-                dao.activeCountForSubjectType(taskId, subject.wireValue)
+                dao.activeCountForSubjectType(taskId, partitionKey, subject.wireValue)
             else -> 0
         }
         val bypassHistoricalGoatProofCap = subject == ProofSubject.GOAT && effectiveSubjectId != null
@@ -581,6 +618,7 @@ class DefaultProofCaptureRepository(
         val entity = ProofCaptureEntity(
             id = id,
             taskId = taskId,
+            partitionKey = partitionKey,
             fieldKey = fieldKey,
             proofSubject = subject.wireValue,
             subjectId = effectiveSubjectId,
@@ -955,4 +993,5 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     syncStatus = CaptureSyncStatus.valueOf(syncStatus),
     serverProofId = serverProofId,
     lastError = lastError,
+    partitionKey = partitionKey,
 )

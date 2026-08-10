@@ -28,14 +28,16 @@ enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 @Entity(
     tableName = "scanned_goat_capture",
     indices = [
-        // Dedup: the same tag scanned twice for the same task/field is one row, not two.
-        Index(value = ["taskId", "fieldKey", "tag"], unique = true),
-        Index(value = ["taskId", "fieldKey", "capturedAtMs"]),
+        // Dedup is per operational partition. One task may cover sibling partitions of one shed.
+        Index(value = ["taskId", "partitionKey", "fieldKey", "tag"], unique = true),
+        Index(value = ["taskId", "partitionKey", "fieldKey", "capturedAtMs"]),
     ],
 )
 data class ScannedGoatEntity(
     @PrimaryKey val id: String,
     val taskId: String,
+    /** Normalized partition label; `whole` means the shed has no partition. */
+    val partitionKey: String = "whole",
     /** The `goat_scan` [sg.mesha.goatos.core.data.forms.FormField.key] this scan belongs to —
      *  a task's form can in principle declare more than one scan field. */
     val fieldKey: String,
@@ -87,7 +89,7 @@ enum class ScanUpsertResult { INSERTED, REPLACED, DUPLICATE }
 
 @Dao
 interface ScannedGoatDao {
-    /** Insert-or-ignore: the unique (taskId, fieldKey, tag) index makes a repeat scan of the
+    /** Insert-or-ignore: the unique (taskId, partitionKey, fieldKey, tag) index makes a repeat scan of the
      *  same tag a silent no-op — dedup happens at the DB layer, not just in memory. Superseded
      *  by [upsertScan] for the write path; kept for direct/test use where the caller has
      *  already established there is no obligation-reopen case to consider. */
@@ -95,10 +97,16 @@ interface ScannedGoatDao {
     suspend fun insert(entity: ScannedGoatEntity): Long
 
     @Query(
-        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey " +
             "AND tag = :tag LIMIT 1",
     )
-    suspend fun findByTaskFieldTag(taskId: String, fieldKey: String, tag: String): ScannedGoatEntity?
+    suspend fun findByTaskFieldTag(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+    ): ScannedGoatEntity?
 
     @Query(
         "UPDATE scanned_goat_capture SET goatId = :goatId, obligationId = :obligationId, " +
@@ -111,7 +119,7 @@ interface ScannedGoatDao {
      * obligation cycle — must stay deduped) from a tag re-scanned for a DIFFERENT/reopened
      * obligation (a verifier-rejected obligation reopened, or the same physical tag reassigned
      * to a new obligation) — which is fresh evidence and must be written through, never
-     * silently absorbed by the unique (taskId, fieldKey, tag) index.
+     * silently absorbed by the unique (taskId, partitionKey, fieldKey, tag) index.
      *
      * ROOT CAUSE this closes: the plain [insert] (OnConflictStrategy.IGNORE) treated ANY tag
      * collision as a duplicate — including a STALE, already-SYNCED row left over from a PRIOR
@@ -131,8 +139,8 @@ interface ScannedGoatDao {
      * `scan_captures` on the backend.
      *
      * Deliberately NOT `@Transaction`: this app has exactly one writer for a given
-     * (taskId, fieldKey, tag) at a time (one physical RFID reader stream, sequential
-     * onTagRead handling), and the unique index on that triple is the actual concurrency
+     * (taskId, partitionKey, fieldKey, tag) at a time (one physical RFID reader stream, sequential
+     * onTagRead handling), and the unique index on that composite key is the actual concurrency
      * safety net — a racing insert can still only ever leave one row. Wrapping this
      * read-then-write in a DAO-interface `@Transaction` default method was found (via a
      * captured `android.database.SQLException: connection is closed`, suppressed under an
@@ -144,7 +152,7 @@ interface ScannedGoatDao {
      * to do more than this call needs.
      */
     suspend fun upsertScan(entity: ScannedGoatEntity): ScanUpsertResult {
-        val existing = findByTaskFieldTag(entity.taskId, entity.fieldKey, entity.tag)
+        val existing = findByTaskFieldTag(entity.taskId, entity.partitionKey, entity.fieldKey, entity.tag)
         if (existing == null) {
             insert(entity)
             return ScanUpsertResult.INSERTED
@@ -172,51 +180,90 @@ interface ScannedGoatDao {
     // capacity-bounded, but the query still carries an explicit LIMIT rather than relying on
     // that business fact alone.
     @Query(
-        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey " +
             "ORDER BY capturedAtMs ASC LIMIT :limit",
     )
-    fun observeForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): Flow<List<ScannedGoatEntity>>
+    fun observeForField(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        limit: Int = MAX_SCANNED_PER_FIELD,
+    ): Flow<List<ScannedGoatEntity>>
 
     @Query(
-        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey " +
             "ORDER BY capturedAtMs ASC LIMIT :limit",
     )
-    suspend fun listForField(taskId: String, fieldKey: String, limit: Int = MAX_SCANNED_PER_FIELD): List<ScannedGoatEntity>
+    suspend fun listForField(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        limit: Int = MAX_SCANNED_PER_FIELD,
+    ): List<ScannedGoatEntity>
 
-    @Query("SELECT COUNT(*) FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey")
-    fun observeCountForField(taskId: String, fieldKey: String): Flow<Int>
+    @Query(
+        "SELECT COUNT(*) FROM scanned_goat_capture WHERE taskId = :taskId " +
+            "AND partitionKey = :partitionKey AND fieldKey = :fieldKey",
+    )
+    fun observeCountForField(taskId: String, partitionKey: String, fieldKey: String): Flow<Int>
 
-    @Query("SELECT * FROM scanned_goat_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
-    suspend fun listForTask(taskId: String, limit: Int = MAX_SCANNED_PER_FIELD): List<ScannedGoatEntity>
+    @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "ORDER BY capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listForTask(
+        taskId: String,
+        partitionKey: String,
+        limit: Int = MAX_SCANNED_PER_FIELD,
+    ): List<ScannedGoatEntity>
 
-    @Query("SELECT * FROM scanned_goat_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
-    fun observeForTask(taskId: String, limit: Int = MAX_SCANNED_PER_FIELD): Flow<List<ScannedGoatEntity>>
+    @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "ORDER BY capturedAtMs ASC LIMIT :limit",
+    )
+    fun observeForTask(
+        taskId: String,
+        partitionKey: String,
+        limit: Int = MAX_SCANNED_PER_FIELD,
+    ): Flow<List<ScannedGoatEntity>>
 
     @Query("UPDATE scanned_goat_capture SET syncStatus = :status WHERE taskId = :taskId")
     suspend fun markTaskStatus(taskId: String, status: String)
 
     @Query(
         "UPDATE scanned_goat_capture SET syncStatus = :status " +
-            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND tag = :tag",
+            "WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey AND tag = :tag",
     )
-    suspend fun markFieldTagStatus(taskId: String, fieldKey: String, tag: String, status: String)
+    suspend fun markFieldTagStatus(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        status: String,
+    )
 
     @Query("DELETE FROM scanned_goat_capture WHERE taskId = :taskId")
     suspend fun clearForTask(taskId: String)
 
     @Query(
         "DELETE FROM scanned_goat_capture " +
-            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND syncStatus = 'SYNCED'",
+            "WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey AND syncStatus = 'SYNCED'",
     )
-    suspend fun deleteSyncedForField(taskId: String, fieldKey: String)
+    suspend fun deleteSyncedForField(taskId: String, partitionKey: String, fieldKey: String)
 
     @Query(
         "DELETE FROM scanned_goat_capture " +
-            "WHERE taskId = :taskId AND fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
+            "WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
             "AND (obligationId IS NULL OR obligationId NOT IN (:serverDoneObligationIds))",
     )
     suspend fun deleteSyncedForFieldExceptObligations(
         taskId: String,
+        partitionKey: String,
         fieldKey: String,
         serverDoneObligationIds: List<String>,
     )
@@ -224,13 +271,14 @@ interface ScannedGoatDao {
     @Transaction
     suspend fun pruneSyncedFieldToServerDone(
         taskId: String,
+        partitionKey: String,
         fieldKey: String,
         serverDoneObligationIds: List<String>,
     ) {
         if (serverDoneObligationIds.isEmpty()) {
-            deleteSyncedForField(taskId, fieldKey)
+            deleteSyncedForField(taskId, partitionKey, fieldKey)
         } else {
-            deleteSyncedForFieldExceptObligations(taskId, fieldKey, serverDoneObligationIds)
+            deleteSyncedForFieldExceptObligations(taskId, partitionKey, fieldKey, serverDoneObligationIds)
         }
     }
 
@@ -251,21 +299,23 @@ interface ScannedGoatDao {
      */
     @Query(
         "DELETE FROM scanned_goat_capture " +
-            "WHERE fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
+            "WHERE partitionKey = :partitionKey AND fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
             "AND obligationId IN (:rejectedObligationIds)",
     )
     suspend fun deleteSyncedByRejectedObligations(
+        partitionKey: String,
         fieldKey: String,
         rejectedObligationIds: List<String>,
     )
 
     @Transaction
     suspend fun pruneSyncedByRejectedObligations(
+        partitionKey: String,
         fieldKey: String,
         rejectedObligationIds: List<String>,
     ) {
         if (rejectedObligationIds.isNotEmpty()) {
-            deleteSyncedByRejectedObligations(fieldKey, rejectedObligationIds)
+            deleteSyncedByRejectedObligations(partitionKey, fieldKey, rejectedObligationIds)
         }
     }
 
@@ -314,13 +364,15 @@ interface RfidScanAttemptDao {
     tableName = "proof_capture",
     indices = [
         Index(value = ["idempotencyKey"], unique = true),
-        Index(value = ["taskId", "fieldKey"]),
-        Index(value = ["taskId", "subjectId", "capturedAtMs"]),
+        Index(value = ["taskId", "partitionKey", "fieldKey"]),
+        Index(value = ["taskId", "partitionKey", "subjectId", "capturedAtMs"]),
     ],
 )
 data class ProofCaptureEntity(
     @PrimaryKey val id: String,
     val taskId: String,
+    /** Normalized partition label; `whole` means the shed has no partition. */
+    val partitionKey: String = "whole",
     /** The `video_proof` [sg.mesha.goatos.core.data.forms.FormField.key] this capture answers
      *  (e.g. `shed_video`, `vial_lot_video`, `administration_video`, or an operator-added extra
      *  field key) — server-driven, never hardcoded by the client. */
@@ -421,6 +473,16 @@ interface ProofCaptureDao {
     fun observeForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): Flow<List<ProofCaptureEntity>>
 
     @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
+    )
+    fun observeForTaskPartition(
+        taskId: String,
+        partitionKey: String,
+        limit: Int = MAX_PROOFS_PER_TASK,
+    ): Flow<List<ProofCaptureEntity>>
+
+    @Query(
         "SELECT * FROM proof_capture WHERE taskId = :taskId " +
             "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
     )
@@ -462,16 +524,18 @@ interface ProofCaptureDao {
     ): List<ProofCaptureEntity>
 
     @Query(
-        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND subjectId = :subjectId " +
+        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND subjectId = :subjectId " +
             "AND syncStatus != 'FAILED'",
     )
-    suspend fun activeCountForSubject(taskId: String, subjectId: String): Int
+    suspend fun activeCountForSubject(taskId: String, partitionKey: String, subjectId: String): Int
 
     @Query(
-        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND proofSubject = :proofSubject " +
+        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND proofSubject = :proofSubject " +
             "AND subjectId IS NULL AND syncStatus != 'FAILED'",
     )
-    suspend fun activeCountForSubjectType(taskId: String, proofSubject: String): Int
+    suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int
 
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?

@@ -292,7 +292,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    scanCaptureRepository.observeAllForTask(taskId).collect { rows ->
+                    scanCaptureRepository.observeAllForTask(taskId, activePartitionLabel()).collect { rows ->
                         currentScans = rows
                         renderDraft()
                     }
@@ -302,7 +302,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    proofCaptureRepository.observeProofs(taskId).collect { rows ->
+                    proofCaptureRepository.observeProofs(taskId, activePartitionLabel()).collect { rows ->
                         currentProofs = rows
                         renderDraft()
                     }
@@ -452,7 +452,12 @@ class SubmitViewModel @Inject constructor(
         scanSource.start()
         scanTagJob = viewModelScope.launch {
             scanSource.tags.collect { tag ->
-                scanCaptureRepository.recordScan(task.taskId, key, tag)
+                scanCaptureRepository.recordScan(
+                    taskId = task.taskId,
+                    fieldKey = key,
+                    tag = tag,
+                    partitionLabel = activePartitionLabel(),
+                )
             }
         }
         renderDraft()
@@ -507,6 +512,7 @@ class SubmitViewModel @Inject constructor(
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = currentPrincipalId,
                         proofPolicy = currentProofPolicy.copy(captureSource = captured.captureSource),
+                        partitionLabel = activePartitionLabel(),
                     )
                 }
             } finally {
