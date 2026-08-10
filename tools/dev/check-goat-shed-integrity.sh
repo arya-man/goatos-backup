@@ -36,7 +36,14 @@ WITH active_goat_shed_invariant AS (
     CASE
       WHEN g.shed_id IS NULL THEN 'missing shed_id'
       WHEN g.park_id IS NULL THEN 'missing park_id'
-      WHEN g.current_location_id IS DISTINCT FROM g.shed_id THEN 'current_location_id is not shed_id'
+      WHEN NOT (
+        g.current_location_id = g.shed_id
+        OR (
+          current_loc.location_type = 'pen'
+          AND current_loc.status = 'active'
+          AND current_loc.parent_location_id = g.shed_id
+        )
+      ) THEN 'current_location_id is neither shed_id nor active pen under shed_id'
       WHEN shed.location_id IS NULL THEN 'shed_id is not an active shed'
       WHEN park.location_id IS NULL THEN 'park_id is not an active park'
       WHEN shed.parent_location_id IS DISTINCT FROM g.park_id THEN 'shed parent is not goat park'
@@ -48,6 +55,9 @@ WITH active_goat_shed_invariant AS (
    AND shed.location_id = g.shed_id
    AND shed.location_type = 'shed'
    AND shed.status = 'active'
+  LEFT JOIN locations current_loc
+    ON current_loc.tenant_id = g.tenant_id
+   AND current_loc.location_id = g.current_location_id
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id
    AND park.location_id = g.park_id
@@ -59,7 +69,14 @@ WITH active_goat_shed_invariant AS (
     AND (
       g.shed_id IS NULL
       OR g.park_id IS NULL
-      OR g.current_location_id IS DISTINCT FROM g.shed_id
+      OR NOT (
+        g.current_location_id = g.shed_id
+        OR (
+          current_loc.location_type = 'pen'
+          AND current_loc.status = 'active'
+          AND current_loc.parent_location_id = g.shed_id
+        )
+      )
       OR shed.location_id IS NULL
       OR park.location_id IS NULL
       OR shed.parent_location_id IS DISTINCT FROM g.park_id

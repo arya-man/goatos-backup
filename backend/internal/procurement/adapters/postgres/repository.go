@@ -1533,6 +1533,10 @@ WHERE tenant_id = $1::uuid
 	if err := validateProcurementIntakePartition(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel); err != nil {
 		return nil, err
 	}
+	intakeLocationID, err := resolveProcurementIntakeOperationalLocation(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel)
+	if err != nil {
+		return nil, err
+	}
 
 	// Batch update goats table for all accepted goats
 	_, err = tx.Exec(ctx, `
@@ -1540,7 +1544,7 @@ UPDATE goats
 SET lifecycle_status = 'alive',
     origin_type = 'procured',
     entry_date = $5::date,
-    current_location_id = $4::uuid,
+    current_location_id = $8::uuid,
     park_id = $3::uuid,
     shed_id = $4::uuid,
     sex = COALESCE(NULLIF(plg.metadata ->> 'sex', ''), goats.sex),
@@ -1573,7 +1577,7 @@ WHERE goats.tenant_id = $1::uuid
   AND plg.tenant_id = goats.tenant_id
   AND plg.load_id = $7::uuid
   AND plg.goat_id = goats.goat_id`,
-		in.TenantID, goatIDs, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID)
+		in.TenantID, goatIDs, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID, intakeLocationID)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
 	}
@@ -1621,7 +1625,7 @@ INSERT INTO goat_location_history (
 SELECT $1::uuid, v.goat_id::uuid, $2::uuid, nullif(btrim($3), ''), 'procurement_accepted_intake', $4::timestamptz,
        nullif($5::text, '')::uuid, concat('procurement_load:', $6::text)
 FROM UNNEST($7::text[]) v(goat_id)`,
-		in.TenantID, in.ShedLocationID, in.PartitionLabel, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
+		in.TenantID, intakeLocationID, in.PartitionLabel, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch insert goat_location_history: %w", err)
 	}
@@ -2169,6 +2173,30 @@ WHERE tenant_id = $1::uuid
 		return ports.ErrInvalidTransition
 	}
 	return nil
+}
+
+func resolveProcurementIntakeOperationalLocation(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) (string, error) {
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		return shedID, nil
+	}
+	var locationID string
+	err := tx.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND status = 'active'
+  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+ORDER BY partition_label
+LIMIT 1`, tenantID, shedID, partitionLabel).Scan(&locationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrInvalidTransition
+	}
+	if err != nil {
+		return "", fmt.Errorf("procurement: resolve intake operational location: %w", err)
+	}
+	return locationID, nil
 }
 
 func scanWorkRow(row scanner) (domain.WorkRow, error) {

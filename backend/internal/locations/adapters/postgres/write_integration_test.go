@@ -114,6 +114,62 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("shed operational update cascades to mapped active partition pens", func(t *testing.T) {
+		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-pen-op-cascade-shed", "Synthetic Pen Cascade Shed"))
+		if err != nil {
+			t.Fatalf("CreateLocation shed: %v", err)
+		}
+		penCmd := createLocationCommand("idem-location-pen-op-cascade-pen", "Synthetic Pen Cascade Shed - Part 1")
+		penCmd.LocationType = "pen"
+		penCmd.ParentLocationID = stringPtr(created.Location.LocationID)
+		pen, err := repo.CreateLocation(ctx, penCmd)
+		if err != nil {
+			t.Fatalf("CreateLocation pen: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (
+  tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id
+) VALUES (
+  $1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual', $3::uuid
+)`, testTenantID, created.Location.LocationID, pen.Location.LocationID); err != nil {
+			t.Fatalf("seed shed partition: %v", err)
+		}
+		op := domain.OperationalAttributes{
+			UsableForCounts:      false,
+			UsableForFeed:        false,
+			UsableForVaccination: false,
+			UsableForSOP:         false,
+			IsQuarantine:         true,
+			IsICU:                true,
+			DisplayOrder:         17,
+			Notes:                stringPtr("quarantine cascade"),
+		}
+		update := ports.UpdateLocationCommand{
+			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-pen-op-cascade-update",
+			StoredIdempotencyKey: testTenantID + ":updateLocation:" + created.Location.LocationID + ":idem-location-pen-op-cascade-update",
+			IdempotencyScope:     "updateLocation",
+			RequestHash:          "sha256:pen-op-cascade-update",
+			TraceID:              "trace-pen-op-cascade-update",
+			LocationID:           created.Location.LocationID,
+			Operational:          &op,
+			RowVersion:           created.Location.RowVersion,
+		}
+		if _, err := repo.UpdateLocation(ctx, update); err != nil {
+			t.Fatalf("UpdateLocation operational: %v", err)
+		}
+		var usableForVaccination, isQuarantine, isICU bool
+		if err := pool.QueryRow(ctx, `
+SELECT usable_for_vaccination, is_quarantine, is_icu
+FROM location_operational_attributes
+WHERE tenant_id=$1::uuid AND location_id=$2::uuid`,
+			testTenantID, pen.Location.LocationID).Scan(&usableForVaccination, &isQuarantine, &isICU); err != nil {
+			t.Fatalf("read pen operational attributes: %v", err)
+		}
+		if usableForVaccination || !isQuarantine || !isICU {
+			t.Fatalf("pen operational attributes did not cascade: usable=%v quarantine=%v icu=%v", usableForVaccination, isQuarantine, isICU)
+		}
+	})
+
 	t.Run("hard delete removes unreferenced staging location", func(t *testing.T) {
 		cmd := createLocationCommand("idem-location-delete-seed", "Synthetic Delete Shed")
 		cmd.Status = "staging"

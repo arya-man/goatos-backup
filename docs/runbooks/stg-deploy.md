@@ -26,6 +26,7 @@ mutated by the Cloud Deploy rollout task only.
 Scripts:
 
 ```bash
+tools/deploy/stg-cloudsql-backup.sh      # create/record rollback backup first
 tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
@@ -54,6 +55,18 @@ Expected:
 - project / environment: `goatos-stg` (STG)
 - source SHA: latest approved `origin/main`
 - working tree: clean
+
+Before any migration-backed STG deploy, create a manual Cloud SQL backup and
+record the returned backup id / description in the PR or deploy handoff:
+
+```bash
+DESCRIPTION="pre-partition-oploc-$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)" \
+  tools/deploy/stg-cloudsql-backup.sh
+```
+
+This is the rollback anchor if the migration changes live partition placement
+incorrectly. Do not start `tools/deploy/stg-clouddeploy-release.sh` for a
+partition/location migration until this backup exists.
 
 Authorized STG release-builder accounts:
 

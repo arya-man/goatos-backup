@@ -147,7 +147,12 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		}
 	}
 
-	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, effectiveAgeBand, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
+	toLocationID, err := r.resolveDestinationOperationalLocationID(ctx, tx, cmd)
+	if err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+
+	moved, err := r.applyRelocation(ctx, tx, cmd, toLocationID, reason, occurredAt, effectiveStage, effectiveAgeBand, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
@@ -225,6 +230,28 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
 		return fmt.Errorf("identity: relocate goats: upsert goat_shed_partitions: %w", err)
 	}
 	return nil
+}
+
+func (r *Repository) resolveDestinationOperationalLocationID(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) (string, error) {
+	partitionLabel := strings.TrimSpace(stringValue(cmd.DestinationPartitionLabel))
+	if partitionLabel == "" || strings.EqualFold(partitionLabel, oploc.WholeSentinel) {
+		return cmd.ToShedID, nil
+	}
+	var locationID string
+	if err := tx.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND sp.status = 'active'
+  AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
+		cmd.TenantID, cmd.ToShedID, partitionLabel).Scan(&locationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("identity: relocate goats: destination partition %s for shed %s has no active operational location", partitionLabel, cmd.ToShedID)
+		}
+		return "", fmt.Errorf("identity: relocate goats: destination operational location: %w", err)
+	}
+	return locationID, nil
 }
 
 // destinationStageResolution is the canonical active stage selected when the shifting was raised.
@@ -477,7 +504,7 @@ RETURNING goat_id::text, identity_event_id::text`
 // never land in the destination shed still carrying its old cohort, nor sit in an adult cohort
 // still counted as a kid.
 func (r *Repository) applyRelocation(
-	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, reason string, occurredAt time.Time,
+	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, toLocationID string, reason string, occurredAt time.Time,
 	effectiveStage, effectiveAgeBand string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string,
 ) ([]string, error) {
 	// NOT compute-on-read. This is a single set-based WRITE for one bounded shifting completion
@@ -521,7 +548,7 @@ identified_stage AS (
 ),
 moved AS (
     UPDATE goats g
-    SET current_location_id = $2::uuid,
+    SET current_location_id = $22::uuid,
         park_id             = $3::uuid,
         shed_id             = $2::uuid,
         management_stage    = CASE WHEN $16::text = '' THEN g.management_stage ELSE $16::text END,
@@ -542,7 +569,7 @@ history AS (
         reason, occurred_at, actor_id, source_record_id
     )
     SELECT $1::uuid, i.goat_id, i.from_location_id, nullif(i.from_partition_label, ''),
-           $2::uuid, nullif($21::text, ''), $5, $4::timestamptz, $6::uuid, $7
+           $22::uuid, nullif($21::text, ''), $5, $4::timestamptz, $6::uuid, $7
     FROM identified i
 ),
 events AS (
@@ -681,6 +708,7 @@ SELECT goat_id::text FROM moved`
 		goatStageChangedEventType,   // $19
 		effectiveAgeBand,            // $20 (kid/adult band carried by that cohort tag; "" = leave as-is)
 		stringValue(cmd.DestinationPartitionLabel), // $21
+		toLocationID, // $22 exact operational residence: pen for partitioned sheds, parent shed otherwise
 	)
 	if err != nil {
 		return nil, fmt.Errorf("identity: relocate goats: %w", err)
