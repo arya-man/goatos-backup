@@ -24,6 +24,10 @@ type Service struct {
 	processState           ports.WeighingProcessStateReader
 }
 
+type exportReader interface {
+	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
+}
+
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
 }
@@ -1678,6 +1682,48 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 
 	// Delegate to repository for actual export
 	return s.repo.ExportCampaignCSV(ctx, actor.TenantID, campaignID, writer)
+}
+
+// ExportCSV exports the current leadership weighing window as CSV.
+// The default is 36 inclusive business dates: today plus the previous 35 days.
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return ports.ErrForbidden
+	}
+
+	to, err := exportBusinessDateOrDefault(strings.TrimSpace(toBusinessDate), biztime.BusinessDayStart(time.Now()))
+	if err != nil {
+		return ports.ErrInvalidArgument
+	}
+	fromDefault := to.AddDate(0, 0, -35)
+	from, err := exportBusinessDateOrDefault(strings.TrimSpace(fromBusinessDate), fromDefault)
+	if err != nil {
+		return ports.ErrInvalidArgument
+	}
+	if from.After(to) || to.Sub(from) > 35*24*time.Hour {
+		return ports.ErrInvalidArgument
+	}
+
+	parkIDs, err := s.resolveMonitorParkScope(ctx, actor, "")
+	if err != nil {
+		return err
+	}
+	reader, ok := s.repo.(exportReader)
+	if !ok {
+		return ports.ErrNotFound
+	}
+	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, from, to.AddDate(0, 0, 1), writer)
+}
+
+func exportBusinessDateOrDefault(value string, fallback time.Time) (time.Time, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", value, biztime.DefaultLocation())
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed, nil
 }
 
 // dedupeStrings keeps the park-scope argument small and stable; the same park can

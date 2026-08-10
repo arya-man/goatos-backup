@@ -419,6 +419,45 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/export.csv:
+    get:
+      tags:
+        - Weighing
+      operationId: exportWeighingCsv
+      summary: Export recent leadership-visible Weighing rows as CSV.
+      description: >
+        Streams a CSV attachment across the caller's WeighingMonitor park scope. The default
+        window is today plus the previous 35 business dates (36 inclusive dates). Pending video
+        verification is included and reported in `video_verification_status`; it is not filtered
+        out.
+      parameters:
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date
+          description: Inclusive Asia/Kolkata business date. Defaults to 35 days before `to`.
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date
+          description: Inclusive Asia/Kolkata business date. Defaults to today.
+      responses:
+        "200":
+          description: CSV export of recent weighing rows.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/planner/catalog:
     get:
       tags:

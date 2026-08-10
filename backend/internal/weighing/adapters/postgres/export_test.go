@@ -338,6 +338,37 @@ func TestResolveProofVideoURLUnresolvable(t *testing.T) {
 	})
 }
 
+func TestProofVideoColumnsJoinsMultipleProofs(t *testing.T) {
+	t.Setenv("GOATOS_PROOF_GCS_BUCKET", "goatos-stg-proofs")
+	repo := (&Repository{}).WithProofURLResolver(stubProofURLResolver{
+		urls: map[string]string{
+			"proof-1": "https://storage.example/proof-1",
+			"proof-2": "https://storage.example/proof-2",
+		},
+	})
+
+	refTypes, refs, urls, notes := repo.proofVideoColumns(
+		context.Background(),
+		"tenant-1",
+		"proof-1\x1fproof-2",
+		"gcs\x1fgcs",
+		"weighing/a.mp4\x1fweighing/b.mp4",
+	)
+
+	if refTypes != "gcs | gcs" {
+		t.Fatalf("unexpected ref types: %q", refTypes)
+	}
+	if refs != "gs://goatos-stg-proofs/weighing/a.mp4 | gs://goatos-stg-proofs/weighing/b.mp4" {
+		t.Fatalf("unexpected refs: %q", refs)
+	}
+	if urls != "https://storage.example/proof-1 | https://storage.example/proof-2" {
+		t.Fatalf("unexpected urls: %q", urls)
+	}
+	if notes != "" {
+		t.Fatalf("expected no notes, got %q", notes)
+	}
+}
+
 var errObjectMissingForTest = errObjMissing{}
 
 type errObjMissing struct{}

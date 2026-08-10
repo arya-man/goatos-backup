@@ -48,6 +48,7 @@ type Service interface {
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
 	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
+	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error
 }
 
 type Handler struct {
@@ -79,6 +80,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /weighing/campaigns/{campaign_id}", h.UpdateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
 	mux.HandleFunc("GET /weighing/campaigns/{campaign_id}/export", h.ExportCampaignCSV)
+	mux.HandleFunc("GET /weighing/export.csv", h.ExportCSV)
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/planner/parks/{park_id}/buckets", h.PlannerParkBuckets)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
@@ -904,6 +906,55 @@ func (h *Handler) ExportCampaignCSV(w http.ResponseWriter, r *http.Request) {
 			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
 				Code:    "internal_error",
 				Message: "failed to export campaign data",
+				TraceID: traceID(r),
+			}, err)
+		}
+		return
+	}
+}
+
+// ExportCSV exports the bounded leadership-visible weighing window as CSV.
+func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	a := actor(r)
+
+	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
+			Code:    "permission_denied",
+			Message: "requires weighing monitor permission",
+			TraceID: traceID(r),
+		}, nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="weighing-export.csv"`)
+
+	counting := &countingResponseWriter{ResponseWriter: w}
+	if err := h.service.ExportCSV(ctx, a, r.URL.Query().Get("from"), r.URL.Query().Get("to"), counting); err != nil {
+		if counting.written > 0 {
+			h.log.Error("export csv failed mid-stream", "bytes_written", counting.written, "error", err)
+			return
+		}
+		if errors.Is(err, ports.ErrInvalidArgument) {
+			h.badRequest(w, r, "invalid_argument", "invalid export date range")
+		} else if errors.Is(err, ports.ErrForbidden) {
+			httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
+				Code:    "permission_denied",
+				Message: "not authorized for weighing export",
+				TraceID: traceID(r),
+			}, nil)
+		} else if errors.Is(err, ports.ErrNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound, errorEnvelope{
+				Code:    "not_found",
+				Message: "not authorized for weighing export",
+				TraceID: traceID(r),
+			}, nil)
+		} else {
+			h.log.Error("export csv failed", "error", err)
+			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
+				Code:    "internal_error",
+				Message: "failed to export weighing data",
 				TraceID: traceID(r),
 			}, err)
 		}

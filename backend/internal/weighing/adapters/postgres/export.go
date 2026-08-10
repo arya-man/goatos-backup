@@ -121,6 +121,169 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 	return nil
 }
 
+// ExportCSV streams the leadership-visible weighing window across authorized parks.
+// Pending verification is exported as data, not filtered out; the verdict travels in its own
+// column so CEO can see today's unverified work instead of receiving an empty file.
+func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+
+	csvWriter := csv.NewWriter(writer)
+	defer csvWriter.Flush()
+
+	if err := csvWriter.Write([]string{
+		"date",
+		"type",
+		"park",
+		"rfid_1",
+		"rfid_2",
+		"display_id",
+		"breed",
+		"gender",
+		"shed",
+		"weight_kg",
+		"total_weight_kg",
+		"average_weight_kg",
+		"animal_count",
+		"video_verification_status",
+		"video_verified_at",
+		"proof_reference_type",
+		"proof_reference",
+		"proof_video_url",
+		"proof_url_note",
+	}); err != nil {
+		return err
+	}
+	if len(parkIDs) == 0 {
+		return nil
+	}
+
+	rows, err := r.pool.Query(ctx, `
+WITH individual AS (
+  SELECT
+    (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
+    'individual'::text AS weighing_type,
+    COALESCE(p.name, '') AS park,
+    o.scanned_identifier AS rfid_1,
+    ''::text AS rfid_2,
+    o.scanned_identifier AS display_id,
+    ''::text AS breed,
+    ''::text AS gender,
+    cs.display_name AS shed,
+    o.weight_kg::float8 AS weight_kg,
+    NULL::float8 AS total_weight_kg,
+    NULL::float8 AS average_weight_kg,
+    NULL::int AS animal_count,
+    COALESCE(NULLIF(o.verification_status, ''), 'pending') AS video_verification_status,
+    o.verified_at,
+    COALESCE(pa.proof_id::text, '') AS proof_ids,
+    COALESCE(pa.storage_provider, '') AS proof_providers,
+    COALESCE(pa.object_key, '') AS proof_object_keys
+  FROM weighing_observations o
+  JOIN weighing_campaign_sheds cs ON cs.tenant_id=o.tenant_id AND cs.campaign_shed_id=o.campaign_shed_id
+  JOIN weighing_campaigns c ON c.tenant_id=o.tenant_id AND c.campaign_id=o.campaign_id
+  LEFT JOIN locations p ON p.tenant_id=o.tenant_id AND p.location_id=c.park_id
+  LEFT JOIN proof_artifacts pa ON pa.tenant_id=o.tenant_id AND pa.proof_id=o.proof_artifact_id
+  WHERE o.tenant_id=$1::uuid
+    AND c.park_id = ANY($2::uuid[])
+    AND o.accepted_at >= $3::timestamptz
+    AND o.accepted_at < $4::timestamptz
+),
+lumpsum AS (
+  SELECT
+    (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
+    'lumpsum'::text AS weighing_type,
+    COALESCE(p.name, '') AS park,
+    ''::text AS rfid_1,
+    ''::text AS rfid_2,
+    ''::text AS display_id,
+    ''::text AS breed,
+    ''::text AS gender,
+    cs.display_name AS shed,
+    NULL::float8 AS weight_kg,
+    so.weight_kg::float8 AS total_weight_kg,
+    so.average_weight_kg::float8 AS average_weight_kg,
+    so.animal_count::int AS animal_count,
+    COALESCE(NULLIF(so.verification_status, ''), 'pending') AS video_verification_status,
+    so.verified_at,
+    COALESCE(proofs.proof_ids, '') AS proof_ids,
+    COALESCE(proofs.proof_providers, '') AS proof_providers,
+    COALESCE(proofs.proof_object_keys, '') AS proof_object_keys
+  FROM weighing_shed_observations so
+  JOIN weighing_campaign_sheds cs ON cs.tenant_id=so.tenant_id AND cs.campaign_shed_id=so.campaign_shed_id
+  JOIN weighing_campaigns c ON c.tenant_id=so.tenant_id AND c.campaign_id=so.campaign_id
+  LEFT JOIN locations p ON p.tenant_id=so.tenant_id AND p.location_id=c.park_id
+  LEFT JOIN LATERAL (
+    SELECT
+      string_agg(pa.proof_id::text, chr(31) ORDER BY wsp.proof_position) AS proof_ids,
+      string_agg(pa.storage_provider, chr(31) ORDER BY wsp.proof_position) AS proof_providers,
+      string_agg(pa.object_key, chr(31) ORDER BY wsp.proof_position) AS proof_object_keys
+    FROM weighing_shed_observation_proofs wsp
+    JOIN proof_artifacts pa ON pa.tenant_id=wsp.tenant_id AND pa.proof_id=wsp.proof_artifact_id
+    WHERE wsp.tenant_id=so.tenant_id AND wsp.shed_observation_id=so.shed_observation_id
+  ) proofs ON true
+  WHERE so.tenant_id=$1::uuid
+    AND c.park_id = ANY($2::uuid[])
+    AND so.accepted_at >= $3::timestamptz
+    AND so.accepted_at < $4::timestamptz
+    AND so.withdrawn_at IS NULL
+)
+SELECT business_date::text, weighing_type, park, rfid_1, rfid_2, display_id, breed, gender, shed,
+       weight_kg, total_weight_kg, average_weight_kg, animal_count,
+       video_verification_status, COALESCE(video_verified_at::text, ''),
+       proof_ids, proof_providers, proof_object_keys
+FROM (
+  SELECT * FROM individual
+  UNION ALL
+  SELECT * FROM lumpsum
+) exported
+ORDER BY business_date DESC, park ASC, shed ASC, weighing_type ASC, display_id ASC
+`, tenantID, parkIDs, periodStart, periodEnd)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var date, kind, park, rfid1, rfid2, displayID, breed, gender, shed, status, verifiedAt string
+		var proofIDs, proofProviders, proofObjectKeys string
+		var weightKg, totalWeightKg, averageWeightKg *float64
+		var animalCount *int
+		if err := rows.Scan(
+			&date, &kind, &park, &rfid1, &rfid2, &displayID, &breed, &gender, &shed,
+			&weightKg, &totalWeightKg, &averageWeightKg, &animalCount, &status, &verifiedAt,
+			&proofIDs, &proofProviders, &proofObjectKeys,
+		); err != nil {
+			return err
+		}
+		proofRefTypes, proofRefs, proofURLs, proofURLNotes := r.proofVideoColumns(ctx, tenantID, proofIDs, proofProviders, proofObjectKeys)
+		if err := csvWriter.Write([]string{
+			date,
+			kind,
+			csvText(park),
+			csvText(rfid1),
+			csvText(rfid2),
+			csvText(displayID),
+			csvText(breed),
+			csvText(gender),
+			csvText(shed),
+			formatOptionalFloat(weightKg),
+			formatOptionalFloat(totalWeightKg),
+			formatOptionalFloat(averageWeightKg),
+			formatOptionalInt(animalCount),
+			status,
+			verifiedAt,
+			csvText(proofRefTypes),
+			csvText(proofRefs),
+			csvText(proofURLs),
+			csvText(proofURLNotes),
+		}); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
 type shedInfo struct {
 	CampaignShedID string
 	DisplayName    string
@@ -315,6 +478,47 @@ func (r *Repository) resolveProofVideoURL(ctx context.Context, tenantID, proofID
 	return resolved, ""
 }
 
+func (r *Repository) proofVideoColumns(ctx context.Context, tenantID, proofIDs, proofProviders, proofObjectKeys string) (types, refs, urls, notes string) {
+	ids := splitProofField(proofIDs)
+	providers := splitProofField(proofProviders)
+	objectKeys := splitProofField(proofObjectKeys)
+
+	var refTypes, proofRefs, proofURLs, proofURLNotes []string
+	for i, objectKey := range objectKeys {
+		provider := fieldAt(providers, i)
+		proofID := fieldAt(ids, i)
+		refType, proofRef := proofStorageReference(provider, objectKey)
+		if proofRef == "" {
+			continue
+		}
+		proofURL, proofURLNote := r.resolveProofVideoURL(ctx, tenantID, proofID, proofRef)
+		refTypes = append(refTypes, refType)
+		proofRefs = append(proofRefs, proofRef)
+		if proofURL != "" {
+			proofURLs = append(proofURLs, proofURL)
+		}
+		if proofURLNote != "" {
+			proofURLNotes = append(proofURLNotes, proofURLNote)
+		}
+	}
+	return strings.Join(refTypes, " | "), strings.Join(proofRefs, " | "), strings.Join(proofURLs, " | "), strings.Join(proofURLNotes, " | ")
+}
+
+func splitProofField(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, "\x1f")
+}
+
+func fieldAt(values []string, index int) string {
+	if index < 0 || index >= len(values) {
+		return ""
+	}
+	return values[index]
+}
+
 // proofStorageReference renders the DURABLE location of a proof clip for the export.
 //
 // The export is read outside this system -- in a sheet, by someone reconciling weights -- so a
@@ -357,6 +561,20 @@ func formatInt(i int) string {
 		return ""
 	}
 	return strconv.Itoa(i)
+}
+
+func formatOptionalFloat(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return formatFloat(*value)
+}
+
+func formatOptionalInt(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return formatInt(*value)
 }
 
 // The farm reads times in IST. The RFC3339 column keeps the exact instant with its offset for
