@@ -1091,6 +1091,46 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFoundOrNotAllowed"}
         "500": {$ref: "#/components/responses/ServerError"}
+  /growth-feed/pens:
+    get:
+      tags: [Weighing]
+      operationId: adminGetGrowthFeedPens
+      summary: Like-for-like pen comparison — growth against the authored ration.
+      description: >
+        One row per operational location (a partition if the shed is subdivided,
+        the shed itself if not), carrying what the pen holds, how fast it is
+        growing, and what feed config says it is meant to eat.
+
+
+        Requires weighing.monitor OR feed_config.read — the two directors this
+        answers for hold different capabilities, so requiring both would lock each
+        of them out of half of their own question. Park-scoped like the other
+        leadership reads.
+
+
+        This is a READ-ONLY cross-module correlation and is deliberately not part
+        of either module: weighing stays isolated from feed and feed from weighing.
+        The gain figures are the SAME definitions the Weights screen renders, so a
+        pen reads the same g/day on both surfaces.
+
+
+        Nothing here is what a pen was ISSUED or ATE. `planned_feed_g_per_head_day`
+        is authored configuration — the ration in force on the window's last day.
+      parameters:
+        - {name: park_id, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: from, in: query, required: false, schema: {type: string, format: date}}
+        - {name: to, in: query, required: false, schema: {type: string, format: date}}
+      responses:
+        "200":
+          description: One row per pen, with its peer benchmark already resolved.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/GrowthFeedPensResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFoundOrNotAllowed"}
+        "500": {$ref: "#/components/responses/ServerError"}
   /app/weighing/leadership/sheds:
     get:
       tags:
@@ -19329,6 +19369,122 @@ components:
         latest_weigh_date:
           type: string
           format: date
+    GrowthFeedPen:
+      type: object
+      additionalProperties: false
+      required: [park_id, park_name, location_id, shed_name, partition_label, operational_location_display,
+                 weighing_category, animals_weighed, average_weight_kg, adg_g_per_day, adg_basis,
+                 adg_sample_count, adg_span_days, breed, sex, stage, live_animals,
+                 ration_group_label, shed_tag_label, feed_plan_status,
+                 planned_feed_g_per_head_day, planned_energy_kcal_per_head_day,
+                 feed_items_configured, feed_items_blocked, feed_per_kg_gain_kg,
+                 peer_group_key, peer_median_adg_g_per_day, adg_vs_peer_pct, peer_pen_count]
+      properties:
+        park_id: {type: string, format: uuid}
+        park_name: {type: string}
+        location_id:
+          type: string
+          format: uuid
+          description: "The pen's stable key with partition_label. Shed NAME is never a key -- two parks both hold a Castro."
+        shed_name: {type: string}
+        partition_label:
+          type: [string, "null"]
+          description: "Raw stored label ('1', 'Part 3'), null for an undivided shed. Never rendered alone."
+        operational_location_display:
+          type: string
+          description: "Backend-composed ('Godel 1 - Part 3'). Clients render it verbatim and never join the two halves themselves."
+        weighing_category:
+          type: string
+          enum: [individual_animal, per_shed_partition]
+          description: "How the pen was weighed. The two kinds of row do not answer the same questions."
+        animals_weighed: {type: integer}
+        average_weight_kg:
+          type: [number, "null"]
+          format: double
+          description: "Null when nothing was weighed. NOT 0 -- a herd that weighs nothing is a different statement."
+        adg_g_per_day:
+          type: [number, "null"]
+          format: double
+          description: "Grams gained per head per day. Null when the pen has no second weigh to measure against."
+        adg_basis:
+          type: string
+          enum: ["", per_animal_median, shed_average_movement]
+          description: >
+            Which measurement produced adg_g_per_day. per_animal_median is animals growing;
+            shed_average_movement also moves when animals join or leave. The two are never
+            averaged together and never ranked against each other.
+        adg_sample_count:
+          type: integer
+          description: "Animal pairs behind a median, or animals behind a whole-shed weigh. Its own denominator, not animals_weighed."
+        adg_span_days: {type: [integer, "null"]}
+        breed:
+          type: [string, "null"]
+          description: "Populated only when every live animal in the pen shares one value; null for a mixed pen."
+        sex: {type: [string, "null"]}
+        stage: {type: [string, "null"]}
+        live_animals:
+          type: integer
+          description: "Current cohort size from the herd register. A different number from animals_weighed."
+        ration_group_label: {type: [string, "null"]}
+        shed_tag_label: {type: [string, "null"]}
+        feed_plan_status:
+          type: string
+          enum: [resolved, partial, experiment, unknown_cohort, no_config]
+          description: >
+            Only `resolved` may produce feed_per_kg_gain_kg. `partial` means at least one
+            active feed item has no authored rate, so the planned total understates the
+            ration -- feed config encodes "not configured" as an ABSENT row, never as 0.
+        planned_feed_g_per_head_day:
+          type: [number, "null"]
+          format: double
+          description: "AUTHORED ration (grams per head per day), not what was issued or eaten."
+        planned_energy_kcal_per_head_day:
+          type: [number, "null"]
+          format: double
+          description: "Null whenever any contributing item has no authored energy value, rather than a partial sum shown as complete."
+        feed_items_configured: {type: integer}
+        feed_items_blocked:
+          type: integer
+          description: "Active feed items with NO authored rate for this pen. Non-zero means the planned total is incomplete."
+        feed_per_kg_gain_kg:
+          type: [number, "null"]
+          format: double
+          description: "Kg of feed per kg of gain. Null unless the ration is fully resolved AND the pen is actually gaining."
+        peer_group_key:
+          type: string
+          description: >
+            breed + stage + gain basis. Empty when the pen cannot be compared with anything.
+            Travels even without a median so a screen can say WHY there is no comparison.
+        peer_median_adg_g_per_day:
+          type: [number, "null"]
+          format: double
+          description: "Median across the group INCLUDING this pen. Null for a group of one, whose median would be the pen's own number."
+        adg_vs_peer_pct:
+          type: [number, "null"]
+          format: double
+          description: "Percentage difference from the peer median. Null when the group is too small or the median is 0."
+        peer_pen_count: {type: integer}
+    GrowthFeedPensResponse:
+      type: object
+      additionalProperties: false
+      required: [period_start, period_end, rows, pens_without_cohort, pens_without_ration, pens_without_gain, comparable_pens]
+      properties:
+        period_start: {type: string, format: date}
+        period_end:
+          type: string
+          format: date
+          description: "INCLUSIVE last day. The ration is resolved as of this date -- the one in force when these gains were produced."
+        rows:
+          type: array
+          items: {$ref: "#/components/schemas/GrowthFeedPen"}
+        pens_without_cohort:
+          type: integer
+          description: "Rows PRESENT in `rows` that could not be resolved, never rows dropped. A comparison screen that hides what it could not answer reads as an estate where everything is comparable."
+        pens_without_ration: {type: integer}
+        pens_without_gain: {type: integer}
+        comparable_pens:
+          type: integer
+          description: "Rows that landed in a peer group large enough to rank."
     WeighingWeightDemographicBucket:
       type: object
       additionalProperties: false

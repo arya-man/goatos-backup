@@ -26,6 +26,8 @@ export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowth
 export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
 export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
 export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
+export type PenGrowthFeedResponse = AppApiComponents["schemas"]["GrowthFeedPensResponse"];
+export type PenGrowthFeedRow = AppApiComponents["schemas"]["GrowthFeedPen"];
 export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
 export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
@@ -605,6 +607,27 @@ export async function getWeighingGrowth(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// The like-for-like pen comparison: growth from weighing, ration from feed config, correlated
+// by a read-only reporting module that belongs to neither. Everything derived — the peer median,
+// the gap, the feed-per-kg-gain — arrives already computed, so this layer must not re-derive any
+// of it from the rows. A ranking recomputed here would disagree with the backend's the moment
+// the table is filtered or paged.
+export async function getPenGrowthFeed(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<PenGrowthFeedResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PenGrowthFeedResponse>("/growth-feed/pens", {
       cache: "no-store",
       query: compactQuery(params),
     }),

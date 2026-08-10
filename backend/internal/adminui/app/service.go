@@ -390,6 +390,10 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "status"}, "location_id", []int{10, 25, 50}),
 				tableP("losing-kids", "Kids losing weight", "/weighing/leadership/growth", []string{"tag", "shed", "previous", "latest", "change", "days_apart", "last_weighed"}, "scanned_identifier", []int{10, 25, 50}),
+				// Like-for-like pen comparison. The columns are ordered as the question is
+				// asked: which pen, holding what, growing how fast, how that compares with
+				// comparable pens, and what it is being fed to get there.
+				penComparisonTable(),
 			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
@@ -556,6 +560,38 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
 	t := table(id, title, source, cols, rowParam)
 	t.PageSizeOptions = pageSizes
+	return t
+}
+
+// penComparisonTable is the like-for-like pen ranking on /weighing/weights.
+//
+// The column labels are overridden rather than left to humanLabel because the
+// auto-derived forms are our vocabulary, not the farm's: "Vs Peers", "Adg" and
+// "Feed Per Kg Gain" mean nothing on a shed wall. Ordered as the question is
+// asked — which pen, holding what, growing how fast, how that compares, what it
+// is fed.
+func penComparisonTable() domain.TableContract {
+	t := tableP("pen-comparison", "Pens compared", "/growth-feed/pens",
+		[]string{"park", "shed", "breed", "stage", "animals", "adg", "vs_peers", "ration", "planned_feed", "feed_per_kg_gain"},
+		"location_id", []int{10, 25, 50})
+	for i := range t.Columns {
+		switch t.Columns[i].Key {
+		case "shed":
+			t.Columns[i].Label = "Pen"
+		case "animals":
+			t.Columns[i].Label = "Weighed"
+		case "adg":
+			t.Columns[i].Label = "Daily gain"
+		case "vs_peers":
+			t.Columns[i].Label = "Vs similar pens"
+		case "ration":
+			t.Columns[i].Label = "Ration"
+		case "planned_feed":
+			t.Columns[i].Label = "Feed per kid/day"
+		case "feed_per_kg_gain":
+			t.Columns[i].Label = "Feed per kg gain"
+		}
+	}
 	return t
 }
 
@@ -2164,6 +2200,27 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.no_cadence":              "There is no weighing schedule, so a shed with no recent weigh is not late.",
 			"error.load.title":             "Weights could not be loaded",
 			"error.load.body":              "Try again in a moment.",
+
+			// Pen comparison. Farm language only: "pen", "ration", "feed per kg of
+			// gain". No "ration group key", "shed tag", "peer group", "read model" or
+			// "config" reaches the screen — those are our words, not the farm's.
+			"section.pens.title":   "Same animal, different growth",
+			"section.pens.aria":    "Pens compared against similar pens",
+			"section.pens.caption": "Pens holding the same breed at the same stage, ranked by how far each one is off the pace of the others like it. The furthest behind are first — those are the sheds worth visiting.",
+			"section.pens.basis":   "A pen is only ever compared with pens weighed the same way, because a per-kid gain and a whole-shed average are not the same measurement.",
+			"pens.vs_peers.ahead":  "ahead of similar pens",
+			"pens.vs_peers.behind": "behind similar pens",
+			"pens.vs_peers.none":   "nothing else like it to compare with",
+			"pens.feed.planned":    "planned per kid per day",
+			"pens.feed.conversion": "kg of feed per kg gained",
+			"pens.feed.partial":    "ration incomplete — some feed has no amount set, so no feed-per-kg figure is shown",
+			"pens.feed.experiment": "on a feed trial — the amount is set for the whole shed, not per kid",
+			"pens.feed.none":       "no ration set for this pen",
+			"pens.feed.mixed":      "holds more than one kind of animal, so no single ration applies",
+			"pens.note.planned":    "Feed shown is what the ration says this pen should get. It is not what was issued or what the animals ate.",
+			"empty.pens.title":     "Nothing to compare yet",
+			"empty.pens.body":      "Two pens holding the same breed at the same stage, both weighed twice, are needed before a comparison exists.",
+			"note.pens.coverage":   "pens are listed but cannot be compared — no second weigh, no single breed or stage, or nothing else like them in the estate.",
 		}
 	case "counts-breakdown":
 		return map[string]string{
