@@ -341,8 +341,7 @@ export function findingsForSource(source) {
               !hasCompositeSeparator &&
               lambda &&
               hasPartitionRenderSignal(lambda.body) &&
-              (PARENT_LOCATION_KEY.test(keyBody) ||
-                (AMBIGUOUS_LOCATION_KEY.test(keyBody) && hasParentLocationRenderSignal(lambda.body)))
+              PARENT_LOCATION_KEY.test(keyBody)
             ) {
               findings.push({
                 line: startLine,
@@ -591,10 +590,12 @@ function selfTest() {
     ["items(rows, key = { it.shedId.hashCode() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId.toString() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.shedId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedId.orEmpty() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionLocationItem(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentShedId }) { Text(it.operationalLocationDisplay) }", "lazy-list-parent-location-key"],
-    ["itemsIndexed(rows, key = { _, row -> row.locationId }) { _, row -> Text(row.partitionLabel.orEmpty() + row.shedId) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { item -> item.parentLocationId }) { item -> itemContent(item) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { row -> row.shedId }) { row -> OperationalLocationRow(row) }", "lazy-list-parent-location-key"],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));
@@ -607,6 +608,7 @@ function selfTest() {
     'items(matches, key = { "match-${it.goatId}|${it.vaccineLabel}" }) { }',
     'items(rows, key = { "${it.shedId}|${it.partitionLabel.orEmpty()}" }) { }',
     "items(rows, key = { it.operationalLocationId }) { Text(it.partitionLabel.orEmpty()) }",
+    "itemsIndexed(rows, key = { _, row -> row.locationId }) { _, row -> Text(row.partitionLabel.orEmpty() + row.shedId) }",
     "items(rows, key = { it.locationId }) { Text(it.operationalLocationDisplay + it.shedName) }",
     "items(rows, key = { it.locationId }) { Text(it.operationalLocationDisplay) }",
     "items(3) { Dot() }",

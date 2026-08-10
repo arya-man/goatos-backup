@@ -55,8 +55,8 @@ BEGIN
       ON parent.tenant_id = pen.tenant_id
      AND parent.location_id = pen.parent_location_id
     WHERE (
-      lower(regexp_replace(pen.name, '^[^-]+-[[:space:]]*part[[:space:]]+', '', 'i')) = sp.normalized_label
-      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+      lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -115,8 +115,8 @@ BEGIN
       ON parent.tenant_id = pen.tenant_id
      AND parent.location_id = pen.parent_location_id
     WHERE (
-      lower(regexp_replace(pen.name, '^[^-]+-[[:space:]]*part[[:space:]]+', '', 'i')) = sp.normalized_label
-      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+      lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -144,8 +144,8 @@ WHERE sp.operational_location_id IS NULL
     OR (sp.status = 'retired' AND pen.status = 'inactive')
   )
   AND (
-    lower(regexp_replace(pen.name, '^[^-]+-[[:space:]]*part[[:space:]]+', '', 'i')) = sp.normalized_label
-    OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+    lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+    OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
   );
 
 -- Create one canonical pen row per catalog partition still missing a real
@@ -407,7 +407,7 @@ DECLARE
   candidate_count integer;
   mapped_valid boolean;
 BEGIN
-  IF NEW.status <> 'active' THEN
+  IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
   END IF;
 
@@ -416,11 +416,41 @@ BEGIN
   FROM public.locations
   WHERE tenant_id = NEW.tenant_id
     AND location_id = NEW.shed_id
-    AND location_type = 'shed';
+    AND location_type = 'shed'
+    AND (NEW.status <> 'active' OR status = 'active');
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
   END IF;
+
+  IF NEW.status = 'retired' THEN
+    IF NEW.operational_location_id IS NULL THEN
+      RETURN NEW;
+    END IF;
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.locations pen
+      WHERE pen.tenant_id = NEW.tenant_id
+        AND pen.location_id = NEW.operational_location_id
+        AND pen.parent_location_id = NEW.shed_id
+        AND pen.location_type = 'pen'
+        AND pen.status = 'inactive'
+    )
+    INTO mapped_valid;
+
+    IF mapped_valid THEN
+      RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
+      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
+    148
+  ));
 
   IF NEW.operational_location_id IS NOT NULL THEN
     SELECT EXISTS (
