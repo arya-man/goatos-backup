@@ -283,6 +283,7 @@ class FeedPackingViewModel @Inject constructor(
         status = status,
         completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, 0, workflow)),
         lifecycleStatus = lifecycleStatus,
+        reworkReason = reworkReason,
     )
 
     private data class FeedPackingSelection(

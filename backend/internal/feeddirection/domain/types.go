@@ -637,6 +637,15 @@ type PackingRow struct {
 	// (the ready/blocked/empty ration state): a pen-day can be blocked underneath and still be
 	// pending_verification. Set by the serve path from feed_packing_completions.
 	LifecycleStatus string `json:"lifecycle_status"`
+	// ReworkReason is the backend-composed sentence telling the packer WHY this pen came back to
+	// them, present only while LifecycleStatus is rework. Two very different things land in that one
+	// state and the state alone cannot tell them apart: a verifier rejected the video, or the
+	// afternoon correction changed how many animals the pen feeds and the old video no longer proves
+	// the right quantity (maintainer decision 2026-08-10). Without this the operator is shown the
+	// same bare "needs another video" card for both and has no way to know the numbers moved.
+	//
+	// Backend owns this copy per the golden frontend rule; clients render it verbatim.
+	ReworkReason string `json:"rework_reason,omitempty"`
 	// BlockedReasons is the deduplicated UNION of every session's blocked reasons, so the card can
 	// state the day's gaps without the client folding the sessions itself.
 	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`

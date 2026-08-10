@@ -3608,6 +3608,12 @@ export interface components {
              * @enum {string}
              */
             lifecycle_status: "pending" | "pending_verification" | "completed";
+            /**
+             * @description Why this pen came back to the packer, present only while the pen is in rework (which surfaces above as `lifecycle_status: pending`). Two very different things put a pen there and the status alone cannot tell them apart: a verifier rejected the video, or the afternoon feed correction changed how many animals the pen feeds, so the recorded video no longer proves the right quantity and the bag must be repacked to the new amounts.
+             *
+             *     Backend-composed farm copy. Render verbatim; never substitute a client-side sentence and never derive one from the status.
+             */
+            rework_reason?: string;
             /** @description The deduplicated union of every session's blocked reasons. */
             blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
         };

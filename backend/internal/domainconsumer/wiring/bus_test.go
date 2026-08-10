@@ -63,6 +63,12 @@ func (f *fakeFeedStore) BouncePackingForRework(context.Context, feedports.Bounce
 	return true, nil
 }
 
+// Reopening a pen after the afternoon feed correction is a LIFECYCLE write, not a verdict: it runs
+// from AmendDirection, never from this bus. It is present only to satisfy the store interface.
+func (f *fakeFeedStore) ReopenPackingForFeedChange(context.Context, feedports.ReopenPackingParams) (feedports.ReopenPackingResult, error) {
+	return feedports.ReopenPackingResult{}, nil
+}
+
 func (f *fakeFeedStore) MaterializeTransportTasks(context.Context, feedports.MaterializeTransportParams) (feedports.MaterializeTransportResult, error) {
 	return feedports.MaterializeTransportResult{}, nil
 }

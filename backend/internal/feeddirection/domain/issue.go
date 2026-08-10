@@ -329,6 +329,19 @@ func DistinctFeedItems(rows []DirectionRow) []FeedItem {
 	return out
 }
 
+// PenKey identifies one OPERATIONAL LOCATION -- the physical shed plus its normalized pen. It is the
+// grain a packer packs and films, and therefore the grain a packing completion is keyed on.
+//
+// It is deliberately NOT a shed id. Castro 1 / Castro 2 / Castro 3 hold different animals on
+// different rations, so a change confined to one pen must reopen that pen and leave its siblings
+// alone -- the same distinction migration 000137 exists for.
+type PenKey struct {
+	ShedID string
+	// PartitionKey is normalized ('whole' for an undivided shed), so it matches
+	// feed_packing_completions.partition_key directly. It is a MATCHING KEY and is never displayed.
+	PartitionKey string
+}
+
 // CellDiff is the result of comparing a freshly generated sheet against the stored one.
 type CellDiff struct {
 	// Changed carries every new-or-different cell, ready to upsert-and-mark-amended.
@@ -339,6 +352,16 @@ type CellDiff struct {
 	// AffectedShedIDs is the distinct set of sheds any change touched -- the "affected sheds only"
 	// an amendment records.
 	AffectedShedIDs []string
+	// HeadCountChangedPens is the subset of pens whose ANIMAL COUNT moved: a grain's head count
+	// differs, a grain appeared (animals arrived), or a grain vanished (animals left).
+	//
+	// It is a STRICTLY NARROWER signal than AffectedShedIDs and exists because the two answer
+	// different questions. AffectedShedIDs answers "which sheds does the amended sheet reprint",
+	// which a purely cosmetic change (a relabelled ration group, a re-authored gram rate) also
+	// triggers. This answers "where did the number of mouths change", which is the ONLY thing that
+	// justifies throwing away an operator's packing video and making them shoot it again
+	// (maintainer decision 2026-08-10).
+	HeadCountChangedPens []PenKey
 }
 
 // HasChanges reports whether the amend actually moved anything.
@@ -359,6 +382,8 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 
 	diff := CellDiff{}
 	affected := map[string]struct{}{}
+	// Pens whose ANIMAL COUNT moved, tracked separately from affected sheds -- see the field's doc.
+	headCountMoved := map[PenKey]struct{}{}
 	for _, cell := range generated {
 		key := cell.Key()
 		generatedByKey[key] = struct{}{}
@@ -368,11 +393,20 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 		}
 		diff.Changed = append(diff.Changed, cell)
 		affected[cell.ShedID] = struct{}{}
+		// A grain the stored sheet did not have at all means animals ARRIVED in a cohort this pen
+		// was not feeding before -- a head-count change even though there is no previous number to
+		// compare against.
+		if !ok || prev.HeadCount != cell.HeadCount {
+			headCountMoved[PenKey{ShedID: cell.ShedID, PartitionKey: PartitionMatchKey(cell.PartitionLabel)}] = struct{}{}
+		}
 	}
 	for key, cell := range storedByKey {
 		if _, ok := generatedByKey[key]; !ok {
 			diff.RemovedKeys = append(diff.RemovedKeys, key)
 			affected[cell.ShedID] = struct{}{}
+			// A grain that vanished means animals LEFT. The pen is packing for fewer mouths than the
+			// video was shot for, so it reopens on the same terms as one that gained animals.
+			headCountMoved[PenKey{ShedID: cell.ShedID, PartitionKey: PartitionMatchKey(cell.PartitionLabel)}] = struct{}{}
 		}
 	}
 
@@ -381,6 +415,18 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 		diff.AffectedShedIDs = append(diff.AffectedShedIDs, shed)
 	}
 	sort.Strings(diff.AffectedShedIDs)
+
+	diff.HeadCountChangedPens = make([]PenKey, 0, len(headCountMoved))
+	for pen := range headCountMoved {
+		diff.HeadCountChangedPens = append(diff.HeadCountChangedPens, pen)
+	}
+	// Deterministic order so a worker log, a test and a re-run all agree.
+	sort.Slice(diff.HeadCountChangedPens, func(i, j int) bool {
+		if diff.HeadCountChangedPens[i].ShedID != diff.HeadCountChangedPens[j].ShedID {
+			return diff.HeadCountChangedPens[i].ShedID < diff.HeadCountChangedPens[j].ShedID
+		}
+		return diff.HeadCountChangedPens[i].PartitionKey < diff.HeadCountChangedPens[j].PartitionKey
+	})
 	return diff
 }
 

@@ -888,8 +888,78 @@ holds `task.verify`, so that half of the split is contract-layer, not a backend 
 that shared SOP route. Canonical source: `context/architecture/verifier-app-and-flow.md`
 → "Verifier WEB workspace"; code `backend/internal/adminui/app/verifier_lens.go`.
 
+Confirmed AFTERNOON FEED CORRECTION rule (maintainer decision 2026-08-10,
+SUPERSEDING the APPROVAL half — and only that half — of the 2026-07-27 projection
+rule immediately below): **a RAISED shifting counts toward the feed sheet before
+a park head approves it, and the 14:00 correction reopens any pen already packed
+against the old count.**
+
+The defect it fixes: a low-priority movement raised at 09:00 is due TOMORROW, but
+tomorrow's normal sheet was issued at **07:00 that same morning** and is already
+being packed. Ten animals arriving in a pen fed for one had no feed at all,
+because the projection waited for authorization. Under-feeding animals that
+really arrive is worse than over-packing for a movement the park head later turns
+down.
+
+Three parts, and each narrowing is load-bearing:
+
+1. **Approval no longer starts the feed clock; only REJECTION stops it.** The
+   projection now counts `authorization_state='pending' AND event_status='pending'`
+   alongside the existing authorized set. The two branches are disjoint on
+   `authorization_state`, so one movement contributes exactly once as it travels
+   from raised to approved. `rejected`, `canceled` and `applied` are excluded by
+   construction — a movement that is turned down stops feeding a shed at once.
+   The effective date for a RAISED movement is the **ACTIONS lead time**
+   (`ShiftingActionsDueFrom`: low priority raised before 13:30 IST → tomorrow, at
+   or after 13:30 → the day after), **not** the raise day. This is the one place
+   the two rules deliberately meet: an unapproved movement has no authorization
+   instant, and the honest answer to "when do these animals eat here" is the day
+   they are expected to walk. Anchoring on the raise day would feed a destination
+   a full day before a 13:45 raise's animals move.
+   Canonical rule: `counts/domain.FeedShiftingRaisedEffectiveBusinessDate`.
+2. **The 14:00 correction REOPENS an already-packed pen.** The correction
+   (`correction_time`, already 14:00 for both workflows — this rule adds no new
+   clock) recomputes the frozen sheet, and any pen whose packing was already
+   submitted goes back to `rework` with an operator-facing sentence, its
+   still-pending verification item `withdrawn`, and `verified_by`/`verified_at`
+   cleared. An **already-APPROVED** video is reopened too: it proves the packer
+   packed the OLD quantity, which is now the wrong quantity, so an approved clip
+   is no more usable than an unapproved one.
+3. **Two narrowings that must not be widened.** *Experiment is EXEMPT* — its
+   rations are authored as absolute kg per pen, so a head-count change moves no
+   quantity there and reopening one would discard a good video for a sheet that
+   did not change. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
+   relabelled ration group and is shed-wide, so driving the reopen from it would
+   make the packers of Castro - 1 and Castro - 3 refilm because Castro - 2 gained
+   animals. Making an operator refilm is expensive; it is spent only where the
+   number of mouths actually moved. Canonical rule:
+   `feeddirection/domain.CellDiff.HeadCountChangedPens` →
+   `app.reopenPackingForCorrection` → `ports.ReopenPackingForFeedChange`.
+
+There is **no new state**: a reopened pen uses the existing `rework`, which
+normalizes to the client bucket `pending` ("needs my action again"). That means
+the CHIP CANNOT distinguish a reopened pen from one nobody has packed — the
+backend-composed `rework_reason` on `FeedPackingRow` is the only thing that can,
+so it must never be dropped from the contract or replaced by client-side copy.
+
+**No lock is lifted and none may be.** The transport lock is 15:30, after the
+14:00 correction, so the correction was never blocked by it; `ErrAmendAfterLock`
+stays. Do not add a path that amends a locked sheet — past the transport cutoff
+the feed has physically left and a correction cannot reach the shed.
+
+Pinned by `TestFeedShiftingRaisedEffectiveBusinessDate`,
+`TestRaisedAndAuthorizedRulesStayDistinct`, `TestDiffCellsReportsOnlyTheChangedPenOfASharedShed`,
+`TestAfternoonCorrectionNeverReopensExperimentPacking` and
+`TestPackingReworkReasonIsCarriedOnlyWhileThePenIsActuallyInRework`. Every one of
+those was mutation-tested when written: deleting the experiment branch, keying the
+reopen on the shed, or widening it past head count each turns one red.
+
 Confirmed feed-direction shifting-projection timing rule (maintainer decision
-2026-07-27, SUPERSEDING the priority-based lead-day rule — normal 2-day /
+2026-07-27; its APPROVAL requirement is SUPERSEDED by the 2026-08-10 afternoon
+correction rule ABOVE — a raised movement now counts before approval — while
+everything below about AUTHORIZED movements, zero lead, no priority branch and
+the applied/pending_verification boundary stands unchanged. This rule itself
+SUPERSEDED the priority-based lead-day rule — normal 2-day /
 high-priority 1-day — that the projection previously applied): the feed sheet's
 projected shed head count = the live herd PLUS every authorized-but-unexecuted
 shifting, with NO lead time and NO priority branch. A shifting is a pending feed

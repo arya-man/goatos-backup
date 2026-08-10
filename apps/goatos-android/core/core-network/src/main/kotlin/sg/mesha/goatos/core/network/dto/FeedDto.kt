@@ -257,6 +257,12 @@ data class FeedPackingRowDto(
     // Verification-lifecycle bucket: pending | pending_verification | completed. Orthogonal to [status]
     // (the ration state). Backend-owned; empty defaults to pending.
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
+    // Why this pen came back to the packer, present only while it is in rework — which surfaces as
+    // lifecycleStatus "pending", so the STATUS ALONE CANNOT SAY WHY. Two different things land there:
+    // a verifier rejected the video, or the afternoon feed correction changed how many animals the
+    // pen feeds and the recorded video no longer proves the right quantity. Backend-composed farm
+    // copy; render verbatim and never compose a local sentence from the status.
+    @SerialName("rework_reason") val reworkReason: String = "",
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String

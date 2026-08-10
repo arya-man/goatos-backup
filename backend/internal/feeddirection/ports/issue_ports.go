@@ -78,6 +78,10 @@ type AmendResult struct {
 	Header          domain.IssueHeader
 	Outcome         string
 	AffectedShedIDs []string
+	// HeadCountChangedPens is the strictly narrower subset of operational locations whose ANIMAL
+	// COUNT the correction moved. It drives the packing reopen and nothing else -- see
+	// domain.CellDiff.HeadCountChangedPens for why a cosmetic change must not appear here.
+	HeadCountChangedPens []domain.PenKey
 }
 
 // LockIssueCommand locks a day/workflow's sheet.

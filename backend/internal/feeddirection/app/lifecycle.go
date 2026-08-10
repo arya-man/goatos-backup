@@ -35,6 +35,10 @@ type LifecycleReport struct {
 	Workflow        string
 	Outcome         string
 	AffectedShedIDs []string
+	// ReopenedPackingCompletionIDs names the packing pen-days the correction sent back to the
+	// operator because their animal count moved. Empty on issue/lock and on the ordinary correction
+	// that lands before anyone has packed.
+	ReopenedPackingCompletionIDs []string
 }
 
 // IssueDirection ISSUES (or exactly-replays, or re-issues in place) one workflow's sheet for the
@@ -65,6 +69,9 @@ func (s *Service) IssueDirection(ctx context.Context, req IssueRequest) (Lifecyc
 // AmendDirection recomputes the feed day's sheet, diffs it against the stored one, and persists an
 // amendment for the AFFECTED SHEDS ONLY. A no-op amend still records that the correction ran. It is
 // refused once the sheet is locked.
+//
+// It then REOPENS any already-submitted packing for the pens whose animal count moved -- see
+// reopenPackingForCorrection.
 func (s *Service) AmendDirection(ctx context.Context, req IssueRequest) (LifecycleReport, error) {
 	prep, err := s.prepareLifecycle(ctx, req, true)
 	if err != nil {
@@ -82,10 +89,64 @@ func (s *Service) AmendDirection(ctx context.Context, req IssueRequest) (Lifecyc
 	if err != nil {
 		return LifecycleReport{}, err
 	}
+	reopened, err := s.reopenPackingForCorrection(ctx, req.TenantID, req.ParkID, prep, result.HeadCountChangedPens)
+	if err != nil {
+		return LifecycleReport{}, err
+	}
 	return LifecycleReport{
 		Header: result.Header, FeedDay: prep.feedDay, Workflow: prep.workflow,
 		Outcome: result.Outcome, AffectedShedIDs: result.AffectedShedIDs,
+		ReopenedPackingCompletionIDs: reopened,
 	}, nil
+}
+
+// packingReopenedReason is the operator-facing sentence stored on a pen reopened by the afternoon
+// correction. Backend owns the copy (the golden frontend rule), and it says the farm thing: animals
+// moved, the quantities changed, pack again and film it again. It names no table, job or window.
+const packingReopenedReason = "Animals moved in or out of this pen, so the feed quantities changed. Pack the new amounts and record a new video."
+
+// reopenPackingForCorrection throws away the packing videos of pens the correction re-counted.
+//
+// MAINTAINER DECISION 2026-08-10. A low-priority movement raised in the morning is due tomorrow, and
+// tomorrow's normal sheet was issued at 07:00 and is already being packed. The afternoon correction
+// now recomputes it including movements nobody has approved yet -- but a pen whose bag was packed
+// and filmed at 09:00 was packed for the old head count, and nothing was telling the packer. The
+// video is reverted and the card comes back with the new numbers.
+//
+// TWO NARROWINGS, both load-bearing:
+//
+//   - EXPERIMENT IS EXEMPT. Experiment rations are authored as absolute kg per pen, so a head-count
+//     change moves no quantity there; reopening one would discard a perfectly good video for a sheet
+//     that did not change.
+//   - HEAD COUNT ONLY, per pen. AffectedShedIDs would also fire for a relabelled ration group or a
+//     re-authored gram rate, and it is shed-wide -- reopening Castro - 1 and Castro - 3 because
+//     Castro - 2 gained animals. Making an operator refilm is expensive, so it is spent only where
+//     the number of mouths actually moved.
+//
+// A pen nobody has packed yet reopens nothing: the store finds no submitted row and the operator
+// simply sees the corrected numbers on a card that was still pending.
+func (s *Service) reopenPackingForCorrection(
+	ctx context.Context,
+	tenantID, parkID string,
+	prep lifecyclePrep,
+	pens []domain.PenKey,
+) ([]string, error) {
+	if s.packing == nil || len(pens) == 0 || prep.workflow != domain.WorkflowNormal {
+		return nil, nil
+	}
+	result, err := s.packing.ReopenPackingForFeedChange(ctx, ports.ReopenPackingParams{
+		TenantID:   tenantID,
+		ParkID:     parkID,
+		TargetDate: prep.feedDayTime,
+		Workflow:   prep.workflow,
+		Pens:       pens,
+		Reason:     packingReopenedReason,
+		ActorID:    s.generatedBy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: reopen packing after correction: %w", err)
+	}
+	return result.ReopenedCompletionIDs, nil
 }
 
 // LockDirection LOCKS the feed day's sheet: no further change, later changes roll to the next feed

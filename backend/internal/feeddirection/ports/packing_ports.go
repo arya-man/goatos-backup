@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 )
 
 // Feed PACKING verification gate ports (maintainer decision, 2026-07-26, SUPERSEDING the "packing
@@ -94,6 +96,10 @@ type PackingCompletionStatus struct {
 	PartitionLabel string
 	Workflow       string
 	Status         string
+	// ReworkReason is the stored sentence explaining a 'rework' row, empty in every other state. It
+	// travels with the status because the two things that put a pen in rework -- a verifier rejecting
+	// the video, and the afternoon correction re-counting the pen -- are indistinguishable without it.
+	ReworkReason string
 }
 
 // ApplyPackingParams flips a packing completion whose video a verifier APPROVED
@@ -112,6 +118,42 @@ type BouncePackingParams struct {
 	CompletionID string
 	Reason       string
 	TraceID      string
+}
+
+// ReopenPackingParams reopens every already-submitted packing pen-day whose ANIMAL COUNT the
+// afternoon correction moved, so the packer repacks the pen against the corrected sheet and films it
+// again (maintainer decision 2026-08-10).
+//
+// It is a SET-BASED write over the pens the amend diff named, not one call per pen: the correction
+// runs for a whole park at once and a per-pen call would be exactly the N+1 fan-out the scale rules
+// ban.
+type ReopenPackingParams struct {
+	TenantID   string
+	ParkID     string
+	TargetDate time.Time
+	// Workflow is always 'normal' in production. Experiment rations are authored as ABSOLUTE KG PER
+	// PEN, so a head-count change does not move a single quantity there and reopening one would throw
+	// away a good video for a sheet that did not change. It is a parameter rather than a constant only
+	// so the store stays a faithful, testable write boundary.
+	Workflow string
+	// Pens are the operational locations to reopen, carrying the NORMALIZED partition key so they
+	// match feed_packing_completions.partition_key ('whole' for an undivided shed).
+	Pens []domain.PenKey
+	// Reason is the operator-facing sentence stored on the row and shown on the reopened card. It
+	// must say what happened in farm language ("animals moved in/out, quantities changed"), never
+	// name a table, a job or a correction window.
+	Reason  string
+	ActorID string
+	TraceID string
+}
+
+// ReopenPackingResult reports what the reopen actually moved.
+type ReopenPackingResult struct {
+	// ReopenedCompletionIDs are the rows moved to 'rework'. Empty is the ordinary case: most
+	// corrections land before anyone has packed.
+	ReopenedCompletionIDs []string
+	// WithdrawnItemCount is the number of still-pending verification items retired with them.
+	WithdrawnItemCount int
 }
 
 // PackingCompletionStore owns the feed_packing_completions table.
@@ -144,4 +186,17 @@ type PackingCompletionStore interface {
 	// BouncePackingForRework flips 'pending_verification' -> 'rework', stores the reason. Idempotent and
 	// stale-guarded: a re-delivered verdict on a non-pending row is a no-op.
 	BouncePackingForRework(ctx context.Context, p BouncePackingParams) (bool, error)
+
+	// ReopenPackingForFeedChange moves every named pen's submitted packing back to 'rework' because
+	// the afternoon correction changed how many animals it feeds, and retires the verification items
+	// that were queued for the now-superseded videos.
+	//
+	// It reopens BOTH 'pending_verification' AND 'completed' rows (maintainer decision 2026-08-10): a
+	// video a verifier already approved proves the packer packed the OLD quantity, which is now the
+	// wrong quantity, so an approved clip is no more usable than an unapproved one. A row already in
+	// 'rework' is left alone -- it is already back with the operator.
+	//
+	// Idempotent: running it twice for the same correction reopens nothing the second time, because
+	// the rows it moved are no longer in a reopenable state.
+	ReopenPackingForFeedChange(ctx context.Context, p ReopenPackingParams) (ReopenPackingResult, error)
 }
