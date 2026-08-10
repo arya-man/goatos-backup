@@ -32,12 +32,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -119,8 +118,19 @@ data class WorkflowDetailUiState(
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
     val templateLine: String = "",
     val facts: List<Pair<String, String>> = emptyList(),
+    /**
+     * Operator progress. On Death this counts a pre-submit LOCAL draft as done: the operator has
+     * recorded that video and nothing more is asked of them for that row until Submit. It is
+     * therefore NOT backend truth and must never gate submission — see [deathBackendActionsDone].
+     */
     val actionsDone: Int = 0,
     val actionsTotal: Int = 0,
+    /**
+     * Backend-confirmed finished actions, the only count the death submission gate may read.
+     * With two local drafts and nothing uploaded, [actionsDone] is already 2 while this is still
+     * 0 — and that is exactly the moment Submit has to be tappable.
+     */
+    val deathBackendActionsDone: Int = 0,
     val actions: List<WorkflowActionUi> = emptyList(),
     val isRefreshing: Boolean = false,
     val isCapturingVideo: Boolean = false,
@@ -140,7 +150,7 @@ data class WorkflowDetailUiState(
     val showDeathSubmissionButton: Boolean get() = isDeath
     val deathSubmissionLabel: WorkflowDeathSubmissionLabel
         get() = when {
-            actionsTotal > 0 && actionsDone >= actionsTotal -> WorkflowDeathSubmissionLabel.SUBMITTED
+            actionsTotal > 0 && deathBackendActionsDone >= actionsTotal -> WorkflowDeathSubmissionLabel.SUBMITTED
             deathUploadFailed -> WorkflowDeathSubmissionLabel.UPLOAD_FAILED
             deathDraftsSubmitting || isSubmittingDeath -> WorkflowDeathSubmissionLabel.UPLOADING
             else -> WorkflowDeathSubmissionLabel.SUBMIT
@@ -211,8 +221,7 @@ fun WorkflowDetailScreen(
                     Text(
                         text = message,
                         color = if (state.isErrorMessage) MeshaColors.Danger else MeshaColors.BrandD,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.W600,
+                        style = MeshaType.cardSubtitle,
                     )
                 }
             }
@@ -271,7 +280,7 @@ private fun WorkflowSectionTitle(title: String, tone: Color = MeshaColors.Faint)
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(text = title, color = tone, fontSize = 11.sp, fontWeight = FontWeight.W800)
+        Text(text = title, color = tone, style = MeshaType.sectionLabel)
         Box(modifier = Modifier.weight(1f).height(1.dp).background(MeshaColors.Hair))
     }
 }
@@ -305,11 +314,10 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                 Text(
                     text = listOf(state.displayId, state.roleLabel).filter { it.isNotBlank() }.joinToString(" · "),
                     color = MeshaColors.Ink,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.W800,
+                    style = MeshaType.headerTitle,
                 )
                 if (state.templateLine.isNotBlank()) {
-                    Text(text = state.templateLine, color = MeshaColors.Faint, fontSize = 11.sp)
+                    Text(text = state.templateLine, color = MeshaColors.Faint, style = MeshaType.caption)
                 }
             }
         }
@@ -326,12 +334,11 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(text = label, color = MeshaColors.Faint, fontSize = 11.sp)
+                            Text(text = label, color = MeshaColors.Faint, style = MeshaType.caption)
                             Text(
                                 text = value,
                                 color = MeshaColors.Ink,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.W700,
+                                style = MeshaType.pill,
                             )
                         }
                     }
@@ -359,8 +366,7 @@ private fun WorkflowContextCard(state: WorkflowDetailUiState) {
             Text(
                 text = stringResource(R.string.counts_workflow_progress_fmt, state.actionsDone, state.actionsTotal),
                 color = MeshaColors.Muted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pill,
             )
         }
     }
@@ -398,8 +404,7 @@ private fun WorkflowActionRow(
             Text(
                 text = action.glyph,
                 color = if (action.section == WorkflowActionSection.COMPLETED) MeshaColors.Ok else MeshaColors.Muted,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.pillStrong,
                 modifier = Modifier
                     .size(26.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -411,8 +416,7 @@ private fun WorkflowActionRow(
                 Text(
                     text = action.title,
                     color = MeshaColors.Ink,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.listTitle,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
@@ -439,8 +443,7 @@ private fun WorkflowActionRow(
             Text(
                 text = action.detail,
                 color = MeshaColors.Muted,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
+                style = MeshaType.cardSubtitle,
             )
         }
         if (action.canAnswer && action.options.isNotEmpty()) {
@@ -451,8 +454,7 @@ private fun WorkflowActionRow(
                         Text(
                             text = option.label,
                             color = MeshaColors.BrandD,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.W800,
+                            style = MeshaType.pillStrong,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             modifier = Modifier
                                 .weight(1f)
@@ -484,8 +486,7 @@ private fun WorkflowActionRow(
             Text(
                 text = stringResource(R.string.counts_workflow_weight_continue),
                 color = if (validWeight) MeshaColors.OnBrand else MeshaColors.Faint,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.pillStrong,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -526,8 +527,7 @@ private fun WorkflowActionRow(
                         },
                     ),
                     color = MeshaColors.OnBrand,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W800,
+                    style = MeshaType.pillStrong,
                     modifier = Modifier.padding(start = 6.dp),
                 )
             }
@@ -536,8 +536,7 @@ private fun WorkflowActionRow(
             Text(
                 text = stringResource(R.string.counts_workflow_mark_done),
                 color = MeshaColors.OnBrand,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.pillStrong,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -548,7 +547,7 @@ private fun WorkflowActionRow(
             )
         }
         if (action.footer.isNotBlank()) {
-            Text(text = action.footer, color = MeshaColors.Faint, fontSize = 11.sp)
+            Text(text = action.footer, color = MeshaColors.Faint, style = MeshaType.caption)
         }
     }
 }
@@ -559,8 +558,7 @@ private fun WorkflowTag(text: String, bg: Color, fg: Color) {
     Text(
         text = text,
         color = fg,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.overline,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
@@ -581,8 +579,7 @@ private fun StatusChip(label: String, tone: WorkflowStatusTone, isDeath: Boolean
     Text(
         text = label,
         color = fg,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pill,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)

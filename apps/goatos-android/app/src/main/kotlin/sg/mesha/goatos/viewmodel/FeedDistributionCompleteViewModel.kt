@@ -6,13 +6,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
@@ -393,13 +390,10 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun observeOutboxItem(itemId: String) {
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
-            syncRepository.observeStatus()
-                .map { status -> status.items.firstOrNull { it.id == itemId } }
+            syncRepository.observeItem(itemId)
                 .filterNotNull()
                 .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
-                    item ?: return@collect
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(

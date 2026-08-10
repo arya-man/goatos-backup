@@ -2461,6 +2461,10 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(FeedDistributionCompleteViewModel.ARG_LIFECYCLE_STATUS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: FeedDistributionCompleteViewModel = hiltViewModel()
@@ -2508,6 +2512,10 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedPackingCompleteViewModel.ARG_PARTITION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_LIFECYCLE_STATUS) {
                     type = NavType.StringType
                     defaultValue = ""
                 },

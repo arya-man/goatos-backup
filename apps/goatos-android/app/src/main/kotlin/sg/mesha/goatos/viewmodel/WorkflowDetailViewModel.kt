@@ -434,6 +434,13 @@ class WorkflowDetailViewModel @Inject constructor(
     ): WorkflowDetailUiState {
         val now = Instant.now()
         val mainActions = operatorVisibleWorkflowActions(actions)
+        // Death is the one TWO-DRAFT flow: neither video leaves the phone until Submit, so the
+        // backend correctly reports both actions `pending` and the second one blocked behind its
+        // predecessor. Rendering that verbatim strands the operator after the first recording —
+        // pre-submit, a durable draft IS their finished work for that row.
+        val isDeathModule = module == MODULE_DEATH
+        val draftedActionIds = if (isDeathModule) drafts.map { it.actionId }.toSet() else emptySet()
+        val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
         return current.copy(
             loading = false,
             notFound = false,
@@ -450,18 +457,24 @@ class WorkflowDetailViewModel @Inject constructor(
             ).filter { it.isNotBlank() }.joinToString(" · "),
             facts = facts.map { it.label to it.value },
             // `in_review` is finished from the operator's perspective: verification is internal
-            // and must not make a completed upload read as 0/N or suppress the exit control.
-            actionsDone = mainActions.count { operatorFinishedWorkflowStatus(it.status) },
+            // and must not make a completed upload read as 0/N or suppress the exit control. A
+            // death draft counts the same way — the operator recorded that video.
+            actionsDone = mainActions.count {
+                operatorFinishedWorkflowStatus(it.status) || it.actionId in draftedActionIds
+            },
+            // Backend truth, kept separate so the submission gate cannot read a draft as sent.
+            deathBackendActionsDone = mainActions.count { operatorFinishedWorkflowStatus(it.status) },
             actionsTotal = mainActions.size,
             actions = mainActions.sortedBy(::workflowDisplayOrder).map { action ->
                 val hasDraft = drafts.any { it.actionId == action.actionId }
-                val draftsSubmitting = drafts.any { it.syncStatus == DRAFT_STATUS_SUBMITTING }
+                val locallyRecorded = action.actionId in draftedActionIds
                 val predecessorsReady = workflowPredecessorsReady(action, mainActions) { previous ->
-                    operatorFinishedWorkflowStatus(previous.status) || drafts.any { it.actionId == previous.actionId }
+                    operatorFinishedWorkflowStatus(previous.status) || previous.actionId in draftedActionIds
                 }
-                action.toActionUi(now).copy(
+                val blocked = workflowBlockedForOperator(action, isDeathModule, predecessorsReady)
+                action.toActionUi(now, blocked, locallyRecorded).copy(
                     hasVideoDraft = hasDraft,
-                    canRecordVideo = canRecordWorkflowVideo(action, draftsSubmitting, predecessorsReady),
+                    canRecordVideo = canRecordWorkflowVideo(action, blocked, draftsSubmitting, predecessorsReady),
                 )
             }.sortedBy { it.sectionOrder() },
             subjectGoatId = subject.goatId,
@@ -480,17 +493,29 @@ class WorkflowDetailViewModel @Inject constructor(
         WorkflowActionSection.COMPLETED -> 2
     }
 
-    private fun WorkflowActionDto.toActionUi(now: Instant): WorkflowActionUi {
+    /**
+     * [blocked] is the OPERATOR-effective block, not the raw backend flag: a death row's
+     * `previous_action` block is stale while its predecessor's video is still a local draft the
+     * backend has not seen. [locallyRecorded] presents such a draft as finished work — it leaves
+     * the live sections but keeps its control, because a draft stays re-recordable until Submit.
+     */
+    private fun WorkflowActionDto.toActionUi(
+        now: Instant,
+        blocked: Boolean,
+        locallyRecorded: Boolean,
+    ): WorkflowActionUi {
         val due = dueAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val numericAnswerUnit = workflowNumericAnswerUnit(this)
-        val isOverdueNow = status == STATUS_PENDING && !blocked && due != null && due.isBefore(now)
+        val isOverdueNow = status == STATUS_PENDING && !blocked && !locallyRecorded &&
+            due != null && due.isBefore(now)
         val section = when {
-            status == STATUS_COMPLETED || status == STATUS_IN_REVIEW -> WorkflowActionSection.COMPLETED
+            status == STATUS_COMPLETED || status == STATUS_IN_REVIEW || locallyRecorded ->
+                WorkflowActionSection.COMPLETED
             isOverdueNow -> WorkflowActionSection.OVERDUE
             else -> WorkflowActionSection.SCHEDULED
         }
         val statusTone = when {
-            status == STATUS_COMPLETED -> WorkflowStatusTone.DONE
+            status == STATUS_COMPLETED || locallyRecorded -> WorkflowStatusTone.DONE
             status == STATUS_IN_REVIEW -> WorkflowStatusTone.IN_REVIEW
             blocked -> WorkflowStatusTone.BLOCKED
             isOverdueNow -> WorkflowStatusTone.OVERDUE
@@ -501,6 +526,9 @@ class WorkflowDetailViewModel @Inject constructor(
             status == STATUS_COMPLETED -> LABEL_DONE
             status == STATUS_IN_REVIEW -> LABEL_IN_REVIEW
             status == STATUS_REWORK -> LABEL_REWORK
+            // A recorded draft's chip is owned by the screen ("Recorded"); nothing scheduled,
+            // blocked or late may speak for a row the operator has already shot.
+            locallyRecorded -> LABEL_DONE
             accessLabel != null -> accessLabel
             blocked -> LABEL_BLOCKED
             isOverdueNow -> lateLabel(due, now)
@@ -523,7 +551,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 else -> TAG_ACTION
             },
             glyph = when {
-                status == STATUS_COMPLETED -> GLYPH_DONE
+                status == STATUS_COMPLETED || locallyRecorded -> GLYPH_DONE
                 actionType == TYPE_QUESTION -> GLYPH_QUESTION
                 actionType == TYPE_QUESTION_SELECT -> GLYPH_SELECT
                 actionType == TYPE_APPROVAL -> GLYPH_APPROVAL
@@ -633,14 +661,35 @@ class WorkflowDetailViewModel @Inject constructor(
     }
 }
 
+/**
+ * Whether a row is blocked FOR THE OPERATOR, which is not always the backend's `blocked` flag.
+ *
+ * Death is the exception, and only for `previous_action`. Its two videos are held as local drafts
+ * and uploaded together at Submit, so until then the backend has seen no completion and correctly
+ * reports the second video blocked behind the first (`tasks/domain.OperatorActionBlocked`).
+ * Honouring that verbatim leaves the operator with a recorded first video and no next control —
+ * the reported field failure. [predecessorsReady] is already draft-aware, so it is the local answer
+ * to the same question the backend answered without the drafts.
+ *
+ * Every other reason still blocks, and every other module blocks on `previous_action` too: Birth
+ * uploads each video on capture, so its block is live backend truth about work genuinely not done.
+ */
+internal fun workflowBlockedForOperator(
+    action: WorkflowActionDto,
+    isDeath: Boolean,
+    predecessorsReady: Boolean,
+): Boolean = action.blocked &&
+    !(isDeath && action.blockedReason == WORKFLOW_BLOCKED_PREVIOUS_ACTION && predecessorsReady)
+
 internal fun canRecordWorkflowVideo(
     action: WorkflowActionDto,
+    blocked: Boolean,
     draftsSubmitting: Boolean,
     predecessorsReady: Boolean,
 ): Boolean = action.actionType == "action" &&
     action.requiresVideo &&
     !operatorFinishedWorkflowStatus(action.status) &&
-    !action.blocked &&
+    !blocked &&
     !draftsSubmitting &&
     predecessorsReady
 
@@ -691,7 +740,7 @@ internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Ins
 internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?): String {
     if (!blocked) return ""
     return when (blockedReason) {
-        "previous_action" -> "Finish the earlier birth steps for this kid first."
+        WORKFLOW_BLOCKED_PREVIOUS_ACTION -> "Finish the earlier birth steps for this kid first."
         "signoff" -> "Waiting for the videos this step signs off."
         else -> ""
     }
@@ -723,5 +772,6 @@ internal fun workflowVideoAnswerKey(actionId: String, proofOutboxItemId: String)
 private val WORKFLOW_IST: ZoneId = ZoneId.of("Asia/Kolkata")
 private val WORKFLOW_DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM · HH:mm")
 private const val WORKFLOW_SECTION_COLOSTRUM = "colostrum_session"
+internal const val WORKFLOW_BLOCKED_PREVIOUS_ACTION = "previous_action"
 private const val WORKFLOW_ACTION_KEY_FIRST_COLOSTRUM = "first_colostrum"
 private const val WORKFLOW_ACTION_KEY_TAG_THE_KID = "tag_the_kid"
