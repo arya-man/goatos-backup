@@ -73,9 +73,20 @@ data class FeedPackingRowUi(
     val headCount: Long,
     /** The day's split, in authored order. One entry on a park with a single session. */
     val sessions: List<FeedPackingSessionUi>,
-    /** The whole DAY's total, summed from the already-rounded session totals. */
+    /**
+     * The whole DAY's total, summed from the already-rounded session totals.
+     *
+     * NOT rendered on the card (maintainer decision 2026-08-10): a packer weighs out the morning bag
+     * and the evening bag, and a combined figure printed beside them invites being packed as a
+     * third. Carried for reporting surfaces that legitimately want the day.
+     */
     val totalKg: String,
-    /** "ready" | "blocked" | "empty" — the pen-day roll-up. */
+    /**
+     * "ready" | "blocked" | "empty" — the pen-day roll-up, used for filtering and reporting.
+     *
+     * Not rendered on the card either: the day is blocked exactly when some session is, and each
+     * session states its own blocked status, so a day-level flag would say less in more space.
+     */
     val status: String,
     val completed: Boolean,
     /** Verification-lifecycle bucket: "pending" | "pending_verification" | "completed" (empty =
@@ -391,21 +402,17 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi, canCapture: Boolean, onOpe
             Text(text = row.experimentArm, color = MeshaColors.Muted, style = MeshaType.caption)
         }
 
-        // The day's sessions, each with its own heading and quantities — "Morning this much,
+        // The day's sessions, each with its own heading and its OWN total — "Morning this much,
         // Evening this much" on one card. The session heading stays even for a single-session park,
         // so the packer always reads which share a quantity belongs to.
+        //
+        // There is deliberately NO combined day total row (maintainer decision 2026-08-10). A packer
+        // fills the morning bag and the evening bag; the sum of the two is a number nobody weighs
+        // out, and printing it next to two per-session figures invites it being packed as a third.
+        // The day figure still exists in the contract (`total_kg`) for reporting -- it is simply not
+        // on the operator's card.
         row.sessions.forEach { session ->
             FeedPackingSessionBlock(session)
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = stringResource(R.string.feed_pack_total), color = MeshaColors.Muted, style = MeshaType.pillStrong, modifier = Modifier.weight(1f))
-            if (row.status == "blocked") {
-                Text(text = stringResource(R.string.feed_blocked_label), color = MeshaColors.Danger, style = MeshaType.pillStrong)
-            } else {
-                // The DAY's total — the sum of the sessions listed above it.
-                Text(text = stringResource(R.string.feed_kg_fmt, row.totalKg), color = MeshaColors.BrandD, style = MeshaType.bodyStrong)
-            }
         }
     }
 }
