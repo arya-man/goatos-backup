@@ -36,20 +36,26 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
  * MANDATORY, blocking permission gate for the capture/submit surface
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
- * microphone, Bluetooth, notifications, and pre-Android-12 location when the RFID stack
- * requires it. There is no degraded operator capture path: if any required permission is
- * denied, [content] never composes.
+ * microphone, OS-applicable notifications, and Bluetooth, or pre-Android-12 location when
+ * the RFID stack requires it. There is no degraded operator capture path: if any required
+ * permission is denied, [content] never composes. Runtime notification permission exists
+ * only on Android 13+, so Android 12 must never include it in the all-granted check.
  *
  * The microphone is on that blocking list deliberately (2026-08-08): a proof clip without the
  * operator's voice is a weaker proof, so audio is compulsory rather than best-effort — see
  * InAppVideoRecorder's `withAudioEnabled`. `internal` rather than `private` so
  * ProofAudioCaptureTest can assert the mic never falls back out of the mandatory set.
  */
-internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> = buildList {
+internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
+    mandatoryCapturePermissionsForSdk(Build.VERSION.SDK_INT)
+
+internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
     add(Manifest.permission.RECORD_AUDIO)
-    add(Manifest.permission.POST_NOTIFICATIONS) // no-op pre-33; harmless to request always.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    if (sdkInt >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
     } else {
         add(Manifest.permission.ACCESS_FINE_LOCATION) // Bluetooth dependency on pre-12.
