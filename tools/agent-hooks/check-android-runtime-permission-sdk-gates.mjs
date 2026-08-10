@@ -54,9 +54,41 @@ function lineIsComment(line, inBlockComment) {
   return inBlockComment || trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
 }
 
+function codeLinesBefore(lines, index, lookback = 8) {
+  const start = Math.max(0, index - lookback);
+  let inBlockComment = false;
+  const code = [];
+  for (const line of lines.slice(start, index + 1)) {
+    let current = line;
+    if (inBlockComment) {
+      const end = current.indexOf("*/");
+      if (end < 0) continue;
+      current = current.slice(end + 2);
+      inBlockComment = false;
+    }
+    while (current.includes("/*")) {
+      const startComment = current.indexOf("/*");
+      const endComment = current.indexOf("*/", startComment + 2);
+      if (endComment < 0) {
+        current = current.slice(0, startComment);
+        inBlockComment = true;
+        break;
+      }
+      current = current.slice(0, startComment) + current.slice(endComment + 2);
+    }
+    code.push(current.replace(/\/\/.*$/, ""));
+  }
+  return code.join("\n");
+}
+
 function notificationLineIsSdkGated(lines, index) {
-  const window = lines.slice(Math.max(0, index - 6), index + 7).join("\n");
-  return /Build\.VERSION_CODES\.TIRAMISU|VERSION\.SDK_INT\s*>=\s*33|sdkInt\s*>=\s*33|sdkInt\s*>=\s*Build\.VERSION_CODES\.TIRAMISU/.test(window);
+  const window = codeLinesBefore(lines, index);
+  return (
+    /(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)/.test(window) ||
+    /sdkInt\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)/.test(window) ||
+    /Build\.VERSION_CODES\.TIRAMISU\s*<=\s*(?:Build\.VERSION\.)?SDK_INT/.test(window) ||
+    /Build\.VERSION_CODES\.TIRAMISU\s*<=\s*sdkInt/.test(window)
+  );
 }
 
 function notificationLineIsRuntimePermissionContext(lines, index) {
@@ -117,6 +149,17 @@ function selfTest() {
     ")",
     "launcher.launch(permissions)",
   ].join("\n");
+  const badCommentOnly = [
+    "// POST_NOTIFICATIONS is runtime-grantable only on TIRAMISU+",
+    "val mandatoryPermissions = listOf(",
+    "    Manifest.permission.POST_NOTIFICATIONS,",
+    ")",
+  ].join("\n");
+  const badInverted = [
+    "if (sdkInt < Build.VERSION_CODES.TIRAMISU) {",
+    "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -134,6 +177,8 @@ function selfTest() {
     scanText("bad.kt", bad).length === 1 &&
     scanText("bad-list-of.kt", badListOf).length === 1 &&
     scanText("bad-array-of.kt", badArrayOf).length === 1 &&
+    scanText("bad-comment-only.kt", badCommentOnly).length === 1 &&
+    scanText("bad-inverted.kt", badInverted).length === 1 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
     scanText("AndroidManifest.xml", goodManifestDeclaration).length === 0 &&
