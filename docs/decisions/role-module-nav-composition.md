@@ -38,6 +38,21 @@ a grant to operators in every department. Each module still contributes only the
 allowed by the operator's permissions; `/app/bootstrap` composes and permission-filters
 the drawer and bottom bars from the same registry described below.
 
+## Ground-Operator Park Scope Golden Rule
+
+Ground operators are physical execution users. They must be scoped to exactly one
+park/center in production, staging, local, and throwaway/dev seeds. A ground
+operator may hold several operational modules for that one park, but must not get
+tenant-wide or multi-park task visibility. If a test needs CBE and CPT operator
+screens, seed two different operator principals, one per park. Do not seed one
+operator with both parks just to make a test convenient.
+
+Multi-park visibility belongs only to director/CEO-style oversight roles, and
+those surfaces are read-only unless a separate explicit execution grant exists.
+For Feed, the intended split is: `feed_director` can inspect both parks and see
+pending/done status, while feed direction/packing/transport operators see only
+their own park's assigned ground work.
+
 ## How it is built (shipped)
 - A **module registry** (`moduleNavRegistry` in
   `backend/internal/workforce/app/bootstrap_copy.go`) is the single source of truth.
