@@ -250,7 +250,8 @@ JOIN locations pen
 WHERE sp.tenant_id = $1::uuid
   AND sp.shed_id = $2::uuid
   AND sp.status = 'active'
-  AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
+  AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+FOR SHARE OF sp`,
 		cmd.TenantID, cmd.ToShedID, partitionLabel).Scan(&locationID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("identity: relocate goats: destination partition %s for shed %s has no active operational location", partitionLabel, cmd.ToShedID)

@@ -744,6 +744,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 						  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
 						      regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '')
 						LIMIT 1
+						FOR SHARE OF sp
 					)
 					END,
 					$12,$13,$14,$15,$16,$17,now()

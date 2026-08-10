@@ -1251,7 +1251,8 @@ func (r *Repository) resolveMoveDestinationOperationalLocationID(ctx context.Con
 	  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
 	      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
 	ORDER BY sp.partition_label
-	LIMIT 1`, cmd.TenantID, cmd.ToShedID, *partitionLabel).Scan(&locationID)
+	LIMIT 1
+	FOR SHARE OF sp`, cmd.TenantID, cmd.ToShedID, *partitionLabel).Scan(&locationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrPartitionNotInShed
 	}
