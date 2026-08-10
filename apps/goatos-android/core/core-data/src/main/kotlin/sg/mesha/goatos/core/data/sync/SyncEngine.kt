@@ -682,8 +682,14 @@ class SyncEngine(
                 shedId = payload.shedId,
                 partitionLabel = payload.partitionLabel,
                 // payload.sessionNo is deliberately NOT sent: the packing completion is per pen-DAY,
-                // and the route rejects the field. A legacy queued row carrying one drains as that
-                // pen's day completion.
+                // and the route rejects the field.
+                //
+                // A legacy queued row carrying one drains as that pen's day completion. TWO of them
+                // -- Morning and Evening, queued before the merge, each with its OWN video and its
+                // OWN idempotency key -- both address the same pen-day row, and only the first can
+                // be recorded. The second is answered `409 packing_already_recorded` and
+                // terminalized as a conflict by [recordFailure], which is the whole point: it used
+                // to come back 200 with the operator's second video silently discarded.
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
                 packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),

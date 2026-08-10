@@ -473,8 +473,6 @@ func insertFeedDistributionCompletedOutbox(ctx context.Context, tx pgx.Tx, o fee
 		AggregateType:  feedDistributionCompletedAggregateType,
 		AggregateID:    o.CompletionID,
 		IdempotencyKey: idempotencyKey,
-		SubjectType:    "shed",
-		SubjectID:      o.ShedID,
 		TenantID:       o.TenantID,
 		ParkID:         o.ParkID,
 		ShedID:         o.ShedID,

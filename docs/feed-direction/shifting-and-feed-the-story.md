@@ -204,8 +204,34 @@ schema; they now share one builder.
 **3. A `uuid = text` comparison and a provenance string in a uuid column** in the new reopen path —
 both mine, both caught before they could reach anyone.
 
+Then an independent review of that work found three more, and the first is the most instructive:
+
+**4. The envelope fix above was itself a partial fix.** It restored the five *missing* fields and
+left the *values* wrong: `aggregate_type` had no `feed_*_completion` member, `subject_type` was
+`shed` where the enum only has `location`, and the system fallback said `actor_type: "system"` where
+the enum says `system_rule`. A wrong value fails validation exactly as a missing field does, so all
+three events were still undeliverable. The reviewer's real finding was the *absence of a guard* —
+nothing validated a produced feed envelope against the schema, which is why it could be wrong twice.
+There is now a test that compiles the real schema with the production validator and runs every feed
+envelope through it, and the `subject_type` is no longer a per-caller string at all: it is derived
+inside the builder, because a mutation test proved one call site could drift back while a
+builder-level test kept passing.
+
+**5. Two legacy queued videos, one silently discarded.** The pen-day merge left the phone able to
+hold two pre-upgrade packing rows for one pen — Morning and Evening, each with its own video and its
+own idempotency key. Both drain to the same pen-day row; the second returned **200 with its video
+never recorded**. This is the accepted-and-ignored failure the strict `session_no` rejection exists
+to prevent, reappearing one layer above the API. It is now `409 packing_already_recorded`.
+
+**6. The migration had no rolling-deploy window.** `000148` dropped the session-bearing unique index
+in the same step that added the pen-day one, so every still-running old instance would have failed
+every packing submission with `42P10` until the rollout finished. It is now an expand/contract pair
+(`000148` adds and keeps, `000149` drops).
+
 The general lesson, and the reason the story is worth telling: **the first two bugs were invisible to
-every unit test in the repository and visible within seconds of walking the real path.**
+every unit test in the repository and visible within seconds of walking the real path — and the
+first repair of one of them was still wrong, because a fix without a guard is a guess that happened
+to compile.**
 
 ---
 

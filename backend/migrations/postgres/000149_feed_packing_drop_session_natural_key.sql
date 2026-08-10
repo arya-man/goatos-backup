@@ -1,0 +1,33 @@
+-- +goose Up
+-- CONTRACT half of the feed-packing pen-day rollout. Run only once no pre-000148 API instance is
+-- left serving traffic.
+--
+-- 000148 collapsed the duplicate completions and ADDED the pen-day unique index
+-- (feed_packing_completions_pen_day_uq) while deliberately KEEPING the old session-bearing one, so
+-- that a still-running old binary -- whose INSERT says
+--   ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow)
+-- -- still found a unique index matching its column list. Dropping both in one step would have made
+-- every packing submission from every old instance fail with 42P10 for the length of the rollout,
+-- and migrations run BEFORE the new revision serves, so that window was guaranteed.
+--
+-- This migration removes the old index once that is no longer possible. After it, the pen-day key is
+-- the only uniqueness rule on the table, which is the intended end state: one packing completion per
+-- (tenant, park, shed, partition, target_date, workflow).
+--
+-- ORDER OF OPERATIONS FOR THE DEPLOY:
+--   1. apply 000148            (old binary still works; new key is enforced)
+--   2. roll out the new binary (writes session_no = 0, conflicts on the pen-day key)
+--   3. apply 000149            (this file)
+--
+-- SAFETY: dropping an index takes a brief ACCESS EXCLUSIVE lock on the table. feed_packing_completions
+-- is small (bounded by the park's pen catalog x feed days), so this is a sub-second operation; it is
+-- not written CONCURRENTLY because a plain DROP INDEX here is cheaper than the extra round and there
+-- is no long-running scan to contend with.
+DROP INDEX IF EXISTS feed_packing_completions_natural_uq;
+
+-- +goose Down
+-- Recreating the session-bearing unique index is only meaningful if the rows still carry distinct
+-- session numbers, and 000148 set every session_no to the pen-day sentinel 0. Rebuilding it would
+-- therefore produce an index that is uniquing on a constant -- the same constraint as the pen-day
+-- one, spelled worse -- rather than restoring the old grain. Roll forward.
+SELECT 1;

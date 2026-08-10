@@ -183,6 +183,27 @@ row, so nothing is left pointing at a completion that no longer exists — an or
 one a verifier could approve every day with nothing ever happening. It also strips the `Session N · `
 prefix from in-flight item labels. It is deliberately NOT reversible.
 
+**The key swap is an EXPAND/CONTRACT pair, and the two halves must not be merged back together.**
+`000148` ADDS the pen-day unique index and deliberately KEEPS the session-bearing one; `000149`
+drops the old one afterwards. The deployed binary inserts with
+`ON CONFLICT (…, session_no, …)`, and Postgres requires a unique index matching that exact column
+list — so dropping it in the same migration makes every still-running old instance fail EVERY
+packing submission with `42P10` for the length of the rollout. Migrations are applied *before* the
+new revision serves, so that window is guaranteed rather than hypothetical. Deploy order is
+**apply `000148` → roll out the binary → apply `000149`**. The two indexes coexist safely: the
+pen-day one is strictly stricter, and step 3 has already collapsed the rows that would violate it.
+
+**A pen-day accepts exactly ONE video, and a second DIFFERENT one is a 409, never a success.**
+`ErrPackingAlreadyRecorded` → `409 packing_already_recorded`. The upgrade case forced this: the
+phone can hold TWO legacy queued packing rows for one pen (Morning and Evening, each with its own
+video and its own idempotency key), both draining to the same pen-day row. The second used to take
+the "already awaiting verification" branch and return **200 with its video discarded** — the
+accepted-and-ignored failure the strict `session_no` rejection exists to prevent, reappearing one
+layer above the API. A genuine retry is unaffected: an identical request replays on its idempotency
+key, and the same `packing_proof_ref` re-sent under a new key still matches the stored proof and
+stays a quiet no-op. Only a *different* video conflicts. The client terminalizes the 409 rather than
+retrying it.
+
 **admin-web is intentionally unchanged.** `/feed/packing` flattens `sessions[]` straight back into
 per-session table rows: the web packing sheet is a printed worklist a packer reads down, not the
 phone's capture card, and the session is still the line they physically fill a bag for.
