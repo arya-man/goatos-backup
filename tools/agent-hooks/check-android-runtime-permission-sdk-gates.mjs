@@ -84,11 +84,16 @@ function codeLine(line, state) {
 }
 
 function isPositiveNotificationSdkCondition(line) {
+  const match = line.match(/\bif\s*\(([^)]*)\)\s*\{?/);
+  if (!match) return false;
+  const condition = match[1];
+  if (condition.includes("||")) return false;
+
   return (
-    /\bif\s*\([^)]*(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)[^)]*\)\s*\{?/.test(line) ||
-    /\bif\s*\([^)]*sdkInt\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)[^)]*\)\s*\{?/.test(line) ||
-    /\bif\s*\([^)]*Build\.VERSION_CODES\.TIRAMISU\s*<=\s*(?:Build\.VERSION\.)?SDK_INT[^)]*\)\s*\{?/.test(line) ||
-    /\bif\s*\([^)]*Build\.VERSION_CODES\.TIRAMISU\s*<=\s*sdkInt[^)]*\)\s*\{?/.test(line)
+    /\b(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)\b/.test(condition) ||
+    /\bsdkInt\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)\b/.test(condition) ||
+    /\bBuild\.VERSION_CODES\.TIRAMISU\s*<=\s*(?:Build\.VERSION\.)?SDK_INT\b/.test(condition) ||
+    /\bBuild\.VERSION_CODES\.TIRAMISU\s*<=\s*sdkInt\b/.test(condition)
   );
 }
 
@@ -195,6 +200,11 @@ function selfTest() {
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
     "}",
   ].join("\n");
+  const badOrRefinement = [
+    "if (sdkInt >= Build.VERSION_CODES.TIRAMISU || forceNotificationPrompt) {",
+    "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -223,6 +233,7 @@ function selfTest() {
     scanText("bad-inverted.kt", badInverted).length === 1 &&
     scanText("bad-closed-positive-branch.kt", badClosedPositiveBranch).length === 1 &&
     scanText("bad-else-branch.kt", badElseBranch).length === 1 &&
+    scanText("bad-or-refinement.kt", badOrRefinement).length === 1 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
     scanText("good-list-inside-gate.kt", goodListInsideGate).length === 0 &&
