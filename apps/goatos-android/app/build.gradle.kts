@@ -182,6 +182,9 @@ android {
                 appId = "1:514832198871:android:0cb898377ba4f7f7f19492"
                 artifactType = "APK"
                 groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
+                System.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { serviceCredentialsFile = it }
                 (project.findProperty("fadTesters") as String?)?.let { testers = it }
                 releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
                     ?: "Goat OS (Mesha) stg release build\n$sourceLabel"
