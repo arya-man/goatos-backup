@@ -137,6 +137,22 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`
 	if futurePenID == "" || futurePenStatus != "active" {
 		t.Fatalf("future active partition mapped to pen=%q status=%q, want active pen mapping", futurePenID, futurePenStatus)
 	}
+	exec(`UPDATE shed_partitions
+SET shed_id=$3::uuid
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='3'`,
+		tenant, godelOne, castroOne)
+	var reparentedPenID, reparentedPenParent string
+	if err := pool.QueryRow(ctx, `
+SELECT sp.operational_location_id::text, pen.parent_location_id::text
+FROM shed_partitions sp
+JOIN locations pen ON pen.tenant_id=sp.tenant_id AND pen.location_id=sp.operational_location_id
+WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`,
+		tenant, castroOne).Scan(&reparentedPenID, &reparentedPenParent); err != nil {
+		t.Fatalf("query reparented active partition mapping: %v", err)
+	}
+	if reparentedPenID == futurePenID || reparentedPenParent != castroOne {
+		t.Fatalf("reparented partition kept stale pen=%s parent=%s; want new pen under %s", reparentedPenID, reparentedPenParent, castroOne)
+	}
 
 	exec(`UPDATE goats SET lifecycle_status='sold' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat)
 	if _, err := pool.Exec(ctx, migrationDown(string(raw))); err != nil {
