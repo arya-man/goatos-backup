@@ -54,41 +54,65 @@ function lineIsComment(line, inBlockComment) {
   return inBlockComment || trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
 }
 
-function codeLinesBefore(lines, index, lookback = 8) {
-  const start = Math.max(0, index - lookback);
-  let inBlockComment = false;
-  const code = [];
-  for (const line of lines.slice(start, index + 1)) {
-    let current = line;
-    if (inBlockComment) {
-      const end = current.indexOf("*/");
-      if (end < 0) continue;
-      current = current.slice(end + 2);
-      inBlockComment = false;
-    }
-    while (current.includes("/*")) {
-      const startComment = current.indexOf("/*");
-      const endComment = current.indexOf("*/", startComment + 2);
-      if (endComment < 0) {
-        current = current.slice(0, startComment);
-        inBlockComment = true;
-        break;
-      }
-      current = current.slice(0, startComment) + current.slice(endComment + 2);
-    }
-    code.push(current.replace(/\/\/.*$/, ""));
+function stripLineComment(line) {
+  return line.replace(/\/\/.*$/, "");
+}
+
+function stripBlockComments(line, state) {
+  let current = line;
+  if (state.inBlockComment) {
+    const end = current.indexOf("*/");
+    if (end < 0) return "";
+    current = current.slice(end + 2);
+    state.inBlockComment = false;
   }
-  return code.join("\n");
+  while (current.includes("/*")) {
+    const start = current.indexOf("/*");
+    const end = current.indexOf("*/", start + 2);
+    if (end < 0) {
+      current = current.slice(0, start);
+      state.inBlockComment = true;
+      break;
+    }
+    current = current.slice(0, start) + current.slice(end + 2);
+  }
+  return current;
+}
+
+function codeLine(line, state) {
+  return stripLineComment(stripBlockComments(line, state));
+}
+
+function netBraceDelta(line) {
+  return (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+}
+
+function isPositiveNotificationSdkCondition(line) {
+  return (
+    /\bif\s*\([^)]*(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)[^)]*\)\s*\{?/.test(line) ||
+    /\bif\s*\([^)]*sdkInt\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)[^)]*\)\s*\{?/.test(line) ||
+    /\bif\s*\([^)]*Build\.VERSION_CODES\.TIRAMISU\s*<=\s*(?:Build\.VERSION\.)?SDK_INT[^)]*\)\s*\{?/.test(line) ||
+    /\bif\s*\([^)]*Build\.VERSION_CODES\.TIRAMISU\s*<=\s*sdkInt[^)]*\)\s*\{?/.test(line)
+  );
 }
 
 function notificationLineIsSdkGated(lines, index) {
-  const window = codeLinesBefore(lines, index);
-  return (
-    /(?:Build\.VERSION\.)?SDK_INT\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)/.test(window) ||
-    /sdkInt\s*>=\s*(?:33|Build\.VERSION_CODES\.TIRAMISU)/.test(window) ||
-    /Build\.VERSION_CODES\.TIRAMISU\s*<=\s*(?:Build\.VERSION\.)?SDK_INT/.test(window) ||
-    /Build\.VERSION_CODES\.TIRAMISU\s*<=\s*sdkInt/.test(window)
-  );
+  const state = { inBlockComment: false };
+  const stack = [];
+  for (let lineIndex = 0; lineIndex <= index; lineIndex += 1) {
+    const line = codeLine(lines[lineIndex], state);
+    const positiveGate = isPositiveNotificationSdkCondition(line);
+    const delta = netBraceDelta(line);
+    if (positiveGate && delta > 0) {
+      stack.push({ positiveGate: true, depth: delta });
+    } else if (delta > 0) {
+      stack.push({ positiveGate: false, depth: delta });
+    } else if (stack.length > 0) {
+      stack[stack.length - 1].depth += delta;
+    }
+    while (stack.length > 0 && stack[stack.length - 1].depth <= 0) stack.pop();
+  }
+  return stack.some((entry) => entry.positiveGate);
 }
 
 function notificationLineIsRuntimePermissionContext(lines, index) {
@@ -160,6 +184,15 @@ function selfTest() {
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
     "}",
   ].join("\n");
+  const badClosedPositiveBranch = [
+    "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
+    "    analytics.markNotificationCapable()",
+    "}",
+    "",
+    "val mandatoryPermissions = listOf(",
+    "    Manifest.permission.POST_NOTIFICATIONS,",
+    ")",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -168,6 +201,13 @@ function selfTest() {
   const good33 = [
     "if (Build.VERSION.SDK_INT >= 33) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
+    "}",
+  ].join("\n");
+  const goodListInsideGate = [
+    "if (Build.VERSION.SDK_INT >= 33) {",
+    "    val permissions = listOf(",
+    "        Manifest.permission.POST_NOTIFICATIONS,",
+    "    )",
     "}",
   ].join("\n");
   const goodManifestDeclaration = "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />";
@@ -179,8 +219,10 @@ function selfTest() {
     scanText("bad-array-of.kt", badArrayOf).length === 1 &&
     scanText("bad-comment-only.kt", badCommentOnly).length === 1 &&
     scanText("bad-inverted.kt", badInverted).length === 1 &&
+    scanText("bad-closed-positive-branch.kt", badClosedPositiveBranch).length === 1 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
+    scanText("good-list-inside-gate.kt", goodListInsideGate).length === 0 &&
     scanText("AndroidManifest.xml", goodManifestDeclaration).length === 0 &&
     scanText("good-label.kt", goodLabelOnly).length === 0;
 
