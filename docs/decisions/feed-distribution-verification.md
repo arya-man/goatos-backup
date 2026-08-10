@@ -126,7 +126,71 @@ touched — it remains packing's completion record):
   `verification.verdict.rework`. The existing `feed.direction.completed` producer (old instant path) is
   unchanged but is now inert.
 
+## Feed packing is proved ONCE PER PEN PER DAY — 2026-08-10
+
+**Maintainer decision, 2026-08-10.** SUPERSEDES the shed-SESSION grain of the packing gate below,
+for PACKING ONLY. Everything about the gate itself is unchanged: one mandatory video, one
+verification item, completed only at verifier approval.
+
+A packer packs a pen's whole day in one go. The worklist showed the pen **twice** — Morning and
+Evening — and asked the crew to film the same work twice. Now:
+
+```
+ONE card per operational location per feed day
+  Castro - 2                                   [Pending] [Normal]
+    Morning                            17.8 kg
+      Maize 12.4 · Soya 4.8 · Mineral mix 0.6
+    Evening                            17.8 kg
+      Maize 12.4 · Soya 4.8 · Mineral mix 0.6
+    Pack total                         35.6 kg
+  -> ONE mandatory packing video for the whole card
+```
+
+- **The sessions are a BREAKDOWN, not work items.** They keep their authored split and their own
+  rounding, so the two figures on the card are exactly what the direction sheet prints. They carry
+  no completion, proof or verification state, and none may be added — a per-session state would
+  rebuild the two-card model one field at a time.
+- **Completion grain is `(tenant, park, shed, partition, target_date, workflow)`**
+  (migration `000148`). `session_no` is retained as a nullable-in-practice sentinel `0` so pre-merge
+  rows stay readable as history; every new row carries `0`.
+- **The PEN did NOT merge and must not.** Castro 1 and Castro 2 hold different animals on different
+  rations. Migration `000137` exists because one Castro - 1 clip was closing out all three pens;
+  collapsing the session is not licence to collapse the partition. Pinned by
+  `TestPenDayMergeStillKeepsPartitionsApart` and `FeedPackingSessionBreakdownTest`.
+- **Feed DISTRIBUTION is untouched** and is still gated per shed-SESSION. This is the first place the
+  two flows diverge, deliberately. `completedKey` (session-bearing) stays for distribution;
+  `packingCompletedKey` is the pen-day twin. They are separate functions rather than one with a `0`
+  argument precisely so the next author cannot reuse the wrong one — doing so would mark a
+  distribution session fed because its sibling was.
+- **The verifier sees the whole day.** The item's subject is the pen (`Castro - 2`), with no
+  `Session 1 ·` prefix, and its expected-ration context reads
+  `Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg`. The per-session
+  breakdown is REQUIRED there, not decoration: handed only a day total, a verifier could not
+  distinguish a crew that packed the morning share twice from one that packed both correctly.
+- **`session_no` is REJECTED, not ignored,** on `POST /feed-direction/packing/complete`
+  (`additionalProperties: false` + `DisallowUnknownFields`). Accepted-and-ignored, a stale client's
+  morning and evening submissions would both key the same pen-day row and the second would return
+  the first's result as an already-pending no-op — the operator would see his evening video accepted
+  while nothing recorded it.
+- **There is no `session` filter** on `/feed-packing/worklist`. Narrowing a pen-day to one session
+  could only mean "show the pen but hide half its bags".
+- **`summary.line_count` halves; `total_kg_by_feed_item` does NOT.** A line is a pen-day, but the
+  crew still carries out both bags. `SummarizePacking` folds over row × session for exactly this
+  reason, and `TestPackingWorklistServesOneLinePerPenDayCarryingEverySession` pins the pair.
+
+Migration `000148` withdraws a superseded row's PENDING verification item **before** deleting the
+row, so nothing is left pointing at a completion that no longer exists — an orphaned pending item is
+one a verifier could approve every day with nothing ever happening. It also strips the `Session N · `
+prefix from in-flight item labels. It is deliberately NOT reversible.
+
+**admin-web is intentionally unchanged.** `/feed/packing` flattens `sessions[]` straight back into
+per-session table rows: the web packing sheet is a printed worklist a packer reads down, not the
+phone's capture card, and the session is still the line they physically fill a bag for.
+
 ## Feed packing (also gated) — follow-up, 2026-07-26
+
+> **Grain superseded 2026-08-10** — see the section above. Everything below describes the gate
+> correctly; only "shed-session" should now read "pen-day" for packing.
 
 The same day distribution was gated, the maintainer extended the gate to feed **PACKING**, retiring the
 "feed packing is deliberately NOT gated" carve-out above. Packing is gated on the identical pattern,

@@ -138,3 +138,108 @@ class FeedRowGrainKeyTest {
         assertEquals(packing("Part 3").grainKey, packing("Part 3").grainKey)
     }
 }
+
+/**
+ * The 2026-08-10 merge, at the wire boundary: a packing row is ONE PEN-DAY carrying its sessions.
+ *
+ * These parse real response JSON rather than constructing the DTO, because the defect class this
+ * guards is a field that exists on the Kotlin type and is never populated from the wire — a
+ * "does the property exist" check passes throughout that outage.
+ */
+class FeedPackingSessionBreakdownTest {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private val penDay = """
+        {"shed_id":"s1","shed_label":"Castro","partition_label":"2",
+         "operational_location_display":"Castro - 2","workflow":"normal","head_count":40,
+         "total_kg":"7.400","status":"ready","lifecycle_status":"pending",
+         "sessions":[
+           {"session_no":1,"session_label":"Morning","total_kg":"3.700","status":"ready",
+            "items":[{"feed_item":"Maize","quantity_kg":"2.500","status":"resolved"},
+                     {"feed_item":"Concentrate","quantity_kg":"1.200","status":"resolved"}]},
+           {"session_no":2,"session_label":"Evening","total_kg":"3.700","status":"ready",
+            "items":[{"feed_item":"Maize","quantity_kg":"2.500","status":"resolved"},
+                     {"feed_item":"Concentrate","quantity_kg":"1.200","status":"resolved"}]}]}
+    """.trimIndent()
+
+    @Test
+    fun `a pen-day row carries both sessions with their own quantities`() {
+        val dto = json.decodeFromString<FeedPackingRowDto>(penDay)
+
+        assertEquals(2, dto.sessions.size)
+        // Authored order and the authored NAME — the card prints "Morning", never "Session 1".
+        assertEquals(listOf("Morning", "Evening"), dto.sessions.map { it.sessionLabel })
+        assertEquals(listOf(1, 2), dto.sessions.map { it.sessionNo })
+        assertEquals("3.700", dto.sessions[0].totalKg)
+        assertEquals("2.500", dto.sessions[0].items.first { it.feedItem == "Maize" }.quantityKg)
+        // The day total is the sum of the sessions printed above it on the same card.
+        assertEquals("7.400", dto.totalKg)
+        // Counted once for the day, never per session.
+        assertEquals(40L, dto.headCount)
+    }
+
+    @Test
+    fun `the backend-composed location is used verbatim`() {
+        val dto = json.decodeFromString<FeedPackingRowDto>(penDay)
+
+        // Required by the contract and previously absent from the Go struct entirely, which is how
+        // admin-web fell through to a bare "Castro" against all three of Castro's pens.
+        assertEquals("Castro - 2", dto.operationalLocationDisplay)
+    }
+
+    @Test
+    fun `the pen-day key no longer varies by session`() {
+        // THE MERGE. The old key carried session_no, so one pen produced two bag lines and the
+        // operator was asked to film the same work twice. A row's identity is now the pen-day, so a
+        // response that still carried a stray session_no cannot split it back into two cards.
+        val withStraySession = json.decodeFromString<FeedPackingRowDto>(
+            penDay.replace("""{"shed_id":"s1",""", """{"session_no":2,"shed_id":"s1","""),
+        )
+        val plain = json.decodeFromString<FeedPackingRowDto>(penDay)
+
+        assertEquals(plain.grainKey, withStraySession.grainKey)
+    }
+
+    @Test
+    fun `two pens of one shed are still two separate bags`() {
+        // The merge collapsed the session and MUST NOT have collapsed the pen: Castro 1 and Castro 2
+        // hold different animals on different rations (migration 000137).
+        val two = json.decodeFromString<FeedPackingRowDto>(penDay)
+        val three = json.decodeFromString<FeedPackingRowDto>(
+            penDay.replace(""""partition_label":"2"""", """"partition_label":"3""""),
+        )
+
+        if (two.grainKey == three.grainKey) {
+            throw AssertionError("Castro 2 and Castro 3 share packing grainKey ${two.grainKey} — one bag will be lost")
+        }
+    }
+
+    @Test
+    fun `a blocked evening leaves the morning readable and blocks the day`() {
+        // A pen can be fine in the morning and short in the evening when the two sessions draw on
+        // different feed items. The DAY must read blocked -- a real gap must not be hidden because
+        // the other half happens to be fine -- while each session still reports its own state.
+        val mixed = json.decodeFromString<FeedPackingRowDto>(
+            """
+            {"shed_id":"s1","shed_label":"Castro","partition_label":"2",
+             "operational_location_display":"Castro - 2","workflow":"normal","head_count":40,
+             "total_kg":"3.700","status":"blocked","lifecycle_status":"pending",
+             "sessions":[
+               {"session_no":1,"session_label":"Morning","total_kg":"3.700","status":"ready",
+                "items":[{"feed_item":"Maize","quantity_kg":"2.500","status":"resolved"}]},
+               {"session_no":2,"session_label":"Evening","total_kg":"0.000","status":"blocked",
+                "items":[{"feed_item":"Hybrid","status":"blocked",
+                          "blocked_reason":{"code":"no_rate","detail":"no authored ration"}}]}]}
+            """.trimIndent(),
+        )
+
+        assertEquals("blocked", mixed.status)
+        // The packer is told WHICH share is short rather than being handed one flag over the day.
+        assertEquals("ready", mixed.sessions[0].status)
+        assertEquals("blocked", mixed.sessions[1].status)
+        // A blocked cell carries no quantity -- it is a gap, never a packable zero.
+        assertNull(mixed.sessions[1].items.first().quantityKg)
+        assertEquals("no authored ration", mixed.sessions[1].items.first().blockedReason?.detail)
+    }
+}

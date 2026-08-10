@@ -691,18 +691,56 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
+Confirmed feed-PACKING PEN-DAY grain (maintainer decision 2026-08-10, SUPERSEDING
+the shed-SESSION grain of the packing gate below, for PACKING ONLY): a packer
+packs a pen's whole day in one go, so feed packing is shown as ONE CARD and proved
+by ONE VIDEO per operational location per feed day. The morning and evening shares
+are a BREAKDOWN inside that card ("Morning 17.8 kg … Evening 17.8 kg … Pack total
+35.6 kg"), never two cards. Completion grain is `(tenant, park, shed, partition,
+target_date, workflow)` (migration `000148`).
+
+Three things a future change must not undo, each of which reintroduces a shipped
+defect:
+
+1. **The PEN did not merge.** Castro 1/2/3 are different animals on different
+   rations; `000137` exists because one Castro - 1 clip closed out all three.
+   Collapsing the session is not licence to collapse the partition.
+2. **Feed DISTRIBUTION is untouched** and is still gated per shed-SESSION. This is
+   the first place the two flows diverge, deliberately. `completedKey`
+   (session-bearing, distribution) and `packingCompletedKey` (pen-day) are separate
+   functions rather than one with a `0` argument, precisely so the wrong one cannot
+   be reused — that would mark a distribution session fed because its sibling was.
+   Removing `session_no` from the DISTRIBUTION completion was caught in development
+   on 2026-08-10 and would have collapsed its morning/evening records.
+3. **A session is not a work item.** It carries no completion, proof or
+   verification state, and none may be added — that rebuilds the two-card model one
+   field at a time.
+
+`session_no` is REJECTED, not ignored, on `POST /feed-direction/packing/complete`:
+accepted-and-ignored, a stale client's evening submission would key the same
+pen-day row and come back as an already-pending no-op, so the operator would see
+his video accepted while nothing recorded it. `/feed-packing/worklist` has no
+`session` filter. `summary.line_count` halves but `total_kg_by_feed_item` does NOT
+— the crew still carries out both bags. The verifier's item is subjected on the PEN
+(no `Session N ·` prefix) and its expected-ration context names BOTH sessions and
+their quantities, because a day total alone cannot distinguish a crew that packed
+the morning share twice from one that packed both correctly. Canonical prose:
+`docs/decisions/feed-distribution-verification.md` → "Feed packing is proved ONCE
+PER PEN PER DAY".
+
 Confirmed feed-PACKING verification gate (maintainer decision 2026-07-26,
 SUPERSEDING the "FEED PACKING IS DELIBERATELY NOT GATED" rule that the
-feed-distribution lock above originally carried): feed PACKING is now gated the
-same way as feed direction. The operator completes a packing shed-session with
+feed-distribution lock above originally carried; its GRAIN is in turn superseded by
+the 2026-08-10 pen-day rule above): feed PACKING is now gated the
+same way as feed direction. The operator completes a packing pen-day with
 ONE MANDATORY packing VIDEO (`packing_proof_ref`); a completion missing it is
 rejected 422 `proof_required`. That flips a NEW `feed_packing_completions` row to
 `pending_verification` and enqueues ONE `feed_packing` verification item carrying
 the video — NOTHING is completed yet. ONE verifier APPROVE
-(`ApplyVerifiedPacking`) flips the packing session to `completed` (this is when
+(`ApplyVerifiedPacking`) flips the pen-day to `completed` (this is when
 `feed.packing.completed` is emitted); a REJECT (`BouncePackingForRework`) flips
 it to `rework` for a re-shoot. Applies to BOTH `normal` and `experiment`
-workflows; `overlayPackingCompleted` now reads `ListVerifiedPacking`. The gated
+workflows; the serve overlay reads `ListPackingCompletionStatuses`. The gated
 flow is a SEPARATE record on a NEW table, never an ALTER of the old packing
 table. The OLD instant packing path — `feed_direction_session_completions`
 (migration `000030`), `POST /feed-direction/complete`, `feed.direction.completed`,
