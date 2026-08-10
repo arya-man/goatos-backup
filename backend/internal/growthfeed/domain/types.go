@@ -42,14 +42,11 @@ package domain
 type FeedPlanStatus string
 
 const (
-	// FeedPlanResolved means every active feed item resolved to an authored rate.
-	// Only this status may produce a feed-conversion ratio.
+	// FeedPlanResolved means the pen's cohort matched an authored ration and at
+	// least one feed item carries a rate. Only this status may produce a
+	// feed-conversion ratio. It does NOT mean every catalog item is covered — the
+	// grid is sparse by design; see ResolveFeedPlan.
 	FeedPlanResolved FeedPlanStatus = "resolved"
-	// FeedPlanPartial means at least one active feed item had NO authored rate for
-	// this pen's (ration group, shed tag). The planned total is therefore an
-	// UNDERSTATEMENT of what the pen is meant to eat, so no conversion ratio is
-	// derived from it — a ratio built on a partial ration is simply a wrong number.
-	FeedPlanPartial FeedPlanStatus = "partial"
 	// FeedPlanExperiment means the pen is hand-configured in feed_experiment_config,
 	// whose absolute_kg is a SHED TOTAL and never a per-head rate. A per-head figure
 	// exists only when the pen's live head count is known to divide by.
@@ -141,8 +138,12 @@ type Pen struct {
 	// authored energy value, rather than silently omitting that item's energy and
 	// reporting a smaller number as if it were complete.
 	PlannedEnergyKcalPerHeadDay *float64 `json:"planned_energy_kcal_per_head_day"`
-	FeedItemsConfigured         int      `json:"feed_items_configured"`
-	FeedItemsBlocked            int      `json:"feed_items_blocked"`
+	// FeedItemsConfigured / FeedItemsBlocked are how many active feed items did and
+	// did not carry a rate for this pen. Blocked is NOT an error: a ration covers
+	// what the cohort eats and stays silent about the rest. They travel so a reader
+	// can question a total that looks too small.
+	FeedItemsConfigured int `json:"feed_items_configured"`
+	FeedItemsBlocked    int `json:"feed_items_blocked"`
 
 	// ---- derived comparison, computed by Benchmark ----
 

@@ -30,36 +30,46 @@ func TestFullyAuthoredRationReportsGramsAndEnergy(t *testing.T) {
 	}
 }
 
-// THE safety rule. A pen missing one item's rate must not be reported as fully
-// configured, because a smaller planned ration over the same gain looks like
-// better conversion and would rank the unconfigured pen as the farm's best.
-func TestBlockedItemDowngradesTheRationToPartial(t *testing.T) {
+// THE SPARSE-GRID RULE, checked against live staging data. A ration authors what
+// the cohort eats and stays silent about the rest: on real data NO (group, tag)
+// combination covers all 14 catalog items. Treating an unauthored item as an
+// incomplete ration suppressed the conversion ratio on every pen in the estate.
+func TestSparseRationStillProducesATotalAndAConversionRatio(t *testing.T) {
 	in := resolvedInput()
-	in.ItemsConfigured, in.ItemsBlocked = 3, 1
-	in.PlannedGramsPerHeadDay = 900 // less, precisely because one item is missing
+	in.ItemsConfigured, in.ItemsBlocked = 10, 4
+	in.PlannedGramsPerHeadDay = 900
 
-	status, grams, kcal := ResolveFeedPlan(in)
+	status, grams, _ := ResolveFeedPlan(in)
 
-	if status != FeedPlanPartial {
-		t.Fatalf("status = %q, want %q", status, FeedPlanPartial)
+	if status != FeedPlanResolved {
+		t.Fatalf("status = %q, want %q — a sparse ration is a normal ration", status, FeedPlanResolved)
 	}
-	// The number still travels — whoever must fix the config wants to see it.
 	if grams == nil || *grams != 900 {
-		t.Fatalf("grams = %v, want 900 reported alongside the partial status", grams)
-	}
-	if kcal != nil {
-		t.Fatalf("energy = %v, want none for a partial ration", *kcal)
+		t.Fatalf("grams = %v, want the 900 that IS authored", grams)
 	}
 
-	// And the downstream consequence must actually hold: no conversion ratio.
+	// And the number the screen exists for actually appears.
 	pens := []Pen{{
 		Breed: ptrS("Sirohi"), Stage: ptrS("Grower"),
 		ADGGPerDay: ptrF(300), ADGBasis: ADGBasisPerAnimalMedian,
 		FeedPlanStatus: status, PlannedFeedGPerHeadDay: grams,
 	}}
 	Benchmark(pens)
-	if pens[0].FeedPerKgGainKg != nil {
-		t.Fatalf("a partial ration produced conversion %v", *pens[0].FeedPerKgGainKg)
+	if pens[0].FeedPerKgGainKg == nil {
+		t.Fatal("a sparse but real ration produced no conversion ratio")
+	}
+	if got := *pens[0].FeedPerKgGainKg; got != 3 {
+		t.Fatalf("conversion = %v, want 3.0 kg feed per kg gain", got)
+	}
+}
+
+// The item counts still travel, because they are what lets a reader question a
+// total that looks too small for the animal.
+func TestItemCountsSpanEveryActiveFeedItem(t *testing.T) {
+	in := resolvedInput()
+	in.ItemsConfigured, in.ItemsBlocked = 10, 4
+	if in.ItemsConfigured+in.ItemsBlocked != 14 {
+		t.Fatalf("configured + blocked must span every active item, got %d", in.ItemsConfigured+in.ItemsBlocked)
 	}
 }
 

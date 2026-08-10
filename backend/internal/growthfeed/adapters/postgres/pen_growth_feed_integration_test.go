@@ -498,10 +498,12 @@ VALUES ($1::uuid, $2::uuid, $3, 'Osmanabadi', 'female', 'adult', 'alive', 'Growe
 	}
 }
 
-// A missing rate row is "not configured", never zero. The pen must come back
-// PARTIAL — and therefore produce no feed-per-kg-gain — rather than silently
-// reporting a smaller ration that would rank it as the farm's most efficient pen.
-func TestMissingRateRowMakesTheRationPartialRatherThanZero(t *testing.T) {
+// A missing rate row contributes NOTHING and is counted as blocked — never
+// silently read as an authored 0. The ration itself stays valid, because the grid
+// is sparse by design (checked against live staging: no combination covers all 14
+// catalog items). What must never happen is the missing item landing in the total
+// as a zero and going unreported.
+func TestMissingRateRowIsCountedBlockedAndContributesNothing(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -523,11 +525,13 @@ func TestMissingRateRowMakesTheRationPartialRatherThanZero(t *testing.T) {
 		t.Fatalf("configured=%d blocked=%d, want 1/1", ration.Plan.ItemsConfigured, ration.Plan.ItemsBlocked)
 	}
 	status, grams, _ := domain.ResolveFeedPlan(ration.Plan)
-	if status != domain.FeedPlanPartial {
-		t.Fatalf("status = %q, want partial", status)
+	if status != domain.FeedPlanResolved {
+		t.Fatalf("status = %q, want resolved — a sparse ration is a normal ration", status)
 	}
+	// 600 Maize only. NOT 600 + a fabricated 0 for Hay presented as complete: the
+	// difference is visible in ItemsBlocked, asserted above.
 	if grams == nil || *grams != 600 {
-		t.Fatalf("grams = %v, want the 600 that IS authored, reported as partial", grams)
+		t.Fatalf("grams = %v, want only the 600 that is authored", grams)
 	}
 
 	pens := []domain.Pen{{
@@ -536,8 +540,11 @@ func TestMissingRateRowMakesTheRationPartialRatherThanZero(t *testing.T) {
 		FeedPlanStatus: status, PlannedFeedGPerHeadDay: grams,
 	}}
 	domain.Benchmark(pens)
-	if pens[0].FeedPerKgGainKg != nil {
-		t.Fatalf("a partial ration produced a conversion ratio of %v", *pens[0].FeedPerKgGainKg)
+	if pens[0].FeedPerKgGainKg == nil {
+		t.Fatal("a sparse but real ration produced no conversion ratio")
+	}
+	if got := *pens[0].FeedPerKgGainKg; got != 2 {
+		t.Fatalf("conversion = %v, want 2.0 (600 g fed per 300 g gained)", got)
 	}
 }
 
