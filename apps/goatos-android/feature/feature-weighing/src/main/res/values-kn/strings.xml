@@ -10,8 +10,13 @@
     <string name="weighing_category_lumpsum">ಒಟ್ಟು ತೂಕ</string>
     <string name="weighing_category_individual">ಪ್ರತ್ಯೇಕ</string>
     <string name="weighing_action_scan_animals">ಪ್ರಾಣಿಗಳನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ →</string>
+    <string name="weighing_action_redo_proof">ತೂಕದ ಪುರಾವೆ ಮತ್ತೆ ಮಾಡಿ →</string>
     <string name="weighing_assignment_summary_individual">ಮುಕ್ತ RFID, ತೂಕ ಮತ್ತು ವೀಡಿಯೊ ಸೆರೆ</string>
     <string name="weighing_assignment_summary_lumpsum">ಶೆಡ್ ವೀಡಿಯೊ ಮತ್ತು ಒಟ್ಟು ತೂಕ</string>
+    <string name="weighing_assignment_summary_sent_back">ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿ ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_assignment_summary_sent_back_date">%1$s · ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿ ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_assignment_summary_sent_back_reason">ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿ ತಿರಸ್ಕರಿಸಲಾಗಿದೆ: %1$s</string>
+    <string name="weighing_assignment_summary_sent_back_date_reason">%1$s · ವೀಡಿಯೊ ಪರಿಶೀಲನೆಯಲ್ಲಿ ತಿರಸ್ಕರಿಸಲಾಗಿದೆ: %2$s</string>
     <string name="weighing_action_record_lumpsum">ಶೆಡ್ ದಾಖಲಿಸಿ →</string>
     <string name="weighing_category_individual_title">ಪ್ರತ್ಯೇಕ</string>
     <string name="weighing_category_lump_sum_title">ಒಟ್ಟು ತೂಕ</string>
@@ -21,6 +26,7 @@
     <string name="weighing_status_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="weighing_status_closed">ಮುಚ್ಚಲಾಗಿದೆ</string>
     <string name="weighing_status_canceled">ರದ್ದು</string>
+    <string name="weighing_status_sent_back">ಹಿಂದೆ ಕಳುಹಿಸಲಾಗಿದೆ</string>
     <string name="weighing_status_not_started">ಪ್ರಾರಂಭವಾಗಿಲ್ಲ</string>
     <string name="weighing_kg">ಕೆಜಿ</string>
 
@@ -38,6 +44,7 @@
     <string name="weighing_all_parks">ಎಲ್ಲಾ ಪಾರ್ಕ್‌ಗಳು</string>
     <string name="weighing_reopen">ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_pending_verification">ಪರಿಶೀಲನೆ ಬಾಕಿ</string>
+    <string name="weighing_pending_verification_with_date">%1$s · ಪರಿಶೀಲನೆ ಬಾಕಿ</string>
     <string name="weighing_pull_to_refresh_hint">ನಾಯಕತ್ವ ವಾರದ ಯೋಜನೆ ಪ್ರಕಟಿಸಿದ ನಂತರ ಎಳೆದು ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
     <string name="weighing_icon_kg">ಕೆಜಿ</string>
     <string name="weighing_icon_rfid">RFID</string>

@@ -93,6 +93,9 @@ import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import sg.mesha.goatos.feature.scan.ScanUiState
 
 /**
@@ -334,12 +337,17 @@ data class WeighingAssignmentUiRow(
      * falling back to a user id; the oversight surface exists to answer "who did this".
      */
     val operatorName: String = "",
+    val backendStatus: String = "",
     val status: String,
     // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
     // list to count against.
     val periodLabel: String,
     val readyToClose: Boolean = false,
     val pendingVerificationCount: Int = 0,
+    val reworkCount: Int = 0,
+    val latestReworkReason: String = "",
+    val plannedBusinessDate: String = "",
+    val dueBusinessDate: String = "",
 ) {
     val uiKey: String
         get() = listOf(campaignId, workGroupId, campaignShedId, category, periodLabel)
@@ -347,10 +355,16 @@ data class WeighingAssignmentUiRow(
 
     // After operator submits, bucket is non-clickable until reopened or verifier sends rework
     val isSubmittedAndWaitingVerification: Boolean
-        get() = status.equals("completed", ignoreCase = true)
+        get() = rawStatus.equals("completed", ignoreCase = true)
 
     val isClosed: Boolean
-        get() = status.equals("closed", ignoreCase = true)
+        get() = rawStatus.equals("closed", ignoreCase = true)
+
+    val isRework: Boolean
+        get() = reworkCount > 0
+
+    val rawStatus: String
+        get() = backendStatus.ifBlank { status }
 
     val isClickable: Boolean
         get() = !isSubmittedAndWaitingVerification && !isClosed
@@ -730,7 +744,7 @@ private fun AssignmentRow(
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusPill(mapWeighingStatusLabel(row.status))
+                StatusPill(if (row.isRework) stringResource(R.string.weighing_status_sent_back) else mapWeighingStatusLabel(row.status))
                 CategoryPill(row.category)
             }
             Text(
@@ -770,7 +784,7 @@ private fun AssignmentRow(
             } else {
                 // Submitted and waiting for verification - non-clickable
                 Text(
-                    text = stringResource(R.string.weighing_pending_verification),
+                    text = pendingVerificationText(row),
                     color = MeshaColors.Muted,
                     style = MeshaType.cta,
                     modifier = Modifier
@@ -886,14 +900,18 @@ private fun mapWeighingStatusLabel(backendStatus: String): String = when {
 }
 
 internal fun assignmentSummaryRes(row: WeighingAssignmentUiRow): Int =
-    if (row.isShedPartition) {
+    if (row.isRework) {
+        R.string.weighing_assignment_summary_sent_back
+    } else if (row.isShedPartition) {
         R.string.weighing_assignment_summary_lumpsum
     } else {
         R.string.weighing_assignment_summary_individual
     }
 
 internal fun assignmentActionRes(row: WeighingAssignmentUiRow): Int =
-    if (row.isShedPartition) {
+    if (row.isRework) {
+        R.string.weighing_action_redo_proof
+    } else if (row.isShedPartition) {
         R.string.weighing_action_record_lumpsum
     } else {
         R.string.weighing_action_scan_animals
@@ -901,11 +919,47 @@ internal fun assignmentActionRes(row: WeighingAssignmentUiRow): Int =
 
 @Composable
 private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
-    stringResource(assignmentSummaryRes(row))
+    when {
+        row.isRework -> {
+            val date = row.displayBusinessDate()
+            val reason = row.latestReworkReason.takeIf { it.isNotBlank() }
+            when {
+                date.isNotBlank() && reason != null -> stringResource(R.string.weighing_assignment_summary_sent_back_date_reason, date, reason)
+                date.isNotBlank() -> stringResource(R.string.weighing_assignment_summary_sent_back_date, date)
+                reason != null -> stringResource(R.string.weighing_assignment_summary_sent_back_reason, reason)
+                else -> stringResource(assignmentSummaryRes(row))
+            }
+        }
+        row.isSubmittedAndWaitingVerification -> {
+            row.displayBusinessDate().takeIf { it.isNotBlank() }?.let {
+                stringResource(R.string.weighing_pending_verification_with_date, it)
+            } ?: stringResource(R.string.weighing_pending_verification)
+        }
+        else -> {
+            val base = stringResource(assignmentSummaryRes(row))
+            row.displayBusinessDate().takeIf { it.isNotBlank() }?.let { "$it · $base" } ?: base
+        }
+    }
 
 @Composable
 private fun assignmentAction(row: WeighingAssignmentUiRow): String =
     stringResource(assignmentActionRes(row))
+
+@Composable
+private fun pendingVerificationText(row: WeighingAssignmentUiRow): String =
+    row.displayBusinessDate().takeIf { it.isNotBlank() }?.let {
+        stringResource(R.string.weighing_pending_verification_with_date, it)
+    } ?: stringResource(R.string.weighing_pending_verification)
+
+private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
+    when {
+        isRework -> plannedBusinessDate.ifBlank { dueBusinessDate }
+        else -> dueBusinessDate.ifBlank { plannedBusinessDate }
+    }.takeIf { it.isNotBlank() }?.let { raw ->
+        runCatching {
+            LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+        }.getOrDefault(raw)
+    }.orEmpty()
 
 @Composable
 private fun weighingCategoryLabel(category: String): String =

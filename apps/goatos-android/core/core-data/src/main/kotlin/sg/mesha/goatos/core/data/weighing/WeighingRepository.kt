@@ -122,6 +122,10 @@ data class WeighingAssignment(
     val periodLabel: String,
     val readyToClose: Boolean = false,
     val pendingVerificationCount: Int = 0,
+    val reworkCount: Int = 0,
+    val latestReworkReason: String = "",
+    val plannedBusinessDate: String = "",
+    val dueBusinessDate: String = "",
 )
 
 /**
@@ -165,6 +169,9 @@ data class WeighingTaskShed(
     val pendingVerificationCount: Int,
     val reworkCount: Int,
     val readyToClose: Boolean,
+    val latestReworkReason: String = "",
+    val plannedBusinessDate: String = "",
+    val dueBusinessDate: String = "",
     /**
      * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a recorded weight for,
      * submitted or not. A plain count, never divided by anything: weighing is free-flow, so there
@@ -2583,6 +2590,9 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
         pendingVerificationCount = pendingVerificationCount,
         reworkCount = reworkCount,
         readyToClose = readyToClose,
+        latestReworkReason = latestReworkReason,
+        plannedBusinessDate = plannedBusinessDate,
+        dueBusinessDate = dueBusinessDate,
         animalsWeighedCount = animalsWeighedCount,
         animalsSubmittedCount = animalsSubmittedCount,
     )
@@ -2678,6 +2688,9 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                     pendingVerificationCount = shed.pendingVerificationCount,
                     reworkCount = shed.reworkCount,
                     readyToClose = shed.readyToClose,
+                    latestReworkReason = shed.latestReworkReason,
+                    plannedBusinessDate = shed.plannedBusinessDate,
+                    dueBusinessDate = shed.dueBusinessDate,
                     animalsWeighedCount = shed.animalsWeighedCount,
                     animalsSubmittedCount = shed.animalsSubmittedCount,
                 )
@@ -2733,6 +2746,10 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                     .joinToString(" - "),
                 readyToClose = shed.readyToClose,
                 pendingVerificationCount = shed.pendingVerificationCount,
+                reworkCount = shed.reworkCount,
+                latestReworkReason = shed.latestReworkReason,
+                plannedBusinessDate = shed.plannedBusinessDate,
+                dueBusinessDate = shed.dueBusinessDate,
             )
         }
 
