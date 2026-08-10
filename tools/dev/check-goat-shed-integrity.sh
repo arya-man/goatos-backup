@@ -12,6 +12,125 @@ if [ "${1:-}" = "--self-test" ]; then
   bash -n "$0"
   grep -q "active_goat_shed_invariant" "$0"
   grep -q "vaccination_obligation_shed_scope_invariant" "$0"
+  if [ -n "${DATABASE_URL:-}" ]; then
+    semantic_count="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<'SQL'
+BEGIN;
+CREATE TEMP TABLE goats (
+  tenant_id uuid,
+  goat_id uuid,
+  display_id text,
+  lifecycle_status text,
+  health_status text,
+  park_id uuid,
+  shed_id uuid,
+  current_location_id uuid,
+  merged_into_goat_id uuid
+);
+CREATE TEMP TABLE locations (
+  tenant_id uuid,
+  location_id uuid,
+  parent_location_id uuid,
+  location_type text,
+  status text
+);
+CREATE TEMP TABLE goat_shed_partitions (
+  tenant_id uuid,
+  goat_id uuid,
+  shed_id uuid,
+  partition_label text
+);
+CREATE TEMP TABLE shed_partitions (
+  tenant_id uuid,
+  shed_id uuid,
+  normalized_label text,
+  operational_location_id uuid,
+  status text
+);
+
+INSERT INTO locations VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', NULL, 'park', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000011', 'pen', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000011', 'pen', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000014', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', '00000000-0000-4000-8000-000000000014', 'pen', 'active');
+INSERT INTO shed_partitions VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '1', '00000000-0000-4000-8000-000000000012', 'active');
+INSERT INTO goats VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'OK', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000102', 'NULL', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', NULL, NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000103', 'PARENT', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000011', NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000104', 'SIBLING', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000013', NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000105', 'OTHER', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000015', NULL);
+INSERT INTO goat_shed_partitions VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000011', 'Part 1'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000011', 'Part 1'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000103', '00000000-0000-4000-8000-000000000011', 'Part 1'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000104', '00000000-0000-4000-8000-000000000011', 'Part 1'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000105', '00000000-0000-4000-8000-000000000011', 'Part 1');
+
+WITH active_goat_shed_invariant AS (
+  SELECT g.display_id
+  FROM goats g
+  LEFT JOIN locations shed
+    ON shed.tenant_id = g.tenant_id
+   AND shed.location_id = g.shed_id
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  LEFT JOIN locations current_loc
+    ON current_loc.tenant_id = g.tenant_id
+   AND current_loc.location_id = g.current_location_id
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id = g.tenant_id
+   AND sp.shed_id = g.shed_id
+   AND sp.status = 'active'
+   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  LEFT JOIN locations park
+    ON park.tenant_id = g.tenant_id
+   AND park.location_id = g.park_id
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND g.lifecycle_status = 'alive'
+    AND g.merged_into_goat_id IS NULL
+    AND (
+      g.shed_id IS NULL
+      OR g.park_id IS NULL
+      OR g.current_location_id IS NULL
+      OR CASE
+        WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN
+          g.current_location_id IS DISTINCT FROM g.shed_id
+        ELSE
+          sp.operational_location_id IS NULL
+          OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
+      END
+      OR (
+        sp.operational_location_id IS NOT NULL
+        AND NOT (
+          current_loc.location_type = 'pen'
+          AND current_loc.status = 'active'
+          AND current_loc.parent_location_id = g.shed_id
+        )
+      )
+      OR shed.location_id IS NULL
+      OR park.location_id IS NULL
+      OR shed.parent_location_id IS DISTINCT FROM g.park_id
+    )
+)
+SELECT count(*) FROM active_goat_shed_invariant;
+ROLLBACK;
+SQL
+)"
+    semantic_count="$(printf '%s' "$semantic_count" | tr -d '[:space:]')"
+    if [ "$semantic_count" != "4" ]; then
+      echo "goat-shed-integrity proof: semantic self-test failed, got $semantic_count offenders; want 4" >&2
+      exit 1
+    fi
+  fi
   echo "goat-shed-integrity proof: self-test passed"
   exit 0
 fi
