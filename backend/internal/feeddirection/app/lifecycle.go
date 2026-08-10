@@ -232,6 +232,11 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		return domain.PreviewPage{}, err
 	}
 	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	// ONE ROW PER OPERATIONAL LOCATION. The stored rows stay at the ration grain -- servePacking reads
+	// the same frozen rows and must keep packing exactly the bag it packs today -- so the fold happens
+	// here, on the direction read, after stamping and before paging. Summarizing the collapsed rows
+	// keeps the summary describing precisely what the sheet shows.
+	scopeRows = domain.CollapseDirectionRowsByLocation(scopeRows)
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -396,6 +401,9 @@ func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQue
 		return domain.PreviewPage{}, err
 	}
 	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	// One row per operational location -- see the note on the served-issue path above. This is the
+	// only other direction read, and packing is deliberately not folded.
+	scopeRows = domain.CollapseDirectionRowsByLocation(scopeRows)
 
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
