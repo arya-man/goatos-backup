@@ -39,6 +39,13 @@ whole screen. For individual weighing free-flow, animal A's pending save must
 not disable or ignore animal B. Required guard: `make
 android-row-action-scope-guard` (also in `make mobile-guard` and local CI).
 
+Android Compose list identity: repeated weighing rows must use the full
+operational grain as the Compose key. `campaignShedId` alone is not unique once
+one shed/campaign can appear as separate category, period, partition, or
+leadership evidence rows. Use `WeighingAssignmentUiRow.uiKey` or another
+field-complete UI identity, and add a failing fixture/test before changing
+LazyColumn/LazyRow keys. Regression guard: `WeighingRouteIdentityTest`.
+
 ## Current Admin-Web Build
 
 The current admin-web slice is:

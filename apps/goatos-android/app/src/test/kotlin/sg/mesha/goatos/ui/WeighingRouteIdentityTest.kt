@@ -188,4 +188,27 @@ class WeighingRouteIdentityTest {
         assertFalse(operatorListBlock.contains("WeekPlanStrip("))
         assertFalse(operatorListBlock.contains("plannerDayTabs"))
     }
+
+    @Test
+    fun `weighing repeated lists and paging use full assignment identity`() {
+        val files = listOf(
+            "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt",
+            "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt",
+            "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingLeadershipVideosScreen.kt",
+        )
+
+        files.forEach { file ->
+            val source = Path.of(file).readText()
+            assertFalse(
+                "$file must key repeated weighing rows by full work/category identity, not campaignShedId alone",
+                source.contains("key = { _, row -> row.campaignShedId }") ||
+                    source.contains("key = { _, assignment -> assignment.campaignShedId }") ||
+                    source.contains("key = { it.campaignShedId }"),
+            )
+        }
+
+        val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
+        assertTrue(viewModel.contains("assignmentIdentityKey()"))
+        assertFalse(viewModel.contains("known = assignments.value.map { it.campaignShedId }.toSet()"))
+    }
 }

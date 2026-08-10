@@ -1287,8 +1287,8 @@ class WeighingViewModel @Inject constructor(
             try {
                 when (val loaded = repository.listAssignments(cursor = cursor, scope = surface, parkId = selectedAssignmentParkId.value)) {
                     is AppResult.Ok -> {
-                        val known = assignments.value.map { it.campaignShedId }.toSet()
-                        assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
+                        val known = assignments.value.map { it.assignmentIdentityKey() }.toSet()
+                        assignments.value = assignments.value + loaded.value.items.filter { it.assignmentIdentityKey() !in known }
                         assignmentsNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
                         assignmentsError.value = null
                         assignmentCapabilities.value = loaded.value.capabilities
@@ -2984,6 +2984,10 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         readyToClose = readyToClose,
         pendingVerificationCount = pendingVerificationCount,
     )
+
+private fun WeighingAssignment.assignmentIdentityKey(): String =
+    listOf(campaignId, workGroupId, campaignShedId, category, periodLabel)
+        .joinToString(":")
 
 private fun Map<String, String>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =
     entries

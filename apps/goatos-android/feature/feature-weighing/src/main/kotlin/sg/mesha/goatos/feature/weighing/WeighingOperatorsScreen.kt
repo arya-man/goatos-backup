@@ -78,18 +78,18 @@ fun WeighingOperatorsScreen(
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onRefresh() }
-    // The transition awaiting confirmation, held as the BUCKET ID rather than the row object so it
+    // The transition awaiting confirmation, held as the assignment UI key rather than the row object so it
     // survives process death; the row itself is re-read from the backend anyway. The typed reason
     // is the one thing here that cannot be recovered from the backend, so it is saved too.
     var pendingAction by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingShedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingAssignmentKey by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingReason by rememberSaveable { mutableStateOf("") }
     fun dismissPending() {
         pendingAction = null
-        pendingShedId = null
+        pendingAssignmentKey = null
         pendingReason = ""
     }
-    val pendingRow = pendingShedId?.let { id -> state.assignments.firstOrNull { it.campaignShedId == id } }
+    val pendingRow = pendingAssignmentKey?.let { key -> state.assignments.firstOrNull { it.uiKey == key } }
     if (pendingRow != null) {
         when (pendingAction) {
             OVERSIGHT_ACTION_CLOSE -> WeighingReasonDialog(
@@ -178,8 +178,8 @@ fun WeighingOperatorsScreen(
                     )
                 }
             } else {
-                itemsIndexed(state.assignments, key = { _, assignment -> assignment.campaignShedId }) { index, assignment ->
-                    LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
+                itemsIndexed(state.assignments, key = { _, assignment -> assignment.uiKey }) { index, assignment ->
+                    LaunchedEffect(assignment.uiKey, index, state.assignments.size) {
                         onAssignmentRowVisible(index)
                     }
                     if (state.canEndWeighing || state.canReopenWeighing) {
@@ -189,12 +189,12 @@ fun WeighingOperatorsScreen(
                             canReopen = state.canReopenWeighing,
                             onReopen = {
                                 pendingAction = OVERSIGHT_ACTION_REOPEN
-                                pendingShedId = assignment.campaignShedId
+                                pendingAssignmentKey = assignment.uiKey
                                 pendingReason = ""
                             },
                             onClose = {
                                 pendingAction = OVERSIGHT_ACTION_CLOSE
-                                pendingShedId = assignment.campaignShedId
+                                pendingAssignmentKey = assignment.uiKey
                                 pendingReason = ""
                             },
                         )

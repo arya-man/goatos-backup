@@ -259,6 +259,7 @@ internal fun ShowkaseWeighingLeadershipLumpSumFiveVideos() = CatalogFrame {
             sheds = listOf(
                 WeighingLeadershipShedUi(
                     id = "kid-shed-c",
+                    campaignShedId = "kid-shed-c",
                     name = "Kid Shed C",
                     status = "completed",
                     periodLabel = "26 Jul - 1 Aug",

@@ -181,6 +181,9 @@ surface still works. Examples:
 - Android Kotlin-only UI or view-model edit: run the targeted Gradle compile or
   targeted unit test; install to a physical device only when device behavior is
   the thing being verified.
+- Android weighing list edits: repeated Compose row keys must include full
+  work/category/period identity, not only `campaignShedId`; run
+  `WeighingRouteIdentityTest` for this guardrail.
 - Admin-web component/style edit: run the relevant typecheck/test/lint slice or
   a focused browser check, not the whole product suite.
 - Docs/copy/config-only edit: inspect the diff and run format/schema validation
