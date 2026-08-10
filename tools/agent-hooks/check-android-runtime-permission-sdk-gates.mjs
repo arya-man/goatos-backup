@@ -134,8 +134,9 @@ function notificationLineIsSdkGated(lines, index) {
   const stack = [];
   for (let lineIndex = 0; lineIndex <= index; lineIndex += 1) {
     const line = codeLine(lines[lineIndex], state);
+    const isIfLine = /\bif\s*\(/.test(line);
     const hasOpenBrace = line.includes("{");
-    const positiveGate = hasOpenBrace ? isPositiveNotificationSdkCondition(lines, lineIndex, line) : false;
+    const positiveGate = hasOpenBrace && isIfLine ? isPositiveNotificationSdkCondition(lines, lineIndex, line) : false;
     for (const match of line.matchAll(/[{}]/g)) {
       if (match[0] === "}") {
         if (stack.length > 0) stack[stack.length - 1].depth -= 1;
