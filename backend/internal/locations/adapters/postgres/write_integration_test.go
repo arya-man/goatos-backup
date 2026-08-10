@@ -170,6 +170,40 @@ WHERE tenant_id=$1::uuid AND location_id=$2::uuid`,
 		}
 	})
 
+	t.Run("retire blocks empty mapped partition pen", func(t *testing.T) {
+		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-retire-mapped-shed", "Synthetic Retire Mapped Shed"))
+		if err != nil {
+			t.Fatalf("CreateLocation shed: %v", err)
+		}
+		penCmd := createLocationCommand("idem-location-retire-mapped-pen", "Synthetic Retire Mapped Shed - Part 1")
+		penCmd.LocationType = "pen"
+		penCmd.ParentLocationID = stringPtr(created.Location.LocationID)
+		pen, err := repo.CreateLocation(ctx, penCmd)
+		if err != nil {
+			t.Fatalf("CreateLocation pen: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (
+  tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id
+) VALUES (
+  $1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual', $3::uuid
+)`, testTenantID, created.Location.LocationID, pen.Location.LocationID); err != nil {
+			t.Fatalf("seed shed partition: %v", err)
+		}
+		if _, err := repo.RetireLocation(ctx, ports.RetireLocationCommand{
+			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-retire-mapped-pen",
+			StoredIdempotencyKey: testTenantID + ":retireLocation:" + pen.Location.LocationID + ":idem-location-retire-mapped-pen",
+			IdempotencyScope:     "retireLocation",
+			RequestHash:          "sha256:retire-mapped-pen",
+			TraceID:              "trace-retire-mapped-pen",
+			LocationID:           pen.Location.LocationID,
+			Reason:               "Synthetic empty mapped pen should still block.",
+			RowVersion:           pen.Location.RowVersion,
+		}); !errors.Is(err, ports.ErrBlockingUsage) {
+			t.Fatalf("expected mapped pen retirement to block, got %v", err)
+		}
+	})
+
 	t.Run("hard delete removes unreferenced staging location", func(t *testing.T) {
 		cmd := createLocationCommand("idem-location-delete-seed", "Synthetic Delete Shed")
 		cmd.Status = "staging"

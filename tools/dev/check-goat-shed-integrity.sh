@@ -36,14 +36,22 @@ WITH active_goat_shed_invariant AS (
     CASE
       WHEN g.shed_id IS NULL THEN 'missing shed_id'
       WHEN g.park_id IS NULL THEN 'missing park_id'
-      WHEN NOT (
-        g.current_location_id = g.shed_id
-        OR (
+      WHEN g.current_location_id IS NULL THEN 'missing current_location_id'
+      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
+        AND g.current_location_id IS DISTINCT FROM g.shed_id
+        THEN 'whole-shed goat current_location_id is not shed_id'
+      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
+        AND sp.operational_location_id IS NULL
+        THEN 'partitioned goat has no mapped operational pen'
+      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
+        AND g.current_location_id IS DISTINCT FROM sp.operational_location_id
+        THEN 'partitioned goat current_location_id is not mapped operational pen'
+      WHEN sp.operational_location_id IS NOT NULL
+        AND NOT (
           current_loc.location_type = 'pen'
           AND current_loc.status = 'active'
           AND current_loc.parent_location_id = g.shed_id
-        )
-      ) THEN 'current_location_id is neither shed_id nor active pen under shed_id'
+        ) THEN 'mapped operational pen is not active under shed_id'
       WHEN shed.location_id IS NULL THEN 'shed_id is not an active shed'
       WHEN park.location_id IS NULL THEN 'park_id is not an active park'
       WHEN shed.parent_location_id IS DISTINCT FROM g.park_id THEN 'shed parent is not goat park'
@@ -58,6 +66,14 @@ WITH active_goat_shed_invariant AS (
   LEFT JOIN locations current_loc
     ON current_loc.tenant_id = g.tenant_id
    AND current_loc.location_id = g.current_location_id
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id = g.tenant_id
+   AND sp.shed_id = g.shed_id
+   AND sp.status = 'active'
+   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id
    AND park.location_id = g.park_id
@@ -69,9 +85,17 @@ WITH active_goat_shed_invariant AS (
     AND (
       g.shed_id IS NULL
       OR g.park_id IS NULL
-      OR NOT (
-        g.current_location_id = g.shed_id
-        OR (
+      OR g.current_location_id IS NULL
+      OR CASE
+        WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN
+          g.current_location_id IS DISTINCT FROM g.shed_id
+        ELSE
+          sp.operational_location_id IS NULL
+          OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
+      END
+      OR (
+        sp.operational_location_id IS NOT NULL
+        AND NOT (
           current_loc.location_type = 'pen'
           AND current_loc.status = 'active'
           AND current_loc.parent_location_id = g.shed_id

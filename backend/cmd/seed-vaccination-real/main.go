@@ -729,7 +729,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 				VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
 					CASE
-					WHEN regexp_replace(lower(btrim(COALESCE($18, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN $12
+					WHEN regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '') = 'whole' THEN $12
 					ELSE (
 						SELECT sp.operational_location_id
 						FROM shed_partitions sp
@@ -742,7 +742,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 						  AND sp.shed_id=$12
 						  AND sp.status='active'
 						  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
-						      regexp_replace(lower(btrim($18)), '^part[[:space:]]+', '')
+						      regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '')
 						LIMIT 1
 					)
 					END,
@@ -2751,22 +2751,37 @@ LEFT JOIN locations current_loc
 LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.shed_id = g.shed_id
+ AND sp.status = 'active'
+ AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
   AND (
     g.shed_id IS NULL
     OR g.park_id IS NULL
     OR g.current_location_id IS NULL
-    OR NOT (
-      g.current_location_id = g.shed_id
-      OR (
+    OR CASE
+      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN
+        g.current_location_id IS DISTINCT FROM g.shed_id
+      ELSE
+        sp.operational_location_id IS NULL
+        OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
+    END
+    OR shed.location_type <> 'shed'
+    OR shed.status <> 'active'
+    OR (
+      sp.operational_location_id IS NOT NULL
+      AND NOT (
         current_loc.location_type = 'pen'
         AND current_loc.status = 'active'
         AND current_loc.parent_location_id = g.shed_id
       )
     )
-    OR shed.location_type <> 'shed'
-    OR shed.status <> 'active'
     OR park.location_type <> 'park'
     OR park.status <> 'active'
     OR shed.parent_location_id IS DISTINCT FROM g.park_id

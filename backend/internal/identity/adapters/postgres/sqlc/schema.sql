@@ -821,6 +821,116 @@ $$;
 
 
 --
+-- Name: ensure_shed_partition_operational_location(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ensure_shed_partition_operational_location() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  parent_row public.locations%ROWTYPE;
+  candidate_id uuid;
+  candidate_count integer;
+BEGIN
+  IF NEW.status <> 'active' OR NEW.operational_location_id IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT *
+  INTO parent_row
+  FROM public.locations
+  WHERE tenant_id = NEW.tenant_id
+    AND location_id = NEW.shed_id
+    AND location_type = 'shed';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
+  END IF;
+
+  SELECT count(*), (array_agg(pen.location_id ORDER BY pen.location_id))[1]
+  INTO candidate_count, candidate_id
+  FROM public.locations pen
+  WHERE pen.tenant_id = NEW.tenant_id
+    AND pen.parent_location_id = NEW.shed_id
+    AND pen.location_type = 'pen'
+    AND pen.status = 'active'
+    AND (
+      lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.partition_label)
+      OR lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.normalized_label)
+    );
+
+  IF candidate_count > 1 THEN
+    RAISE EXCEPTION 'shed_partition_operational_location_ambiguous: tenant %, shed %, partition %',
+      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+  END IF;
+
+  IF candidate_id IS NULL THEN
+    INSERT INTO public.locations (
+      tenant_id,
+      location_type,
+      location_code,
+      name,
+      parent_location_id,
+      country,
+      timezone,
+      status,
+      display_order,
+      operational_notes
+    ) VALUES (
+      NEW.tenant_id,
+      'pen',
+      NULL,
+      parent_row.name || ' - Part ' || NEW.normalized_label,
+      NEW.shed_id,
+      parent_row.country,
+      parent_row.timezone,
+      'active',
+      COALESCE(NEW.display_order, 0),
+      'Created from active shed_partitions row'
+    )
+    RETURNING location_id INTO candidate_id;
+  END IF;
+
+  NEW.operational_location_id := candidate_id;
+
+  INSERT INTO public.location_operational_attributes (
+    tenant_id,
+    location_id,
+    usable_for_counts,
+    usable_for_feed,
+    usable_for_vaccination,
+    usable_for_sop,
+    is_holding,
+    is_quarantine,
+    is_icu,
+    display_order,
+    notes,
+    updated_at
+  )
+  SELECT
+    parent_loa.tenant_id,
+    candidate_id,
+    parent_loa.usable_for_counts,
+    parent_loa.usable_for_feed,
+    parent_loa.usable_for_vaccination,
+    parent_loa.usable_for_sop,
+    parent_loa.is_holding,
+    parent_loa.is_quarantine,
+    parent_loa.is_icu,
+    parent_loa.display_order,
+    parent_loa.notes,
+    now()
+  FROM public.location_operational_attributes parent_loa
+  WHERE parent_loa.tenant_id = NEW.tenant_id
+    AND parent_loa.location_id = NEW.shed_id
+  ON CONFLICT (location_id) DO NOTHING;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: feed_config_norm(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -14608,6 +14718,13 @@ CREATE TRIGGER protocol_versions_published_no_delete_trg BEFORE DELETE ON public
 --
 
 CREATE TRIGGER protocol_versions_validate_scope_trg BEFORE INSERT OR UPDATE OF tenant_id, scope_type, scope_id ON public.protocol_versions FOR EACH ROW EXECUTE FUNCTION public.validate_protocol_version_scope();
+
+
+--
+-- Name: shed_partitions shed_partitions_operational_location_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER shed_partitions_operational_location_trg BEFORE INSERT OR UPDATE OF shed_id, partition_label, normalized_label, status, operational_location_id ON public.shed_partitions FOR EACH ROW EXECUTE FUNCTION public.ensure_shed_partition_operational_location();
 
 
 --

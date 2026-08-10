@@ -172,6 +172,25 @@ SELECT EXISTS (
 	return nil
 }
 
+func rejectMappedPenRetirement(ctx context.Context, tx pgx.Tx, tenantID, locationID string) error {
+	var mappedCount int
+	if err := tx.QueryRow(ctx, `
+WITH mapped AS (
+  SELECT 1
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.operational_location_id = $2::uuid
+  FOR UPDATE
+)
+SELECT count(*) FROM mapped`, tenantID, locationID).Scan(&mappedCount); err != nil {
+		return err
+	}
+	if mappedCount > 0 {
+		return ports.ErrBlockingUsage
+	}
+	return nil
+}
+
 func (r *Repository) RetireLocation(ctx context.Context, cmd ports.RetireLocationCommand) (*ports.LocationMutationResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -196,6 +215,9 @@ func (r *Repository) RetireLocation(ctx context.Context, cmd ports.RetireLocatio
 
 	before, err := r.getLocationTx(ctx, tx, cmd.TenantID, cmd.LocationID)
 	if err != nil {
+		return nil, err
+	}
+	if err := rejectMappedPenRetirement(ctx, tx, cmd.TenantID, cmd.LocationID); err != nil {
 		return nil, err
 	}
 	usage, err := usageTx(ctx, tx, cmd.TenantID, cmd.LocationID)
