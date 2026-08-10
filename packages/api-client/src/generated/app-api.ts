@@ -7359,10 +7359,10 @@ export interface components {
             ration_group_label: string | null;
             shed_tag_label: string | null;
             /**
-             * @description Only `resolved` may produce feed_per_kg_gain_kg. `partial` means at least one active feed item has no authored rate, so the planned total understates the ration -- feed config encodes "not configured" as an ABSENT row, never as 0.
+             * @description Only `resolved` may produce feed_per_kg_gain_kg. It means the cohort matched an authored ration and at least one feed item carries a rate -- NOT that every catalog item is covered: the ration grid is sparse by design (a kid ration says nothing about adult concentrates). An unauthored item contributes nothing and is counted in feed_items_blocked; it is never read as an authored 0.
              * @enum {string}
              */
-            feed_plan_status: "resolved" | "partial" | "experiment" | "unknown_cohort" | "no_config";
+            feed_plan_status: "resolved" | "experiment" | "unknown_cohort" | "no_config";
             /**
              * Format: double
              * @description AUTHORED ration (grams per head per day), not what was issued or eaten.
@@ -7374,7 +7374,7 @@ export interface components {
              */
             planned_energy_kcal_per_head_day: number | null;
             feed_items_configured: number;
-            /** @description Active feed items with NO authored rate for this pen. Non-zero means the planned total is incomplete. */
+            /** @description Active feed items with NO authored rate for this pen. Normal and expected -- a ration covers what the cohort eats. Reported so a reader can question a total that looks too small. */
             feed_items_blocked: number;
             /**
              * Format: double

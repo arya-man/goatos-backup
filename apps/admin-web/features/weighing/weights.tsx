@@ -104,9 +104,8 @@ function penGapCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContract) {
 // reason there is none.
 //
 // A blank cell would read as "we do not know how this pen converts", which is a
-// different statement from each of the reasons below. The distinction matters
-// because three of the four are FIXABLE: set the missing ration, split the mixed
-// pen, or configure the pen at all.
+// different statement from each of the reasons below — and two of the three are
+// FIXABLE: author the missing ration, or split the mixed pen.
 function penConversionCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContract) {
   if (pen.feed_per_kg_gain_kg != null) {
     return (
@@ -117,7 +116,6 @@ function penConversionCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContr
     );
   }
   const reason: Record<string, string> = {
-    partial: "pens.feed.partial",
     experiment: "pens.feed.experiment",
     no_config: "pens.feed.none",
     unknown_cohort: "pens.feed.mixed",

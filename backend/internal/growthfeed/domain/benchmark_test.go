@@ -84,16 +84,16 @@ func TestPensWeighedDifferentlyAreNeverPeers(t *testing.T) {
 	}
 }
 
-// RULE 2. Feed config encodes "not configured" as an absent rate row, so a partial
-// ration understates what the pen is meant to eat. A ratio built on it would rank
-// that pen as the most efficient on the farm.
-func TestPartialRationProducesNoConversionRatio(t *testing.T) {
+// RULE 2. A pen with NO authored ration has no conversion ratio. Its planned total
+// would be 0, and 0 grams over a real gain is an infinitely efficient pen that
+// sorts straight to the top of the ranking.
+func TestPenWithNoAuthoredRationProducesNoConversionRatio(t *testing.T) {
 	full := pen("full", "Sirohi", "Grower", 400, ADGBasisPerAnimalMedian)
-	partial := pen("partial", "Sirohi", "Grower", 400, ADGBasisPerAnimalMedian)
-	partial.FeedPlanStatus = FeedPlanPartial
-	partial.FeedItemsBlocked = 1
-	// Same authored total on both, so the ONLY difference is the status.
-	pens := []Pen{full, partial}
+	unconfigured := pen("unconfigured", "Sirohi", "Grower", 400, ADGBasisPerAnimalMedian)
+	unconfigured.FeedPlanStatus = FeedPlanNoConfig
+	unconfigured.PlannedFeedGPerHeadDay = nil
+	// Same gain on both, so the ONLY difference is whether a ration exists.
+	pens := []Pen{full, unconfigured}
 	Benchmark(pens)
 
 	if pens[0].FeedPerKgGainKg == nil {
@@ -103,7 +103,7 @@ func TestPartialRationProducesNoConversionRatio(t *testing.T) {
 		t.Fatalf("conversion = %v, want 2.5 kg feed per kg gain", got)
 	}
 	if pens[1].FeedPerKgGainKg != nil {
-		t.Fatalf("partial ration produced ratio %v, want none", *pens[1].FeedPerKgGainKg)
+		t.Fatalf("unconfigured pen produced ratio %v, want none", *pens[1].FeedPerKgGainKg)
 	}
 }
 

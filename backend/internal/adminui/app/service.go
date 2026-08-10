@@ -2213,7 +2213,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"pens.vs_peers.none":   "nothing else like it to compare with",
 			"pens.feed.planned":    "planned per kid per day",
 			"pens.feed.conversion": "kg of feed per kg gained",
-			"pens.feed.partial":    "ration incomplete — some feed has no amount set, so no feed-per-kg figure is shown",
 			"pens.feed.experiment": "on a feed trial — the amount is set for the whole shed, not per kid",
 			"pens.feed.none":       "no ration set for this pen",
 			"pens.feed.mixed":      "holds more than one kind of animal, so no single ration applies",
