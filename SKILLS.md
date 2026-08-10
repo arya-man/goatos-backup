@@ -80,7 +80,11 @@ resolution. Legacy partition aliases are inactive `locations` shed rows only;
 active sheds named like `Castro 1` remain whole sheds unless the partition
 catalog says otherwise. `CreateCampaign` idempotency must fingerprint/replay the
 original client request before mutable alias/catalog hydration, then store that
-raw fingerprint.
+raw fingerprint. Herd Register write destinations must come from the partition
+catalog (`shed_partitions`/feed config pens API), not animal census/count
+facets, because empty partitions are still real animal residences and must be
+selectable. The staging Cloud Deploy task wrapper must not hide migration
+failures behind `if ! main`; migrations must stop the rollout loudly.
 
 Critical animal action guardrails:
 

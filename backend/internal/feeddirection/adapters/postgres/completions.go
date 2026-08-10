@@ -182,6 +182,54 @@ WHERE tenant_id = $1::uuid AND location_id = $2::uuid
 	return nil
 }
 
+// requireShedPartitionInPark asserts the physical shed belongs to the park and that the requested
+// partition identity matches the catalog. Partitioned sheds fail closed on blank labels; undivided
+// sheds fail closed on fabricated labels.
+func requireShedPartitionInPark(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) error {
+	if err := requireShedInPark(ctx, tx, tenantID, parkID, shedID); err != nil {
+		return err
+	}
+	normalizedRequested := domain.PartitionMatchKey(partitionLabel)
+	rows, err := tx.Query(ctx, `
+SELECT COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole')
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND status = 'active'
+  AND COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole') <> 'whole'`,
+		tenantID, shedID)
+	if err != nil {
+		return fmt.Errorf("feeddirection: resolve shed partitions: %w", err)
+	}
+	defer rows.Close()
+
+	hasPartitions := false
+	matches := false
+	for rows.Next() {
+		hasPartitions = true
+		var catalogLabel string
+		if err := rows.Scan(&catalogLabel); err != nil {
+			return fmt.Errorf("feeddirection: scan shed partition: %w", err)
+		}
+		if domain.PartitionMatchKey(catalogLabel) == normalizedRequested {
+			matches = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("feeddirection: iterate shed partitions: %w", err)
+	}
+	if hasPartitions {
+		if normalizedRequested == "whole" || !matches {
+			return ports.ErrInvalidPartition
+		}
+		return nil
+	}
+	if normalizedRequested != "whole" {
+		return ports.ErrInvalidPartition
+	}
+	return nil
+}
+
 func writeCompletionAudit(ctx context.Context, tx pgx.Tx, p ports.CompleteSessionParams, completionID string) error {
 	actorType := strings.TrimSpace(p.ActorType)
 	if actorType == "" {

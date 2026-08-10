@@ -523,11 +523,11 @@ INSERT INTO goat_births (
 
 	if _, err := tx.Exec(ctx, `
 INSERT INTO goat_location_history (
-  tenant_id, goat_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+  tenant_id, goat_id, to_location_id, to_partition_label, reason, occurred_at, actor_id, source_record_id
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, 'admin_goat_create', $4::timestamptz, $5::uuid, nullif($6::text, '')
+  $1::uuid, $2::uuid, $3::uuid, nullif($7::text, ''), 'admin_goat_create', $4::timestamptz, $5::uuid, nullif($6::text, '')
 )`,
-		cmd.TenantID, goatID, cmd.ShedID, now, cmd.ActorID, stringValue(cmd.SourceRecordID)); err != nil {
+		cmd.TenantID, goatID, cmd.ShedID, now, cmd.ActorID, stringValue(cmd.SourceRecordID), stringValue(cmd.PartitionLabel)); err != nil {
 		return nil, err
 	}
 

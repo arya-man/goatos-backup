@@ -3202,7 +3202,7 @@ alias_options AS (
     ON alias.tenant_id=$1::uuid
    AND alias.location_id=r.requested_location_id
    AND alias.location_type='shed'
-   AND alias.status <> 'active'
+   AND alias.status='inactive'
   JOIN locations parent
     ON parent.tenant_id=alias.tenant_id
    AND parent.parent_location_id=alias.parent_location_id

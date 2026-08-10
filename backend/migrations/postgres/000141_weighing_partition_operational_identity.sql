@@ -23,6 +23,13 @@ DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_id
 ALTER TABLE public.weighing_campaign_sheds
   ADD COLUMN IF NOT EXISTS partition_label text;
 
+ALTER TABLE public.weighing_campaign_sheds
+  ADD COLUMN IF NOT EXISTS partition_label text;
+
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
+
 WITH alias_matches AS (
   SELECT
     wcs.campaign_shed_id,
@@ -33,6 +40,8 @@ WITH alias_matches AS (
   JOIN public.locations alias
     ON alias.tenant_id=wcs.tenant_id
    AND alias.location_id=wcs.location_id
+   AND alias.location_type='shed'
+   AND alias.status='inactive'
   JOIN public.locations parent
     ON parent.tenant_id=alias.tenant_id
    AND parent.parent_location_id=alias.parent_location_id
