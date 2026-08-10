@@ -21,7 +21,7 @@ package domain
 
 // ShedWeightsRow is ONE shed's most recent weigh.
 //
-// GRAIN: one row per (park_id, location_id) — the physical shed, NOT the
+// GRAIN: one row per (park_id, location_id, partition_label) — the physical operational shed, NOT the
 // campaign bucket. A shed weighed in two consecutive campaigns owns two buckets;
 // this screen answers "what does this shed weigh now", so the newest bucket
 // carrying data wins and older ones are not emitted. Emitting bucket grain is
@@ -37,7 +37,9 @@ type ShedWeightsRow struct {
 	// display_name: that column is free text typed at planning time and has held
 	// "M1P5", "C1" and "Mandela 2 Part 6" for sheds whose canonical names are
 	// "Mandela 1 - Part 5", "Castro 1" and "Mandela 2 - Part 6".
-	ShedDisplayName string `json:"shed_display_name"`
+	ShedDisplayName            string `json:"shed_display_name"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
 	// WeighingCategory is 'individual_animal' or 'per_shed_partition', fixed when
 	// the bucket is planned. It decides which of the two observation tables holds
 	// this shed's data; the write path never populates both for one bucket, so the

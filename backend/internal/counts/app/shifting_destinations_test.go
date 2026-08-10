@@ -440,15 +440,12 @@ func TestDeriveShiftingSourceCarriesTheOriginPartition(t *testing.T) {
 		}
 	})
 
-	t.Run("mixed partitions yield no source partition, not a guess", func(t *testing.T) {
+	t.Run("mixed partitions reject the parent-shed fallback", func(t *testing.T) {
 		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, "1"), fact(destGoatIDB, "2")}}
-		_, _, partition, err := NewService(repo).DeriveShiftingSource(
+		_, _, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
-		if err != nil {
-			t.Fatalf("DeriveShiftingSource: %v", err)
-		}
-		if partition != nil {
-			t.Fatalf("partition = %q, want nil (Castro 1 + Castro 2 have no single origin partition)", *partition)
+		if !errors.Is(err, ErrImpactNotDerivable) {
+			t.Fatalf("err = %v, want ErrImpactNotDerivable", err)
 		}
 	})
 

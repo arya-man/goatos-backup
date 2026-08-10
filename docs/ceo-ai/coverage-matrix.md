@@ -627,7 +627,10 @@ outbox, `func:ShedCompletionReadiness` gates whether a shed-level submission has
 the expected scans/proofs before it can enter verification, and
 `func:CompletedTaskProofRefs` recovers completed server proof refs for that same
 operator submit path when the mobile cache no longer carries the local proof row.
-All three are internal write/readiness helpers on the existing vaccination SOP
+`func:ShedCompletionSummary` is the existing mobile shed-submit summary read
+behind `GET /app/tasks/{task_id}/shed-completion-summary`; its partition-label
+argument only narrows that existing operator read to the physical partition shed.
+These helpers are internal write/readiness reads on the existing vaccination SOP
 execution path. They add NO new leadership KPI, table, read API route, Cube
 metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read
 surface remains the existing vaccination execution/process-integrity coverage.

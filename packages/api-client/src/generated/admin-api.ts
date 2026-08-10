@@ -2799,6 +2799,8 @@ export interface components {
             park_location_id: string;
             /** Format: uuid */
             shed_location_id: string;
+            /** @description Physical partition within shed_location_id. Required when that shed has active partitions. */
+            partition_label?: string | null;
             /** Format: date-time */
             accepted_at?: string | null;
             /** Format: date */

@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -1437,7 +1438,7 @@ func (r *Repository) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([
 	// excluded). EntryDate always stays: it is a client-meaningful date (and only date-granular), part of the
 	// semantic identity.
 	fingerprint := requestFingerprint(
-		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID,
+		in.TenantID, in.LoadID, in.ParkLocationID, in.ShedLocationID, strings.TrimSpace(in.PartitionLabel),
 		biztime.BusinessDate(in.EntryDate), fpTimeIf(in.AcceptedAtSet, in.AcceptedAt),
 		stringPtrValue(in.IntakeHealthSignal), canonicalJSON(in.TrustedVaccinationHistory),
 		strings.Join(fpGoats, ","),
@@ -1529,6 +1530,9 @@ WHERE tenant_id = $1::uuid
 	if updateGoatTag.RowsAffected() != int64(len(goatIDs)) {
 		return nil, fmt.Errorf("%w: not all goats were eligible for accepted intake", ports.ErrInvalidTransition)
 	}
+	if err := validateProcurementIntakePartition(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel); err != nil {
+		return nil, err
+	}
 
 	// Batch update goats table for all accepted goats
 	_, err = tx.Exec(ctx, `
@@ -1573,16 +1577,36 @@ WHERE goats.tenant_id = $1::uuid
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
 	}
+	if oploc.IsPartitioned(oploc.NormalizePartition(in.PartitionLabel)) {
+		_, err = tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, updated_at)
+SELECT $1::uuid, v.goat_id::uuid, $2::uuid, $3::text, now()
+FROM UNNEST($4::text[]) v(goat_id)
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    updated_at = now()`,
+			in.TenantID, in.ShedLocationID, strings.TrimSpace(in.PartitionLabel), goatIDs)
+	} else {
+		_, err = tx.Exec(ctx, `
+DELETE FROM goat_shed_partitions
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])`,
+			in.TenantID, goatIDs)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("procurement: update goat_shed_partitions for accepted intake: %w", err)
+	}
 
 	// Batch insert into goat_location_history for all accepted goats
 	_, err = tx.Exec(ctx, `
 INSERT INTO goat_location_history (
-  tenant_id, goat_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+  tenant_id, goat_id, to_location_id, to_partition_label, reason, occurred_at, actor_id, source_record_id
 )
-SELECT $1::uuid, v.goat_id::uuid, $2::uuid, 'procurement_accepted_intake', $3::timestamptz,
-       nullif($4::text, '')::uuid, concat('procurement_load:', $5::text)
-FROM UNNEST($6::text[]) v(goat_id)`,
-		in.TenantID, in.ShedLocationID, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
+SELECT $1::uuid, v.goat_id::uuid, $2::uuid, nullif(btrim($3), ''), 'procurement_accepted_intake', $4::timestamptz,
+       nullif($5::text, '')::uuid, concat('procurement_load:', $6::text)
+FROM UNNEST($7::text[]) v(goat_id)`,
+		in.TenantID, in.ShedLocationID, in.PartitionLabel, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch insert goat_location_history: %w", err)
 	}
@@ -2102,6 +2126,34 @@ func scanPCHandoff(row scanner) (domain.PCHandoff, error) {
 	out.TrustedVaccinationHistory = rawJSON(history, `[]`)
 	out.IntakeHealthSignal = textPtr(signal)
 	return out, nil
+}
+
+func validateProcurementIntakePartition(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
+	const q = `
+SELECT
+  count(*) FILTER (WHERE status = 'active') AS active_partitions,
+  count(*) FILTER (
+    WHERE status = 'active'
+      AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+        = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ) AS matching_partitions
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid`
+	var active, matching int
+	if err := tx.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching); err != nil {
+		return err
+	}
+	if active == 0 {
+		if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+			return ports.ErrInvalidTransition
+		}
+		return nil
+	}
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) || matching == 0 {
+		return ports.ErrInvalidTransition
+	}
+	return nil
 }
 
 func scanWorkRow(row scanner) (domain.WorkRow, error) {

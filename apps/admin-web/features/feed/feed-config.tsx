@@ -17,7 +17,7 @@ import {
   listFeedConfigShedTags,
   type ApiResult,
 } from "@/lib/api/server";
-import { getCensusLocations } from "@/lib/api/herd-locations";
+import { getCensusLocations, listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { all, one, type RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
@@ -79,6 +79,7 @@ const PEN_CATALOG_PAGE_SIZE = 200;
 // "filter only shows what's on the current grid page" bug this replaces. Bounded config, not a herd
 // scan: the backend caps these catalogs and reports has_more.
 const VOCAB_PAGE_SIZE = 200;
+
 
 /**
  * The comparison operators the feed-config reads accept. Mirrors the `grams_op` / `kg_op` enum in
@@ -349,12 +350,12 @@ export async function FeedConfigPage({
     // of an already-enrolled shed unreachable entirely. It follows the same all-parks rule as the
     // cell read so the two sections agree about what is in scope.
     experimentAllParks || scope.parkId
-      ? listFeedConfigPens(
+      ? listAllFeedConfigPens(
           experimentAllParks
             // park_id omitted entirely -- the backend reads that as "every park", the same rule the
             // experiment read above follows so the table and its enroller agree about scope.
-            ? { limit: PEN_CATALOG_PAGE_SIZE }
-            : { park_id: scope.parkId, limit: PEN_CATALOG_PAGE_SIZE },
+            ? {}
+            : { park_id: scope.parkId },
         )
       : Promise.resolve(null),
     // The tenant's feed vocabulary, for the enrol control's item picker. It comes from the catalog

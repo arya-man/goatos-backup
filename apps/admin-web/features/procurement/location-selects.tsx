@@ -37,6 +37,10 @@ function locationLabel(location: ProcurementLocationOption): string {
   return location.code ? `${location.code} - ${withCount}` : withCount;
 }
 
+function optionKey(location: ProcurementLocationOption): string {
+  return `${location.id}|${location.partitionLabel ?? ""}`;
+}
+
 export function ParkLocationSelect({
   name,
   parks,
@@ -105,8 +109,9 @@ export function ParkShedLocationSelects({
   pageContract: AdminUiPageContract;
 }) {
   const [parkId, setParkId] = useState("");
-  const [shedId, setShedId] = useState("");
+  const [shedKey, setShedKey] = useState("");
   const parkSheds = useMemo(() => (parkId ? sheds.filter((shed) => shed.parentId === parkId) : []), [parkId, sheds]);
+  const selectedShed = parkSheds.find((shed) => optionKey(shed) === shedKey) ?? null;
   const parkDisabled = parks.length === 0;
   const shedDisabled = !parkId || parkSheds.length === 0;
   const shedTitle = !parkId
@@ -125,7 +130,7 @@ export function ParkShedLocationSelects({
           value={parkId}
           onChange={(event) => {
             setParkId(event.target.value);
-            setShedId("");
+            setShedKey("");
           }}
           disabled={parkDisabled}
           title={parkDisabled ? copy(pageContract, "location.no_parks") : undefined}
@@ -142,7 +147,9 @@ export function ParkShedLocationSelects({
       </div>
       <div className="fld" style={{ flex: 1, minWidth: 180 }}>
         <label>{copy(pageContract, "field.shed_location_id")}</label>
-        <select name="shed_location_id" required value={shedId} disabled={shedDisabled} onChange={(event) => setShedId(event.target.value)} title={shedTitle}>
+        <input type="hidden" name="shed_location_id" value={selectedShed?.id ?? ""} />
+        <input type="hidden" name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
+        <select required value={shedKey} disabled={shedDisabled} onChange={(event) => setShedKey(event.target.value)} title={shedTitle}>
           <option value="">
             {!parkId
               ? copy(pageContract, "location.select_park_first")
@@ -151,7 +158,7 @@ export function ParkShedLocationSelects({
                 : copy(pageContract, "location.select_shed")}
           </option>
           {parkSheds.map((shed) => (
-            <option key={shed.id} value={shed.id}>
+            <option key={optionKey(shed)} value={optionKey(shed)}>
               {locationLabel(shed)}
             </option>
           ))}

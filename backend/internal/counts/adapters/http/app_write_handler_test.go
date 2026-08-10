@@ -1621,23 +1621,26 @@ func TestRecordShiftingEventKeepsAnExplicitlySuppliedSource(t *testing.T) {
 	}
 }
 
-// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers the two degrade paths: a
-// multi-animal movement has no single truthful origin, and an animal with no recorded placement has
-// none to read. Both must leave the source absent rather than storing an invented or blank value.
+// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers an animal with no recorded
+// placement: there is no source to read, so the write leaves the source absent rather than storing
+// an invented or blank value. A mixed multi-animal origin is different: it is rejected below because
+// collapsing sibling partitions into a parent-shed source weakens the stale-movement guard.
 func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 	const otherGoatID = "33333333-3333-4333-8333-333333333334"
 	cases := []struct {
-		name    string
-		facts   map[string]domain.GoatShiftingFact
-		goatIDs []string
-		body    map[string]any
+		name       string
+		facts      map[string]domain.GoatShiftingFact
+		goatIDs    []string
+		body       map[string]any
+		wantStatus int
 	}{
 		{
 			name: "animal has no recorded placement",
 			facts: map[string]domain.GoatShiftingFact{
 				testGoatID: {GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi"},
 			},
-			goatIDs: []string{testGoatID},
+			goatIDs:    []string{testGoatID},
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "two animals have no single origin",
@@ -1651,7 +1654,8 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 					ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest("11111111-1111-4111-8111-111111111111"),
 				},
 			},
-			goatIDs: []string{testGoatID, otherGoatID},
+			goatIDs:    []string{testGoatID, otherGoatID},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1671,8 +1675,11 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 			}
 
 			res := post(t, mux, appShiftingEventRoute, fmt.Sprintf("shift-source-absent-%d", i), body)
-			if res.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+			if res.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s, want %d", res.Code, res.Body.String(), tc.wantStatus)
+			}
+			if tc.wantStatus != http.StatusOK {
+				return
 			}
 			if repo.lastEvent.SourceParkID != nil || repo.lastEvent.SourceShedID != nil {
 				t.Fatalf("source = %v/%v, want both nil -- an unresolvable origin must stay absent, never a blank or invented stored fact",

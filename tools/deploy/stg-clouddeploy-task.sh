@@ -249,9 +249,21 @@ deploy() {
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
 
-  # Contract migrations may remove database arbiters used by the prior binary. Quiesce external
-  # API writes, replace the API with the new binary, and remove every revision that was serving
-  # before the replacement. BinaryAhead boots but reports not-ready until the migration completes.
+  # Contract migrations may remove database arbiters used by the prior binary. Quiesce public
+  # writers first: admin-web is the public write entrypoint, and the API is also made internal
+  # before old API/worker revisions are drained.
+  run gcloud run services update "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --ingress=internal \
+    --min=0 \
+    --max=1 \
+    --min-instances=0 \
+    --max-instances=1 \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_quiesce" \
+    --quiet
+  wait_service_ready "$ADMIN_WEB_SERVICE" "pre-migration quiesce"
+
   while IFS= read -r revision; do
     [[ -n "$revision" ]] && old_api_revisions+=("$revision")
   done < <(capture_serving_revisions "$API_SERVICE")
@@ -379,6 +391,11 @@ deploy() {
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$ADMIN_WEB_IMAGE" \
+    --ingress=all \
+    --min=1 \
+    --max=4 \
+    --min-instances=1 \
+    --max-instances=4 \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
 

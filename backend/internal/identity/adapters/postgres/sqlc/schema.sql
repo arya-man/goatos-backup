@@ -2672,8 +2672,8 @@ CREATE TABLE public.shifting_events (
     feed_config_fingerprint text,
     feed_requirement_snapshot jsonb,
     raise_comment text,
-    destination_partition_label text DEFAULT ''::text NOT NULL,
-    source_partition_label text DEFAULT ''::text NOT NULL,
+    destination_partition_label text,
+    source_partition_label text,
     CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
     CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))),
     CONSTRAINT shifting_events_high_priority_feed_evidence_consistent_check CHECK ((((feed_packing_proof_ref IS NULL) AND (feed_given_proof_ref IS NULL) AND (feed_config_fingerprint IS NULL) AND (feed_requirement_snapshot IS NULL)) OR ((btrim(feed_packing_proof_ref) <> ''::text) AND (btrim(feed_given_proof_ref) <> ''::text) AND (btrim(feed_config_fingerprint) <> ''::text) AND (jsonb_typeof(feed_requirement_snapshot) = 'object'::text)))),
@@ -2899,6 +2899,12 @@ CREATE TABLE public.feed_direction_issue_rows (
     amended_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
     CONSTRAINT feed_direction_issue_rows_amended_shape_check CHECK (((amended = false) OR (amended_at IS NOT NULL))),
     CONSTRAINT feed_direction_issue_rows_blocked_shape_check CHECK ((((quantity_kg IS NULL) AND (blocked_reason_code IS NOT NULL)) OR ((quantity_kg IS NOT NULL) AND (blocked_reason_code IS NULL)))),
     CONSTRAINT feed_direction_issue_rows_seq_check CHECK (((row_seq >= 0) AND (item_seq >= 0))),
@@ -3329,10 +3335,12 @@ CREATE TABLE public.verification_items (
     applied_at timestamp with time zone,
     applied_by_module text,
     subject_note text,
-    partition_label text DEFAULT ''::text NOT NULL,
+    partition_label text,
+    context_rows jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT verification_items_applied_ack_complete_chk CHECK (((applied_at IS NULL) = (applied_by_module IS NULL))),
     CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
     CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
+    CONSTRAINT verification_items_context_rows_is_array CHECK ((jsonb_typeof(context_rows) = 'array'::text)),
     CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
     CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
@@ -3720,6 +3728,7 @@ CREATE TABLE public.sop_submissions (
     submitted_at timestamp with time zone DEFAULT now() NOT NULL,
     accepted_at timestamp with time zone,
     row_version integer DEFAULT 1 NOT NULL,
+    partition_label text,
     CONSTRAINT sop_submissions_answers_object_check CHECK ((jsonb_typeof(answers) = 'object'::text)),
     CONSTRAINT sop_submissions_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
     CONSTRAINT sop_submissions_proof_array_check CHECK ((jsonb_typeof(proof_refs) = 'array'::text)),
@@ -4202,7 +4211,7 @@ CREATE TABLE public.vaccination_eligibility_rollups (
     source_revision bigint DEFAULT 0 NOT NULL,
     recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text DEFAULT ''::text NOT NULL,
+    partition_label text,
     CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
 );
 
@@ -4614,7 +4623,7 @@ CREATE TABLE public.weighing_campaign_sheds (
     park_id uuid,
     start_business_date date,
     closure_kind text,
-    partition_label text DEFAULT ''::text NOT NULL,
+    partition_label text,
     CONSTRAINT weighing_campaign_sheds_category_check CHECK ((weighing_category = ANY (ARRAY['individual_animal'::text, 'per_shed_partition'::text]))),
     CONSTRAINT weighing_campaign_sheds_closure_kind_check CHECK (((closure_kind IS NULL) OR (closure_kind = ANY (ARRAY['verified'::text, 'early'::text])))),
     CONSTRAINT weighing_campaign_sheds_expected_animal_count_check CHECK ((expected_animal_count >= 0)),
@@ -5660,7 +5669,7 @@ CREATE TABLE public.feed_config_write_log (
     CONSTRAINT feed_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
     CONSTRAINT feed_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
     CONSTRAINT feed_config_write_log_insert_shape_check CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL))),
-    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text]))),
+    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text]))),
     CONSTRAINT feed_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text]))),
     CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
 );
@@ -5740,6 +5749,12 @@ CREATE TABLE public.feed_distribution_completions (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
     CONSTRAINT feed_distribution_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((distribution_proof_ref IS NOT NULL) AND (btrim(distribution_proof_ref) <> ''::text) AND (water_proof_ref IS NOT NULL) AND (btrim(water_proof_ref) <> ''::text)))),
     CONSTRAINT feed_distribution_completions_session_no_check CHECK ((session_no >= 1)),
     CONSTRAINT feed_distribution_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
@@ -5766,7 +5781,7 @@ CREATE TABLE public.feed_experiment_config (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text DEFAULT ''::text NOT NULL,
+    partition_label text,
     partition_key text GENERATED ALWAYS AS (
 CASE
     WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
@@ -5826,6 +5841,12 @@ CREATE TABLE public.feed_packing_completions (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE lower(btrim(partition_label))
+END) STORED,
     CONSTRAINT feed_packing_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((packing_proof_ref IS NOT NULL) AND (btrim(packing_proof_ref) <> ''::text)))),
     CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 1)),
     CONSTRAINT feed_packing_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
@@ -6028,7 +6049,6 @@ CREATE TABLE public.feed_transport_tasks (
     tenant_id uuid NOT NULL,
     park_id uuid NOT NULL,
     shed_id uuid NOT NULL,
-    partition_label text DEFAULT ''::text NOT NULL,
     business_date date NOT NULL,
     scheduled_at timestamp with time zone NOT NULL,
     status text DEFAULT 'due'::text NOT NULL,
@@ -6038,7 +6058,8 @@ CREATE TABLE public.feed_transport_tasks (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
-    CONSTRAINT feed_transport_tasks_status_check CHECK ((status = ANY (ARRAY['due'::text, 'verification_due'::text, 'rework'::text, 'completed'::text])))
+    partition_label text DEFAULT ''::text NOT NULL,
+    CONSTRAINT feed_transport_tasks_status_check CHECK ((status = ANY (ARRAY['due'::text, 'verification_due'::text, 'rework'::text, 'completed'::text, 'retired'::text])))
 );
 
 
@@ -6160,14 +6181,14 @@ CREATE TABLE public.goat_location_history (
     tenant_id uuid NOT NULL,
     goat_id uuid NOT NULL,
     from_location_id uuid,
-    from_partition_label text,
     to_location_id uuid NOT NULL,
-    to_partition_label text,
     reason text,
     occurred_at timestamp with time zone NOT NULL,
     recorded_at timestamp with time zone DEFAULT now() NOT NULL,
     actor_id uuid,
-    source_record_id text
+    source_record_id text,
+    from_partition_label text,
+    to_partition_label text
 );
 
 
@@ -6235,7 +6256,7 @@ CREATE TABLE public.health_cases (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text DEFAULT ''::text NOT NULL,
+    partition_label text,
     CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
     CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
     CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
@@ -8097,6 +8118,23 @@ CREATE TABLE public.weighing_repair_batch_progress (
     completed_at timestamp with time zone,
     CONSTRAINT weighing_repair_batch_progress_batches_run_check CHECK ((batches_run >= 0)),
     CONSTRAINT weighing_repair_batch_progress_rows_repaired_check CHECK ((rows_repaired >= 0))
+);
+
+
+--
+-- Name: weighing_shed_load_tags; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.weighing_shed_load_tags (
+    tenant_id uuid NOT NULL,
+    location_id uuid NOT NULL,
+    load_ref text NOT NULL,
+    owner_name text DEFAULT ''::text NOT NULL,
+    placed_on date,
+    notes text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT weighing_shed_load_tags_load_ref_not_blank CHECK ((btrim(load_ref) <> ''::text))
 );
 
 
@@ -10550,6 +10588,14 @@ ALTER TABLE ONLY public.weighing_repair_batch_progress
 
 
 --
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_pkey PRIMARY KEY (tenant_id, location_id, load_ref);
+
+
+--
 -- Name: weighing_shed_observation_proofs weighing_shed_observation_proofs_pk; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11310,7 +11356,7 @@ CREATE INDEX feed_direction_completions_shed_history_idx ON public.feed_directio
 -- Name: feed_direction_issue_rows_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, session_no, shed_tag_key, breed_key, feed_item_key);
+CREATE UNIQUE INDEX feed_direction_issue_rows_natural_key_uidx ON public.feed_direction_issue_rows USING btree (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key);
 
 
 --
@@ -11373,7 +11419,7 @@ CREATE UNIQUE INDEX feed_distribution_completions_idempotency_uq ON public.feed_
 -- Name: feed_distribution_completions_natural_uq; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_distribution_completions_natural_uq ON public.feed_distribution_completions USING btree (tenant_id, park_id, shed_id, session_no, target_date, workflow);
+CREATE UNIQUE INDEX feed_distribution_completions_natural_uq ON public.feed_distribution_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
 
 
 --
@@ -11415,7 +11461,7 @@ CREATE UNIQUE INDEX feed_packing_completions_idempotency_uq ON public.feed_packi
 -- Name: feed_packing_completions_natural_uq; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_packing_completions_natural_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, session_no, target_date, workflow);
+CREATE UNIQUE INDEX feed_packing_completions_natural_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
 
 
 --
@@ -11622,10 +11668,10 @@ CREATE UNIQUE INDEX feed_transport_tasks_tenant_task_uq ON public.feed_transport
 
 
 --
--- Name: feed_transport_tasks_today_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: feed_transport_tasks_today_partition_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX feed_transport_tasks_today_idx ON public.feed_transport_tasks USING btree (tenant_id, business_date, status, shed_id, partition_label);
+CREATE INDEX feed_transport_tasks_today_partition_idx ON public.feed_transport_tasks USING btree (tenant_id, business_date, status, shed_id, partition_label);
 
 
 --
@@ -11752,6 +11798,12 @@ CREATE INDEX goat_location_history_goat_timeline_idx ON public.goat_location_his
 --
 
 CREATE INDEX goat_location_history_tenant_from_location_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, occurred_at DESC) WHERE (from_location_id IS NOT NULL);
+
+
+--
+-- Name: goat_location_history_tenant_from_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
 CREATE INDEX goat_location_history_tenant_from_partition_idx ON public.goat_location_history USING btree (tenant_id, from_location_id, COALESCE(from_partition_label, ''::text), occurred_at DESC) WHERE (from_location_id IS NOT NULL);
 
 
@@ -11760,6 +11812,12 @@ CREATE INDEX goat_location_history_tenant_from_partition_idx ON public.goat_loca
 --
 
 CREATE INDEX goat_location_history_tenant_to_location_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, occurred_at DESC);
+
+
+--
+-- Name: goat_location_history_tenant_to_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
 CREATE INDEX goat_location_history_tenant_to_partition_idx ON public.goat_location_history USING btree (tenant_id, to_location_id, COALESCE(to_partition_label, ''::text), occurred_at DESC);
 
 
@@ -12422,6 +12480,13 @@ CREATE INDEX notification_delivery_attempts_request_idx ON public.notification_d
 
 
 --
+-- Name: notification_requests_counts_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_counts_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'counts.%'::text);
+
+
+--
 -- Name: notification_requests_due_order_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12433,6 +12498,13 @@ CREATE INDEX notification_requests_due_order_idx ON public.notification_requests
 --
 
 CREATE INDEX notification_requests_event_idx ON public.notification_requests USING btree (tenant_id, calendar_event_id, requested_at DESC, notification_request_id DESC);
+
+
+--
+-- Name: notification_requests_feed_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_feed_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'feed.%'::text);
 
 
 --
@@ -12461,6 +12533,13 @@ CREATE INDEX notification_requests_recipient_ref_pending_idx ON public.notificat
 --
 
 CREATE INDEX notification_requests_sending_lease_idx ON public.notification_requests USING btree (tenant_id, leased_at, notification_request_id) WHERE (status = 'sending'::text);
+
+
+--
+-- Name: notification_requests_vaccination_alerts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_vaccination_alerts_idx ON public.notification_requests USING btree (tenant_id, ((context ->> 'member_id'::text)), requested_at DESC, notification_request_id DESC) WHERE ((context ->> 'message_key'::text) ~~ 'vaccination.%'::text);
 
 
 --
@@ -13213,6 +13292,13 @@ CREATE INDEX sop_submissions_task_history_idx ON public.sop_submissions USING bt
 
 
 --
+-- Name: sop_submissions_task_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_submissions_task_partition_idx ON public.sop_submissions USING btree (tenant_id, task_id, COALESCE(partition_label, ''::text), submitted_at DESC);
+
+
+--
 -- Name: sop_submissions_tenant_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13395,10 +13481,10 @@ CREATE INDEX transit_handoffs_load_proof_idx ON public.transit_handoffs USING bt
 
 
 --
--- Name: uq_weighing_open_shed_per_park_date_v2; Type: INDEX; Schema: public; Owner: -
+-- Name: uq_weighing_open_shed_partition_per_park_date; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_weighing_open_shed_per_park_date_v2 ON public.weighing_campaign_sheds USING btree (tenant_id, park_id, start_business_date, location_id) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
+CREATE UNIQUE INDEX uq_weighing_open_shed_partition_per_park_date ON public.weighing_campaign_sheds USING btree (tenant_id, park_id, start_business_date, location_id, COALESCE(partition_label, ''::text)) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
 
 
 --
@@ -13689,10 +13775,10 @@ CREATE UNIQUE INDEX verification_review_events_tenant_client_event_unique_idx ON
 
 
 --
--- Name: weighing_campaign_sheds_campaign_location_uidx; Type: INDEX; Schema: public; Owner: -
+-- Name: weighing_campaign_sheds_campaign_location_partition_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX weighing_campaign_sheds_campaign_location_uidx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id);
+CREATE UNIQUE INDEX weighing_campaign_sheds_campaign_location_partition_uidx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text));
 
 
 --
@@ -13724,10 +13810,10 @@ CREATE INDEX weighing_campaign_sheds_detail_keyset_idx ON public.weighing_campai
 
 
 --
--- Name: weighing_campaign_sheds_open_date_v2_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: weighing_campaign_sheds_open_date_partition_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX weighing_campaign_sheds_open_date_v2_idx ON public.weighing_campaign_sheds USING btree (tenant_id, start_business_date, location_id) INCLUDE (campaign_id, park_id, operator_user_id, weighing_category, status) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
+CREATE INDEX weighing_campaign_sheds_open_date_partition_idx ON public.weighing_campaign_sheds USING btree (tenant_id, start_business_date, location_id, COALESCE(partition_label, ''::text)) INCLUDE (campaign_id, park_id, operator_user_id, weighing_category, status) WHERE (status <> ALL (ARRAY['canceled'::text, 'closed'::text, 'completed'::text]));
 
 
 --
@@ -13798,6 +13884,13 @@ CREATE INDEX weighing_observations_shed_submitted_tag_idx ON public.weighing_obs
 --
 
 CREATE INDEX weighing_observations_verification_status_idx ON public.weighing_observations USING btree (tenant_id, campaign_shed_id, verification_status, accepted_at DESC) WHERE (verification_status <> 'verified'::text);
+
+
+--
+-- Name: weighing_shed_load_tags_load_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_load_tags_load_idx ON public.weighing_shed_load_tags USING btree (tenant_id, load_ref, location_id);
 
 
 --
@@ -17992,6 +18085,22 @@ ALTER TABLE ONLY public.weighing_observations
 
 ALTER TABLE ONLY public.weighing_observations
     ADD CONSTRAINT weighing_observations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_location_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_location_tenant_fk FOREIGN KEY (tenant_id, location_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: weighing_shed_load_tags weighing_shed_load_tags_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.weighing_shed_load_tags
+    ADD CONSTRAINT weighing_shed_load_tags_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

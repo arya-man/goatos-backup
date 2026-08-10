@@ -369,6 +369,10 @@ var allowedHistoricalChecksums = map[string]checksumPair{
 		current: "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf",
 		applied: "sha256:15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274",
 	},
+	"000141_weighing_partition_operational_identity": {
+		current: "sha256:33de6a21002630671ee072edfb8c954c2e5e2047d9776904bc198f76c7052cd7",
+		applied: "sha256:b88786701bf1ab85e01141828bff9965fa4c0bcb1d83d78ae033ffb3d149799d",
+	},
 	"000052_shifting_management_stage_selection": {
 		current: "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662",
 		applied: "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64",

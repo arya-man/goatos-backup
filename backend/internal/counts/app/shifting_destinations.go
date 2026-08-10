@@ -59,10 +59,9 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 // PARTITION. The origin is an OPERATIONAL location, so the source is park + shed + optional
 // partition. The partition is derived under exactly the same "one truthful origin" rule as the
 // shed: it is returned only when every named animal shares it. A group drawn from Castro 1 AND
-// Castro 2 has no single source partition, so the partition comes back nil rather than naming one
-// of them and mislabelling the rest -- the per-animal "from" still survives on each animal's
-// location history. Comparison goes through oploc.SamePartition so 'Part 3' and '3' are one
-// partition, and a non-partitioned shed (NULL/”/'whole') yields nil, never the 'whole' sentinel.
+// Castro 2 has no single source partition, so the movement is rejected instead of being weakened
+// into a parent-shed source. Comparison goes through oploc.SamePartition so 'Part 3' and '3' are
+// one partition, and a non-partitioned shed (NULL/”/'whole') yields nil, never the 'whole' sentinel.
 func (s *Service) DeriveShiftingSource(
 	ctx context.Context,
 	tenantID string,
@@ -98,8 +97,7 @@ func (s *Service) DeriveShiftingSource(
 	partition := partitionOrNil(facts[0].ShedPartitionLabel)
 	for _, fact := range facts[1:] {
 		if !oploc.SamePartition(derefOrBlank(partition), derefOrBlank(partitionOrNil(fact.ShedPartitionLabel))) {
-			partition = nil
-			break
+			return nil, nil, nil, ErrImpactNotDerivable
 		}
 	}
 	return park, shed, partition, nil

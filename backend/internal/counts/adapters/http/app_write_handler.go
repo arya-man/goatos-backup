@@ -492,8 +492,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		derivedPark, derivedShed, derivedPartition, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
 		switch {
 		case errors.Is(err, countsapp.ErrImpactNotDerivable):
-			// Multi-animal movement: no single truthful origin. Leave the source absent rather than
-			// labelling every animal with one animal's shed.
+			h.writeCountsError(w, r, err)
+			return
 		case errors.Is(err, ports.ErrGoatNotFound):
 			// Nothing to read the source from. The no-impacts path still fails closed on this same
 			// condition a few lines above, via DeriveShiftingImpacts.
