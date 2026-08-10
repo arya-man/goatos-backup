@@ -778,14 +778,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             counts and no future dates by design — a count invites reconciling it against the dose
             matrix, and the two use different grains. */}
         {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
-          // Keyed by the operational location, not just parent shed. Partitioned sheds emit one
-          // backend row per physical pen, so shedId alone would overwrite sibling partitions.
+	          // Keyed by exact shed id. partition_label is compatibility metadata; including it here
+	          // makes duplicate rows like "Castro 2 2" survive as separate UI entries.
           const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
           const shedOrder: string[] = [];
           const shedLabel = new Map<string, { name: string; park?: string }>();
           const nameCount = new Map<string, Set<string>>();
           view.shedVaccineMatrix.forEach((cell) => {
-            const opKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+	            const opKey = cell.shedId;
             let row = cellsByShed.get(opKey);
             if (!row) {
               row = new Map();
@@ -801,8 +801,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
           // summary read "every shed is up to date on every vaccine" while three sheds sat amber
           // with 137 doses waiting on a verifier -- the line directly contradicted the grid above it.
-          const flaggedSheds = shedOrder.filter((shedId) =>
-            Array.from(cellsByShed.get(shedId)?.values() ?? []).some(
+          const flaggedSheds = shedOrder.filter((operationalLocationKey) =>
+            Array.from(cellsByShed.get(operationalLocationKey)?.values() ?? []).some(
               (c) => c.state === "behind" || c.state === "verifying",
             ),
           ).length;
@@ -826,20 +826,20 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     </tr>
                   </thead>
                   <tbody>
-                    {shedOrder.map((shedPartitionKey) => {
-                      const label = shedLabel.get(shedPartitionKey);
+	                    {shedOrder.map((operationalLocationKey) => {
+	                      const label = shedLabel.get(operationalLocationKey);
                       // Park is shown ONLY when the shed name is ambiguous in this payload, so the
                       // row stays as short as the ask demanded until ambiguity forces otherwise.
                       const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
                       return (
-                        <tr key={shedPartitionKey}>
+	                        <tr key={operationalLocationKey}>
                           <td className="cbm-sv-shed">
                             {label?.name}
                             {ambiguous && label?.park ? <span className="cbm-sv-shed-park">{label.park}</span> : null}
                           </td>
                           {view.shedVaccineColumns.map((column) => {
                             const code = column.code;
-                            const cell = cellsByShed.get(shedPartitionKey)?.get(code);
+	                            const cell = cellsByShed.get(operationalLocationKey)?.get(code);
                             const state = cell?.state ?? "not_planned";
                             const behind = cell?.behindAnimals ?? 0;
                             const openable = (state === "behind" || state === "verifying") && cell !== undefined;

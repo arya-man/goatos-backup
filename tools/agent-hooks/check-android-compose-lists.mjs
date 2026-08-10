@@ -32,6 +32,12 @@
 //     cards with the same key and crashed. Fix: group by the exact card key rendered by Compose,
 //     or include every grouping discriminator in the rendered key.
 //
+//   [lazy-list-parent-location-key]
+//     A key whose selector is a bare shed/location id inside partition-aware code. Once shed
+//     partitions are operational locations, siblings such as `Godel 2 - Part 1` and
+//     `Godel 2 - Part 2` can legitimately share the parent shed id. A list key must use the
+//     actual row id or include the partition/operational key.
+//
 // Phone-scale UI rules (added per the standing "phone-scale UI" maintainer rule — this
 // anti-pattern class has shipped 3x: unbounded lazy windowing, chip pickers over unbounded
 // dimensions, and full-screen spinners discarding rendered content):
@@ -124,6 +130,21 @@ const ROW_UNIQUE_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:id|rowId|uiKey|stabl
 const ROW_DISCRIMINATOR = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:vaccineLabel|vaccineId|protocolRuleId|doseLabel|primaryTag|secondaryTag|status|tone|scannedAtLabel|obligationRowVersion)\b/;
 const MULTI_ROW_PER_ENTITY_CONTEXT = /obligation|vaccine|vaccination|proof|roster|scan/i;
 const DERIVED_KEY_DRIFT_FIELDS = /\b(sopVersionId|taskRowVersion|sopTaskRowVersion|rowVersion|assignmentVersion)\b/;
+const PARENT_LOCATION_KEY =
+  /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:(?:["']?[\w-]*\$\{)?(?:it|row|item|entry|[a-z]\w*)\.(shedId|parentShedId|sourceShedId|destinationShedId|parentLocationId)(?:\.(?:orEmpty|trim|toString|hashCode)\(\)|!!|\s*\?:[\s\S]*)?(?:\}["']?)?)\s*$/;
+const AMBIGUOUS_LOCATION_KEY =
+  /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:it|row|item|entry|[a-z]\w*)\.locationId\s*$/;
+
+const hasPartitionRenderSignal = (body) =>
+  /\b(partitionLabel|partitionName|partitionDisplay|partitionKey|operationalLocationDisplay|penName|penLabel|PartitionRow|PartitionCard|PartitionItem|PartitionChip|PartitionLine|OperationalLocationRow)\b/.test(body) ||
+  /\b\w*(?:Partition|Pen|OperationalLocation)\w*(?:Row|Card|Item|Tile)\s*\(/.test(body) ||
+  /\b\w*(?:Partition|ShedPartition|OperationalLocation|Pen)\w*(?:Location(?:Card|Cell|Chip|Content|Item|Row|Tile|Badge)?|Partition|Badge)\s*\(/.test(body) ||
+  /\b\w*(?:PartitionLocation|OperationalLocation|Pen)\w*\s*\(/.test(body) ||
+  /\b\w*render(?:ed)?\w*(?:Partition|PartitionLocation|ShedPartition|LocationPartition)\w*\s*\(/.test(body) ||
+  /\bitemContent\s*\(/.test(body);
+
+const hasParentLocationRenderSignal = (body) =>
+  /\b(parentShedId|sourceShedId|destinationShedId|shedId|parentLocationId)\b/.test(body);
 
 const lineOf = (source, index) => source.slice(0, index).split("\n").length;
 
@@ -275,6 +296,7 @@ export function findingsForSource(source) {
       if (!call) continue;
       const startLine = lineOf(source, m.index);
       const lineText = source.split("\n")[startLine - 1] || "";
+      const lambda = findTrailingLambda(source, call.endIndex);
       if (/compose-guard:ignore/.test(lineText)) continue;
       if (!seen.has(`key:${startLine}`)) {
         seen.add(`key:${startLine}`);
@@ -296,14 +318,16 @@ export function findingsForSource(source) {
           // has a key -> check it is not a bare per-entity id on a per-row list.
           const keyBody = extractKeyBody(args);
           if (keyBody) {
-            const hasEntityId = ENTITY_ID.test(keyBody);
-            const hasRowUniqueId = ROW_UNIQUE_ID.test(keyBody);
+            const entityMatch = ENTITY_ID.exec(keyBody);
+            const rowUniqueMatch = ROW_UNIQUE_ID.exec(keyBody);
+            const hasEntityId = Boolean(entityMatch);
+            const hasEntityBeforeRowUnique = Boolean(entityMatch && (!rowUniqueMatch || entityMatch.index < rowUniqueMatch.index));
             const hasCompositeSeparator = /\||joinToString\s*\(| to \b|Pair\s*\(/.test(keyBody);
             const hasRowDiscriminator = ROW_DISCRIMINATOR.test(keyBody) && hasCompositeSeparator;
             const localContext = source.slice(Math.max(0, m.index - 500), Math.min(source.length, call.endIndex + 500));
             const canRenderMultipleRowsPerEntity =
               MULTI_ROW_PER_ENTITY_CONTEXT.test(args) || MULTI_ROW_PER_ENTITY_CONTEXT.test(localContext);
-            if (hasEntityId && canRenderMultipleRowsPerEntity && !hasRowUniqueId && !hasRowDiscriminator) {
+            if (hasEntityId && canRenderMultipleRowsPerEntity && hasEntityBeforeRowUnique && !hasRowDiscriminator) {
               findings.push({
                 line: startLine,
                 rule: "lazy-list-entity-id-key",
@@ -313,6 +337,22 @@ export function findingsForSource(source) {
                   "'Key was already used' crash. Key the unique per-row id (obligationId) first, " +
                   "or use a composite only when no row id exists.",
               });
+            } else if (
+              !hasCompositeSeparator &&
+              lambda &&
+              hasPartitionRenderSignal(lambda.body) &&
+              (PARENT_LOCATION_KEY.test(keyBody) ||
+                (AMBIGUOUS_LOCATION_KEY.test(keyBody) && hasParentLocationRenderSignal(lambda.body)))
+            ) {
+              findings.push({
+                line: startLine,
+                rule: "lazy-list-parent-location-key",
+                message:
+                  "lazy key selects only a parent shed/location id for a row that renders " +
+                  "partition/pen data. Sibling partitions can share the parent id, causing " +
+                  "duplicate-key crashes. Key the row id, operational pen id, or a composite " +
+                  "including partitionLabel.",
+              });
             }
           }
         }
@@ -321,7 +361,6 @@ export function findingsForSource(source) {
       // Phone-scale rule: nested-scroll-in-lazy-items. Look inside this items() row lambda
       // for another scrollable Column/Row or another Lazy* — both are "two scrollables on
       // one axis" bugs.
-      const lambda = findTrailingLambda(source, call.endIndex);
       if (lambda) {
         const nestedLazyRe = /\bLazy(Column|Row|VerticalGrid|HorizontalGrid)\b/g;
         let lm;
@@ -541,9 +580,20 @@ function selfTest() {
          val taskRowVersion: Int?,
        ) {
          val cardId: String = executionCardId(shedId, taskId)
-       }`,
+      }`,
       "lazy-list-derived-key-drift",
     ],
+    ["items(proofRows, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
+    ['items(proofRows, key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" }) { }', "lazy-list-entity-id-key"],
+    ["items(vaccinationRows, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
+    ["items(rows, key = { it.shedId }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
+    ['items(rows, key = { "shed-${it.shedId}" }) { Text(it.partitionLabel.orEmpty()) }', "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedId.hashCode() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.parentLocationId.toString() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.parentLocationId }) { PartitionRow(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.parentLocationId }) { PartitionLocationItem(it) }", "lazy-list-parent-location-key"],
+    ["itemsIndexed(rows, key = { _, row -> row.locationId }) { _, row -> Text(row.partitionLabel.orEmpty() + row.shedId) }", "lazy-list-parent-location-key"],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));
@@ -554,6 +604,9 @@ function selfTest() {
     "items(rows, key = { it.obligationId }) { r -> Row(r) }",
     'items(filtered, key = { row -> row.obligationId.takeIf { it.isNotBlank() } ?: "${row.goatId}|${row.vaccineLabel}" }) { }',
     'items(matches, key = { "match-${it.goatId}|${it.vaccineLabel}" }) { }',
+    'items(rows, key = { "${it.shedId}|${it.partitionLabel.orEmpty()}" }) { }',
+    "items(rows, key = { it.operationalLocationId }) { Text(it.partitionLabel.orEmpty()) }",
+    "items(rows, key = { it.locationId }) { Text(it.operationalLocationDisplay + it.shedName) }",
     "items(3) { Dot() }",
     "items(pageCount) { i -> Page(i) }",
     "items(rows.size) { i -> Row(rows[i]) }",
