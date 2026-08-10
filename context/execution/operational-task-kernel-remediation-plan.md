@@ -271,8 +271,12 @@ Required fields and constraints:
   identity;
 - canonical `owner_workforce_member_id`, assignment source, assigned-at, and a
   separate append-only assignment history;
-- timing class, window start/deadline, business timezone/date, hard-miss rule,
-  and pinned clock-policy version;
+- timing class; separate available/planned/window/flexible/hard-deadline and
+  clinical-latest-safe fields; business timezone/date; hard-breach rule; and
+  pinned clock-policy version. Follow
+  `docs/decisions/task-timing-alerting-violations-and-appeals.md`; do not infer a
+  hard deadline from a planned date, availability time, session label, or
+  module-local `missed` value;
 - coordination state, terminal outcome/reason, defer-until/reason, completion
   actor/time, and `row_version`;
 - immediate-child counters needed for bounded rollup;
@@ -415,10 +419,10 @@ snapshot, including timezone, quiet/contact windows, an explicit no-quiet-hours
 value when applicable, and emergency or delivery-failure override behavior.
 Acknowledgement stops future contacts by clearing `next_contact_at`
 and atomically canceling/fencing every future or open step. It does not alter
-the work deadline or erase the violation. A contact worker must recheck run and
-step state immediately before the external send so an already leased attempt
-cannot contact after acknowledgement. Completion or cancellation resolves the
-run. Before every advance, re-read canonical task state and use
+the work deadline or erase the breach occurrence. A contact worker must recheck
+run and step state immediately before the external send so an already leased
+attempt cannot contact after acknowledgement. Completion or cancellation
+resolves the run. Before every advance, re-read canonical task state and use
 compare-and-set/row version to settle acknowledgement, completion, and worker
 races.
 
@@ -613,7 +617,58 @@ ledger batches. Onboard Weighing after W0 through the outward-only event adapter
 defined above; it must join shared coordination without gaining an inbound
 dependency on task, SOP, obligation, roster, herd, or lifecycle state.
 
-### K5 — channels and scale-out
+Contact cutover is part of each adapter activation, not later cleanup. For
+Vaccination, shadow/compare and then suppress the current direct D0 20:30 PC
+Director/CEO push before shared contacts become canonical. For Weighing,
+shadow/compare and suppress current D+1 roll-forward and delayed pushes to the
+operator/Director/CEO so the accepted D+1/D+2 flexible band produces no direct
+leadership escalation. Feed and every later adapter receive the same no-double-
+send gate. Update the production tests that currently require legacy audiences;
+retain rollback without allowing old and new contact authorities to run together.
+
+Feed onboarding uses the accepted source clock chain: Day N 09:00 full
+direction for Day N+1, 13:30 cutoff, 13:30-13:45 Diff, 15:00 packing/staging,
+with Transport/loading/staging already complete outside sheds by 15:00, then
+distribution at the published 09:00/15:00 default slots. These are time-bounded
+machine/human steps, not unratified availability hints. Materialize owners and
+hard clocks, preserve route/session policy versions, and prove dependency
+attribution before any violation candidate can activate. Treat the current
+Transport materializer's 15:30 creation as a source/runtime defect: create and
+assign it before its 15:00 deadline, never as permission for overnight completion.
+
+### K5 — breaches, violations, appeals, role views, and HR boundary
+
+- Implement the accepted
+  `docs/decisions/task-timing-alerting-violations-and-appeals.md` data
+  separation: clock snapshot, breach occurrence, attribution snapshot,
+  violation candidate/case, appeal, independent decision, and separate HR
+  action. No task/escalation/breach/candidate table may feed payroll.
+- Keep Vaccination and Weighing carry-forward out of breach materialization.
+  Vaccination's accepted D+1/D+2 drive band is capped by the earliest exact
+  animal clinical latest-safe boundary. Weighing ordinary aging remains
+  capacity/progress evidence, never a personal violation.
+- Build Operator candidate/appeal views, Director portfolio plus owned
+  intervention/appeal tasks, CEO aggregate exception/systemic-risk views, and
+  HR final-case-only views from the same canonical facts.
+- Freeze owner, roster/leave/replacement, policy, dependency, system/device,
+  offline proof, contact/delivery, verifier, and correction evidence before a
+  candidate is created. Unknown attribution fails closed into an owned
+  investigation task.
+- Require a versioned tenant HR policy for appeal window and decision SLA. No
+  default auto-finalization exists. Appeal submitted and appeal-window-closed-
+  without-response both route to an independent adjudicator; silence is not
+  guilt and cannot authorize HR action. Corrections are void/supersession
+  records, never history edits.
+- Activate analytics only with distinct flexible-plan, hard-breach, candidate,
+  excused, attribution-corrected, appeal, and final-upheld measures. Raw or
+  unadjudicated data cannot rank employees or drive incentives/discipline.
+
+Exit: race, offline, leave/coverage, dependency, system-outage, delivery,
+verifier-delay, appeal, correction, authorization, tenant-scope, reconciliation,
+pagination/scale, and payroll-isolation tests prove the full chain. Until this
+exit, all current missed/delayed/escalation rows remain operational evidence.
+
+### K6 — channels and scale-out
 
 - Add WhatsApp and voice behind the existing gateway only after vendor,
   consent, regional, retry, delivery-receipt, and acknowledgement contracts are
@@ -667,7 +722,9 @@ change:
   per goat;
 - authorized descendant reopen propagates upward after close;
 - acknowledgement stops contacts, not the task clock;
-- a hard-window terminal state is the durable violation record;
+- a hard-window crossing is a durable breach occurrence, not an employee
+  violation. Attribution, notice, appeal, independent adjudicator decision, and a
+  separate authorized HR action follow the accepted timing/accountability ADR;
 - approved leadership sign-off is represented as a real owned task.
 
 These remain unresolved activation gates. The coordinator first derives them
@@ -677,8 +734,11 @@ only that adapter/cutover fail-closed as blocked-with-evidence and continue all
 independent work; do not ask the maintainer to manage routine implementation:
 
 1. timing classes and ladder intervals for workflows that do not already have a
-   locked workflow-specific policy; inherit recorded Vaccination cadence unless
-   it is explicitly superseded;
+   locked workflow-specific policy. Follow the accepted timing/accountability
+   ADR: Vaccination drives and Weighing have a two-day flexible carry-forward;
+   an animal-level Vaccination clinical latest-safe boundary may cap that drive
+   extension; neither module creates a personal violation from ordinary
+   carry-forward;
 2. strict-window ownership outside normal shift hours;
 3. representation of genuine physical work completed before a death/sale event
    arrived, while immutable evidence remains preserved;

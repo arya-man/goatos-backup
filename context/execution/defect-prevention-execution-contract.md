@@ -52,6 +52,13 @@ receipt-backed transaction with version fencing, loud lag/failure outcomes,
 replay, and source reconciliation. Screen-only and best-effort coordination are
 forbidden in both shapes.
 
+Clock and accountability work must also obey
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`. Tests and
+controls must keep available/planned/flexible/hard/clinical/contact/appeal clocks
+separate and must prove that a raw missed/delayed/escalation/breach row cannot
+become an employee finding or payroll input without attribution, notice,
+appeal, independent decision, and a separate authorized HR workflow.
+
 No feature may bypass this chain because the generic adapter is unfinished. Keep
 the feature shadowed or blocked until its source behavior, ownership, clock,
 adapter, reconciliation, and cutover proof are complete. Any proposed exception

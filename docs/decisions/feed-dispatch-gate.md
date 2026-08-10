@@ -59,19 +59,21 @@ yet frozen is not yet real, so it should not be on a screen at all.
   arrives; Android binds it (`FeedLifecycleDto.message`) and both feed ViewModels prefer it over the
   generic "nothing to pack". Without it a gated morning reads as a fault rather than as "not yet".
 
-## There is still no scheduler
+## Scheduler status
 
-Nothing runs at 07:00 or 14:00. The freeze happens on the FIRST READ after the clock, so an
-unopened day is never frozen at all. Consequences worth knowing:
+This section's original “no scheduler” statement is superseded. The modular
+kernel worker now invokes Feed lifecycle and Feed Transport on its five-minute
+operational cadence. Lifecycle issue/amend/lock decisions use the configured
+clock and idempotent persistence; startup/late ticks catch up. The read gate
+remains a fail-closed compatibility path, not the sole producer.
 
-- If nobody opens the screen until 09:30, the sheet freezes at 09:30 **using the herd as of 09:30**,
-  while its `issued_at` records 07:00. Shiftings approved between 07:00 and 09:30 are therefore
-  inside the frozen numbers.
-- A true 07:00 freeze needs the scheduler (`feed-direction-issue -action issue`). The Terraform for
-  it is blocked on `check-deployed-job-flags.mjs` keying the manifest by binary
-  (`manifestJobsByBinary`), which cannot express three jobs — `issue` / `amend` / `lock` — on one
-  binary. The simple fix is an `auto` action that reads the clock and picks the action itself, so
-  one job on one tick replaces three exact-time jobs.
+The current configured/runtime clocks (normal 07:00, experiment/correction
+14:00, Transport 15:30) do not replace the accepted source chain in
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`: Day N 09:00
+direction, 13:30 cutoff, 13:30-13:45 Diff, and packing/loading/Transport staging
+complete outside sheds by 15:00, followed by Day N+1 09:00/15:00 service. The
+15:30 Transport materializer conflicts with the 15:00 source deadline and must
+be corrected by creating/assigning the task before its hard deadline.
 
 ## Code
 

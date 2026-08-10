@@ -558,8 +558,15 @@ behind it.
 
 ## 16. Product decisions still required
 
-1. Final effective-dated business deadlines and grace periods; legacy observed
-   triggers are not defaults.
+1. The default business clock is accepted: Day N 09:00 direction, 13:30 cutoff,
+   13:30-13:45 Diff, 15:00 packing/loading/Transport staging outside sheds, and serving
+   at the published 09:00/15:00 defaults. The 2026-08-10 maintainer policy
+   allows no ordinary grace for those accepted hard clocks. Water is hard only
+   when its effective session procedure pins applicability, sequence, owner,
+   deadline/grace, and proof.
+   Create/assign Transport before its 15:00 hard deadline; the current 15:30
+   materializer is a defect. Still define any stricter route lead time,
+   pre-warning, post-breach recovery/contacts, and exception attribution.
 2. Whether distributed and consumed quantity are one field or two events.
 3. Which stages require video, photo, either, duration/quality limits and
    gallery restrictions.

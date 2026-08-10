@@ -18,6 +18,7 @@ Canonical docs:
 - `context/source-findings/feed-direction-legacy-system-reference.md`
 - `docs/feed-direction/SOP-MOBILE-CUTOVER-PRD.md`
 - `docs/feed-direction/SOP-MOBILE-CUTOVER-TRD.md`
+- `docs/decisions/task-timing-alerting-violations-and-appeals.md`
 
 Rules:
 
@@ -25,6 +26,11 @@ Rules:
 - Conditions are declarative and deterministic, not arbitrary JavaScript.
 - Admins create forms; operators execute assigned tasks on Android.
 - Native runner evaluates the same DSL offline.
+- Every procedure step declares whether its clock is availability, planned,
+  flexible, hard operational, clinical-safe, or not applicable. Clients never
+  infer a deadline from a session label or schedule. A hard breach is only
+  evidence; violation attribution, appeal, decision, and HR action remain
+  separate governed workflows, and the task/SOP engine never edits payroll.
 - Server revalidates every submission against form version, permissions, live
   state, idempotency, and workflow gates.
 - `repeat_for_each_goat` is a first-class batch semantic, not a normal field.

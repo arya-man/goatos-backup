@@ -426,6 +426,15 @@ Delay is an operational signal, not a task failure. When the shared task clock
 passes the authored window, show the task as delayed/open and keep Weighing
 execution available.
 
+Maintainer timing decision, 2026-08-10: D+1 and D+2 are an accepted Weighing
+carry-forward band. The board may show `rolled forward` and days open for
+planning, but ordinary work inside that band is not a breach, incident, page,
+voice escalation, or employee violation. Work older than D+2 may create a
+Director-owned capacity/unblock follow-up; it still does not become a personal
+violation without a different explicitly ratified hard policy. The governing
+clock/accountability rules are in
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`.
+
 Progress buckets must be category-aware, disjoint, and explainable.
 
 For `individual_animal` selected sheds/partitions:

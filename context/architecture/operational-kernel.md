@@ -63,6 +63,14 @@ What evidence proves the answer?
 What alert/escalation fired when the deadline was crossed?
 ```
 
+Clock and accountability semantics are governed by
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`. A planned date,
+availability time, flexible carry-forward boundary, hard deadline, clinical
+latest-safe time, and contact timer are not interchangeable. A hard-deadline
+breach is not a final employee violation; attribution, notice, appeal, Director
+decision, and any separate HR action remain distinct durable stages. The
+operational kernel never changes payroll.
+
 This rule applies to Preventive Care (PC) vaccination now and to future feed, breeding,
 procurement, parks, HR/people, farmer network, sales/commerce, and finance
 modules later.

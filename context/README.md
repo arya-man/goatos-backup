@@ -89,6 +89,9 @@ Operational kernel 5k-to-50k deployment envelope and reversible consolidation AD
 Governing operational task-kernel non-deviation ADR
   docs/decisions/operational-task-kernel-non-deviation.md
 
+Governing task timing, alerting, violation, appeal, Director/CEO, and HR boundary ADR
+  docs/decisions/task-timing-alerting-violations-and-appeals.md
+
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
 
