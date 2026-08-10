@@ -402,10 +402,10 @@ const (
 	// reading the dispatch sheet is not the same authority as recording that the feeding happened --
 	// and separate from feed_config.write, which authors the ration grid rather than executing it.
 	//
-	// Granted to the tiers that dispatch feed on the ground: RoleOperator (the phone operator who
-	// walks the park), RoleParkHead (execution on their own ground), and RoleCEOInternal (the
-	// founder/builder visibility invariant). NOT granted to RoleVerifier (checks captured work, does
-	// not dispatch) or RolePCDirector (oversight, not execution).
+	// Granted to the ground execution tiers only: RoleOperator (the phone operator who walks the
+	// park) and RoleParkHead (execution on their own ground). NOT granted to leadership read roles:
+	// RoleFeedDirector and RoleCEOInternal can inspect feed status, but must not reach record/upload.
+	// Also not granted to RoleVerifier (checks captured work) or RolePCDirector (different module).
 	FeedDirectionComplete = "feed_direction.complete"
 	// FeedTransportRead gates the daily feed-TRANSPORT task list (GET /feed-transport/tasks): the
 	// per-shed 15:30 IST task and whatever proof attempt each one currently carries.
@@ -731,16 +731,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Founder/builder visibility invariant (AGENTS.md): the platform-owner leadership cohort must
 		// hold the grants for every built visible module, so a founder account is never locked out of
 		// the Feed Config screen it is expected to operate.
-		FeedConfigRead:        {},
-		FeedConfigWrite:       {},
-		FeedPackingRead:       {},
-		FeedDirectionRead:     {},
-		FeedDirectionOversee:  {},
-		FeedDirectionComplete: {},
-		FeedTransportRead:     {},
-		VerificationReview:    {},
-		VerificationAct:       {},
-		HealthRead:            {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		FeedConfigRead:       {},
+		FeedConfigWrite:      {},
+		FeedPackingRead:      {},
+		FeedDirectionRead:    {},
+		FeedDirectionOversee: {},
+		FeedTransportRead:    {},
+		VerificationReview:   {},
+		VerificationAct:      {},
+		HealthRead:           {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.

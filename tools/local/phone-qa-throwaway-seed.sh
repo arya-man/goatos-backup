@@ -49,7 +49,8 @@ VALUES
   ('93000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, 'growth', 'Growth', 'active'),
   ('93000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, 'operations', 'Operations', 'active'),
   ('93000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, 'verification', 'Verification', 'active'),
-  ('93000000-0000-4000-8000-000000000005', '${tenant_id}'::uuid, 'leadership', 'Leadership', 'active')
+  ('93000000-0000-4000-8000-000000000005', '${tenant_id}'::uuid, 'leadership', 'Leadership', 'active'),
+  ('93000000-0000-4000-8000-000000000006', '${tenant_id}'::uuid, 'feed', 'Feed', 'active')
 ON CONFLICT (tenant_id, code) DO UPDATE
 SET label = EXCLUDED.label, status = 'active', updated_at = now();
 
@@ -61,7 +62,9 @@ JOIN (VALUES
   ('growth', 'weighing'),
   ('operations', 'vaccination'),
   ('operations', 'weighing'),
+  ('operations', 'feed_direction'),
   ('verification', 'verification'),
+  ('feed', 'feed_direction'),
   ('leadership', 'vaccination'),
   ('leadership', 'weighing'),
   ('leadership', 'counts')
@@ -135,6 +138,7 @@ FROM (
     ('93000000-0000-4000-8000-000000000102'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000102'::uuid, 'CHANDRAKANT-QA', 'Chandrakant', 'active', 'pc_director', NULL::uuid, 'preventive_care', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000103'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000103'::uuid, 'DINAKAR-QA', 'Dinakar', 'active', 'growth_director', NULL::uuid, 'growth', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000104'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000104'::uuid, 'JYOTHI-QA', 'Jyothi', 'active', 'verifier', NULL::uuid, 'verification', '{"seed":"phone-qa"}'::jsonb, now()),
+    ('93000000-0000-4000-8000-000000000105'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000105'::uuid, 'HEMANG-QA', 'Hemang', 'active', 'feed_director', NULL::uuid, 'feed', '{"seed":"phone-qa","golden_rule":"feed_director sees both parks read-only"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000201'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000201'::uuid, 'AMIT-QA', 'Amit', 'active', 'operator', '92000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000202'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000202'::uuid, 'PRAMOD-QA', 'Pramod', 'active', 'operator', '91000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000203'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203'::uuid, 'KUMAR-SHARATH-QA', 'Kumar Sharath', 'active', 'operator', '91000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
@@ -170,6 +174,7 @@ WHERE tenant_id = '${tenant_id}'::uuid
     '90000000-0000-4000-8000-000000000102',
     '90000000-0000-4000-8000-000000000103',
     '90000000-0000-4000-8000-000000000104',
+    '90000000-0000-4000-8000-000000000105',
     '90000000-0000-4000-8000-000000000201',
     '90000000-0000-4000-8000-000000000202',
     '90000000-0000-4000-8000-000000000203',
@@ -183,6 +188,7 @@ VALUES
   -- ONE weighing director for the whole farm: tenant scope, so he covers CBE and CPT both. The
   -- module is what narrows a director (weighing here, vaccination for the PC director), not the park.
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000103', 'growth_director', 'tenant', '${tenant_id}'::uuid, 'active', now()),
+  ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000105', 'feed_director', 'tenant', '${tenant_id}'::uuid, 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000104', 'verifier', 'tenant', '${tenant_id}'::uuid, 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000201', 'operator', 'park', '92000000-0000-4000-8000-000000000101', 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000202', 'operator', 'park', '91000000-0000-4000-8000-000000000101', 'active', now()),
@@ -795,6 +801,7 @@ Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
   Chandrakant       90000000-0000-4000-8000-000000000102  pc_director        Vaccination execute only
   Dinakar           90000000-0000-4000-8000-000000000103  growth_director    Weighing execute/reopen only
   Jyothi            90000000-0000-4000-8000-000000000104  verifier           Video review only
+  Hemang            90000000-0000-4000-8000-000000000105  feed_director      Feed read/status across CBE+CPT, no execute
   Amit              90000000-0000-4000-8000-000000000201  operator/CPT       CPT Mandela 2 Parts 3-5
   Pramod            90000000-0000-4000-8000-000000000202  operator/CBE       CBE Godel 1 Parts 1-3
   Kumar Sharath     90000000-0000-4000-8000-000000000203  operator/CBE       spare CBE operator
@@ -1094,6 +1101,68 @@ WHERE tenant_id = '${tenant_id}'::uuid
 COMMIT;
 SQL
 
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+
+DELETE FROM feed_packing_completions
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND idempotency_key LIKE 'phone-qa-feed-%';
+
+DELETE FROM feed_transport_tasks
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND task_id IN (
+    '8f000000-0000-4000-8000-000000000001',
+    '8f000000-0000-4000-8000-000000000002',
+    '8f000000-0000-4000-8000-000000000003',
+    '8f000000-0000-4000-8000-000000000004'
+  );
+
+DELETE FROM feed_direction_issues
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND feed_direction_issue_id IN (
+    '8d000000-0000-4000-8000-000000000001',
+    '8d000000-0000-4000-8000-000000000002'
+  );
+
+INSERT INTO feed_direction_issues (
+  feed_direction_issue_id, tenant_id, park_id, feed_day, workflow, state, issued_at,
+  generation_input_fingerprint, idempotency_key, request_fingerprint,
+  source_contract, source_contract_version, generated_by
+) VALUES
+  ('8d000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', current_date, 'normal', 'issued', now(), 'phone-qa-cbe', 'phone-qa-feed-cbe', 'phone-qa-cbe', 'phone-qa', '1', 'phone-qa-seed'),
+  ('8d000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', current_date, 'normal', 'issued', now(), 'phone-qa-cpt', 'phone-qa-feed-cpt', 'phone-qa-cpt', 'phone-qa', '1', 'phone-qa-seed');
+
+INSERT INTO feed_direction_issue_rows (
+  tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag,
+  breed, ration_group, experiment_arm, session_no, session_label, head_count,
+  head_count_informational, workflow, feed_item_label, quantity_kg, grams_per_head,
+  shed_factor, session_total_kg, overdue_pending, row_seq, item_seq, partition_label
+) VALUES
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000001', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000201', 'Godel 1', 'CBE-GODEL-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 12.500, 2500.000, 1.0000, 12.500, false, 1, 1, NULL),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000001', '91000000-0000-4000-8000-000000000101', 'CBE', '91000000-0000-4000-8000-000000000203', 'Yashoda 1', 'CBE-YASHODA-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 8.750, 1750.000, 1.0000, 8.750, false, 2, 1, NULL),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-000000000101', 'CPT', '91000000-0000-4000-8000-000000000202', 'Mandela 2', 'CPT-MANDELA-2', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 12.500, 2500.000, 1.0000, 12.500, false, 3, 1, NULL),
+  ('${tenant_id}'::uuid, '8d000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-000000000101', 'CPT', '92000000-0000-4000-8000-000000000203', 'Castro 1', 'CPT-CASTRO-1', 'Boer', 'grower', '', 1, 'Morning', 5, false, 'normal', 'Dry Feed', 8.750, 1750.000, 1.0000, 8.750, false, 4, 1, NULL);
+
+INSERT INTO feed_packing_completions (
+  completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
+  packing_proof_ref, completed_by, idempotency_key
+) VALUES
+  ('8e000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 1, current_date, 'normal', 'pending_verification', 'phone-qa-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-1'),
+  ('8e000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 1, current_date, 'normal', 'completed', 'phone-qa-proof-2', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-2'),
+  ('8e000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 1, current_date, 'normal', 'pending_verification', 'phone-qa-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-3'),
+  ('8e000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 1, current_date, 'normal', 'completed', 'phone-qa-proof-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-4');
+
+INSERT INTO feed_transport_tasks (
+  task_id, tenant_id, park_id, shed_id, business_date, scheduled_at, status, operator_id
+) VALUES
+  ('8f000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', current_date, current_date + time '15:30', 'due', '90000000-0000-4000-8000-000000000202'),
+  ('8f000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'completed', '90000000-0000-4000-8000-000000000202'),
+  ('8f000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', current_date, current_date + time '15:30', 'due', '90000000-0000-4000-8000-000000000201'),
+  ('8f000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', current_date, current_date + time '15:30', 'completed', '90000000-0000-4000-8000-000000000201');
+
+COMMIT;
+SQL
+
 # ---------------------------------------------------------------------------
 # Self-check. A previous revision of this script re-pointed the five RAW physical
 # tags onto the CPT goats, which both stripped the CBE goats of their vaccination
@@ -1132,13 +1201,14 @@ BEGIN
         '90000000-0000-4000-8000-000000000102',
         '90000000-0000-4000-8000-000000000103',
         '90000000-0000-4000-8000-000000000104',
+        '90000000-0000-4000-8000-000000000105',
         '90000000-0000-4000-8000-000000000201',
         '90000000-0000-4000-8000-000000000202'
       )
     GROUP BY user_id
   ) q;
-  IF bad <> 6 THEN
-    RAISE EXCEPTION 'phone-qa seed: % of the 6 QA identities have an active scope grant, want 6 (pending-only grants cause runtime 403s)', bad;
+  IF bad <> 7 THEN
+    RAISE EXCEPTION 'phone-qa seed: % of the 7 QA identities have an active scope grant, want 7 (pending-only grants cause runtime 403s)', bad;
   END IF;
 END
 \$check\$;
