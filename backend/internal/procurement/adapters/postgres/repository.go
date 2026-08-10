@@ -1578,15 +1578,30 @@ WHERE goats.tenant_id = $1::uuid
 		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
 	}
 	if oploc.IsPartitioned(oploc.NormalizePartition(in.PartitionLabel)) {
+		partitionLabel := strings.TrimSpace(in.PartitionLabel)
+		var shedName string
+		if err := tx.QueryRow(ctx, `
+SELECT name
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_id = $2::uuid
+  AND location_type = 'shed'`, in.TenantID, in.ShedLocationID).Scan(&shedName); err != nil {
+			return nil, fmt.Errorf("procurement: resolve partition source shed: %w", err)
+		}
+		sourceShedName := oploc.OperationalLocation{ShedID: in.ShedLocationID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+		if strings.TrimSpace(sourceShedName) == "" {
+			sourceShedName = in.ShedLocationID
+		}
 		_, err = tx.Exec(ctx, `
-INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, updated_at)
-SELECT $1::uuid, v.goat_id::uuid, $2::uuid, $3::text, now()
-FROM UNNEST($4::text[]) v(goat_id)
-ON CONFLICT (tenant_id, goat_id) DO UPDATE
-SET shed_id = EXCLUDED.shed_id,
-    partition_label = EXCLUDED.partition_label,
-    updated_at = now()`,
-			in.TenantID, in.ShedLocationID, strings.TrimSpace(in.PartitionLabel), goatIDs)
+	INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+	SELECT $1::uuid, v.goat_id::uuid, $2::uuid, $3::text, $4::text, now()
+	FROM UNNEST($5::text[]) v(goat_id)
+	ON CONFLICT (tenant_id, goat_id) DO UPDATE
+	SET shed_id = EXCLUDED.shed_id,
+	    partition_label = EXCLUDED.partition_label,
+	    source_shed_name = EXCLUDED.source_shed_name,
+	    updated_at = now()`,
+			in.TenantID, in.ShedLocationID, partitionLabel, sourceShedName, goatIDs)
 	} else {
 		_, err = tx.Exec(ctx, `
 DELETE FROM goat_shed_partitions
