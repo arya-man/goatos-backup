@@ -728,16 +728,24 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
 				VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-					COALESCE((
+					CASE
+					WHEN regexp_replace(lower(btrim(COALESCE($18, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN $12
+					ELSE (
 						SELECT sp.operational_location_id
 						FROM shed_partitions sp
+						JOIN locations pen ON pen.tenant_id = sp.tenant_id
+						 AND pen.location_id = sp.operational_location_id
+						 AND pen.location_type = 'pen'
+						 AND pen.parent_location_id = sp.shed_id
+						 AND pen.status = 'active'
 						WHERE sp.tenant_id=$2
 						  AND sp.shed_id=$12
 						  AND sp.status='active'
 						  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
 						      regexp_replace(lower(btrim($18)), '^part[[:space:]]+', '')
 						LIMIT 1
-					), $12),
+					)
+					END,
 					$12,$13,$14,$15,$16,$17,now()
 				)
 				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,

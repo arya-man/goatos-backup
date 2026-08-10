@@ -79,6 +79,39 @@ FROM active_partitions`, tenantID, shedID, requestedKey).Scan(&activeCount, &can
 	return &canonicalLabel, nil
 }
 
+func resolveAdminGoatOperationalLocationID(ctx context.Context, q adminGoatPartitionQuerier, tenantID, shedID string, partitionLabel *string) (string, error) {
+	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
+		return shedID, nil
+	}
+	var locationID string
+	err := q.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+JOIN locations pen
+  ON pen.tenant_id = sp.tenant_id
+ AND pen.location_id = sp.operational_location_id
+ AND pen.location_type = 'pen'
+ AND pen.parent_location_id = sp.shed_id
+ AND pen.status = 'active'
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND sp.status = 'active'
+  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+ORDER BY sp.partition_label
+LIMIT 1`, tenantID, shedID, *partitionLabel).Scan(&locationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrPartitionNotInShed
+	}
+	if err != nil {
+		return "", fmt.Errorf("identity: resolve admin goat operational location: %w", err)
+	}
+	if strings.TrimSpace(locationID) == "" {
+		return "", ports.ErrPartitionNotInShed
+	}
+	return locationID, nil
+}
+
 func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -389,6 +422,19 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		managementStage = &inheritedStage
 	}
 
+	// Re-resolve inside this transaction. Admin preview is read-only and may be followed by a later
+	// commit, so validation alone cannot protect the canonical write. The helper also canonicalizes
+	// an accepted matching key ("3") to the human catalog label ("Part 3").
+	partitionLabel, err := resolveAdminGoatPartition(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel, cmd.RequirePartitionGrain)
+	if err != nil {
+		return nil, err
+	}
+	cmd.PartitionLabel = partitionLabel
+	currentLocationID, err := resolveAdminGoatOperationalLocationID(ctx, tx, cmd.TenantID, cmd.ShedID, partitionLabel)
+	if err != nil {
+		return nil, err
+	}
+
 	if _, err := tx.Exec(ctx, `
 	INSERT INTO goats (
 	  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
@@ -397,9 +443,9 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	  created_by, dob, dob_estimated, origin_type, entry_date, time_of_birth
 	) VALUES (
 	  $1::uuid, $2::uuid, $3::text, nullif($4::text, ''), $5::text, $6::date, 'alive',
-	  nullif($7::text, ''), nullif($8::text, ''), $9::uuid,
-	  $10::uuid, $11::uuid, $12::uuid, $10::uuid,
-	  $13::uuid, $6::date, $14::boolean, $15::text, $16::date, nullif($17::text, '')::time
+		  nullif($7::text, ''), nullif($8::text, ''), $9::uuid,
+	  $10::uuid, $11::uuid, $12::uuid, $13::uuid,
+	  $14::uuid, $6::date, $15::boolean, $16::text, $17::date, nullif($18::text, '')::time
 	)`,
 		goatID,
 		cmd.TenantID,
@@ -410,9 +456,10 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		stringValue(managementStage),
 		stringValue(cmd.HealthStatus),
 		cmd.CustodianPartyID,
-		cmd.ShedID,
+		currentLocationID,
 		uuidArg(farmUUID),
 		cmd.ParkID,
+		cmd.ShedID,
 		cmd.ActorID,
 		cmd.DOBEstimated,
 		cmd.OriginType,
@@ -421,14 +468,6 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	); err != nil {
 		return nil, err
 	}
-	// Re-resolve inside this transaction. Admin preview is read-only and may be followed by a later
-	// commit, so validation alone cannot protect the canonical write. The helper also canonicalizes
-	// an accepted matching key ("3") to the human catalog label ("Part 3").
-	partitionLabel, err := resolveAdminGoatPartition(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel, cmd.RequirePartitionGrain)
-	if err != nil {
-		return nil, err
-	}
-	cmd.PartitionLabel = partitionLabel
 	if partitionLabel != nil {
 		label := *partitionLabel
 		var shedName string
@@ -527,7 +566,7 @@ INSERT INTO goat_location_history (
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($7::text, ''), 'admin_goat_create', $4::timestamptz, $5::uuid, nullif($6::text, '')
 )`,
-		cmd.TenantID, goatID, cmd.ShedID, now, cmd.ActorID, stringValue(cmd.SourceRecordID), stringValue(cmd.PartitionLabel)); err != nil {
+		cmd.TenantID, goatID, currentLocationID, now, cmd.ActorID, stringValue(cmd.SourceRecordID), stringValue(cmd.PartitionLabel)); err != nil {
 		return nil, err
 	}
 

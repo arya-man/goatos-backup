@@ -102,6 +102,9 @@ func (r *Repository) UpdateLocation(ctx context.Context, cmd ports.UpdateLocatio
 	if err != nil {
 		return nil, err
 	}
+	if err := rejectMappedPenShapeChange(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
 	if _, err := updateLocationRow(ctx, tx, cmd); err != nil {
 		return nil, mapWriteErr(err)
 	}
@@ -134,6 +137,39 @@ func (r *Repository) UpdateLocation(ctx context.Context, cmd ports.UpdateLocatio
 	}
 	committed = true
 	return &ports.LocationMutationResult{Location: location}, nil
+}
+
+func rejectMappedPenShapeChange(ctx context.Context, tx pgx.Tx, cmd ports.UpdateLocationCommand) error {
+	if cmd.LocationType == nil && cmd.Status == nil && cmd.ParentLocationID == nil && !cmd.ClearParent {
+		return nil
+	}
+	var mapped bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.operational_location_id = $2::uuid
+)`, cmd.TenantID, cmd.LocationID).Scan(&mapped); err != nil {
+		return err
+	}
+	if !mapped {
+		return nil
+	}
+	nextType := ""
+	if cmd.LocationType != nil {
+		nextType = strings.TrimSpace(*cmd.LocationType)
+	}
+	nextStatus := ""
+	if cmd.Status != nil {
+		nextStatus = strings.TrimSpace(*cmd.Status)
+	}
+	if cmd.ClearParent || cmd.ParentLocationID != nil ||
+		(nextType != "" && !strings.EqualFold(nextType, "pen")) ||
+		(nextStatus != "" && !strings.EqualFold(nextStatus, "active")) {
+		return ports.ErrWriteConflict
+	}
+	return nil
 }
 
 func (r *Repository) RetireLocation(ctx context.Context, cmd ports.RetireLocationCommand) (*ports.LocationMutationResult, error) {

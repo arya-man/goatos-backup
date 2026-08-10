@@ -2614,15 +2614,16 @@ type ShedLifecycleStatusLookup struct {
 }
 
 type ShedPartition struct {
-	TenantID        pgtype.UUID
-	ShedID          pgtype.UUID
-	PartitionLabel  string
-	NormalizedLabel string
-	Status          string
-	DisplayOrder    pgtype.Int4
-	Source          string
-	CreatedAt       pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
+	TenantID              pgtype.UUID
+	ShedID                pgtype.UUID
+	PartitionLabel        string
+	NormalizedLabel       string
+	Status                string
+	DisplayOrder          pgtype.Int4
+	Source                string
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	OperationalLocationID pgtype.UUID
 }
 
 type ShedProfile struct {

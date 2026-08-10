@@ -35,6 +35,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS shed_partitions_operational_location_unique
   ON public.shed_partitions (tenant_id, operational_location_id)
   WHERE operational_location_id IS NOT NULL;
 
+DO $$
+DECLARE
+  ambiguous_count integer;
+BEGIN
+  SELECT count(*) INTO ambiguous_count
+  FROM (
+    SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
+    FROM public.shed_partitions sp
+    JOIN public.locations pen
+      ON pen.tenant_id = sp.tenant_id
+     AND pen.parent_location_id = sp.shed_id
+     AND pen.location_type = 'pen'
+     AND (
+       (sp.status = 'active' AND pen.status = 'active')
+       OR (sp.status = 'retired' AND pen.status = 'inactive')
+     )
+    JOIN public.locations parent
+      ON parent.tenant_id = pen.tenant_id
+     AND parent.location_id = pen.parent_location_id
+    WHERE (
+      lower(regexp_replace(pen.name, '^[^-]+-[[:space:]]*part[[:space:]]+', '', 'i')) = sp.normalized_label
+      OR lower(regexp_replace(pen.name, '^.*[[:space:]]+', '')) = sp.normalized_label
+      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+    )
+    GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
+    HAVING count(*) > 1
+  ) ambiguous;
+
+  IF ambiguous_count <> 0 THEN
+    RAISE EXCEPTION 'partition_operational_location_mapping_ambiguous: % partition rows match multiple candidate pens', ambiguous_count;
+  END IF;
+END $$;
+
 -- The catalog was deliberately loose when first introduced. Before attaching a
 -- location id, make sure every current goat-side partition is represented.
 INSERT INTO public.shed_partitions (
@@ -62,6 +95,39 @@ ORDER BY
   regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', ''),
   btrim(gsp.partition_label)
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING;
+
+DO $$
+DECLARE
+  ambiguous_count integer;
+BEGIN
+  SELECT count(*) INTO ambiguous_count
+  FROM (
+    SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
+    FROM public.shed_partitions sp
+    JOIN public.locations pen
+      ON pen.tenant_id = sp.tenant_id
+     AND pen.parent_location_id = sp.shed_id
+     AND pen.location_type = 'pen'
+     AND (
+       (sp.status = 'active' AND pen.status = 'active')
+       OR (sp.status = 'retired' AND pen.status = 'inactive')
+     )
+    JOIN public.locations parent
+      ON parent.tenant_id = pen.tenant_id
+     AND parent.location_id = pen.parent_location_id
+    WHERE (
+      lower(regexp_replace(pen.name, '^[^-]+-[[:space:]]*part[[:space:]]+', '', 'i')) = sp.normalized_label
+      OR lower(regexp_replace(pen.name, '^.*[[:space:]]+', '')) = sp.normalized_label
+      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
+    )
+    GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
+    HAVING count(*) > 1
+  ) ambiguous;
+
+  IF ambiguous_count <> 0 THEN
+    RAISE EXCEPTION 'partition_operational_location_mapping_ambiguous: % partition rows match multiple candidate pens after goat-attested partition import', ambiguous_count;
+  END IF;
+END $$;
 
 -- Reuse existing pen children when a prior run already created them.
 UPDATE public.shed_partitions sp
@@ -106,6 +172,7 @@ WITH alias_names AS (
     ON alias.tenant_id = sp.tenant_id
    AND alias.parent_location_id = parent.parent_location_id
    AND alias.location_type = 'shed'
+   AND alias.status = 'inactive'
    AND alias.name <> parent.name
    AND alias.name LIKE parent.name || '%'
   WHERE sp.operational_location_id IS NULL
@@ -114,7 +181,7 @@ WITH alias_names AS (
           '^part[[:space:]]+',
           ''
         ) = sp.normalized_label
-  ORDER BY sp.tenant_id, sp.shed_id, sp.normalized_label, alias.status = 'active' DESC, length(alias.name)
+  ORDER BY sp.tenant_id, sp.shed_id, sp.normalized_label, length(alias.name)
 ),
 created AS (
   INSERT INTO public.locations (
@@ -251,6 +318,7 @@ WHERE NOT EXISTS (
 
 -- Move live partitioned goats to the exact pen location. The parent shed stays
 -- in goats.shed_id for rollups and legacy filters.
+SET lock_timeout = '2s';
 UPDATE public.goats g
 SET current_location_id = sp.operational_location_id,
     updated_at = now(),
@@ -267,6 +335,7 @@ WHERE g.tenant_id = gsp.tenant_id
   AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
   AND g.merged_into_goat_id IS NULL
   AND g.current_location_id IS DISTINCT FROM sp.operational_location_id;
+RESET lock_timeout;
 
 -- Block cutover if a live partitioned goat cannot be mapped exactly.
 DO $$
@@ -326,10 +395,25 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE public.shed_partitions
-  ALTER COLUMN operational_location_id SET NOT NULL;
+-- operational_location_id deliberately remains nullable so legacy fixtures and
+-- repair scripts can still create catalog rows before a later reconcile step
+-- maps them. Runtime writers fail closed before placing live animals into an
+-- unmapped partition.
 
 -- +goose Down
+SET lock_timeout = '2s';
+UPDATE public.goats g
+SET current_location_id = g.shed_id,
+    updated_at = now(),
+    row_version = g.row_version + 1
+FROM public.shed_partitions sp
+WHERE g.tenant_id = sp.tenant_id
+  AND g.current_location_id = sp.operational_location_id
+  AND g.shed_id = sp.shed_id
+  AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+  AND g.merged_into_goat_id IS NULL;
+RESET lock_timeout;
+
 ALTER TABLE public.shed_partitions
   DROP CONSTRAINT IF EXISTS shed_partitions_operational_location_fk;
 
