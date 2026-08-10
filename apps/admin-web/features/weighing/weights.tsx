@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Scale, TrendingDown, Warehouse } from "lucide-react";
+import { Scale, TrendingDown, Warehouse, Wheat } from "lucide-react";
 
 import { WeightBars } from "./weight-bars";
 import { Tag } from "@/components/ui-primitives";
@@ -8,9 +8,11 @@ import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
+  getPenGrowthFeed,
   getShedWeights,
   getWeighingGrowth,
   getWeightDemographics,
+  type PenGrowthFeedRow,
   type ShedWeightsRow,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -71,6 +73,62 @@ function modeTag(row: ShedWeightsRow, pageContract: AdminUiPageContract) {
     : { tone: "mut" as const, label: copy(pageContract, "value.weighing.lump") };
 }
 
+// How far this pen is off the pace of comparable pens, or why there is no comparison.
+//
+// The percentage is rendered EXACTLY as the backend computed it. The tone is the whole
+// point of the cell: a reader scanning for red should find the sheds to visit without
+// reading a single number.
+function penGapCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContract) {
+  if (pen.adg_vs_peer_pct == null) {
+    // No peer median. The pen is not broken and must not be tagged as a problem —
+    // there is simply nothing else like it in the estate to judge it against.
+    return <span className="muted small">{copy(pageContract, "pens.vs_peers.none")}</span>;
+  }
+  const pct = Math.round(pen.adg_vs_peer_pct);
+  const behind = pct < 0;
+  return (
+    <>
+      <Tag tone={behind ? "dng" : "ok"}>
+        {pct > 0 ? "+" : ""}
+        {pct.toLocaleString("en-IN")}%
+      </Tag>{" "}
+      <span className="muted small">
+        {copy(pageContract, behind ? "pens.vs_peers.behind" : "pens.vs_peers.ahead")} ·{" "}
+        {pen.peer_pen_count.toLocaleString("en-IN")}
+      </span>
+    </>
+  );
+}
+
+// Kilograms of feed per kilogram of gain — the commercial number — or the honest
+// reason there is none.
+//
+// A blank cell would read as "we do not know how this pen converts", which is a
+// different statement from each of the reasons below. The distinction matters
+// because three of the four are FIXABLE: set the missing ration, split the mixed
+// pen, or configure the pen at all.
+function penConversionCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContract) {
+  if (pen.feed_per_kg_gain_kg != null) {
+    return (
+      <>
+        <b>{pen.feed_per_kg_gain_kg.toFixed(1)}</b>{" "}
+        <span className="muted small">{copy(pageContract, "pens.feed.conversion")}</span>
+      </>
+    );
+  }
+  const reason: Record<string, string> = {
+    partial: "pens.feed.partial",
+    experiment: "pens.feed.experiment",
+    no_config: "pens.feed.none",
+    unknown_cohort: "pens.feed.mixed",
+  };
+  const key = reason[pen.feed_plan_status];
+  // `resolved` with no ratio means the pen is flat or losing weight: its ration is
+  // known, so naming a config problem here would send somebody to fix the wrong thing.
+  if (!key) return <span className="muted">—</span>;
+  return <span className="muted small">{copy(pageContract, key)}</span>;
+}
+
 // One toggle per chart, rendered as links so the page stays a server component and
 // each chart's choice survives a reload and a shared URL. Defined at module scope:
 // declaring a component inside render recreates its type every pass.
@@ -114,6 +172,7 @@ export async function WeighingWeightsPage({
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
+  const pensOffset = boundedOffset(one(params, "pens_offset"));
   // Each chart toggles independently. Default is DAILY GAIN, not weight — the
   // question the screen exists to answer is whether the kids are growing.
   const metric = (name: string) => (one(params, name) === "weight" ? "weight" : "adg");
@@ -128,13 +187,14 @@ export async function WeighingWeightsPage({
   const periodDays = one(params, "period") === "84" ? 84 : 28;
   const window = businessDayWindow(periodDays);
 
-  const [weights, growth, demographics] = await Promise.all([
+  const [weights, growth, demographics, pens] = await Promise.all([
     getShedWeights({ park_id: parkFilter || undefined, ...window }),
     getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
     getWeightDemographics({ park_id: parkFilter || undefined, ...window }),
+    getPenGrowthFeed({ park_id: parkFilter || undefined, ...window }),
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, pens)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return (
@@ -243,6 +303,29 @@ export async function WeighingWeightsPage({
       options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
     },
   ];
+
+  // Pen comparison. The backend already ranked every pen against its peers, so this
+  // layer only ORDERS and RENDERS — it never recomputes a median, a gap or a
+  // conversion from the rows it happens to hold. Recomputing here would make the
+  // table disagree with itself the moment it is filtered or paged.
+  //
+  // Furthest behind first: the pen most off the pace of comparable pens is the one
+  // to go and look at. Pens with no comparison sink to the bottom rather than being
+  // hidden — they are real pens, and their absence would read as full coverage.
+  const penRows: PenGrowthFeedRow[] = pens.ok ? pens.data.rows : [];
+  const rankedPens = penRows.slice().sort((a, b) => {
+    const left = a.adg_vs_peer_pct;
+    const right = b.adg_vs_peer_pct;
+    if (left == null && right == null) return 0;
+    if (left == null) return 1;
+    if (right == null) return -1;
+    return left - right;
+  });
+  const penSlice = rankedPens.slice(pensOffset, pensOffset + DEFAULT_LIMIT);
+  const penColumns = tableLabels(pageContract, "pen-comparison");
+  // Counted, not silently dropped: a comparison screen that hides what it could not
+  // answer reads as an estate where everything is comparable.
+  const pensUnranked = penRows.length - (pens.ok ? pens.data.comparable_pens : 0);
 
   const shedColumns = tableLabels(pageContract, "shed-weights");
   const losingColumns = tableLabels(pageContract, "losing-kids");
@@ -464,6 +547,96 @@ export async function WeighingWeightsPage({
           ))}
         </section>
       ) : null}
+
+      {/* The pen comparison sits ABOVE the charts on purpose: it is the only panel
+          here that names a shed to go and visit, and exceptions belong before
+          distributions. */}
+      <section className="card" aria-label={copy(pageContract, "section.pens.aria")}>
+        <h2 className="h">
+          <Wheat className="ic" size={15} aria-hidden /> {copy(pageContract, "section.pens.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.pens.caption")}</p>
+        <p className="muted small">{copy(pageContract, "section.pens.basis")}</p>
+
+        {penSlice.length === 0 ? (
+          <div className="empty">
+            <b>{copy(pageContract, "empty.pens.title")}</b>
+            <span className="muted small">{copy(pageContract, "empty.pens.body")}</span>
+          </div>
+        ) : (
+          <>
+            <div className="tablewrap">
+              <table className="tbl pentbl">
+                <thead>
+                  <tr>
+                    {penColumns.map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {penSlice.map((pen) => (
+                    <tr key={`${pen.location_id}|${pen.partition_label ?? ""}`}>
+                      <td>{pen.park_name}</td>
+                      <td>
+                        {/* Backend-composed, shown verbatim. Joining the shed name and the
+                            partition in this layer is what truncated the label on the
+                            weighing board (OL-3). */}
+                        <b>{pen.operational_location_display}</b>
+                      </td>
+                      <td>{pen.breed ?? <span className="muted">—</span>}</td>
+                      <td>{pen.stage ?? <span className="muted">—</span>}</td>
+                      <td className="num">{pen.animals_weighed.toLocaleString("en-IN")}</td>
+                      <td className="num">
+                        {/* Null gain is not 0 g: it means nobody has weighed this pen twice. */}
+                        {pen.adg_g_per_day == null ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          `${Math.round(pen.adg_g_per_day).toLocaleString("en-IN")} g`
+                        )}
+                      </td>
+                      <td className="num">{penGapCell(pen, pageContract)}</td>
+                      <td>
+                        {pen.ration_group_label && pen.shed_tag_label ? (
+                          `${pen.ration_group_label} · ${pen.shed_tag_label}`
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="num">
+                        {pen.planned_feed_g_per_head_day == null ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          `${Math.round(pen.planned_feed_g_per_head_day).toLocaleString("en-IN")} g`
+                        )}
+                      </td>
+                      <td className="num">{penConversionCell(pen, pageContract)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <WorklistPager
+              pageContract={pageContract}
+              offset={pensOffset}
+              limit={DEFAULT_LIMIT}
+              rowCount={penSlice.length}
+              hasMore={pensOffset + penSlice.length < rankedPens.length}
+              noun={copy(pageContract, "pager.noun")}
+              pageSizeOptions={[DEFAULT_LIMIT]}
+              hrefForOffset={(next) => hrefWith(params, { pens_offset: String(next) })}
+              hrefForLimit={() => hrefWith(params, {})}
+            />
+          </>
+        )}
+
+        <p className="muted small">{copy(pageContract, "pens.note.planned")}</p>
+        {pensUnranked > 0 ? (
+          <p className="muted small">
+            {pensUnranked.toLocaleString("en-IN")} {copy(pageContract, "note.pens.coverage")}
+          </p>
+        ) : null}
+      </section>
 
       {/* Row 1 — shed and breed side by side, equal width, fixed height with the
           list scrolling inside so neither card grows with its row count. */}

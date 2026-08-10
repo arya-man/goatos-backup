@@ -268,6 +268,11 @@ var protectedRoutes = []Route{
 	{OperationID: "adminGetWeighingShedWeights", Method: "GET", Pattern: "/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingWeightDemographics", Method: "GET", Pattern: "/weighing/weight-demographics", Permissions: []string{WeighingMonitor}},
 	{OperationID: "adminGetWeighingLeadershipGrowth", Method: "GET", Pattern: "/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
+	// Pen growth-vs-feed comparison. AnyPermissions, never Permissions: the two
+	// directors this read is for hold DIFFERENT capabilities -- the Growth Director
+	// owns weighing and the Feed Director owns the ration -- so ANDing the pair
+	// would lock both of them out of their own question.
+	{OperationID: "adminGetGrowthFeedPens", Method: "GET", Pattern: "/growth-feed/pens", AnyPermissions: []string{WeighingMonitor, FeedConfigRead}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appSubmitWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},
