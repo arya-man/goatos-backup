@@ -32,6 +32,9 @@ var (
 	ErrIdempotencyConflict = errors.New("feeddirection: idempotency key reused with a different request")
 	// ErrShedNotInPark is returned when the addressed shed is not an active shed of the addressed park.
 	ErrShedNotInPark = errors.New("feeddirection: shed is not an active shed of the addressed park")
+	// ErrInvalidPartition is returned when a partitioned shed is completed without a real catalog
+	// partition, or an undivided shed is completed with a fabricated partition label.
+	ErrInvalidPartition = errors.New("feeddirection: partition_label is required and must match the shed partition catalog")
 	// ErrInvalidProof is returned when a supplied proof reference does not resolve to a real,
 	// completed, tenant-owned upload.
 	ErrInvalidProof = errors.New("feeddirection: proof reference is invalid")

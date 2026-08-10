@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -25,6 +26,8 @@ import (
 func TestPackingCompletionIsPerPenNotPerShed(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "1")
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "2")
 
 	pen1 := packingParams()
 	pen1.PartitionLabel = "1"
@@ -87,7 +90,8 @@ ORDER BY partition_label`, pen1.TenantID, pen1.ShedID)
 // two verifier items for one piece of work.
 func TestPackingCompletionStillDeduplicatesTheSamePen(t *testing.T) {
 	ctx := context.Background()
-	repo, _ := setupFeedDirectionDB(t, ctx)
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "Part 3")
 
 	p := packingParams()
 	p.PartitionLabel = "Part 3"
@@ -106,6 +110,25 @@ func TestPackingCompletionStillDeduplicatesTheSamePen(t *testing.T) {
 	}
 	if again.NewlyPending {
 		t.Fatal("an exact replay must not re-enqueue a verifier item")
+	}
+}
+
+func TestPackingCompletionRequiresCatalogPartitionForPartitionedShed(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "1")
+
+	blank := packingParams()
+	blank.IdempotencyKey = "feed-packing-blank-partitioned-shed"
+	if _, err := repo.CompletePacking(ctx, blank); !errors.Is(err, ports.ErrInvalidPartition) {
+		t.Fatalf("blank partitioned shed err = %v, want ErrInvalidPartition", err)
+	}
+
+	fabricated := packingParams()
+	fabricated.PartitionLabel = "999"
+	fabricated.IdempotencyKey = "feed-packing-fabricated-partition"
+	if _, err := repo.CompletePacking(ctx, fabricated); !errors.Is(err, ports.ErrInvalidPartition) {
+		t.Fatalf("fabricated partition err = %v, want ErrInvalidPartition", err)
 	}
 }
 

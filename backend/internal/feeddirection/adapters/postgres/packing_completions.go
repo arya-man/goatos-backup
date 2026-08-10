@@ -67,15 +67,16 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		}
 	}()
 
-	// Shed must be an active shed of the addressed park. Fail closed rather than record a completion
-	// against a shed that does not belong to the park being fed.
-	if err := requireShedInPark(ctx, tx, p.TenantID, p.ParkID, p.ShedID); err != nil {
+	// The completion identity is a real operational location: parent shed plus catalog partition
+	// when the shed is subdivided. Blank means whole shed only for undivided sheds.
+	if err := requireShedPartitionInPark(ctx, tx, p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel); err != nil {
 		return ports.CompletePackingResult{}, err
 	}
 
 	fingerprint := requestFingerprint(
 		p.ParkID,
 		p.ShedID,
+		domain.PartitionMatchKey(p.PartitionLabel),
 		fmt.Sprintf("%d", p.SessionNo),
 		targetDate,
 		p.Workflow,

@@ -108,7 +108,8 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 
 func TestCompleteDistributionEnqueueRequestCarriesPartition(t *testing.T) {
 	ctx := context.Background()
-	repo, _ := setupFeedDirectionDB(t, ctx)
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "2")
 
 	enq := &recordingDistributionEnqueuer{}
 	svc := feeddirectionapp.NewService(nil, nil).

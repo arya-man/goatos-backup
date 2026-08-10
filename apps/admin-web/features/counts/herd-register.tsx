@@ -9,7 +9,6 @@ import { dash } from "@/lib/format";
 import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
-  getCountsBreakdown,
   getHerdRegisterSummary,
   listAnimalStages,
   searchGoats,
@@ -170,14 +169,13 @@ export async function HerdRegisterPage({
   const selectedGoatId = one(sp, "goat_passport");
 
   // Real goats + real location options for the write drawers, in parallel.
-  const [result, summaryResult, locations, stagesResult, breakdownResult] = await Promise.all([
+  const [result, summaryResult, locations, stagesResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
     getHerdRegisterSummary({ park_id: parkId, breed, sex }),
     getHerdRegisterLocations(),
     listAnimalStages(),
-    getCountsBreakdown({ lifecycle_status: status, limit: 1 }),
   ]);
-  const authError = firstAuthRequiredError(result, summaryResult, stagesResult, breakdownResult);
+  const authError = firstAuthRequiredError(result, summaryResult, stagesResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   // A fresh idempotency key per render: a double-submit of the open Register drawer replays the same key
@@ -191,15 +189,7 @@ export async function HerdRegisterPage({
         label: stage.name ? `${stage.stage_code} · ${stage.name}` : stage.stage_code,
       }))
     : [];
-  const operationalLocations: HerdOperationalLocationOption[] = breakdownResult.ok
-    ? breakdownResult.data.facets.sheds.map((shed) => ({
-        key: shed.key,
-        shedId: shed.shed_id,
-        parkId: shed.park_id || null,
-        partitionLabel: shed.partition_label || null,
-        label: shed.operational_location_display || shed.label,
-      }))
-    : [];
+  const operationalLocations: HerdOperationalLocationOption[] = locations.operationalLocations;
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
   // Honest state: an unavailable summary read shows a dash, not fabricated numbers.
@@ -241,7 +231,7 @@ export async function HerdRegisterPage({
           parks={locations.parks}
           sheds={locations.sheds}
           operationalLocations={operationalLocations}
-          operationalLocationsAvailable={breakdownResult.ok}
+          operationalLocationsAvailable={locations.available}
           farms={locations.farms}
           animalStages={animalStages}
           locationsAvailable={locations.available}

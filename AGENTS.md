@@ -1571,6 +1571,13 @@ The product concept **"active shed"** means **active operational location** (par
 
 A partition holding ZERO animals still EXISTS (e.g., CBE `Yashoda 5` is real and empty). A partition catalog derived only from per-goat tables (`goat_shed_partitions`, PK `tenant_id, goat_id`) hides empty partitions and makes them unreachable as shifting destinations. Use the `locations` table as the partition catalog until a real `shed_partitions` table is built.
 
+For write pickers such as Herd Register, shifting destinations, feed/vaccination
+execution destinations, and weighing task setup, never derive selectable
+operational locations from census/count facets. Facets answer "where animals
+currently are"; write pickers answer "where animals/tasks are allowed to be".
+Use the partition catalog (`shed_partitions` or the feed-config pens API that
+exposes it), and fail closed if that catalog is unavailable.
+
 ### Machine Enforcement
 
 `make operational-location-guard` (`tools/agent-hooks/check-operational-location.mjs`,
@@ -1596,6 +1603,10 @@ runtime/seed-value checker. It checks:
 5. `whole-leak`, `alias-locations`, `location-type-as-partition`, `counts-grain`,
    and `shifting-contract` — see the check list in the guard's own header
    comment for the full set and each check's rationale.
+6. Herd Register partition picker source — the Register drawer must use catalog
+   partitions, not count/census facets, so empty partitions remain reachable.
+7. Weighing alias/idempotency invariants and staging deploy failure handling for
+   the 2026-08-10 staging regression class.
 
 **Not checked by this guard:** `jsonb_array_elements(x)::text` vs
 `jsonb_array_elements_text(x)` (OL-5, the JSON-quoting/`"null"`-string defect

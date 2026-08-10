@@ -800,14 +800,14 @@ const REQUIRED_PATTERNS = [
   {
     id: "weighing-alias-resolution-predicate",
     file: "backend/internal/weighing/adapters/postgres/repository.go",
-    all: [/alias_options AS \(/, /AND alias\.location_type='shed'/, /AND alias\.status <> 'active'/],
-    msg: "weighing runtime partition alias resolver must only treat inactive shed rows as legacy aliases; active whole sheds must never be eligible",
+    all: [/alias_options AS \(/, /AND alias\.location_type='shed'/, /AND alias\.status='inactive'/],
+    msg: "weighing runtime partition alias resolver must only treat inactive shed rows as legacy aliases; active/staging/review whole sheds must never be eligible",
   },
   {
     id: "weighing-alias-resolution-predicate",
     file: "backend/migrations/postgres/000145_weighing_partition_forward_safety.sql",
-    all: [/JOIN public\.locations alias/, /AND alias\.location_type = 'shed'/, /AND alias\.status <> 'active'/],
-    msg: "weighing forward repair must use the same inactive-shed legacy-alias predicate as runtime; active numeric-suffix sheds must remain whole sheds",
+    all: [/JOIN public\.locations alias/, /AND alias\.location_type = 'shed'/, /AND alias\.status = 'inactive'/],
+    msg: "weighing forward repair must use the same inactive-shed legacy-alias predicate as runtime; active/staging/review numeric-suffix sheds must remain whole sheds",
   },
   {
     id: "weighing-create-idempotency-before-hydration",
@@ -820,6 +820,26 @@ const REQUIRED_PATTERNS = [
       /recordIdempotency\(ctx, tx, cmd\.TenantID, "weighing\.campaign_created", cmd\.IdempotencyKey, requestFingerprint,/,
     ],
     msg: "weighing CreateCampaign must fingerprint and replay-check the original request before partition hydration, then store that raw request fingerprint",
+  },
+  {
+    id: "herd-register-partition-catalog-picker",
+    file: "apps/admin-web/features/counts/herd-register.tsx",
+    all: [/getHerdRegisterLocations\(\)/],
+    none: [/getCountsBreakdown\(/, /data\.facets\.sheds/],
+    msg: "herd register write destinations must come from the partition catalog, not census/count facets; empty partitions with zero animals must remain selectable",
+  },
+  {
+    id: "herd-register-partition-catalog-picker",
+    file: "apps/admin-web/lib/api/herd-locations.ts",
+    all: [/listFeedConfigPens\(\{ limit: 500 \}\)/, /partition_label/, /operational_location_display/],
+    msg: "herd register location helper must include partition catalog rows so empty partitions are valid registration/shifting destinations",
+  },
+  {
+    id: "stg-clouddeploy-task-errexit",
+    file: "tools/deploy/stg-clouddeploy-task.sh",
+    all: [/trap write_failed_on_exit EXIT/, /\nmain "\$@"\s*$/],
+    none: [/if ! main "\$@"/],
+    msg: "staging Cloud Deploy task wrapper must let Bash errexit observe migration failures; do not wrap main in `if ! main`",
   },
 ];
 
@@ -1496,6 +1516,9 @@ function main() {
       continue;
     }
     if (req.all && !req.all.every((pattern) => pattern.test(content))) {
+      problems.push(`${req.file}: [${req.id}] ${req.msg}`);
+    }
+    if (req.none && req.none.some((pattern) => pattern.test(content))) {
       problems.push(`${req.file}: [${req.id}] ${req.msg}`);
     }
     if (req.ordered) {
