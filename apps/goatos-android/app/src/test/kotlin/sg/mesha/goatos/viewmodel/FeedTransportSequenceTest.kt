@@ -72,17 +72,20 @@ class FeedTransportSequenceTest {
                     businessDate: String,
                     parkId: String?,
                     shedId: String?,
+                    partitionLabel: String?,
                     status: String?,
                     cursor: String?,
                     limit: Int?,
                 ): FeedTransportTaskPageDto = FeedTransportTaskPageDto(
                     items = listOf(
                         FeedTransportTaskDto(
-                            taskId = "task-${parkId.orEmpty()}-${shedId.orEmpty()}-${status.orEmpty()}",
+                            taskId = "task-${parkId.orEmpty()}-${shedId.orEmpty()}-${partitionLabel.orEmpty()}-${status.orEmpty()}",
                             parkId = parkId ?: "park-1",
                             parkLabel = "Farm 1",
                             shedId = shedId ?: "shed-1",
                             shedLabel = "Shed 1",
+                            partitionLabel = partitionLabel,
+                            operationalLocationDisplay = listOfNotNull("Shed 1", partitionLabel).joinToString(" - "),
                             businessDate = businessDate,
                             status = status ?: "due",
                             scheduledAt = "2026-07-29T15:30:00+05:30",
@@ -90,7 +93,7 @@ class FeedTransportSequenceTest {
                     ),
                     filters = FeedTransportFilterOptionsDto(
                         parks = listOf(FeedTransportFilterOptionDto("park-1", "Farm 1")),
-                        sheds = listOf(FeedTransportFilterOptionDto("shed-1", "Shed 1")),
+                        sheds = listOf(FeedTransportFilterOptionDto("shed-1", "Shed 1 - Part 3", "Part 3")),
                     ),
                 )
             }
@@ -102,8 +105,8 @@ class FeedTransportSequenceTest {
             )
             advanceUntilIdle()
 
-            viewModel.onEvent(FeedTransportEvent.SelectShed("shed-1"))
-            viewModel.onEvent(FeedTransportEvent.SelectShed("shed-1"))
+            viewModel.onEvent(FeedTransportEvent.SelectShed("shed-1\u001fPart 3"))
+            viewModel.onEvent(FeedTransportEvent.SelectShed("shed-1\u001fPart 3"))
             viewModel.onEvent(FeedTransportEvent.SelectStatus("completed"))
             viewModel.onEvent(FeedTransportEvent.SelectStatus("completed"))
             viewModel.onEvent(FeedTransportEvent.SelectPark("park-1"))
