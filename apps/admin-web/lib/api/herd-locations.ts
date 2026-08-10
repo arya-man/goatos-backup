@@ -58,6 +58,7 @@ export async function listAllFeedConfigPens(params: { park_id?: string } = {}): 
   let hasMore = false;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
+    // serial-await: allow page N+1 is requested only because page N said has_more, so the pages cannot be batched with Promise.all without guessing how many exist -- which is exactly the fixed 20-request fan-out this replaced. The live catalog answers in ONE iteration.
     const result = await listFeedConfigPens({ ...params, limit, offset: page * limit });
     if (!result.ok) return result;
     first ??= result.data;

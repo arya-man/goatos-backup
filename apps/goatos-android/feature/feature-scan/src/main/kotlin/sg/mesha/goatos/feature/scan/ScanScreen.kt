@@ -439,7 +439,7 @@ fun ScanScreen(
                     item { ProofGate(rows = state.proofActionNeeded) }
                     items(
                         state.proofActionNeeded,
-                        key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" },
+                        key = { row -> proofActionNeededRowKey(row) },
                         contentType = { "proof_needed_row" },
                     ) { row ->
                         ProofNeededFeedRow(
@@ -512,6 +512,12 @@ fun ScanScreen(
     if (state.shedSwitcherOpen) {
         ShedSwitcherOverlay(state = state, onEvent = onEvent)
     }
+}
+
+private fun proofActionNeededRowKey(row: RosterRow): String {
+    val rowId = row.obligationId.takeIf { it.isNotBlank() }
+        ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
+    return "proof-$rowId"
 }
 
 @Composable

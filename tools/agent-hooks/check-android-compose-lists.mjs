@@ -112,6 +112,9 @@ const isAndroidKt = (rel) =>
 // hold >1 row per entity. Row-unique ids (id, obligationId, rowId, uuid, key)
 // are intentionally excluded.
 const ENTITY_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(goatId|animalId|goatUuid|animalUuid|herdAnimalId|tagId)\b/;
+const ROW_UNIQUE_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:id|rowId|uuid|key|obligationId|obligationInstanceId|taskId|recordId|eventId|proofId|captureId)\b/;
+const ROW_DISCRIMINATOR = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:vaccineLabel|vaccineId|protocolRuleId|doseLabel|primaryTag|secondaryTag|status|tone|scannedAtLabel|obligationRowVersion)\b/;
+const MULTI_ROW_PER_ENTITY_CONTEXT = /obligation|vaccine|vaccination|proof|roster|scan/i;
 
 const lineOf = (source, index) => source.slice(0, index).split("\n").length;
 
@@ -185,6 +188,14 @@ function findTrailingLambda(source, afterIndex) {
   return null;
 }
 
+function extractKeyBody(args) {
+  const keyMatch = /\bkey\s*=\s*\{/.exec(args);
+  if (!keyMatch) return null;
+  const open = keyMatch.index + keyMatch[0].length - 1;
+  const block = blockAt(args, open);
+  return block ? block.body : null;
+}
+
 // Domain/state-ish keyword allowlist for the column-foreach-unbounded and
 // chip-row-unbounded-dimension rules — see the module doc comment above for why this is
 // intentionally narrow.
@@ -249,12 +260,16 @@ export function findingsForSource(source) {
           }
         } else {
           // has a key -> check it is not a bare per-entity id on a per-row list.
-          const keyMatch = /\bkey\s*=\s*\{([\s\S]*?)\}/.exec(args);
-          if (keyMatch) {
-            const keyBody = keyMatch[1];
-            const composite =
-              keyBody.includes('"') || keyBody.includes("`") || / to \b/.test(keyBody) || /Pair\s*\(/.test(keyBody);
-            if (!composite && ENTITY_ID.test(keyBody)) {
+          const keyBody = extractKeyBody(args);
+          if (keyBody) {
+            const hasEntityId = ENTITY_ID.test(keyBody);
+            const hasRowUniqueId = ROW_UNIQUE_ID.test(keyBody);
+            const hasCompositeSeparator = /\||joinToString\s*\(| to \b|Pair\s*\(/.test(keyBody);
+            const hasRowDiscriminator = ROW_DISCRIMINATOR.test(keyBody) && hasCompositeSeparator;
+            const localContext = source.slice(Math.max(0, m.index - 500), Math.min(source.length, call.endIndex + 500));
+            const canRenderMultipleRowsPerEntity =
+              MULTI_ROW_PER_ENTITY_CONTEXT.test(args) || MULTI_ROW_PER_ENTITY_CONTEXT.test(localContext);
+            if (hasEntityId && canRenderMultipleRowsPerEntity && !hasRowUniqueId && !hasRowDiscriminator) {
               findings.push({
                 line: startLine,
                 rule: "lazy-list-entity-id-key",
@@ -480,8 +495,9 @@ function selfTest() {
   const bad = [
     ["items(rows) { r -> Row(r) }", "lazy-list-missing-key"],
     ["itemsIndexed(rows) { i, r -> Row(r) }", "lazy-list-missing-key"],
-    ["items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
-    ["items(list, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
+    ["items(proofRows, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
+    ['items(proofRows, key = { row -> "proof-${row.goatId}" }) { }', "lazy-list-entity-id-key"],
+    ["items(vaccinationRows, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));
@@ -491,7 +507,7 @@ function selfTest() {
     "items(rows, key = { it.id }) { r -> Row(r) }",
     "items(rows, key = { it.obligationId }) { r -> Row(r) }",
     'items(filtered, key = { row -> row.obligationId.takeIf { it.isNotBlank() } ?: "${row.goatId}|${row.vaccineLabel}" }) { }',
-    'items(matches, key = { "match-${it.goatId}" }) { }',
+    'items(matches, key = { "match-${it.goatId}|${it.vaccineLabel}" }) { }',
     "items(3) { Dot() }",
     "items(pageCount) { i -> Page(i) }",
     "items(rows.size) { i -> Row(rows[i]) }",
