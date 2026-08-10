@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -175,6 +176,93 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 		if shed.OperationalLocationDisplay == "Yashoda whole" {
 			t.Errorf("[%s] rendered 'Yashoda whole', which is prohibited", tt.name)
 		}
+	}
+}
+
+func TestPartitionAliasResolverRejectsSiblingPartitionLabelLeak(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	tenantID := uuid.NewString()
+	parkID := uuid.NewString()
+	castroID := uuid.NewString()
+	gandhiID := uuid.NewString()
+	castroAliasID := uuid.NewString()
+	operatorID := uuid.NewString()
+
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mustExec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Test Tenant', 'active')
+ON CONFLICT DO NOTHING`, tenantID)
+	mustExec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
+	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $5::uuid, 'shed', 'Castro', 'active'),
+       ($1::uuid, $3::uuid, $5::uuid, 'shed', 'Gandhi', 'active'),
+       ($1::uuid, $4::uuid, $5::uuid, 'shed', 'Castro 1', 'inactive')`, tenantID, castroID, gandhiID, castroAliasID, parkID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias'),
+       ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
+       ($1::uuid, $3::uuid, '1', '1', 'active', 'location_alias')`, tenantID, castroID, gandhiID)
+	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
+
+	valid, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          tenantID,
+		ParkID:            parkID,
+		PeriodStartDate:   "2026-08-01",
+		PeriodEndDate:     "2026-08-07",
+		StartBusinessDate: "2026-08-03",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    operatorID,
+		CreatedBy:         uuid.NewString(),
+		IdempotencyKey:    "partition-alias-valid-" + uuid.NewString(),
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       castroAliasID,
+			LocationType:     "shed",
+			DisplayName:      "Castro 1",
+			PartitionLabel:   "1",
+			WeighingCategory: domain.CategoryPerShedPartition,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateCampaign valid alias failed: %v", err)
+	}
+	if got := valid.Sheds[0].LocationID; got != castroID {
+		t.Fatalf("valid alias resolved to location_id %q, want Castro %q", got, castroID)
+	}
+	if got := valid.Sheds[0].PartitionLabel; got != "1" {
+		t.Fatalf("valid alias partition_label = %q, want 1", got)
+	}
+
+	_, err = repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          tenantID,
+		ParkID:            parkID,
+		PeriodStartDate:   "2026-08-08",
+		PeriodEndDate:     "2026-08-14",
+		StartBusinessDate: "2026-08-10",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    operatorID,
+		CreatedBy:         uuid.NewString(),
+		IdempotencyKey:    "partition-alias-invalid-" + uuid.NewString(),
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       castroAliasID,
+			LocationType:     "shed",
+			DisplayName:      "Castro 2",
+			PartitionLabel:   "2",
+			WeighingCategory: domain.CategoryPerShedPartition,
+		}},
+	})
+	if !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("CreateCampaign with mismatched alias label error = %v, want ErrInvalidArgument", err)
 	}
 }
 
