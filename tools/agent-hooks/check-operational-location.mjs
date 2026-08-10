@@ -67,6 +67,14 @@
 //                   when the same partition label appears in multiple parks or
 //                   rows from different parks have identical names. Caught only
 //                   by integration tests; documented here.
+//   weighing-alias-resolution-predicate
+//                   Legacy partition aliases in `locations` are inactive shed rows.
+//                   Weighing runtime and forward-repair SQL must never match an
+//                   active whole shed or another location type as an alias.
+//   weighing-create-idempotency-before-hydration
+//                   CreateCampaign idempotency must compare the original client
+//                   request before mutable alias/catalog hydration. Exact retries
+//                   must replay the original result even after catalog repair.
 // REMAINING BLIND SPOTS (documented, cannot be caught):
 //   - composition split across helper functions (requires dataflow analysis).
 //   - composition via template strings with complex expressions.
@@ -788,6 +796,33 @@ const REQUIRED = [
   },
 ];
 
+const REQUIRED_PATTERNS = [
+  {
+    id: "weighing-alias-resolution-predicate",
+    file: "backend/internal/weighing/adapters/postgres/repository.go",
+    all: [/alias_options AS \(/, /AND alias\.location_type='shed'/, /AND alias\.status <> 'active'/],
+    msg: "weighing runtime partition alias resolver must only treat inactive shed rows as legacy aliases; active whole sheds must never be eligible",
+  },
+  {
+    id: "weighing-alias-resolution-predicate",
+    file: "backend/migrations/postgres/000145_weighing_partition_forward_safety.sql",
+    all: [/JOIN public\.locations alias/, /AND alias\.location_type = 'shed'/, /AND alias\.status <> 'active'/],
+    msg: "weighing forward repair must use the same inactive-shed legacy-alias predicate as runtime; active numeric-suffix sheds must remain whole sheds",
+  },
+  {
+    id: "weighing-create-idempotency-before-hydration",
+    file: "backend/internal/weighing/adapters/postgres/repository.go",
+    ordered: [
+      /requestFingerprint := idempotencyFingerprint\(cmd\)/,
+      /campaignByIdempotencyMatchOnly\(ctx, tx, cmd\.TenantID, "weighing\.campaign_created", cmd\.IdempotencyKey, requestFingerprint\)/,
+      /hydrateCreateCampaignShedPartitions\(ctx, tx, cmd\.TenantID, cmd\.Sheds\)/,
+      /canonicalFingerprint := idempotencyFingerprint\(cmd\)/,
+      /recordIdempotency\(ctx, tx, cmd\.TenantID, "weighing\.campaign_created", cmd\.IdempotencyKey, requestFingerprint,/,
+    ],
+    msg: "weighing CreateCampaign must fingerprint and replay-check the original request before partition hydration, then store that raw request fingerprint",
+  },
+];
+
 function scannable(file) {
   if (!/\.(go|ts|tsx|mjs|kt|sql|yaml)$/.test(file)) return false;
   if (/_test\.go$|\.test\.(mjs|ts|tsx)$|Test\.kt$/.test(file)) return false;
@@ -1449,6 +1484,35 @@ function main() {
     }
     if (!content.includes(req.token)) {
       problems.push(`${req.file}: [${req.id}] ${req.msg}`);
+    }
+  }
+
+  for (const req of REQUIRED_PATTERNS) {
+    let content = "";
+    try {
+      content = readFileSync(resolve(repo, req.file), "utf8");
+    } catch {
+      problems.push(`${req.file}: [${req.id}] file missing`);
+      continue;
+    }
+    if (req.all && !req.all.every((pattern) => pattern.test(content))) {
+      problems.push(`${req.file}: [${req.id}] ${req.msg}`);
+    }
+    if (req.ordered) {
+      let cursor = 0;
+      let ok = true;
+      for (const pattern of req.ordered) {
+        const rest = content.slice(cursor);
+        const match = pattern.exec(rest);
+        if (!match) {
+          ok = false;
+          break;
+        }
+        cursor += match.index + match[0].length;
+      }
+      if (!ok) {
+        problems.push(`${req.file}: [${req.id}] ${req.msg}`);
+      }
     }
   }
 

@@ -74,6 +74,14 @@ explicitly the aggregate. Full contract and shared primitives:
 Discoverability/static-text guard:
 `make operational-read-model-contract-guard`.
 
+Machine guard for the failure class that caused the 2026-08-10 staging loop:
+`make operational-location-guard` now also checks weighing partition alias
+resolution. Legacy partition aliases are inactive `locations` shed rows only;
+active sheds named like `Castro 1` remain whole sheds unless the partition
+catalog says otherwise. `CreateCampaign` idempotency must fingerprint/replay the
+original client request before mutable alias/catalog hydration, then store that
+raw fingerprint.
+
 Critical animal action guardrails:
 
 ```text
