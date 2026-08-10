@@ -698,6 +698,8 @@ func fcmData(request domain.Request) map[string]string {
 		"tenant_id":               request.TenantID,
 		"calendar_event_id":       request.CalendarEventID,
 		"notification_type":       request.NotificationType,
+		"title":                   request.Title,
+		"body":                    request.Body,
 		"trace_id":                request.TraceID,
 	}
 }

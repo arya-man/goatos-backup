@@ -107,8 +107,12 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		t.Fatalf("message target = %#v", message)
 	}
 	notification, _ := message["notification"].(map[string]any)
-	if notification["title"] != "Vaccination overdue" {
+	if notification["title"] != "Vaccination overdue" || notification["body"] != "Shed A vaccination is overdue." {
 		t.Fatalf("notification = %#v", notification)
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["title"] != "Vaccination overdue" || data["body"] != "Shed A vaccination is overdue." {
+		t.Fatalf("data title/body missing: %#v", data)
 	}
 }
 
