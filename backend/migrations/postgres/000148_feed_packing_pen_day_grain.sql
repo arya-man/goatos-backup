@@ -121,8 +121,19 @@ WHERE session_no <> 0;
 -- submitting a genuine SECOND session for an already-packed pen gets a loud unique violation
 -- instead of a silent double-record -- which is exactly the semantic change being rolled out.
 --
--- The CONTRACT half (dropping the old index) is migration 000149, to be applied only once no old
--- instance is left. Do not merge the two back together.
+-- THE CONTRACT HALF IS NOT IN THIS RELEASE, AND MUST NOT BE ADDED TO IT.
+--
+-- backend/cmd/migrate applies EVERY pending migration sequentially in one run -- there is no
+-- per-release gate and no staged-apply flag. So a contract migration sitting next to this one in the
+-- same release would run back-to-back with it, still before the new binary serves, and would
+-- recreate the exact 42P10 window this split exists to remove. Splitting the SQL into two files
+-- changes nothing on its own; only shipping them in two RELEASES does.
+--
+-- The drop of feed_packing_completions_natural_uq therefore belongs to a LATER release, authored
+-- once every API instance is running the pen-day binary. Until then it is machine-blocked by
+-- `make feed-packing-rollout-guard`, which fails if any migration in the tree drops that index.
+-- Landing the contract migration means deliberately retiring that guard in the same change, which
+-- is a visible, reviewable act rather than a silent one.
 CREATE UNIQUE INDEX IF NOT EXISTS feed_packing_completions_pen_day_uq
   ON feed_packing_completions (tenant_id, park_id, shed_id, partition_key, target_date, workflow);
 

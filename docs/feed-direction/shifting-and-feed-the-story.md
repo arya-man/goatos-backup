@@ -223,10 +223,15 @@ own idempotency key. Both drain to the same pen-day row; the second returned **2
 never recorded**. This is the accepted-and-ignored failure the strict `session_no` rejection exists
 to prevent, reappearing one layer above the API. It is now `409 packing_already_recorded`.
 
-**6. The migration had no rolling-deploy window.** `000148` dropped the session-bearing unique index
-in the same step that added the pen-day one, so every still-running old instance would have failed
-every packing submission with `42P10` until the rollout finished. It is now an expand/contract pair
-(`000148` adds and keeps, `000149` drops).
+**6. The migration had no rolling-deploy window** — and my first repair of *that* was theatre too.
+`000148` dropped the session-bearing unique index in the same step that added the pen-day one, so
+every still-running old instance would have failed every packing submission with `42P10` until the
+rollout finished. I split it into an expand file and a contract file — and shipped both in the same
+release. `backend/cmd/migrate` applies every pending migration in one run, so they execute
+back-to-back, still before the new binary serves, and the window is exactly as it was. Splitting the
+SQL is not the control; shipping in two *releases* is. The contract migration is now absent from this
+release entirely, and `make feed-packing-rollout-guard` fails on any post-`000148` migration that
+drops the compatibility index, so the rule is enforced rather than narrated.
 
 The general lesson, and the reason the story is worth telling: **the first two bugs were invisible to
 every unit test in the repository and visible within seconds of walking the real path — and the

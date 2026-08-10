@@ -183,15 +183,26 @@ row, so nothing is left pointing at a completion that no longer exists — an or
 one a verifier could approve every day with nothing ever happening. It also strips the `Session N · `
 prefix from in-flight item labels. It is deliberately NOT reversible.
 
-**The key swap is an EXPAND/CONTRACT pair, and the two halves must not be merged back together.**
-`000148` ADDS the pen-day unique index and deliberately KEEPS the session-bearing one; `000149`
-drops the old one afterwards. The deployed binary inserts with
-`ON CONFLICT (…, session_no, …)`, and Postgres requires a unique index matching that exact column
-list — so dropping it in the same migration makes every still-running old instance fail EVERY
-packing submission with `42P10` for the length of the rollout. Migrations are applied *before* the
-new revision serves, so that window is guaranteed rather than hypothetical. Deploy order is
-**apply `000148` → roll out the binary → apply `000149`**. The two indexes coexist safely: the
-pen-day one is strictly stricter, and step 3 has already collapsed the rows that would violate it.
+**The key swap is an EXPAND/CONTRACT rollout, and the contract half is NOT in this release.**
+`000148` ADDS the pen-day unique index and deliberately KEEPS the session-bearing one. The deployed
+binary inserts with `ON CONFLICT (…, session_no, …)`, and Postgres requires a unique index matching
+that exact column list — so dropping it before every instance runs the new binary makes them fail
+EVERY packing submission with `42P10`.
+
+**Splitting the SQL into two files does not fix that on its own, and it is worth being precise about
+why.** `backend/cmd/migrate` applies *every* pending migration sequentially in one run; there is no
+per-release gate and no staged-apply flag. A contract migration sitting next to `000148` in the same
+release would therefore run back-to-back with it, still before the new revision serves, and recreate
+the identical window. Only shipping the two halves in two **releases** fixes it, and a header comment
+saying "apply this later" cannot enforce a release boundary.
+
+So the drop is simply absent from this release. It is authored in a LATER one, once every API
+instance runs the pen-day binary, and is machine-blocked until then by
+`make feed-packing-rollout-guard`, which fails on any post-`000148` migration that drops
+`feed_packing_completions_natural_uq`. Landing the contract step means retiring that guard in the
+same change — a visible, reviewable act rather than a silent one. Until then the two indexes coexist
+safely: the pen-day one is strictly stricter, and step 3 has already collapsed the rows that would
+violate it.
 
 **A pen-day accepts exactly ONE video, and a second DIFFERENT one is a 409, never a success.**
 `ErrPackingAlreadyRecorded` → `409 packing_already_recorded`. The upgrade case forced this: the
