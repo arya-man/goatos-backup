@@ -85,10 +85,10 @@ latest AS (
   -- history rather than deleting (a reopened bucket re-inserts for a tag that
   -- already has a row), so a bare count(*) sums every superseded round on top of
   -- the live one and reports more animals than the pen holds.
-  SELECT DISTINCT ON (park_id, location_id, pkey, tag)
-         park_id, location_id, pkey, campaign_shed_id, tag, weight_kg
+  SELECT DISTINCT ON (park_id, location_id, tag)
+         park_id, location_id, campaign_shed_id, tag, weight_kg
   FROM obs
-  ORDER BY park_id, location_id, pkey, tag, accepted_at DESC, observation_id DESC
+  ORDER BY park_id, location_id, tag, accepted_at DESC, observation_id DESC
 ),
 ind AS (
   SELECT campaign_shed_id, count(*)::int AS animals, avg(weight_kg)::float8 AS avg_kg
@@ -115,13 +115,13 @@ pairs AS (
   WHERE prev_weight IS NOT NULL
 ),
 ind_adg AS (
-  SELECT park_id, location_id, pkey,
+  SELECT park_id, location_id,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg)::float8 AS median_adg,
          count(*)::int AS pair_count,
          max(days_between)::int AS span_days
   FROM pairs
   WHERE days_between > 0
-  GROUP BY park_id, location_id, pkey
+  GROUP BY park_id, location_id
 ),
 lump AS (
   SELECT s.campaign_shed_id, sh.animal_count AS animals,
@@ -186,9 +186,9 @@ latest_bucket AS (
   -- COLLAPSE TO PEN GRAIN, identical to shed_weights.go. The newest bucket WITH
   -- DATA wins: ordering by period_start_date alone would let an empty newer bucket
   -- hide a weighed older one and report the pen as never weighed.
-  SELECT DISTINCT ON (park_id, location_id, pkey) *
+  SELECT DISTINCT ON (park_id, location_id) *
   FROM per_bucket
-  ORDER BY park_id, location_id, pkey,
+  ORDER BY park_id, location_id,
            (avg_kg IS NULL), period_start_date DESC, created_at DESC, campaign_shed_id DESC
 )
 SELECT b.park_id,
@@ -214,7 +214,7 @@ SELECT b.park_id,
             ELSE ss.span_days END                  AS adg_span_days
 FROM latest_bucket b
 LEFT JOIN ind_adg ia
-       ON ia.park_id = b.park_id AND ia.location_id = b.location_id AND ia.pkey = b.pkey
+       ON ia.park_id = b.park_id AND ia.location_id = b.location_id
 LEFT JOIN shed_span ss ON ss.location_id = b.location_id
 LEFT JOIN locations sh ON sh.location_id = b.location_id AND sh.tenant_id = $1::uuid
 LEFT JOIN locations pk ON pk.location_id = b.park_id     AND pk.tenant_id = $1::uuid

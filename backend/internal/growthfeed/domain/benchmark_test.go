@@ -107,6 +107,25 @@ func TestPenWithNoAuthoredRationProducesNoConversionRatio(t *testing.T) {
 	}
 }
 
+// A milk-fed kid pen is authored at 0 g of solid feed and still gains weight. The
+// arithmetic ratio is 0.0 kg of feed per kg of gain, which would sort every such
+// pen to the top of a "most efficient pens" ranking on the strength of milk this
+// grid cannot see. Found on live staging: 0 g planned against 139 g/day of gain.
+func TestZeroGramRationProducesNoConversionRatio(t *testing.T) {
+	p := pen("K1 kids", "Anantapur Sheep", "K1", 139, ADGBasisPerAnimalMedian)
+	p.PlannedFeedGPerHeadDay = ptrF(0)
+	pens := []Pen{p}
+	Benchmark(pens)
+
+	if pens[0].FeedPerKgGainKg != nil {
+		t.Fatalf("a 0 g ration produced conversion %v, want none", *pens[0].FeedPerKgGainKg)
+	}
+	// The pen is still ranked on GROWTH — only the feed number is withheld.
+	if pens[0].PeerGroupKey == "" {
+		t.Fatal("a milk-fed pen must still be comparable on gain")
+	}
+}
+
 // A pen that is flat or shrinking has no conversion ratio. A negative one sorts
 // to the top of a "most efficient" ranking; a near-zero denominator produces a
 // headline number in the thousands.
