@@ -117,7 +117,9 @@ truth. Clean-slate seed starts with no SOP submissions, so migration
 already-seeded database, apply the migration before API/app startup; new
 partition-scoped submits must write the physical partition label, while older
 whole-shed submissions remain `NULL` and continue to read as whole-shed
-history.
+history. The follow-up lock-safety hotfix for this migration changes only how
+the index is built and dropped (`CONCURRENTLY` outside a transaction); it does
+not add a seed closeout step.
 
 The standard setup shape is:
 
