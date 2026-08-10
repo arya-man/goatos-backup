@@ -83,6 +83,30 @@ function codeLine(line, state) {
   return stripLineComment(stripBlockComments(line, state));
 }
 
+function parseIfConditionFromRange(lines, startIndex, endIndex) {
+  const start = Math.max(0, startIndex);
+  const end = Math.min(lines.length - 1, endIndex);
+  const state = { inBlockComment: false };
+  const window = lines.slice(start, end + 1).map((line) => codeLine(line, state)).join(" ");
+  const candidates = [...window.matchAll(/\bif\s*\(/g)];
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const openAt = candidates[i].index + candidates[i][0].length;
+    let depth = 0;
+    for (let cursor = openAt; cursor < window.length; cursor += 1) {
+      const char = window[cursor];
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        if (depth === 0) {
+          return window.slice(openAt, cursor).trim();
+        }
+        depth -= 1;
+      }
+    }
+  }
+  return "";
+}
+
 function parseIfConditionFromWindow(lines, index) {
   const start = Math.max(0, index - 6);
   const state = { inBlockComment: false };
@@ -109,16 +133,8 @@ function parseIfConditionFromWindow(lines, index) {
   return "";
 }
 
-function isPositiveNotificationSdkCondition(lines, index, line) {
-  const hasOpenParen = line.includes("(");
-  const hasCloseParen = line.includes(")");
-  const hasIf = /\bif\s*\(/.test(line);
-  let condition;
-  if (hasIf && hasOpenParen && hasCloseParen) {
-    const match = line.match(/\bif\s*\(([^)]*)\)\s*\{?/);
-    condition = match ? match[1] : "";
-  }
-  if (!condition) condition = parseIfConditionFromWindow(lines, index);
+function isPositiveSdkConditionText(condition) {
+  if (!condition) return false;
   if (condition.includes("||")) return false;
 
   return (
@@ -129,14 +145,44 @@ function isPositiveNotificationSdkCondition(lines, index, line) {
   );
 }
 
+function isPositiveNotificationSdkCondition(lines, index, line) {
+  const hasOpenParen = line.includes("(");
+  const hasCloseParen = line.includes(")");
+  const hasIf = /\bif\s*\(/.test(line);
+  let condition;
+  if (hasIf && hasOpenParen && hasCloseParen) {
+    const match = line.match(/\bif\s*\(([^)]*)\)\s*\{?/);
+    condition = match ? match[1] : "";
+  }
+  if (!condition) condition = parseIfConditionFromWindow(lines, index);
+  return isPositiveSdkConditionText(condition);
+}
+
 function notificationLineIsSdkGated(lines, index) {
   const state = { inBlockComment: false };
+  let pendingIfLine = null;
   const stack = [];
   for (let lineIndex = 0; lineIndex <= index; lineIndex += 1) {
     const line = codeLine(lines[lineIndex], state);
     const isIfLine = /\bif\s*\(/.test(line);
     const hasOpenBrace = line.includes("{");
-    const positiveGate = hasOpenBrace && isIfLine ? isPositiveNotificationSdkCondition(lines, lineIndex, line) : false;
+    let positiveGate = false;
+
+    if (isIfLine && hasOpenBrace) {
+      positiveGate = isPositiveNotificationSdkCondition(lines, lineIndex, line);
+      pendingIfLine = null;
+    } else if (isIfLine) {
+      pendingIfLine = lineIndex;
+    } else if (hasOpenBrace && pendingIfLine !== null) {
+      const condition = parseIfConditionFromRange(lines, pendingIfLine, lineIndex);
+      positiveGate = isPositiveSdkConditionText(condition);
+      pendingIfLine = null;
+    }
+
+    if (line.includes("}")) {
+      pendingIfLine = null;
+    }
+
     for (const match of line.matchAll(/[{}]/g)) {
       if (match[0] === "}") {
         if (stack.length > 0) stack[stack.length - 1].depth -= 1;
