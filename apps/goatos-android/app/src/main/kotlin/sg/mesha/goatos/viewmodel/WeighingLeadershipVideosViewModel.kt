@@ -65,7 +65,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             WeighingLeadershipVideosUiState(
                 loading = isLoading,
                 loadingMore = isAppending,
-                sheds = sheds.map(::toUi),
+                sheds = sheds.mapIndexed(::toUi),
                 // With nothing cached the failure IS the answer; with a cached gallery it is only a
                 // staleness note, so a bad network never clears the reader's screen.
                 error = error?.takeIf { sheds.isEmpty() },
@@ -167,9 +167,11 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         }
     }
 
-    private fun toUi(shed: WeighingLeadershipShed): WeighingLeadershipShedUi =
-        WeighingLeadershipShedUi(
-            id = shed.campaignShedId,
+    private fun toUi(index: Int, shed: WeighingLeadershipShed): WeighingLeadershipShedUi {
+        val shedUiId = shed.leadershipVideosIdentityKey(index)
+        return WeighingLeadershipShedUi(
+            id = shedUiId,
+            campaignShedId = shed.campaignShedId,
             name = shed.operationalLocationDisplay.ifBlank { shed.shedName },
             status = shed.status,
             periodLabel = formatPeriodLabel(shed.periodLabel),
@@ -178,13 +180,13 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
                 WeighingLeadershipAnimalUi(
                     // The backend's own record id keys the row; a positional key re-keys every row
                     // past any change when a fresh page lands.
-                    id = animal.observationId.ifBlank { "${shed.campaignShedId}:${animal.rfid}" },
+                    id = animal.observationId.ifBlank { "$shedUiId:${animal.rfid}" },
                     rfid = animal.rfid,
                     weight = formatWeight(animal.weightKg),
                     timestamp = formatTimestamp(animal.acceptedAt),
                     videos = animal.videos.mapIndexed { videoIndex, video ->
                         WeighingLeadershipVideoUi(
-                            video.proofId,
+                            "$shedUiId:${video.proofId}:$videoIndex",
                             "Video ${videoIndex + 1}",
                             video.downloadUrl.toAbsoluteApiUrl(),
                         )
@@ -195,9 +197,14 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             totalWeight = shed.totalWeightKg?.let(::formatWeight),
             averageWeight = shed.averageWeightKg?.let(::formatWeight),
             videos = shed.videos.mapIndexed { index, video ->
-                WeighingLeadershipVideoUi(video.proofId, "Video ${index + 1}", video.downloadUrl.toAbsoluteApiUrl())
+                WeighingLeadershipVideoUi("$shedUiId:${video.proofId}:$index", "Video ${index + 1}", video.downloadUrl.toAbsoluteApiUrl())
             },
         )
+    }
+
+    private fun WeighingLeadershipShed.leadershipVideosIdentityKey(index: Int): String =
+        listOf(campaignShedId, category, periodLabel, status, index)
+            .joinToString(":")
 
     private fun formatWeight(value: Double): String =
         String.format(Locale.US, "%.2f kg", value).replace(".00 kg", " kg")

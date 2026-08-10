@@ -85,6 +85,7 @@ data class WeighingLeadershipVideosUiState(
 
 data class WeighingLeadershipShedUi(
     val id: String,
+    val campaignShedId: String,
     val name: String,
     val status: String,
     val periodLabel: String,

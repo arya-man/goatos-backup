@@ -341,6 +341,10 @@ data class WeighingAssignmentUiRow(
     val readyToClose: Boolean = false,
     val pendingVerificationCount: Int = 0,
 ) {
+    val uiKey: String
+        get() = listOf(campaignId, workGroupId, campaignShedId, category, periodLabel)
+            .joinToString(":")
+
     // After operator submits, bucket is non-clickable until reopened or verifier sends rework
     val isSubmittedAndWaitingVerification: Boolean
         get() = status.equals("completed", ignoreCase = true)
@@ -413,10 +417,10 @@ fun WeighingScreen(
 ) {
     var rosterSheetOpen by remember { mutableStateOf(false) }
     // Reopen is reason-bearing: the sentence is kept on the audit trail forever, so a person
-    // writes it. Held by bucket id, and the typed reason saved, so neither is lost on rotation.
-    var reopenShedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // writes it. Held by assignment UI key, and the typed reason saved, so neither is lost on rotation.
+    var reopenAssignmentKey by rememberSaveable { mutableStateOf<String?>(null) }
     var reopenReason by rememberSaveable { mutableStateOf("") }
-    reopenShedId?.let { id -> state.assignments.firstOrNull { it.campaignShedId == id } }?.let { row ->
+    reopenAssignmentKey?.let { key -> state.assignments.firstOrNull { it.uiKey == key } }?.let { row ->
         WeighingReasonDialog(
             title = stringResource(R.string.weighing_reopen_dialog_title, row.label),
             subtitle = stringResource(R.string.weighing_reopen_dialog_subtitle),
@@ -426,12 +430,12 @@ fun WeighingScreen(
             reason = reopenReason,
             onReasonChange = { reopenReason = it },
             onConfirm = { reason ->
-                reopenShedId = null
+                reopenAssignmentKey = null
                 reopenReason = ""
                 onReopenAssignment(row, reason)
             },
             onDismiss = {
-                reopenShedId = null
+                reopenAssignmentKey = null
                 reopenReason = ""
             },
         )
@@ -567,16 +571,16 @@ fun WeighingScreen(
                         )
                     }
                 }
-                itemsIndexed(state.assignments, key = { _, row -> row.campaignShedId }) { index, row ->
+                itemsIndexed(state.assignments, key = { _, row -> row.uiKey }) { index, row ->
                     // The list itself pulls the next page as the operator scrolls near the end.
-                    LaunchedEffect(row.campaignShedId, index, state.assignments.size) {
+                    LaunchedEffect(row.uiKey, index, state.assignments.size) {
                         onAssignmentRowVisible(index)
                     }
                     AssignmentRow(
                         row = row,
                         onOpen = { onOpenAssignment(row) },
                         onReopen = {
-                            reopenShedId = row.campaignShedId
+                            reopenAssignmentKey = row.uiKey
                             reopenReason = ""
                         },
                     )
