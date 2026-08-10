@@ -55,8 +55,17 @@ function lineIsComment(line, inBlockComment) {
 }
 
 function notificationLineIsSdkGated(lines, index) {
-  const window = lines.slice(Math.max(0, index - 4), index + 1).join("\n");
+  const window = lines.slice(Math.max(0, index - 6), index + 7).join("\n");
   return /Build\.VERSION_CODES\.TIRAMISU|VERSION\.SDK_INT\s*>=\s*33|sdkInt\s*>=\s*33|sdkInt\s*>=\s*Build\.VERSION_CODES\.TIRAMISU/.test(window);
+}
+
+function notificationLineIsRuntimePermissionContext(lines, index) {
+  const window = lines.slice(Math.max(0, index - 6), index + 7).join("\n");
+  return (
+    /add\s*\(\s*Manifest\.permission\.POST_NOTIFICATIONS\s*\)/.test(lines[index]) ||
+    /\b(listOf|arrayOf|arrayListOf|mutableListOf|setOf|mutableSetOf|buildList|buildSet)\s*\(/.test(window) ||
+    /\b(RequestMultiplePermissions|mandatory|required|blocking|runtime|permissions|Permissions|PERMISSIONS)\b/.test(window)
+  );
 }
 
 function scanText(rel, text) {
@@ -70,8 +79,8 @@ function scanText(rel, text) {
     if (lineIsComment(line, wasInBlockComment) || line.includes("permission-sdk-gates:ignore")) return;
 
     const requestsNotification =
-      /add\s*\(\s*Manifest\.permission\.POST_NOTIFICATIONS\s*\)/.test(line) ||
-      /Manifest\.permission\.POST_NOTIFICATIONS/.test(line) && /RequestMultiplePermissions|mandatory|required|blocking|permissions/i.test(line);
+      /Manifest\.permission\.POST_NOTIFICATIONS/.test(line) &&
+      notificationLineIsRuntimePermissionContext(lines, index);
 
     if (requestsNotification && !notificationLineIsSdkGated(lines, index)) {
       findings.push({
@@ -96,6 +105,18 @@ function scanFile(rel) {
 
 function selfTest() {
   const bad = "val p = buildList { add(Manifest.permission.POST_NOTIFICATIONS) }";
+  const badListOf = [
+    "val mandatoryPermissions = listOf(",
+    "    Manifest.permission.CAMERA,",
+    "    Manifest.permission.POST_NOTIFICATIONS,",
+    ")",
+  ].join("\n");
+  const badArrayOf = [
+    "val permissions = arrayOf(",
+    "    Manifest.permission.POST_NOTIFICATIONS,",
+    ")",
+    "launcher.launch(permissions)",
+  ].join("\n");
   const goodTiramisu = [
     "if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {",
     "    add(Manifest.permission.POST_NOTIFICATIONS)",
@@ -107,12 +128,16 @@ function selfTest() {
     "}",
   ].join("\n");
   const goodManifestDeclaration = "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />";
+  const goodLabelOnly = "Manifest.permission.POST_NOTIFICATIONS -> \"Notifications\"";
 
   const ok =
     scanText("bad.kt", bad).length === 1 &&
+    scanText("bad-list-of.kt", badListOf).length === 1 &&
+    scanText("bad-array-of.kt", badArrayOf).length === 1 &&
     scanText("good-tiramisu.kt", goodTiramisu).length === 0 &&
     scanText("good-33.kt", good33).length === 0 &&
-    scanText("AndroidManifest.xml", goodManifestDeclaration).length === 0;
+    scanText("AndroidManifest.xml", goodManifestDeclaration).length === 0 &&
+    scanText("good-label.kt", goodLabelOnly).length === 0;
 
   console.log(ok ? "android-runtime-permission-sdk-gates self-test: ok" : "android-runtime-permission-sdk-gates self-test: FAIL");
   process.exit(ok ? 0 : 1);
