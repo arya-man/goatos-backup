@@ -159,6 +159,7 @@ proof.
 | GET /admin/tasks | api + view:sop_execution_status | SOP execution backlog |
 | GET /admin/tasks/{id} | EXCLUDED | Task detail |
 | GET /admin/tasks/submission-fanouts/failed | api + view:ops_exception_queue | Proof fan-out failures |
+| sop_submissions.partition_label (migration 000147) | EXCLUDED | Runtime submit identity for partition-scoped SOP/vaccination evidence, not a new leadership read surface. It lets existing SOP submission reads disambiguate whole-shed vs partition work; clean-slate seed starts with no submissions, and leadership SOP execution coverage remains on `view:sop_execution_status` plus the existing admin task/submission fanout APIs. |
 | SOP submission fanout retry worker (func:NewSopSubmissionFanoutRetryStage, func:SopSubmissionFanoutRetryStage.Run, func:SopSubmissionFanoutRetryStage.Name) | api + view:ops_exception_queue | Operational repair surface for submitted proof fanouts that failed before vaccination completions / verification rows materialized. Leadership does not call the worker directly; failures remain visible through `GET /admin/tasks/submission-fanouts/failed` / ops exception coverage, and the kernel worker retries them durably. |
 | GET /app/tasks(+/{id}, /shed-completion-summary), /app/sop-versions/{id} | EXCLUDED | Self-scoped operator worklist / form |
 | GET /verification/queue | api + view:verification_queue_status | Verification backlog; API tier executor wired (verification_queue tool) |
