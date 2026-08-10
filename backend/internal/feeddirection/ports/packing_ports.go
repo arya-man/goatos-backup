@@ -142,8 +142,13 @@ type ReopenPackingParams struct {
 	// Reason is the operator-facing sentence stored on the row and shown on the reopened card. It
 	// must say what happened in farm language ("animals moved in/out, quantities changed"), never
 	// name a table, a job or a correction window.
-	Reason  string
-	ActorID string
+	Reason string
+	// There is deliberately NO ActorID. The correction is a scheduled system transition with no human
+	// behind it, and audit_log.actor_id is a UUID, so the only value a caller could reach for is the
+	// generated_by provenance string ("goatos-api") -- which is not a shortened actor but
+	// `invalid input syntax for type uuid`, aborting the audit INSERT and with it the whole reopen.
+	// The audit row records ActorType "system" instead. Do not add the field back "for completeness":
+	// a field nothing can legally fill is the declared-but-never-populated shape AGENTS.md bans.
 	TraceID string
 }
 
