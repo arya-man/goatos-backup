@@ -64,7 +64,7 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `overview adherence keeps selected drive rows and excludes unrelated completed history`() {
+    fun `overview adherence uses selected day rows and excludes prior completed history`() {
         val rows = listOf(
             VaccinationExecutionRowDto(
                 batchId = "drive-current",
@@ -99,12 +99,12 @@ class ShedsExecutionIdentityTest {
         )
 
         val selectedDayRows = rows.filter { it.currentScheduleDate == "2026-07-25" }
-        val counts = executionCounts(adherenceWindowRows(rows, selectedDayRows, LocalDate.parse("2026-07-25")))
+        val counts = executionCounts(selectedDayRows)
         val summary = protocolAdherenceSummary(counts)
 
-        assertEquals(ExecutionCounts(target = 324, open = 210, done = 114), counts)
-        assertEquals(324, summary?.expectedCount)
-        assertEquals(114, summary?.submittedCount)
+        assertEquals(ExecutionCounts(target = 210, open = 210, done = 0), counts)
+        assertEquals(210, summary?.expectedCount)
+        assertEquals(0, summary?.submittedCount)
     }
 
     @Test

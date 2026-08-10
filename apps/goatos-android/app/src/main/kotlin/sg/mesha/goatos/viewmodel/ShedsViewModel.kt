@@ -490,7 +490,6 @@ class ShedsViewModel @Inject constructor(
         )
         val totals = executionCounts(rowsForSelectedDay)
         val totalsEffectiveDone = effectiveDoneCount(rowsForSelectedDay)
-        val visibleWindowTotals = executionCounts(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay))
         val pageComplete = nextCursor.isNullOrBlank()
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
@@ -536,7 +535,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = if (pageComplete) protocolAdherenceSummary(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay), visibleWindowTotals) else null,
+            adherence = if (pageComplete) protocolAdherenceSummary(rowsForSelectedDay, totals) else null,
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
