@@ -266,6 +266,176 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+func TestShedPartitionOperationalLocationTriggerRetiresFailWhilePlacementInFlight(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenant       = "f14a0000-0000-4000-8000-000000000001"
+		custodian    = "f14a0000-0000-4000-8000-000000000002"
+		park         = "f14a0000-0000-4000-8000-000000000003"
+		shed         = "f14a0000-0000-4000-8000-000000000004"
+		goatID       = "f14a0000-0000-4000-8000-000000000005"
+		normalized   = "10"
+	)
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("exec failed: %v\nsql: %s", err, sql)
+		}
+	}
+
+	exec(`INSERT INTO tenants (tenant_id, name, status)
+VALUES ($1::uuid, 'Partition Retire Race Test', 'active')`, tenant)
+	exec(`INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ($1::uuid, 'org', 'Ravi Test', 'active')`, custodian)
+	exec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
+	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 9', 'active')`,
+		tenant, shed, park)
+	exec(`INSERT INTO goats (
+  goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id, current_location_id, park_id, shed_id
+) VALUES
+  ($1::uuid, $2::uuid, 'G-900010', 'female', 'alive', $3::uuid, $4::uuid, $5::uuid, $4::uuid)`,
+		goatID, tenant, custodian, shed, park)
+
+	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
+		t.Fatalf("replay 000150: %v", err)
+	}
+
+	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 10', $3::text, 'active', 'manual')`, tenant, shed, normalized)
+
+	var penID string
+	if err := pool.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::text
+  AND sp.status='active'`,
+		tenant, shed, normalized).Scan(&penID); err != nil {
+		t.Fatalf("query partition pen: %v", err)
+	}
+
+	placementLocked := make(chan struct{}, 1)
+	placementDone := make(chan struct{})
+	retireErrCh := make(chan error, 1)
+	placeErrCh := make(chan error, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			placeErrCh <- err
+			placementLocked <- struct{}{}
+			return
+		}
+		var lockedPenID string
+		if err := tx.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::text AND sp.status='active'
+FOR SHARE OF sp`,
+			tenant, shed, normalized).Scan(&lockedPenID); err != nil {
+			_ = tx.Rollback(ctx)
+			placeErrCh <- err
+			placementLocked <- struct{}{}
+			return
+		}
+		placementLocked <- struct{}{}
+		<-placementDone
+		if _, err := tx.Exec(ctx, `UPDATE goats
+SET current_location_id = $1::uuid
+WHERE tenant_id=$2::uuid AND goat_id=$3::uuid`,
+			lockedPenID, tenant, goatID); err != nil {
+			_ = tx.Rollback(ctx)
+			placeErrCh <- err
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			placeErrCh <- err
+			return
+		}
+		placeErrCh <- nil
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-placementLocked
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			retireErrCh <- err
+			return
+		}
+
+		_, err = tx.Exec(ctx, `
+UPDATE shed_partitions
+SET status='retired'
+WHERE tenant_id=$1::uuid
+  AND shed_id=$2::uuid
+  AND normalized_label=$3::text
+  AND status='active'`, tenant, shed, normalized)
+		if err == nil {
+			_ = tx.Commit(ctx)
+		} else {
+			_ = tx.Rollback(ctx)
+		}
+		retireErrCh <- err
+	}()
+
+	<-placementLocked
+	close(placementDone)
+	wg.Wait()
+	close(retireErrCh)
+	close(placeErrCh)
+
+	placementErr := <-placeErrCh
+	if placementErr != nil {
+		t.Fatalf("placement transaction failed: %v", placementErr)
+	}
+
+	retireErr, ok := <-retireErrCh
+	if !ok || retireErr == nil {
+		t.Fatalf("retirement transaction unexpectedly succeeded; expected shed_partition_operational_location_in_use")
+	}
+	if !strings.Contains(retireErr.Error(), "shed_partition_operational_location_in_use") {
+		t.Fatalf("unexpected retirement error: %v", retireErr)
+	}
+
+	var partitionStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM shed_partitions
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label=$3::text`,
+		tenant, shed, normalized).Scan(&partitionStatus); err != nil {
+		t.Fatalf("query partition status after race: %v", err)
+	}
+	if partitionStatus != "active" {
+		t.Fatalf("partition status after race=%q, want active", partitionStatus)
+	}
+
+	var finalLocation string
+	if err := pool.QueryRow(ctx, `
+SELECT current_location_id::text
+FROM goats
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, goatID).Scan(&finalLocation); err != nil {
+		t.Fatalf("query final goat location: %v", err)
+	}
+	if finalLocation != penID {
+		t.Fatalf("goat ended at %q, want partition pen %q", finalLocation, penID)
+	}
+}
+
 func migrationDown(sqlText string) string {
 	parts := strings.SplitN(sqlText, "-- +goose Down", 2)
 	if len(parts) != 2 {
