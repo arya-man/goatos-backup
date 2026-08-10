@@ -99,11 +99,15 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
+	requestFingerprint := idempotencyFingerprint(cmd)
+	if existing, ok, err := r.campaignByIdempotencyMatchOnly(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint); err != nil || ok {
+		return existing, err
+	}
 	if cmd.Sheds, err = r.hydrateCreateCampaignShedPartitions(ctx, tx, cmd.TenantID, cmd.Sheds); err != nil {
 		return domain.Campaign{}, err
 	}
-	fingerprint := idempotencyFingerprint(cmd)
-	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint); err != nil || ok {
+	canonicalFingerprint := idempotencyFingerprint(cmd)
+	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint, canonicalFingerprint); err != nil || ok {
 		return existing, err
 	}
 	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds); err != nil {
@@ -169,10 +173,10 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 		applyShedPartitionDisplayWithStoredLabel(&cs, shed.PartitionLabel)
 		c.Sheds = append(c.Sheds, cs)
 	}
-	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, requestFingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
+	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, requestFingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -3565,10 +3569,22 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid
 	return completedAnimals, completedScopes, wrongShed, missing, err
 }
 
-func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (domain.Campaign, bool, error) {
-	id, resourceType, _, ok, err := r.idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprint)
+func (r *Repository) campaignByIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (domain.Campaign, bool, error) {
+	id, resourceType, _, ok, err := r.idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprints...)
 	if err != nil || !ok {
 		return domain.Campaign{}, ok, err
+	}
+	if resourceType != "weighing_campaign" {
+		return domain.Campaign{}, true, ports.ErrIdempotencyConflict
+	}
+	c, err := r.getCampaignTx(ctx, tx, tenantID, id)
+	return c, true, err
+}
+
+func (r *Repository) campaignByIdempotencyMatchOnly(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (domain.Campaign, bool, error) {
+	id, resourceType, _, ok, err := r.idempotencyResourceAllowMismatch(ctx, tx, tenantID, eventType, idem, fingerprints...)
+	if err != nil || !ok {
+		return domain.Campaign{}, false, err
 	}
 	if resourceType != "weighing_campaign" {
 		return domain.Campaign{}, true, ports.ErrIdempotencyConflict
@@ -3853,7 +3869,26 @@ SELECT EXISTS (
 	return ports.ErrNotFound
 }
 
-func (r *Repository) idempotencyResource(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (id string, resourceType string, snapshot []byte, ok bool, err error) {
+func (r *Repository) idempotencyResource(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (id string, resourceType string, snapshot []byte, ok bool, err error) {
+	id, resourceType, snapshot, ok, matched, err := r.idempotencyResourceLookup(ctx, tx, tenantID, eventType, idem, fingerprints...)
+	if err != nil || !ok {
+		return id, resourceType, snapshot, ok, err
+	}
+	if !matched {
+		return "", "", nil, true, ports.ErrIdempotencyConflict
+	}
+	return id, resourceType, snapshot, true, nil
+}
+
+func (r *Repository) idempotencyResourceAllowMismatch(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (id string, resourceType string, snapshot []byte, ok bool, err error) {
+	id, resourceType, snapshot, ok, matched, err := r.idempotencyResourceLookup(ctx, tx, tenantID, eventType, idem, fingerprints...)
+	if err != nil || !ok || !matched {
+		return "", "", nil, false, err
+	}
+	return id, resourceType, snapshot, true, nil
+}
+
+func (r *Repository) idempotencyResourceLookup(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem string, fingerprints ...string) (id string, resourceType string, snapshot []byte, ok bool, matched bool, err error) {
 	var storedFingerprint string
 	var snapshotText string
 	err = tx.QueryRow(ctx, `
@@ -3862,18 +3897,22 @@ FROM weighing_idempotency_records
 WHERE tenant_id=$1::uuid AND event_type=$2 AND idempotency_key=$3`, tenantID, eventType, idem).
 		Scan(&storedFingerprint, &resourceType, &id, &snapshotText)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil, false, nil
+		return "", "", nil, false, false, nil
 	}
 	if err != nil {
-		return "", "", nil, false, err
+		return "", "", nil, false, false, err
 	}
-	if fingerprint != "" && storedFingerprint != fingerprint {
-		return "", "", nil, true, ports.ErrIdempotencyConflict
+	matched = len(fingerprints) == 0
+	for _, fingerprint := range fingerprints {
+		if fingerprint != "" && storedFingerprint == fingerprint {
+			matched = true
+			break
+		}
 	}
 	if snapshotText != "" {
 		snapshot = []byte(snapshotText)
 	}
-	return id, resourceType, snapshot, true, nil
+	return id, resourceType, snapshot, true, matched, nil
 }
 
 func (r *Repository) recordIdempotency(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint, resourceType, resourceID string, snapshot any) error {
