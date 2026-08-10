@@ -149,7 +149,10 @@
         "park",
         "absence",
         "health_protocol_version",
-        "health_case"
+        "health_case",
+        "feed_packing_completion",
+        "feed_distribution_completion",
+        "feed_direction_session_completion"
       ]
     },
     "aggregate_id": {

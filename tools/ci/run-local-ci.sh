@@ -491,6 +491,7 @@ run_backend() {
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
+  step "feed-packing-rollout-guard" make feed-packing-rollout-guard
   step "operational-location-guard" make operational-location-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
   step "proof-capture-authorization-guard" make proof-capture-authorization-guard

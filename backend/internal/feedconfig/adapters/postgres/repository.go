@@ -190,6 +190,36 @@ LIMIT $2 OFFSET $3`
 		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list ration groups: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, page.Limit)
+
+	// The group labels a picker may actually offer, read from the RATES rather than from the breed map
+	// above. The map is adult breeds only, so 'Kid' -- a real group carrying real authored rates --
+	// exists in no row of it, and a picker built from it cannot reach those rates at all.
+	//
+	// scale-guard:ignore: DISTINCT over the authored rate table, which is config and not herd data (~1442 in-force rows for the whole tenant, 7 distinct labels); it cannot grow with animals and the result is a vocabulary, not a page.
+	const groupsQuery = `
+SELECT DISTINCT ration_group_label
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid
+  AND valid_to IS NULL
+ORDER BY ration_group_label`
+
+	groupRows, err := r.pool.Query(ctx, groupsQuery, tenantID)
+	if err != nil {
+		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list authored ration groups: %w", err)
+	}
+	defer groupRows.Close()
+
+	out.RationGroups = []string{}
+	for groupRows.Next() {
+		var label string
+		if err := groupRows.Scan(&label); err != nil {
+			return domain.RationGroupPage{}, fmt.Errorf("feedconfig: scan authored ration group: %w", err)
+		}
+		out.RationGroups = append(out.RationGroups, label)
+	}
+	if err := groupRows.Err(); err != nil {
+		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list authored ration groups: %w", err)
+	}
 	return out, nil
 }
 

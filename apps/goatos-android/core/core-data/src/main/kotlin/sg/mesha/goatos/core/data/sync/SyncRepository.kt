@@ -331,7 +331,7 @@ interface SyncRepository {
      * Simpler than [enqueueFeedDistributionComplete]: a SINGLE proof is MANDATORY and passed by
      * REFERENCE to its PROOF_UPLOAD outbox row ([packingProofOutboxItemId]): the dispatcher resolves
      * the uploaded proof_id and sends it, exactly like [enqueueShiftingComplete] resolves its single
-     * mandatory video. Both writes MUST share the same [groupKey] (the shed-session) so the proof
+     * mandatory video. Both writes MUST share the same [groupKey] (the PEN-DAY) so the proof
      * drains strictly before this completion. [idempotencyKey] must be a STABLE caller-persisted key
      * so a resend re-enqueues the SAME verification item instead of completing twice. This is
      * SEPARATE from both [enqueueFeedDirectionComplete] (the untouched instant packing path) and
@@ -343,7 +343,6 @@ interface SyncRepository {
         parkId: String?,
         shedId: String,
         partitionLabel: String?,
-        sessionNo: Int,
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
@@ -921,7 +920,6 @@ class DefaultSyncRepository(
         parkId: String?,
         shedId: String,
         partitionLabel: String?,
-        sessionNo: Int,
         targetDate: String,
         workflow: String,
         packingProofOutboxItemId: String,
@@ -934,7 +932,8 @@ class DefaultSyncRepository(
                 parkId = parkId?.trim()?.ifBlank { null },
                 shedId = shedId.trim(),
                 partitionLabel = partitionLabel?.trim()?.ifBlank { null },
-                sessionNo = sessionNo,
+                // No sessionNo: the packing completion is per pen-DAY. The payload field survives
+                // only so an outbox row queued by an earlier build still decodes.
                 targetDate = targetDate.trim(),
                 workflow = workflow.trim(),
                 packingProofOutboxItemId = packingProofOutboxItemId,

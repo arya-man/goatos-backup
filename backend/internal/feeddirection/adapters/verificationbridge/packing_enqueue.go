@@ -2,7 +2,6 @@ package verificationbridge
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
@@ -31,39 +30,32 @@ var _ feeddirectionapp.FeedPackingVerificationEnqueuer = (*PackingEnqueuer)(nil)
 // packing video travels on ONE item. CreateItem is idempotent on (tenant, idempotency_key), so a retry
 // after a prior failure heals rather than duplicates.
 func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in feeddirectionapp.FeedPackingVerificationEnqueueRequest) error {
+	// The subject is the PEN, with no session prefix (maintainer decision 2026-08-10). One video now
+	// covers the pen's whole day, so "Session 1 · Castro - 2" would name one half of the work the
+	// verifier is actually judging and would read as though a second clip were still owed. Which
+	// sessions the clip covers, and their expected quantities, are stated in the ContextRows below.
 	loc := oploc.OperationalLocation{ShedName: in.ShedName, PartitionLabel: in.PartitionLabel}
 	locDisplay := loc.Display()
-	baseLabel := ""
-	if in.SessionNo > 0 {
-		baseLabel = fmt.Sprintf("Session %d", in.SessionNo)
-	}
-	var label *string
-	if baseLabel != "" && locDisplay != "" {
-		fullLabel := baseLabel + " · " + locDisplay
-		label = &fullLabel
-	} else if baseLabel != "" {
-		label = &baseLabel
-	} else if locDisplay != "" {
-		label = &locDisplay
-	}
+	label := ptrIfSet(locDisplay)
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID: in.TenantID,
 		Vertical: feeddirectiondomain.VerificationVerticalFeed,
 		Module:   feeddirectiondomain.VerificationModuleFeed,
 		Category: feeddirectiondomain.VerificationCategoryPacking,
-		// The verifier's subject for a feed-packing item is the shed-session being packed; surface it
-		// so the detail view shows which session's video is under review (shed/park/operator ride on
-		// their own item fields). Backend owns this display string (dumb-renderer rule).
+		// The verifier's subject for a feed-packing item is the PEN being packed; surface it so the
+		// detail view shows which pen's video is under review (shed/park/operator ride on their own
+		// item fields). Backend owns this display string (dumb-renderer rule).
 		SubjectLabel: label,
 		Source: verificationdomain.SourceRef{
 			Module:  feeddirectiondomain.VerificationModuleFeed,
 			RefType: feeddirectiondomain.VerificationRefTypePacking,
 			RefID:   in.CompletionID,
 		},
-		// What the verifier is judging the video AGAINST: the frozen ration for this pen-session, and
-		// the head count it was computed from. Composed by the producer (dumb-renderer rule) and
-		// rendered verbatim. Omitted when the sheet could not be read -- never a placeholder, which
-		// would read as "no feed expected" rather than "not known".
+		// What the verifier is judging the video AGAINST: the frozen ration for this pen's whole day
+		// BROKEN DOWN BY SESSION ("Morning: … | Evening: …"), and the head count it was computed
+		// from. Composed by the producer (dumb-renderer rule) and rendered verbatim. Omitted when the
+		// sheet could not be read -- never a placeholder, which would read as "no feed expected"
+		// rather than "not known".
 		ContextRows: packingContextRows(in.RationSummary, in.HeadCountSummary),
 		// One media ref: the packing video.
 		MediaRefs:  []string{in.PackingProofRef},
@@ -78,16 +70,6 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		IdempotencyKey: in.IdempotencyKey,
 	})
 	return err
-}
-
-// packingSubjectLabel is the human subject shown to the verifier for a packing item: the shed-session
-// number. Returns nil when the session is unset so the field stays omitted rather than reading "Session 0".
-func packingSubjectLabel(sessionNo int32) *string {
-	if sessionNo <= 0 {
-		return nil
-	}
-	s := fmt.Sprintf("Session %d", sessionNo)
-	return &s
 }
 
 // packingContextRows is the verifier's "what was expected" block for a packing proof.

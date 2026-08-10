@@ -71,16 +71,35 @@ data class FeedDirectionQuery(
     )
 }
 
-/** Filter scope for the Feed Packing worklist. */
+/**
+ * Filter scope for the Feed Packing worklist.
+ *
+ * There is no `session` here (maintainer decision 2026-08-10). A packing line is a whole pen-DAY
+ * carrying every session as a breakdown, so narrowing to one session could only hide half of a bag
+ * the packer must still carry out. The endpoint no longer accepts the parameter either.
+ */
 data class FeedPackingQuery(
     val parkId: String,
     val targetDate: String,
-    val session: Int? = null,
     val workflow: String? = null,
     val status: String? = null,
 ) {
-    fun roomKey(): String = cacheKey(parkId, targetDate, session?.toString(), workflow, status, FEED_PAGE_SIZE.toString())
+    /**
+     * The cache namespace for this scope.
+     *
+     * [PACKING_CACHE_SHAPE] is part of the key so rows cached by an EARLIER app version -- which
+     * stored one JSON row per shed-SESSION, with `items` where the pen-day row now has `sessions` --
+     * can never be read back into the current DTO. They would deserialize without error into a card
+     * with no feed lines at all, because kotlinx-serialization fills the missing `sessions` with its
+     * default empty list. Bumping the namespace orphans them instead, and the existing
+     * newest-queries eviction reclaims the space.
+     */
+    fun roomKey(): String =
+        cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate, workflow, status, FEED_PAGE_SIZE.toString())
 }
+
+/** Bump whenever the cached packing row JSON changes shape incompatibly. */
+private const val PACKING_CACHE_SHAPE = "pen-day-v2"
 
 /**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
@@ -342,7 +361,6 @@ private class FeedPackingRemoteMediator(
             val response = api.getFeedPackingWorklist(
                 parkId = query.parkId,
                 targetDate = query.targetDate,
-                session = query.session,
                 workflow = query.workflow,
                 status = query.status,
                 limit = FEED_PAGE_SIZE,

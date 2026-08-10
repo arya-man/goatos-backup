@@ -41,7 +41,7 @@ const feedPartitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_
 // approved-but-unexecuted movement set are both served directly from canonical SQL at the current
 // release envelope; this screen earns its own projection only under that ADR's scale-out ladder.
 //
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' and not yet applied (ordinary event_status='authorized', plus rollout-compatible authorized+pending_verification) so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset; scope=tenant_id on every side plus optional park/shed equality and shed-set predicates
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to movements that are not yet applied -- either authorization_state='authorized' (ordinary event_status='authorized', plus rollout-compatible authorized+pending_verification) or authorization_state='pending' AND event_status='pending' (raised, not yet approved, per the 2026-08-10 decision); the two branches are disjoint on authorization_state so one movement contributes exactly once, and an already-executed ('applied'), rejected or canceled movement is structurally excluded; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset; scope=tenant_id on every side plus optional park/shed equality and shed-set predicates
 //
 // Expanded rationale:
 //
@@ -50,9 +50,11 @@ const feedPartitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_
 //	               count_base_anchors replay. merged_into_goat_id IS NULL keeps a merged animal
 //	               from being counted under both identities.
 //
-//	               The delta set is deliberately NARROW: Park Head-authorized but not-yet-applied
-//	               movements. New rows are 'authorized'; authorized+pending_verification is retained
-//	               only for an in-flight pre-000049 row. 'applied' is already represented by goats.
+//	               The delta set is every not-yet-applied movement in one of two disjoint states:
+//	               Park Head-AUTHORIZED (new rows are 'authorized'; authorized+pending_verification is
+//	               retained only for an in-flight pre-000049 row), or RAISED and still awaiting
+//	               approval (2026-08-10). 'applied' is already represented by goats; 'rejected' and
+//	               'canceled' are excluded, so a movement that is turned down stops feeding a shed.
 //	group_key    = park x shed x stage x breed x sex, normalized on both sides. See
 //	               feedGrainNormSQL for why raw equality is not safe here.
 //	join_card    = the danger is shifting_event_impacts: one event has MANY impact rows, so
@@ -114,17 +116,19 @@ WITH live AS MATERIALIZED (
            COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
            ` + feedPartitionKeyExpr + `
 ),
--- Authorized but NOT yet executed movements, feed-effective from the authorization business date.
--- Maintainer decision 2026-07-27: there is NO lead time and NO priority branch -- a movement is a
--- pending feed input the moment it is authorized (see domain.FeedShiftingEffectiveBusinessDate).
+-- Movements that are NOT yet executed, in two DISJOINT branches keyed on authorization_state, so a
+-- movement contributes exactly once as it travels from raised to approved.
 --
--- New rows count here only while 'authorized'. The authorized+pending_verification branch is a
--- rollout compatibility shape for a pre-000049 completed row; completion-before-approval has
--- authorization_state='pending' and never contributes. 'applied' is already in current_head_count.
+-- BRANCH 1 -- AUTHORIZED, feed-effective from the authorization business date. Maintainer decision
+-- 2026-07-27, unchanged: there is NO lead time and NO priority branch here -- an approved movement is
+-- a pending feed input the moment it is authorized (domain.FeedShiftingEffectiveBusinessDate).
+-- authorized_at is the approval stamp, deliberately NOT effective_at (an authored intent date).
+-- 'applied' is already in current_head_count. The authorized+pending_verification arm is a rollout
+-- compatibility shape for a pre-000049 completed row.
 --
--- authorized_at is the approval stamp -- the moment a park head said the movement MAY happen. It
--- is deliberately NOT raised_at (when someone asked) and NOT effective_at (an authored intent
--- date): the feed clock starts at authorization.
+-- BRANCH 2 -- RAISED, not yet approved, feed-effective from the ACTIONS lead time. Maintainer
+-- decision 2026-08-10; see the branch's own comment and
+-- domain.FeedShiftingRaisedEffectiveBusinessDate.
 --
 -- The date is derived in Asia/Kolkata, never UTC. An approval at 20:00 UTC is already the next
 -- day in India, and a UTC-derived date would put the movement on the wrong feed day.
@@ -144,6 +148,41 @@ pending_event AS (
     AND (se.event_status = 'authorized'
          OR (se.event_status = 'pending_verification' AND se.authorization_state = 'authorized'))
     AND se.authorized_at IS NOT NULL
+  UNION ALL
+  -- RAISED BUT NOT YET APPROVED (maintainer decision 2026-08-10, superseding the approval half of
+  -- 2026-07-27). See domain.FeedShiftingRaisedEffectiveBusinessDate for the full rationale.
+  --
+  -- Approval no longer starts the feed clock; only REJECTION stops it. A movement raised at 09:00 is
+  -- due tomorrow, but tomorrow's normal sheet was issued at 07:00 and is already being packed --
+  -- waiting for the park head meant the destination pen was packed for the head count it had at
+  -- breakfast and the arriving animals had no feed.
+  --
+  -- authorization_state='pending' is the ONLY state that qualifies: 'rejected' and 'authorized' are
+  -- both excluded here (the latter is the branch above, so a movement cannot be counted twice as it
+  -- moves from raised to approved). event_status='pending' excludes 'canceled', 'rejected' and
+  -- 'unresolved' by construction -- a withdrawn movement stops feeding a shed immediately.
+  --
+  -- The date is the ACTIONS lead time, not the raise day: low priority raised before 13:30 IST is
+  -- due tomorrow, at or after 13:30 the day after, high priority immediately. Derived in
+  -- Asia/Kolkata via $6 -- a raise stamped 09:00 UTC is already 14:30 in India and is therefore
+  -- AFTER the cutoff, which a UTC-derived comparison would get backwards.
+  SELECT
+    se.shifting_event_id,
+    se.source_park_id,
+    se.source_shed_id,
+    se.source_partition_label,
+    se.destination_park_id,
+    se.destination_shed_id,
+    se.destination_partition_label,
+    CASE
+      WHEN se.priority = 'high' THEN (se.raised_at AT TIME ZONE $6)::date
+      WHEN (se.raised_at AT TIME ZONE $6)::time < TIME '13:30' THEN (se.raised_at AT TIME ZONE $6)::date + 1
+      ELSE (se.raised_at AT TIME ZONE $6)::date + 2
+    END AS feed_effective_date
+  FROM shifting_events se
+  WHERE se.tenant_id = $1::uuid
+    AND se.authorization_state = 'pending'
+    AND se.event_status = 'pending'
 ),
 -- The destination shed's own operational cohort, so the DESTINATION leg of a movement is tagged
 -- with the tag the animals ADOPT on arrival, not the SOURCE stage they leave with. A cross-profile

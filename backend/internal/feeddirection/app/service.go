@@ -323,19 +323,37 @@ func (s *Service) directionStatusMap(ctx context.Context, tenantID, parkID strin
 	return out, nil
 }
 
+// packingCompletionState is a pen-day's completion state as the serve path needs it: the normalized
+// lifecycle bucket plus, for a rework row, the sentence explaining why it came back.
+//
+// The reason travels WITH the status rather than in a second map because the two are read together
+// on every row and a second lookup keyed the same way is a second chance to key it wrong.
+type packingCompletionState struct {
+	status string
+	// rawStatus is the stored row state before NormalizeSessionStatus folds it. It is kept because
+	// 'rework' has NO client bucket of its own -- it normalizes to SessionStatusPending, "needs my
+	// action again" -- so the normalized value cannot tell a reopened pen from one nobody has packed.
+	rawStatus    string
+	reworkReason string
+}
+
 // packingStatusMap is the packing twin of directionStatusMap, reading feed_packing_completions
 // (maintainer decision 2026-07-26 gated packing too).
-func (s *Service) packingStatusMap(ctx context.Context, tenantID, parkID string, asOf time.Time) (map[string]string, error) {
+func (s *Service) packingStatusMap(ctx context.Context, tenantID, parkID string, asOf time.Time) (map[string]packingCompletionState, error) {
 	if s.packing == nil {
 		return nil, nil
 	}
-	list, err := s.packing.ListPackingSessionStatuses(ctx, tenantID, parkID, asOf)
+	list, err := s.packing.ListPackingCompletionStatuses(ctx, tenantID, parkID, asOf)
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]string, len(list))
+	out := make(map[string]packingCompletionState, len(list))
 	for _, d := range list {
-		out[completedKey(d.ShedID, d.PartitionLabel, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
+		out[packingCompletedKey(d.ShedID, d.PartitionLabel, d.Workflow)] = packingCompletionState{
+			status:       domain.NormalizeSessionStatus(d.Status),
+			rawStatus:    strings.TrimSpace(d.Status),
+			reworkReason: d.ReworkReason,
+		}
 	}
 	return out, nil
 }
@@ -366,19 +384,60 @@ func stampAndFilterDirectionRows(rows []domain.DirectionRow, statusMap map[strin
 	return out
 }
 
-// stampAndFilterPackingRows is the packing twin of stampAndFilterDirectionRows.
-func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]string, statusFilter string) []domain.PackingRow {
+// stampAndFilterDirectionRowsForPacking stamps and filters the UNDERLYING direction rows for the
+// PACKING serve path, keyed at the pen-DAY grain.
+//
+// It exists because the packing status map is keyed without the session while the direction one is
+// keyed with it. Reusing stampAndFilterDirectionRows here compiled fine and missed on every row --
+// silently, because a miss defaults to `pending` rather than erroring, so the worklist would have
+// looked plausible while a `completed` filter returned nothing and a submitted pen offered itself
+// for filming again.
+//
+// A pen's rows all share one pen-day status, so filtering keeps or drops a pen as a unit -- both of
+// its sessions travel together, which is what makes the built PackingRow whole.
+func stampAndFilterDirectionRowsForPacking(rows []domain.DirectionRow, statusMap map[string]packingCompletionState, statusFilter string) []domain.DirectionRow {
 	out := rows
 	if statusFilter != "" {
-		out = make([]domain.PackingRow, 0, len(rows))
+		out = make([]domain.DirectionRow, 0, len(rows))
 	}
 	for i := range rows {
-		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].PartitionLabel, rows[i].SessionNo, rows[i].Workflow)]
+		bucket := statusMap[packingCompletedKey(rows[i].ShedID, rows[i].PartitionLabel, rows[i].Workflow)].status
 		if bucket == "" {
 			bucket = domain.SessionStatusPending
 		}
 		rows[i].LifecycleStatus = bucket
 		rows[i].Completed = bucket == domain.SessionStatusCompleted
+		if statusFilter != "" {
+			if bucket == statusFilter {
+				out = append(out, rows[i])
+			}
+		}
+	}
+	return out
+}
+
+// stampAndFilterPackingRows is the packing twin of stampAndFilterDirectionRows, keyed at the PEN-DAY
+// grain because that is what a packing completion now covers.
+func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]packingCompletionState, statusFilter string) []domain.PackingRow {
+	out := rows
+	if statusFilter != "" {
+		out = make([]domain.PackingRow, 0, len(rows))
+	}
+	for i := range rows {
+		state := statusMap[packingCompletedKey(rows[i].ShedID, rows[i].PartitionLabel, rows[i].Workflow)]
+		bucket := state.status
+		if bucket == "" {
+			bucket = domain.SessionStatusPending
+		}
+		rows[i].LifecycleStatus = bucket
+		rows[i].Completed = bucket == domain.SessionStatusCompleted
+		// Carried ONLY while the stored row is actually 'rework'. Re-submitting clears the stored
+		// reason, so a stale sentence cannot survive to tell a packer to redo work they already redid.
+		if state.rawStatus == domain.PackingStatusRework {
+			rows[i].ReworkReason = state.reworkReason
+		} else {
+			rows[i].ReworkReason = ""
+		}
 		if statusFilter != "" {
 			if bucket == statusFilter {
 				out = append(out, rows[i])
@@ -396,6 +455,23 @@ func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]st
 // PartitionMatchKey so 'Part 3'/'part 3' are one pen and an undivided shed is a stable 'whole'.
 func completedKey(shedID, partitionLabel string, sessionNo int32, workflow string) string {
 	return shedID + "|" + domain.PartitionMatchKey(partitionLabel) + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
+}
+
+// packingCompletedKey is the identity of ONE PACKING completion: a shed's PEN, on one day, in one
+// workflow. Distinct from completedKey because packing dropped the session from its grain on
+// 2026-08-10 while DISTRIBUTION did not -- distribution is still gated per shed-session and keys on
+// completedKey above.
+//
+// A separate function rather than passing 0 for sessionNo: a shared key that silently means
+// "session 0" invites the next author to reuse it for distribution, where it would collapse the
+// morning and evening completions into one and mark the evening fed because the morning was.
+//
+// The PEN is carried for the same reason it is on completedKey, and the reason has not gone away.
+// Until 2026-08-08 all three Castro pens shared one key, so the Castro - 1 video flipped Castro - 2
+// and Castro - 3 to "in review" and one clip stood as proof for pens nobody filmed. Normalized via
+// PartitionMatchKey so 'Part 3'/'part 3' are one pen and an undivided shed is a stable 'whole'.
+func packingCompletedKey(shedID, partitionLabel, workflow string) string {
+	return shedID + "|" + domain.PartitionMatchKey(partitionLabel) + "|" + workflow
 }
 
 // Preview serves one page of feed direction rows for a feed day.
@@ -622,9 +698,10 @@ func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQue
 		tenantID:   normalized.TenantID,
 		parkID:     normalized.ParkID,
 		targetDate: normalized.TargetDate,
-		sessionNo:  normalized.SessionNo,
-		limit:      normalized.Limit,
-		offset:     normalized.Offset,
+		// sessionNo 0 = every session; the draft card carries the same whole-day breakdown the served
+		// one does, so the config author sees exactly what the packer would.
+		limit:  normalized.Limit,
+		offset: normalized.Offset,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -883,9 +960,6 @@ func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQu
 		return domain.PackingQuery{}, ports.ErrPastDateRegenerationBlocked
 	}
 
-	if q.SessionNo < 0 {
-		return domain.PackingQuery{}, ports.ErrInvalidPaging
-	}
 	workflow, err := normalizeWorkflowFilter(q.Workflow)
 	if err != nil {
 		return domain.PackingQuery{}, err

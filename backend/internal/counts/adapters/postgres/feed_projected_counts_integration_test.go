@@ -292,12 +292,24 @@ func TestFeedProjectionStatusMatrixCountsPendingVerificationExcludesApplied(t *t
 			wantDelta:   0,
 		},
 		{
-			// Authorization is what makes a movement a pending feed input. An unapproved movement may
-			// never happen at all, so feeding for it would waste ration on animals that are not coming.
-			name:        "a pending unapproved movement does not contribute",
+			// SUPERSEDED 2026-08-10. This case used to assert 0: authorization was what made a movement
+			// a feed input, on the reasoning that an unapproved movement may never happen and feeding
+			// for it wastes ration.
+			//
+			// The farm proved the opposite risk is worse. A low-priority movement raised at 09:00 is
+			// due TOMORROW, and tomorrow's normal sheet was issued at 07:00 that same morning and is
+			// already being packed — so waiting for approval meant ten animals arriving in a pen packed
+			// for one had NO FEED AT ALL. Over-packing for a movement that is later turned down costs a
+			// bag; under-feeding animals that really arrive costs the animals. Only a REJECTION now
+			// stops the feed clock (the next case), never the mere absence of an approval.
+			//
+			// This target date is 10 days after the raise, so the ACTIONS lead time is long past and
+			// the delta is present for the reason under test rather than by timing accident; the lead
+			// itself is pinned by TestFeedProjectionScheduledDateRaisedMovementUsesTheActionsLeadTime.
+			name:        "a raised movement contributes before a park head approves it",
 			authState:   "pending",
 			eventStatus: "pending",
-			wantDelta:   0,
+			wantDelta:   5,
 		},
 		{
 			name:        "a rejected movement does not contribute",
@@ -1033,5 +1045,383 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
 		if seen[label] != 1 {
 			t.Errorf("partition %q seen %d time(s) across pages, want exactly 1: %v", label, seen[label], seen)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The RAISED-but-unapproved branch (maintainer decision 2026-08-10)
+// ---------------------------------------------------------------------------
+//
+// A low-priority movement raised at 09:00 is due tomorrow, but tomorrow's normal sheet was issued at
+// 07:00 that same morning and is already being packed. Waiting for a park head's approval meant the
+// destination pen was packed for the head count it had at breakfast and the arriving animals had no
+// feed. These prove the second pending_event branch at the SQL layer.
+
+// insertFeedProjRaised seeds a RAISED, NOT-YET-APPROVED movement.
+//
+// authorized_at is left NULL deliberately. The shared helper above stamps raised_at, effective_at
+// and authorized_at from one instant, which is honest for an approved row and a lie for this one: a
+// movement nobody has approved has no approval instant, and a fixture carrying one would let the
+// query pass by reading the wrong column.
+func insertFeedProjRaised(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	key string,
+	priority string,
+	raisedAt time.Time,
+	sourceShed, destShed string,
+	authState, eventStatus string,
+	impacts []feedProjImpact,
+) string {
+	t.Helper()
+
+	var sourcePark, sourceShedArg any
+	if sourceShed != "" {
+		sourcePark = feedProjPark
+		sourceShedArg = sourceShed
+	}
+
+	// shifting_events_canceled_shape_check: a canceled row must carry its cancellation stamps, and a
+	// NON-canceled row must carry none. Both halves are enforced, so these cannot simply be set
+	// unconditionally.
+	var canceledAt, canceledBy, cancelReason any
+	if eventStatus == "canceled" {
+		canceledAt = raisedAt.Add(time.Hour)
+		canceledBy = countsOperator
+		cancelReason = "raised in error"
+	}
+
+	var eventID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO shifting_events (
+  tenant_id, logical_shifting_event_key, priority, category,
+  source_park_id, source_shed_id, destination_park_id, destination_shed_id,
+  raised_at, effective_at, authorized_at, authorization_state, event_status,
+  canceled_at, canceled_by, cancel_reason,
+  source_system, source_ref, payload_hash, idempotency_key, request_fingerprint
+) VALUES (
+  $1::uuid, $2, $3, 'growth',
+  $4::uuid, $5::uuid, $6::uuid, $7::uuid,
+  $8, $8, NULL, $9, $10,
+  $11, $12::uuid, $13,
+  'manual_review', $2, $2, $2, $2
+)
+RETURNING shifting_event_id`,
+		countsTenant, key, priority,
+		sourcePark, sourceShedArg, feedProjPark, destShed,
+		raisedAt, authState, eventStatus,
+		canceledAt, canceledBy, cancelReason,
+	).Scan(&eventID); err != nil {
+		t.Fatalf("seed raised shifting event %s: %v", key, err)
+	}
+
+	for i, im := range impacts {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shifting_event_impacts (
+  tenant_id, shifting_event_id, grain_key, breed_key, breed_label,
+  stage_tag, sex, head_count
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8
+)`,
+			countsTenant, eventID,
+			fmt.Sprintf("%s:%s:%d", destShed, im.breedLabel, i),
+			countAliasNorm(im.breedLabel), im.breedLabel,
+			im.stageTag, im.sex, im.headCount); err != nil {
+			t.Fatalf("seed raised shifting impact %s/%d: %v", key, i, err)
+		}
+	}
+	return eventID
+}
+
+// TestFeedProjectionScheduledDateRaisedMovementUsesTheActionsLeadTime is the timing half of the new
+// branch, and the 13:45 case is the one that makes the rule earn its complexity.
+//
+// A raised movement is feed-effective from the day its animals are expected to WALK, not the day it
+// was asked for. Anchoring on the raise day would feed a destination a full day before a post-cutoff
+// raise's animals move — the same over-feeding defect this change exists to fix, one day earlier.
+func TestFeedProjectionScheduledDateRaisedMovementUsesTheActionsLeadTime(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		// raisedHour/raisedMinute are the India wall clock the 13:30 cutoff compares against.
+		raisedHour, raisedMinute int
+		priority                 string
+		targetOffset             int // days from the raise day to the feed day under test
+		wantDelta                int64
+	}{
+		{name: "raised before the cutoff does not count on the raise day itself", raisedHour: 9, priority: "low", targetOffset: 0, wantDelta: 0},
+		{name: "raised before the cutoff counts tomorrow", raisedHour: 9, priority: "low", targetOffset: 1, wantDelta: 4},
+		{name: "raised one minute before the cutoff still counts tomorrow", raisedHour: 13, raisedMinute: 29, priority: "low", targetOffset: 1, wantDelta: 4},
+		// THE CASE THE LEAD TIME EXISTS FOR: these animals do not walk until the day after tomorrow.
+		{name: "raised after the cutoff does NOT reach tomorrow's sheet", raisedHour: 13, raisedMinute: 45, priority: "low", targetOffset: 1, wantDelta: 0},
+		{name: "raised after the cutoff counts the day after", raisedHour: 13, raisedMinute: 45, priority: "low", targetOffset: 2, wantDelta: 4},
+		// High priority is executed same-day, so its animals eat at the destination today.
+		{name: "high priority counts on the raise day", raisedHour: 16, priority: "high", targetOffset: 0, wantDelta: 4},
+		// The <= half: once due, an unapproved movement keeps counting rather than silently
+		// de-feeding a destination whose animals are still expected.
+		{name: "a long-unapproved movement keeps counting", raisedHour: 9, priority: "low", targetOffset: 6, wantDelta: 4},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, pool := newFeedProjRepo(t, ctx)
+
+			raisedAt := time.Date(2026, time.July, 10, tc.raisedHour, tc.raisedMinute, 0, 0, biztime.DefaultLocation())
+			raiseDay := feedProjDay(2026, time.July, 10)
+
+			for i := 0; i < 6; i++ {
+				insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+			}
+			insertFeedProjRaised(t, ctx, pool, "raised-lead", tc.priority, raisedAt,
+				feedProjShedA, feedProjShedB, "pending", "pending",
+				[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 4}})
+
+			got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(raiseDay.AddDate(0, 0, tc.targetOffset)))
+			if err != nil {
+				t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+			}
+
+			row := findFeedProjRow(t, got, feedProjShedB, "Beetal", "K1", "female")
+			if row.PendingDelta != tc.wantDelta {
+				t.Errorf("pending_delta=%d, want %d", row.PendingDelta, tc.wantDelta)
+			}
+			if want := 6 + tc.wantDelta; row.ProjectedHeadCount != want {
+				t.Errorf("projected_head_count=%d, want %d", row.ProjectedHeadCount, want)
+			}
+		})
+	}
+}
+
+// TestFeedProjectionStatusMatrixRaisedBranchExcludesRejectedAndCanceled walks the authorization
+// matrix for the new branch. Approval no longer starts the feed clock; only REJECTION stops it, so a
+// movement the park head turns down must stop feeding the shed immediately.
+//
+// It also pins DISJOINTNESS. The two pending_event branches split on authorization_state, so a
+// movement contributes exactly ONCE as it travels from raised to approved. If they overlapped, the
+// delta would double at the moment of approval — a destination fed for eight animals when four are
+// coming, with nothing on screen to suggest anything is wrong.
+func TestFeedProjectionStatusMatrixRaisedBranchExcludesRejectedAndCanceled(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []struct {
+		name        string
+		authState   string
+		eventStatus string
+		wantDelta   int64
+	}{
+		{name: "raised and awaiting approval counts", authState: "pending", eventStatus: "pending", wantDelta: 4},
+		{name: "rejected by the park head stops feeding the shed", authState: "rejected", eventStatus: "rejected", wantDelta: 0},
+		{name: "canceled stops feeding the shed", authState: "pending", eventStatus: "canceled", wantDelta: 0},
+		{name: "unresolved does not feed the shed", authState: "pending", eventStatus: "unresolved", wantDelta: 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, pool := newFeedProjRepo(t, ctx)
+
+			raisedAt := time.Date(2026, time.July, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+			for i := 0; i < 6; i++ {
+				insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+			}
+			insertFeedProjRaised(t, ctx, pool, "raised-matrix", "low", raisedAt,
+				feedProjShedA, feedProjShedB, tc.authState, tc.eventStatus,
+				[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 4}})
+
+			got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(feedProjDay(2026, time.July, 11)))
+			if err != nil {
+				t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+			}
+			if row := findFeedProjRow(t, got, feedProjShedB, "Beetal", "K1", "female"); row.PendingDelta != tc.wantDelta {
+				t.Errorf("pending_delta=%d, want %d", row.PendingDelta, tc.wantDelta)
+			}
+		})
+	}
+}
+
+// TestFeedProjectionStatusMatrixApprovedMovementIsNotCountedTwice is the disjointness regression the
+// test above describes. One movement, approved: it must satisfy the AUTHORIZED branch and NOT also
+// the raised one.
+func TestFeedProjectionStatusMatrixApprovedMovementIsNotCountedTwice(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	approvedAt := feedProjApproval(2026, time.July, 10, 9)
+	for i := 0; i < 6; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+	}
+	insertFeedProjShifting(t, ctx, pool, "raised-then-approved", "low", approvedAt,
+		feedProjShedA, feedProjShedB, "authorized", "authorized",
+		[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 4}})
+
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(feedProjDay(2026, time.July, 11)))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+	row := findFeedProjRow(t, got, feedProjShedB, "Beetal", "K1", "female")
+	if row.PendingDelta != 4 {
+		t.Fatalf("pending_delta=%d, want 4 — an approved movement must be counted by exactly ONE branch, not both", row.PendingDelta)
+	}
+}
+
+// TestFeedProjectionOneToManyRaisedMultiImpactMovementDoesNotFanOutLiveCount is the fan-out
+// regression for the new branch.
+//
+// A movement has MANY impact rows (one per cohort). Joining the events to the live grains directly
+// would multiply the live COUNT by the impact-row count. The delta CTE pre-aggregates the legs to
+// one row per grain first — this proves the new branch feeds that same pre-aggregation rather than
+// bypassing it.
+func TestFeedProjectionOneToManyRaisedMultiImpactMovementDoesNotFanOutLiveCount(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	raisedAt := time.Date(2026, time.July, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	// Ten live Beetal females in the destination. If the join fanned out, this 10 would be
+	// multiplied by the number of impact rows and read as 30.
+	for i := 0; i < 10; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+	}
+	insertFeedProjRaised(t, ctx, pool, "raised-fanout", "low", raisedAt,
+		feedProjShedA, feedProjShedB, "pending", "pending",
+		[]feedProjImpact{
+			{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 3},
+			// Two more legs on the SAME movement, at grains that must not touch the row above.
+			{breedLabel: "Sirohi", stageTag: "K1", sex: "female", headCount: 5},
+			{breedLabel: "Beetal", stageTag: "K1", sex: "male", headCount: 2},
+		})
+
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(feedProjDay(2026, time.July, 11)))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+
+	row := findFeedProjRow(t, got, feedProjShedB, "Beetal", "K1", "female")
+	if row.CurrentHeadCount != 10 {
+		t.Fatalf("current_head_count=%d, want 10 — a multi-impact raised movement fanned the live census out", row.CurrentHeadCount)
+	}
+	if row.PendingDelta != 3 {
+		t.Fatalf("pending_delta=%d, want only this grain's own leg (3)", row.PendingDelta)
+	}
+	if row.ProjectedHeadCount != 13 {
+		t.Fatalf("projected_head_count=%d, want 13", row.ProjectedHeadCount)
+	}
+}
+
+// TestFeedProjectionPageBoundaryRaisedDeltaKeepsTotalRowsInvariant: total_rows is a window function
+// over the WHOLE combined set, so it must not move with the page — including for a grain that exists
+// ONLY because a raised movement is bringing animals to a shed that holds none of it today.
+//
+// A page-scoped total here would tell the feed team the park has fewer grains than it does, and the
+// grain most likely to be dropped is exactly the incoming one they most need to see.
+func TestFeedProjectionPageBoundaryRaisedDeltaKeepsTotalRowsInvariant(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	raisedAt := time.Date(2026, time.July, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	insertFeedProjGoat(t, ctx, pool, 0, "Beetal", "female", "K1", feedProjShedA)
+	insertFeedProjGoat(t, ctx, pool, 1, "Sirohi", "female", "K1", feedProjShedA)
+	insertFeedProjGoat(t, ctx, pool, 2, "Beetal", "male", "K2", feedProjShedB)
+	// An incoming grain the destination holds NONE of today: delta-only, no live row at all.
+	insertFeedProjRaised(t, ctx, pool, "raised-paging", "low", raisedAt,
+		feedProjShedA, feedProjShedB, "pending", "pending",
+		[]feedProjImpact{{breedLabel: "Jamnapari", stageTag: "K2", sex: "female", headCount: 7}})
+
+	target := feedProjDay(2026, time.July, 11)
+	full, err := repo.ProjectedShedCountsForFeed(ctx, domain.FeedProjectedCountQuery{
+		TenantID: countsTenant, TargetDate: target, Limit: 100, StableOrder: true,
+	})
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed(full): %v", err)
+	}
+	if full.TotalRows < 4 {
+		t.Fatalf("total_rows=%d, want at least the 3 live grains plus the incoming one", full.TotalRows)
+	}
+
+	// Walk it one row at a time. Every page must report the SAME whole-result total, and the union
+	// of the pages must equal the unpaged read exactly — no grain seen twice, none skipped.
+	seen := map[string]bool{}
+	for offset := int32(0); offset < int32(full.TotalRows); offset++ {
+		page, err := repo.ProjectedShedCountsForFeed(ctx, domain.FeedProjectedCountQuery{
+			TenantID: countsTenant, TargetDate: target, Limit: 1, Offset: offset, StableOrder: true,
+		})
+		if err != nil {
+			t.Fatalf("ProjectedShedCountsForFeed(offset=%d): %v", offset, err)
+		}
+		if page.TotalRows != full.TotalRows {
+			t.Fatalf("total_rows=%d at offset %d, want the page-invariant %d", page.TotalRows, offset, full.TotalRows)
+		}
+		if len(page.Items) != 1 {
+			t.Fatalf("page at offset %d returned %d rows, want 1", offset, len(page.Items))
+		}
+		key := fmt.Sprintf("%v|%s|%s|%s", page.Items[0].ShedID, page.Items[0].Breed, page.Items[0].ManagementStage, page.Items[0].Sex)
+		if seen[key] {
+			t.Fatalf("grain %s appeared on two pages — the paged walk is duplicating rows", key)
+		}
+		seen[key] = true
+	}
+	if int64(len(seen)) != full.TotalRows {
+		t.Fatalf("paged walk saw %d distinct grains, want %d — a grain was skipped between pages", len(seen), full.TotalRows)
+	}
+}
+
+// TestFeedProjectionParkScopeFiltersTheRaisedLegOnBothSides: the shed filter is applied to the live
+// side AND to both legs of a movement, so filtering to one shed cannot leave it showing a delta
+// sourced from a shed the filter excluded.
+//
+// The new branch adds legs, so it needs the same proof the authorized one has: a scope predicate
+// that reaches the live CTE but not the raised legs is the classic way a filtered view reports a
+// number the unfiltered view cannot explain.
+func TestFeedProjectionParkScopeFiltersTheRaisedLegOnBothSides(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	raisedAt := time.Date(2026, time.July, 10, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	for i := 0; i < 6; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedA)
+	}
+	for i := 10; i < 14; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K1", feedProjShedB)
+	}
+	// Shed A loses four, shed B gains them.
+	insertFeedProjRaised(t, ctx, pool, "raised-scope", "low", raisedAt,
+		feedProjShedA, feedProjShedB, "pending", "pending",
+		[]feedProjImpact{{breedLabel: "Beetal", stageTag: "K1", sex: "female", headCount: 4}})
+
+	target := feedProjDay(2026, time.July, 11)
+	shedA := feedProjShedA
+	scoped, err := repo.ProjectedShedCountsForFeed(ctx, domain.FeedProjectedCountQuery{
+		TenantID: countsTenant, TargetDate: target, Limit: 100, ShedID: &shedA,
+	})
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed(shed A): %v", err)
+	}
+	for _, row := range scoped.Items {
+		if row.ShedID != nil && *row.ShedID != feedProjShedA {
+			t.Fatalf("a shed-A-scoped read returned a row for shed %s", *row.ShedID)
+		}
+	}
+	// Shed A is the SOURCE, so its own leg is negative and must survive the filter.
+	row := findFeedProjRow(t, scoped, feedProjShedA, "Beetal", "K1", "female")
+	if row.PendingDelta != -4 {
+		t.Fatalf("shed A pending_delta=%d, want -4 — the source leg of a raised movement must be scoped in, not filtered away", row.PendingDelta)
+	}
+	if row.ProjectedHeadCount != 2 {
+		t.Fatalf("shed A projected_head_count=%d, want 2", row.ProjectedHeadCount)
+	}
+
+	shedB := feedProjShedB
+	scopedB, err := repo.ProjectedShedCountsForFeed(ctx, domain.FeedProjectedCountQuery{
+		TenantID: countsTenant, TargetDate: target, Limit: 100, ShedID: &shedB,
+	})
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed(shed B): %v", err)
+	}
+	rowB := findFeedProjRow(t, scopedB, feedProjShedB, "Beetal", "K1", "female")
+	if rowB.PendingDelta != 4 || rowB.ProjectedHeadCount != 8 {
+		t.Fatalf("shed B delta=%d projected=%d, want +4 and 8", rowB.PendingDelta, rowB.ProjectedHeadCount)
 	}
 }
