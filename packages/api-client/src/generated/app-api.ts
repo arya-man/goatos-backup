@@ -210,6 +210,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export recent leadership-visible Weighing rows as CSV.
+         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope. The default window is today plus the previous 35 business dates (36 inclusive dates). Pending video verification is included and reported in `video_verification_status`; it is not filtered out.
+         */
+        get: operations["exportWeighingCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/planner/catalog": {
         parameters: {
             query?: never;
@@ -9493,6 +9513,35 @@ export interface operations {
                     "application/json": components["schemas"]["WeighingParkListResponse"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    exportWeighingCsv: {
+        parameters: {
+            query?: {
+                /** @description Inclusive Asia/Kolkata business date. Defaults to 35 days before `to`. */
+                from?: string;
+                /** @description Inclusive Asia/Kolkata business date. Defaults to today. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export of recent weighing rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];

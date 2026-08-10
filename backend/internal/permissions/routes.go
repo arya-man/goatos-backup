@@ -228,6 +228,7 @@ var protectedRoutes = []Route{
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},
 	{OperationID: "publishWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns/{campaign_id}/publish", Permissions: []string{WeighingPlan}},
 	{OperationID: "exportWeighingCampaignCSV", Method: "GET", Pattern: "/weighing/campaigns/{campaign_id}/export", Permissions: []string{WeighingMonitor}},
+	{OperationID: "exportWeighingCsv", Method: "GET", Pattern: "/weighing/export.csv", Permissions: []string{WeighingMonitor}},
 	// EITHER/OR, not both. These two are READS, and weighing/app/service.go's
 	// canPlanOrMonitor deliberately admits WeighingPlan OR WeighingMonitor (it calls
 	// RolesAuthorize twice for exactly that reason). Route.Permissions is ANDed, so
