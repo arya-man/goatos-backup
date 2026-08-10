@@ -187,6 +187,61 @@ prefix from in-flight item labels. It is deliberately NOT reversible.
 per-session table rows: the web packing sheet is a printed worklist a packer reads down, not the
 phone's capture card, and the session is still the line they physically fill a bag for.
 
+## The afternoon correction reopens an already-packed pen — 2026-08-10
+
+A low-priority movement raised at 09:00 is due **tomorrow**. Tomorrow's normal sheet was issued at
+**07:00 that same morning** and is already being packed. Ten animals arriving in a pen that was
+packed for one had **no feed at all** — the projection was waiting for a park head to approve a
+movement the operator had already been told to plan around.
+
+Two changes fix it, at 14:00, the `correction_time` both workflows already run on. **No new clock is
+introduced and no lock is lifted:** the transport lock is 15:30, *after* the correction, so
+`AmendDirection` was never blocked by it. `ErrAmendAfterLock` stands — past the transport cutoff the
+feed has physically left the store and a correction cannot reach the shed.
+
+### 1. A raised movement counts before it is approved
+
+`pending_event` gained a second branch: `authorization_state='pending' AND event_status='pending'`.
+The branches are **disjoint on `authorization_state`**, so a movement contributes exactly once as it
+travels from raised to approved rather than being double-counted at the handover. `rejected`,
+`canceled` and `applied` never appear, so a movement the park head turns down stops feeding a shed
+immediately — approval no longer starts the feed clock, only rejection stops it.
+
+Its effective date is the **ACTIONS lead time** (`ShiftingActionsDueFrom`), not the raise day. An
+unapproved movement has no authorization instant to anchor on, and the honest answer to "when do
+these animals eat here" is the day they are expected to walk: low priority raised before 13:30 IST →
+tomorrow, at or after → the day after. Anchoring on the raise day instead would feed a destination a
+full day before a 13:45 raise's animals actually move — the same over-feeding bug, one day earlier.
+
+An **approved** movement keeps the 2026-07-27 rule untouched (effective = the authorization business
+date, no lead, no priority branch). `TestRaisedAndAuthorizedRulesStayDistinct` exists because the two
+look alike and answer different questions.
+
+### 2. A pen already packed against the old count is sent back
+
+`AmendDirection` → `reopenPackingForCorrection` → `ReopenPackingForFeedChange` moves the pen's
+completion to `rework`, stores an operator-facing sentence, `withdrawn`s its still-pending
+verification item, and clears `verified_by`/`verified_at`.
+
+- **An already-APPROVED video is reopened too.** It proves the packer packed the OLD quantity, which
+  is now the wrong quantity; an approved clip is no more usable than an unapproved one. A row already
+  in `rework` is left alone — touching it would overwrite a verifier's real rejection reason.
+- **Experiment is EXEMPT.** Its rations are authored as absolute kg per pen, so a head-count change
+  moves no quantity there. Reopening one would discard a good video for a sheet that did not change.
+- **Head count only, per PEN.** `AffectedShedIDs` also fires for a relabelled ration group and is
+  shed-wide, so driving the reopen from it would make the packers of Castro - 1 and Castro - 3 refilm
+  because Castro - 2 gained animals. `CellDiff.HeadCountChangedPens` is the strictly narrower signal:
+  a grain's head count moved, a grain appeared (animals arrived), or a grain vanished (animals left).
+
+### There is no new state, so the reason is not optional
+
+A reopened pen uses the existing `rework`, which `NormalizeSessionStatus` folds into the client bucket
+`pending` — "needs my action again". **The chip therefore cannot distinguish a reopened pen from one
+nobody has packed.** `FeedPackingRow.rework_reason` is the only thing that can, which is why it is a
+backend-composed sentence rendered verbatim rather than client-side copy derived from the status. The
+`feed_packing_worklist` Paparazzi golden puts the reopened pen first, above the fold, precisely so the
+image would change if that line were dropped.
+
 ## Feed packing (also gated) — follow-up, 2026-07-26
 
 > **Grain superseded 2026-08-10** — see the section above. Everything below describes the gate

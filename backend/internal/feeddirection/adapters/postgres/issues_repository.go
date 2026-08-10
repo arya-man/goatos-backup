@@ -223,7 +223,12 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 	header.AmendedAt = &cmd.AmendedAt
 	header.AmendmentCount++
 	header.GenerationInputFingerprint = cmd.Fingerprint
-	return ports.AmendResult{Header: header, Outcome: ports.AmendOutcomeAmended, AffectedShedIDs: diff.AffectedShedIDs}, nil
+	return ports.AmendResult{
+		Header:               header,
+		Outcome:              ports.AmendOutcomeAmended,
+		AffectedShedIDs:      diff.AffectedShedIDs,
+		HeadCountChangedPens: diff.HeadCountChangedPens,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------

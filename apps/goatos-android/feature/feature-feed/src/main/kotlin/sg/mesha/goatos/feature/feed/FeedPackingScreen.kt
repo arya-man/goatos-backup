@@ -92,6 +92,16 @@ data class FeedPackingRowUi(
     /** Verification-lifecycle bucket: "pending" | "pending_verification" | "completed" (empty =
      *  pending). Orthogonal to [status]; drives the 3-state status chip. */
     val lifecycleStatus: String,
+    /**
+     * Why this pen came back to the packer, blank unless it is in rework.
+     *
+     * A reworked pen reads as "pending" in [lifecycleStatus] — the operator's bucket for "needs my
+     * action" — so the chip alone cannot distinguish a pen nobody has packed from one whose video
+     * was thrown away. This sentence is the only thing that says which, and whether the reason was a
+     * rejected video or an afternoon feed correction that moved the quantities. Backend-composed;
+     * rendered verbatim.
+     */
+    val reworkReason: String = "",
 )
 
 @Immutable
@@ -400,6 +410,19 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi, canCapture: Boolean, onOpe
         }
         if (row.experimentArm.isNotBlank()) {
             Text(text = row.experimentArm, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+
+        // Why the pen is back. It sits ABOVE the quantities on purpose: the packer has already packed
+        // this pen once today, so the first thing they need is that the numbers below are not the
+        // numbers they packed to. Without it the card is indistinguishable from one they never
+        // touched, and they would be shown the same pen twice with no explanation.
+        if (row.reworkReason.isNotBlank()) {
+            Text(
+                text = row.reworkReason,
+                color = MeshaColors.Danger,
+                style = MeshaType.caption,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         // The day's sessions, each with its own heading and its OWN total — "Morning this much,

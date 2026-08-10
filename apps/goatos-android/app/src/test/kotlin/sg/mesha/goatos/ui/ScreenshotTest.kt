@@ -1047,6 +1047,26 @@ class ScreenshotTest {
         val rows = flowOf(
             PagingData.from(
                 listOf(
+                    // A pen the afternoon feed correction sent BACK (maintainer decision 2026-08-10):
+                    // animals shifted in after this bag was packed and filmed, so the quantities on
+                    // the card are no longer the ones the operator packed to.
+                    //
+                    // FIRST in the list deliberately: it must be ABOVE THE FOLD, or the golden
+                    // renders an image that would be byte-identical with the reopen copy deleted and
+                    // proves nothing. Its lifecycleStatus is "pending" -- IDENTICAL to Gandhi 1
+                    // below, which nobody has packed at all -- so the chip cannot tell the two apart
+                    // and this golden is what proves an operator can.
+                    FeedPackingRowUi(
+                        grainKey = "pack-3", parkId = "park-1", shedId = "shed-3",
+                        shedLabel = "Castro - 2",
+                        partitionLabel = "2",
+                        workflow = "normal", experimentArm = "", headCount = 52,
+                        sessions = feedPackingSessions(),
+                        totalKg = "46.9",
+                        status = "ready", completed = false, lifecycleStatus = "pending",
+                        reworkReason = "Animals moved in or out of this pen, so the feed " +
+                            "quantities changed. Pack the new amounts and record a new video.",
+                    ),
                     FeedPackingRowUi(
                         grainKey = "pack-1", parkId = "park-1", shedId = "shed-1",
                         shedLabel = "Gandhi 1",
