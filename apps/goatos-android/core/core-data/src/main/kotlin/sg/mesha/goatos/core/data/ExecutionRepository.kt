@@ -427,11 +427,13 @@ class DefaultExecutionRepository(
                     !taskId.isNullOrBlank() && authoritativeForTask ->
                         database.scannedGoatDao().pruneSyncedFieldToServerDone(
                             taskId = taskId,
+                            partitionKey = executionPartitionKey(partitionLabel),
                             fieldKey = ROSTER_SCAN_FIELD_KEY,
                             serverDoneObligationIds = serverDoneObligationIds,
                         )
                     taskId.isNullOrBlank() ->
                         database.scannedGoatDao().pruneSyncedByRejectedObligations(
+                            partitionKey = executionPartitionKey(partitionLabel),
                             fieldKey = ROSTER_SCAN_FIELD_KEY,
                             rejectedObligationIds = rows
                                 .mapNotNull { it.obligationId.takeIf { id -> id.isNotBlank() } }

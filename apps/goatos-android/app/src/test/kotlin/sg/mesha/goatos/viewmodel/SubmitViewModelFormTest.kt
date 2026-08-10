@@ -88,6 +88,7 @@ class SubmitViewModelFormTest {
         proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
         bootstrapRepository: FakeCaptureBootstrapRepository = FakeCaptureBootstrapRepository(),
         shedId: String? = null,
+        partitionLabel: String? = null,
         sopVersionId: String? = null,
     ): SubmitViewModel = SubmitViewModel(
         repo = repository,
@@ -103,6 +104,7 @@ class SubmitViewModelFormTest {
             buildMap {
                 if (taskId != null) put("taskId", taskId)
                 if (shedId != null) put("shedId", shedId)
+                if (partitionLabel != null) put("partitionLabel", partitionLabel)
                 if (sopVersionId != null) put("sopVersionId", sopVersionId)
             },
         ),
@@ -349,6 +351,104 @@ class SubmitViewModelFormTest {
             JsonArray(listOf(JsonPrimitive("goat-uuid-1"))),
             sync.lastRequest?.answers?.get("goat_ids"),
         )
+    }
+
+    @Test
+    fun `partition submit consumes only scans and proofs captured in that partition`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shared-partitions",
+            sopVersionId = "sop-partitions",
+            scopeType = "shed",
+            scopeId = "shed-castro",
+            rowVersion = 1,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField("goat_ids", "Goats", FormFieldType.GOAT_SCAN, required = true),
+                FormField("administration_video", "Administration video", FormFieldType.VIDEO_PROOF, required = false),
+            ),
+            rules = emptyList(),
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(
+            taskId = task.taskId,
+            fieldKey = "goat_ids",
+            tag = "RFID-001",
+            goatId = "goat-part-1",
+            obligationId = "obl-part-1",
+            partitionLabel = "Part 1",
+        )
+        scans.recordScan(
+            taskId = task.taskId,
+            fieldKey = "goat_ids",
+            tag = "RFID-002",
+            goatId = "goat-part-2",
+            obligationId = "obl-part-2",
+            partitionLabel = "2",
+        )
+        val proofs = FakeProofCaptureRepository()
+        val partOneProof = proofs.capture(
+            taskId = task.taskId,
+            fieldKey = "administration_video",
+            subject = ProofSubject.ADMINISTRATION,
+            localUri = "file:///part-1.mp4",
+            mimeType = "video/mp4",
+            caption = null,
+            scopeType = "task",
+            scopeId = task.taskId,
+            capturedStartMs = 1L,
+            capturedEndMs = 2L,
+            capturedByPrincipalId = "operator-1",
+            partitionLabel = "1",
+        ) as AppResult.Ok
+        val partTwoProof = proofs.capture(
+            taskId = task.taskId,
+            fieldKey = "administration_video",
+            subject = ProofSubject.ADMINISTRATION,
+            localUri = "file:///part-2.mp4",
+            mimeType = "video/mp4",
+            caption = null,
+            scopeType = "task",
+            scopeId = task.taskId,
+            capturedStartMs = 3L,
+            capturedEndMs = 4L,
+            capturedByPrincipalId = "operator-1",
+            partitionLabel = "Part 2",
+        ) as AppResult.Ok
+        proofs.markSynced(partOneProof.value.id, "server-proof-part-1")
+        proofs.markSynced(partTwoProof.value.id, "server-proof-part-2")
+        val sync = CapturingSyncRepository()
+        val formProofPolicy = ProofPolicy(
+            required = false,
+            proofMode = "form_video",
+            subjectScope = "administration",
+            expectedSubjects = listOf("administration"),
+        )
+        val viewModel = viewModel(
+            repository = FakeFormTasksRepository(task, form, proofPolicy = formProofPolicy),
+            sync = sync,
+            taskId = task.taskId,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+            shedId = "shed-castro",
+            partitionLabel = "Part 1",
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.state.value.formRunner?.fields?.first()?.scannedCount)
+        assertTrue(viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertEquals(
+            JsonArray(listOf(JsonPrimitive("goat-part-1"))),
+            sync.lastRequest?.answers?.get("goat_ids"),
+        )
+        assertEquals(listOf("server-proof-part-1"), sync.lastRequest?.proofRefs?.map { it.proofId })
+        assertEquals("Part 1", sync.lastRequest?.partitionLabel)
     }
 
     @Test

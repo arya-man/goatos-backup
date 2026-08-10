@@ -105,6 +105,7 @@ interface SyncRepository {
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String = "whole",
         request: ScanCaptureRequestDto,
     ): AppResult<String> = AppResult.Err("scan capture sync is not configured")
 
@@ -606,12 +607,15 @@ class DefaultSyncRepository(
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String,
         request: ScanCaptureRequestDto,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SCAN_CAPTURE,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(ScanCapturePayload(taskId = taskId, request = request)),
+        payloadJson = syncJson.encodeToString(
+            ScanCapturePayload(taskId = taskId, partitionKey = partitionKey, request = request),
+        ),
     )
 
     override suspend fun enqueueScanAttempt(

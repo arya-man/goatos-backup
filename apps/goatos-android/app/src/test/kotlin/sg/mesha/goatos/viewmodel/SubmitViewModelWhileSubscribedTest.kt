@@ -150,11 +150,11 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
     var activeCollectors = 0
         private set
 
-    override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> = error("unused")
+    override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> = error("unused")
 
-    override fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int> = error("unused")
+    override fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String?): Flow<Int> = error("unused")
 
-    override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> =
+    override fun observeAllForTask(taskId: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
         object : Flow<List<ScannedGoatRow>> {
             override suspend fun collect(collector: FlowCollector<List<ScannedGoatRow>>) {
                 activeCollectors++
@@ -174,6 +174,7 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
         obligationId: String?,
         obligationRowVersion: Int,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ) = Unit
 
     override suspend fun recordLocalScanIfAbsent(
@@ -181,13 +182,14 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
         fieldKey: String,
         tag: String,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ): Boolean = true
 
-    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) = Unit
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String?) = Unit
 
-    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = Unit
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String?) = Unit
 
-    override suspend fun tagsForTask(taskId: String): List<String> = emptyList()
+    override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> = emptyList()
 
     override suspend fun clearForTask(taskId: String) = Unit
 }
@@ -198,7 +200,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     var activeCollectors = 0
         private set
 
-    override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         object : Flow<List<ProofCaptureRow>> {
             override suspend fun collect(collector: FlowCollector<List<ProofCaptureRow>>) {
                 activeCollectors++
@@ -224,6 +226,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
+        partitionLabel: String?,
     ): AppResult<ProofCaptureRow> = error("unused")
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> = error("unused")

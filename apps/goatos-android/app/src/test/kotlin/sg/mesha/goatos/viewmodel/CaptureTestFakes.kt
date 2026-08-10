@@ -34,13 +34,18 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     var enqueuePendingScansCalls: Int = 0
         private set
 
-    override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> =
-        flow.map { list -> list.filter { it.fieldKey == fieldKey } }
+    override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        flow.map { list ->
+            list.filter { it.fieldKey == fieldKey && it.partitionKey == testPartitionKey(partitionLabel) }
+        }
 
-    override fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int> =
-        flow.map { list -> list.count { it.fieldKey == fieldKey } }
+    override fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String?): Flow<Int> =
+        flow.map { list ->
+            list.count { it.fieldKey == fieldKey && it.partitionKey == testPartitionKey(partitionLabel) }
+        }
 
-    override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> = flow
+    override fun observeAllForTask(taskId: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
+        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
 
     override suspend fun recordScan(
         taskId: String,
@@ -50,15 +55,18 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         obligationId: String?,
         obligationRowVersion: Int,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ) {
         recordScanCalls++
-        if (rows.none { it.fieldKey == fieldKey && it.tag == tag }) {
+        val partitionKey = testPartitionKey(partitionLabel)
+        if (rows.none { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag }) {
             rows += ScannedGoatRow(
                 fieldKey = fieldKey,
                 tag = tag,
                 goatId = goatId,
                 obligationId = obligationId,
                 capturedAtMs = capturedAtMs ?: rows.size.toLong(),
+                partitionKey = partitionKey,
             )
             flow.value = rows.toList()
         }
@@ -69,24 +77,30 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         fieldKey: String,
         tag: String,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ): Boolean {
-        if (rows.any { it.fieldKey == fieldKey && it.tag == tag }) return false
-        recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs)
+        val partitionKey = testPartitionKey(partitionLabel)
+        if (rows.any { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag }) return false
+        recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs, partitionLabel = partitionLabel)
         return true
     }
 
-    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) {
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String?) {
         enqueuePendingScansCalls++
     }
 
-    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) {
-        val index = rows.indexOfFirst { it.fieldKey == fieldKey && it.tag == tag }
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String?) {
+        val partitionKey = testPartitionKey(partitionLabel)
+        val index = rows.indexOfFirst {
+            it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag
+        }
         if (index < 0) return
         rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.SYNCED)
         flow.value = rows.toList()
     }
 
-    override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }
+    override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> =
+        rows.filter { it.partitionKey == testPartitionKey(partitionLabel) }.map { it.tag }
 
     fun rowsForTask(taskId: String): List<ScannedGoatRow> = rows.filter { it.fieldKey.isNotBlank() }
 
@@ -175,7 +189,8 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     val captureCalls = mutableListOf<CaptureCall>()
     private var nextId = 0
 
-    override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> = flow
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
+        flow.map { list -> list.filter { it.partitionKey == testPartitionKey(partitionLabel) } }
 
     fun seedProofs(vararg proofRows: ProofCaptureRow) {
         rows += proofRows
@@ -196,6 +211,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
+        partitionLabel: String?,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
@@ -206,7 +222,12 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         } else {
             proofPolicy.maximumCountPerSubject
         }
-        val activeRows = rows.count { it.subjectId == subjectId && it.syncStatus != CaptureSyncStatus.FAILED }
+        val partitionKey = testPartitionKey(partitionLabel)
+        val activeRows = rows.count {
+            it.partitionKey == partitionKey &&
+                it.subjectId == subjectId &&
+                it.syncStatus != CaptureSyncStatus.FAILED
+        }
         if (activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
@@ -232,6 +253,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             syncStatus = CaptureSyncStatus.PENDING,
             serverProofId = null,
             lastError = null,
+            partitionKey = partitionKey,
         )
         rows += row
         flow.value = rows.toList()
@@ -290,6 +312,12 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         rows.clear()
         flow.value = emptyList()
     }
+}
+
+private fun testPartitionKey(partitionLabel: String?): String {
+    val normalized = partitionLabel.orEmpty().trim().lowercase()
+        .replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
 }
 
 /** Defaults to an operator profile present (capture allowed) — pass `profile = null` to test

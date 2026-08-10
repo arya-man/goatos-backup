@@ -40,6 +40,8 @@ data class ShedSubmitPayload(
 @Serializable
 data class ScanCapturePayload(
     @SerialName("task_id") val taskId: String,
+    /** Local Room identity only; it is not part of the backend scan-capture request body. */
+    @SerialName("partition_key") val partitionKey: String = "whole",
     @SerialName("request") val request: ScanCaptureRequestDto,
 )
 

@@ -208,10 +208,12 @@ class ScanViewModelTest {
         val repo = FakeScanExecutionRepository(
             firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
         )
+        val reader = FakeRfidReaderPort()
+        val scans = FakeScanCaptureRepository()
         val vm = ScanViewModel(
             repo = repo,
-            reader = FakeRfidReaderPort(),
-            scanCaptureRepository = FakeScanCaptureRepository(),
+            reader = reader,
+            scanCaptureRepository = scans,
             scanAttemptRepository = FakeScanAttemptRepository(),
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
@@ -241,6 +243,9 @@ class ScanViewModelTest {
 
         assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
         assertEquals("Part 3", repo.lastRefreshPartitionLabel)
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("3", scans.rowsForTask("task-1").single().partitionKey)
     }
 
     @Test

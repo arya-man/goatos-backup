@@ -420,14 +420,15 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `dispatches a SCAN_CAPTURE item via the scan-captures endpoint with its idempotency key`() = runBlocking {
+    fun `scan capture acknowledgement updates only its operational partition`() = runBlocking {
         val store = FakeOutboxStore()
         val scannedGoatDao = FakeScannedGoatDao()
-        val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
+        val idempotencyKey = "scan:task-1:partition:1:__scan_roster__:901007000504392"
         scannedGoatDao.insert(
             ScannedGoatEntity(
                 id = "scan-row-1",
                 taskId = "task-1",
+                partitionKey = "1",
                 fieldKey = "__scan_roster__",
                 tag = "901007000504392",
                 goatId = "goat-1",
@@ -436,15 +437,29 @@ class SyncEngineTest {
                 syncStatus = CaptureSyncStatus.PENDING.name,
             ),
         )
+        scannedGoatDao.insert(
+            ScannedGoatEntity(
+                id = "scan-row-2",
+                taskId = "task-1",
+                partitionKey = "2",
+                fieldKey = "__scan_roster__",
+                tag = "901007000504392",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                capturedAtMs = 124L,
+                syncStatus = CaptureSyncStatus.PENDING.name,
+            ),
+        )
         store.insert(
             OutboxEntity(
                 id = "row-scan-1",
                 opType = OutboxOpType.SCAN_CAPTURE.name,
-                groupKey = "task-1",
+                groupKey = "task-1|1",
                 idempotencyKey = idempotencyKey,
                 payloadJson = syncJson.encodeToString(
                     ScanCapturePayload(
                         taskId = "task-1",
+                        partitionKey = "1",
                         request = ScanCaptureRequestDto(
                             fieldKey = "__scan_roster__",
                             tag = "901007000504392",
@@ -500,7 +515,11 @@ class SyncEngineTest {
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
         assertEquals(
             CaptureSyncStatus.SYNCED.name,
-            scannedGoatDao.listForField("task-1", "__scan_roster__").single().syncStatus,
+            scannedGoatDao.listForField("task-1", "1", "__scan_roster__").single().syncStatus,
+        )
+        assertEquals(
+            CaptureSyncStatus.PENDING.name,
+            scannedGoatDao.listForField("task-1", "2", "__scan_roster__").single().syncStatus,
         )
     }
 
@@ -1125,15 +1144,27 @@ private class FakeScannedGoatDao : ScannedGoatDao {
     private val rows = mutableListOf<ScannedGoatEntity>()
 
     override suspend fun insert(entity: ScannedGoatEntity): Long {
-        if (rows.any { it.taskId == entity.taskId && it.fieldKey == entity.fieldKey && it.tag == entity.tag }) {
+        if (rows.any {
+                it.taskId == entity.taskId &&
+                    it.partitionKey == entity.partitionKey &&
+                    it.fieldKey == entity.fieldKey &&
+                    it.tag == entity.tag
+            }
+        ) {
             return -1L
         }
         rows += entity
         return 1L
     }
 
-    override suspend fun findByTaskFieldTag(taskId: String, fieldKey: String, tag: String): ScannedGoatEntity? =
-        rows.firstOrNull { it.taskId == taskId && it.fieldKey == fieldKey && it.tag == tag }
+    override suspend fun findByTaskFieldTag(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+    ): ScannedGoatEntity? = rows.firstOrNull {
+        it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag
+    }
 
     override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
         rows.replaceAll { row ->
@@ -1145,28 +1176,34 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         }
     }
 
-    override fun observeForField(taskId: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
-        flowOf(rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit))
+    override fun observeForField(taskId: String, partitionKey: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey }.take(limit))
 
-    override suspend fun listForField(taskId: String, fieldKey: String, limit: Int): List<ScannedGoatEntity> =
-        rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit)
+    override suspend fun listForField(taskId: String, partitionKey: String, fieldKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey }.take(limit)
 
-    override fun observeCountForField(taskId: String, fieldKey: String): Flow<Int> =
-        flowOf(rows.count { it.taskId == taskId && it.fieldKey == fieldKey })
+    override fun observeCountForField(taskId: String, partitionKey: String, fieldKey: String): Flow<Int> =
+        flowOf(rows.count { it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey })
 
-    override suspend fun listForTask(taskId: String, limit: Int): List<ScannedGoatEntity> =
-        rows.filter { it.taskId == taskId }.take(limit)
+    override suspend fun listForTask(taskId: String, partitionKey: String, limit: Int): List<ScannedGoatEntity> =
+        rows.filter { it.taskId == taskId && it.partitionKey == partitionKey }.take(limit)
 
-    override fun observeForTask(taskId: String, limit: Int): Flow<List<ScannedGoatEntity>> =
-        flowOf(rows.filter { it.taskId == taskId }.take(limit))
+    override fun observeForTask(taskId: String, partitionKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
+        flowOf(rows.filter { it.taskId == taskId && it.partitionKey == partitionKey }.take(limit))
 
     override suspend fun markTaskStatus(taskId: String, status: String) {
         rows.replaceAll { row -> if (row.taskId == taskId) row.copy(syncStatus = status) else row }
     }
 
-    override suspend fun markFieldTagStatus(taskId: String, fieldKey: String, tag: String, status: String) {
+    override suspend fun markFieldTagStatus(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        status: String,
+    ) {
         rows.replaceAll { row ->
-            if (row.taskId == taskId && row.fieldKey == fieldKey && row.tag == tag) {
+            if (row.taskId == taskId && row.partitionKey == partitionKey && row.fieldKey == fieldKey && row.tag == tag) {
                 row.copy(syncStatus = status)
             } else {
                 row
@@ -1178,9 +1215,10 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         rows.removeAll { it.taskId == taskId }
     }
 
-    override suspend fun deleteSyncedForField(taskId: String, fieldKey: String) {
+    override suspend fun deleteSyncedForField(taskId: String, partitionKey: String, fieldKey: String) {
         rows.removeAll {
             it.taskId == taskId &&
+                it.partitionKey == partitionKey &&
                 it.fieldKey == fieldKey &&
                 it.syncStatus == CaptureSyncStatus.SYNCED.name
         }
@@ -1188,11 +1226,13 @@ private class FakeScannedGoatDao : ScannedGoatDao {
 
     override suspend fun deleteSyncedForFieldExceptObligations(
         taskId: String,
+        partitionKey: String,
         fieldKey: String,
         serverDoneObligationIds: List<String>,
     ) {
         rows.removeAll {
             it.taskId == taskId &&
+                it.partitionKey == partitionKey &&
                 it.fieldKey == fieldKey &&
                 it.syncStatus == CaptureSyncStatus.SYNCED.name &&
                 (it.obligationId == null || it.obligationId !in serverDoneObligationIds)
@@ -1207,11 +1247,13 @@ private class FakeScannedGoatDao : ScannedGoatDao {
      * pass while the real query wiped other sheds' scan evidence.
      */
     override suspend fun deleteSyncedByRejectedObligations(
+        partitionKey: String,
         fieldKey: String,
         rejectedObligationIds: List<String>,
     ) {
         rows.removeAll {
-            it.fieldKey == fieldKey &&
+            it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
                 it.syncStatus == CaptureSyncStatus.SYNCED.name &&
                 it.obligationId != null &&
                 it.obligationId in rejectedObligationIds
