@@ -227,13 +227,21 @@ type BlockedReason struct {
 	Detail string `json:"detail"`
 }
 
-// DirectionRow is one generated instruction: what one ration grain in one shed gets in one
-// session.
+// DirectionRow is one feeding instruction in one session.
 //
-// The grain is (park, shed, shed_tag, ration_group) x session. SEX IS DELIBERATELY ABSENT: the
-// projected counts arrive at (park, shed, stage, breed, sex) grain, but sex is NOT part of the
-// ration lookup key, so the generator sums over it. Carrying sex into the output would split one
-// feeding instruction into two half-sized rows that an operator would have to re-add by hand.
+// IT HAS TWO GRAINS, AND THE DIFFERENCE IS DELIBERATE:
+//
+//   - As GENERATED and STORED in the frozen issue, the grain is (park, shed + partition, shed_tag,
+//     breed) x session -- the grain a ration rate is actually looked up at.
+//   - As SERVED on the direction sheet, the grain is (park, shed + partition) x session: ONE row per
+//     operational location (maintainer decision 2026-08-10), because an operator standing at a pen
+//     door feeds the pen. CollapseDirectionRowsByLocation performs that fold on the read path only,
+//     and its doc explains why it cannot move any earlier without changing what a packer packs.
+//
+// SEX IS DELIBERATELY ABSENT FROM BOTH: the projected counts arrive at (park, shed, stage, breed,
+// sex) grain, but sex is NOT part of the ration lookup key, so the generator sums over it. Carrying
+// sex into the output would split one feeding instruction into two half-sized rows that an operator
+// would have to re-add by hand.
 type DirectionRow struct {
 	ParkID    string `json:"park_id"`
 	ParkLabel string `json:"park_label"`
@@ -296,6 +304,17 @@ type DirectionRow struct {
 	// Blocked is true when at least one item on this row could not be resolved. It is the flag that
 	// stops SessionTotalKg from being mistaken for a complete figure.
 	Blocked bool `json:"blocked"`
+	// BlockedReasons lists the distinct gaps behind Blocked, and it exists because the direction sheet
+	// is now one row per operational location (see CollapseDirectionRowsByLocation): a pen holding two
+	// ration groups where only one is authored PRINTS the configured quantity and names the gap here,
+	// so the operator feeds the animals they have a ration for instead of being handed a blank cell.
+	// Empty on a fully resolved row, and empty on the per-grain rows the generator produces -- there a
+	// single ItemQuantity.BlockedReason already says everything, because the row IS one ration grain.
+	//
+	// It does NOT soften the blocked-vs-zero contract: an item where NOTHING resolved still carries a
+	// nil QuantityKg and QuantityBlocked. The packing line is stricter still and blocks whole, because
+	// a bag packed from a partial number looks complete and would send the shed short.
+	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 	// OverduePending mirrors the counts projection: a movement this row's head count already
 	// assumes came due days ago and still has not been executed.
 	OverduePending bool `json:"overdue_pending"`
