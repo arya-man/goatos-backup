@@ -203,7 +203,7 @@ created AS (
     parent.timezone,
     CASE WHEN sp.status = 'active' THEN 'active' ELSE 'inactive' END,
     COALESCE(an.display_order, COALESCE(sp.display_order, 0)),
-    'Created by migration 000149 from shed_partitions parent+partition mapping'
+    'Created by migration 000150 from shed_partitions parent+partition mapping'
   FROM public.shed_partitions sp
   JOIN public.locations parent
     ON parent.tenant_id = sp.tenant_id
