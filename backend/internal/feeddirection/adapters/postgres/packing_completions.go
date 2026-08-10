@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -77,6 +78,24 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		return ports.CompletePackingResult{}, err
 	}
 
+	// The shed's display NAME, for the verification item's subject label.
+	//
+	// CompletePackingResult has carried ShedName/PartitionLabel since the packing gate was written and
+	// NOTHING EVER FILLED THEM, so every packing item reached the verifier with an EMPTY subject
+	// label -- a card in the review queue naming no location at all. The field existed, the enqueue
+	// read it, and the value was always "": the exact declared-but-never-populated shape AGENTS.md
+	// bans, and invisible to any test that checks whether a field is carried rather than what it says.
+	//
+	// Only the NAME is taken from the canonical resolver. Its partition half is agree-or-go-bare at
+	// SHED grain, which is right for a caller that knows only a shed and wrong here: this completion
+	// is for ONE named pen, and Castro (three pens) would resolve bare and lose it. The caller's own
+	// partition is the honest value.
+	shedLocation, err := oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, p.ShedID))
+	if err != nil {
+		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: resolve packing shed location: %w", err)
+	}
+	shedName := shedLocation.ShedName
+
 	fingerprint := requestFingerprint(
 		p.ParkID,
 		p.ShedID,
@@ -101,7 +120,13 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit idempotent packing replay: %w", err)
 		}
 		committed = true
-		return ports.CompletePackingResult{CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false}, nil
+		// The location travels on the replay path too. It costs nothing and keeps every return from
+		// this method the same shape, so a future caller cannot find it populated on one path and
+		// blank on another.
+		return ports.CompletePackingResult{
+			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
+			ShedName: shedName, PartitionLabel: p.PartitionLabel,
+		}, nil
 	}
 
 	var (
@@ -188,7 +213,13 @@ RETURNING row_version`,
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit packing completion: %w", err)
 	}
 	committed = true
-	return ports.CompletePackingResult{CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending}, nil
+	return ports.CompletePackingResult{
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending,
+		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
+		// compose the verifier's subject label, and a path that leaves them blank ships an item
+		// naming no location.
+		ShedName: shedName, PartitionLabel: p.PartitionLabel,
+	}, nil
 }
 
 // readPackingByID reads a row's status and row_version within the transaction, for the idempotent
@@ -499,7 +530,10 @@ SET status = 'withdrawn',
 WHERE tenant_id = $1::uuid
   AND source_module = 'feed'
   AND source_ref_type = 'feed_packing_completion'
-  AND source_ref_id = ANY($2::text[])
+  -- source_ref_id is a uuid column, so the bind array carries the uuid cast and the column stays
+  -- bare: a ::text[] array raises "operator does not exist: uuid = text", and casting the COLUMN to
+  -- text instead would compile while disabling its index (the non-sargable-cast anti-pattern).
+  AND source_ref_id = ANY($2::uuid[])
   AND status = 'pending'`, p.TenantID, completionIDs)
 	if err != nil {
 		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: withdraw superseded packing verification items: %w", err)
@@ -509,8 +543,12 @@ WHERE tenant_id = $1::uuid
 	for _, m := range moved {
 		// scale-guard:ignore: the audit recorder buffers rows on the open transaction; this loop issues no query per iteration and is bounded by the pens of one park-day.
 		if err := recorder.Record(ctx, audit.Event{
-			TenantID:     p.TenantID,
-			ActorID:      strings.TrimSpace(p.ActorID),
+			TenantID: p.TenantID,
+			// No ActorID: nobody pressed anything. audit_log.actor_id is a UUID, so the provenance
+			// string the service could otherwise pass ("goatos-api") is not a shortened actor but a
+			// type error that aborts this INSERT and rolls the whole reopen back -- leaving every pen
+			// that should have gone back to its packer still marked done. ActorType carries the
+			// system-ness; see ports.ReopenPackingParams for why the field does not exist.
 			ActorType:    "system",
 			Action:       feedPackingReopenedAction,
 			ResourceType: feedPackingResourceType,
@@ -625,20 +663,27 @@ func insertFeedPackingCompletedOutbox(ctx context.Context, tx pgx.Tx, o feedPack
 		"workflow":      o.Workflow,
 		"verified_by":   o.VerifiedBy,
 	}
-	envelope := map[string]any{
-		"event_id":        eventID,
-		"event_type":      feedPackingCompletedEventType,
-		"schema_version":  feedPackingCompletedSchemaVersion,
-		"schema_ref":      feedPackingCompletedSchemaRef,
-		"aggregate_type":  feedPackingCompletedAggregateType,
-		"aggregate_id":    o.CompletionID,
-		"producer":        "feeddirection",
-		"idempotency_key": idempotencyKey,
-		"subject_type":    "shed",
-		"subject_id":      o.ShedID,
-		"payload":         payload,
-		"trace_id":        o.TraceID,
-	}
+	envelope := feedEventEnvelope{
+		EventID:        eventID,
+		EventType:      feedPackingCompletedEventType,
+		SchemaVersion:  feedPackingCompletedSchemaVersion,
+		SchemaRef:      feedPackingCompletedSchemaRef,
+		AggregateType:  feedPackingCompletedAggregateType,
+		AggregateID:    o.CompletionID,
+		IdempotencyKey: idempotencyKey,
+		SubjectType:    "shed",
+		SubjectID:      o.ShedID,
+		TenantID:       o.TenantID,
+		ParkID:         o.ParkID,
+		ShedID:         o.ShedID,
+		// The verifier who approved the video is the actor; a blank one emits actor_type "system".
+		ActorID: o.VerifiedBy,
+		// The FEED DAY, not the moment the verdict landed: the business fact this event reports is
+		// that a pen's feed for that day is packed and proved.
+		OccurredAt: businessInstant(o.TargetDate),
+		Payload:    payload,
+		TraceID:    o.TraceID,
+	}.build()
 	envelopeJSON, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("feeddirection: marshal packing outbox envelope: %w", err)

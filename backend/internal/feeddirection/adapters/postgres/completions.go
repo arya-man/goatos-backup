@@ -276,20 +276,27 @@ func insertFeedDirectionCompletedOutbox(ctx context.Context, tx pgx.Tx, p ports.
 		"workflow":      p.Workflow,
 		"proof_ids":     proofIDs,
 	}
-	envelope := map[string]any{
-		"event_id":        eventID,
-		"event_type":      feedDirectionCompletedEventType,
-		"schema_version":  feedDirectionCompletedSchemaVersion,
-		"schema_ref":      feedDirectionCompletedSchemaRef,
-		"aggregate_type":  feedDirectionCompletedAggregateType,
-		"aggregate_id":    completionID,
-		"producer":        "feeddirection",
-		"idempotency_key": idempotencyKey,
-		"subject_type":    "shed",
-		"subject_id":      p.ShedID,
-		"payload":         payload,
-		"trace_id":        p.TraceID,
-	}
+	// This path is INERT (the pre-gate instant completion, no longer wired or routed), but it is
+	// corrected alongside its two live siblings: leaving one broken copy behind is how the next
+	// author learns the wrong shape from the codebase.
+	envelope := feedEventEnvelope{
+		EventID:        eventID,
+		EventType:      feedDirectionCompletedEventType,
+		SchemaVersion:  feedDirectionCompletedSchemaVersion,
+		SchemaRef:      feedDirectionCompletedSchemaRef,
+		AggregateType:  feedDirectionCompletedAggregateType,
+		AggregateID:    completionID,
+		IdempotencyKey: idempotencyKey,
+		SubjectType:    "shed",
+		SubjectID:      p.ShedID,
+		TenantID:       p.TenantID,
+		ParkID:         p.ParkID,
+		ShedID:         p.ShedID,
+		ActorID:        p.ActorID,
+		OccurredAt:     businessInstant(targetDate),
+		Payload:        payload,
+		TraceID:        p.TraceID,
+	}.build()
 	envelopeJSON, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("feeddirection: marshal outbox envelope: %w", err)

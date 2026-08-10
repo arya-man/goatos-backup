@@ -141,7 +141,12 @@ func (s *Service) reopenPackingForCorrection(
 		Workflow:   prep.workflow,
 		Pens:       pens,
 		Reason:     packingReopenedReason,
-		ActorID:    s.generatedBy,
+		// ActorID is deliberately EMPTY. The correction is a scheduled system transition with no human
+		// behind it, and audit_log.actor_id is a UUID -- putting the generated_by provenance string
+		// ("goatos-api") there is not a shortened actor, it is `invalid input syntax for type uuid`,
+		// which aborts the audit INSERT and therefore the whole reopen transaction. Every pen that
+		// should have gone back to its packer would have stayed marked done instead. The system-ness
+		// is carried by ActorType, which the adapter already stamps as "system".
 	})
 	if err != nil {
 		return nil, fmt.Errorf("feeddirection: reopen packing after correction: %w", err)
