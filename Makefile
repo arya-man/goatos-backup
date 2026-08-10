@@ -147,6 +147,7 @@ guardrails:
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
 	$(MAKE) ceo-ai-boundary-guard
+	$(MAKE) feed-packing-rollout-guard
 	$(MAKE) operational-location-guard
 	$(MAKE) sweeper-deployment-guard
 	$(MAKE) deployed-job-flags-guard
@@ -232,6 +233,15 @@ operational-read-model-contract-guard:
 # operational-location-guard: an animal's ground location is park + physical
 # shed + OPTIONAL partition. Sheds stay normalized in the DB, but no product
 # surface may collapse back to the parent shed when a partition exists.
+# feed-packing-rollout-guard: the pen-day key swap is an EXPAND/CONTRACT rollout, and
+# backend/cmd/migrate applies every pending migration in ONE run. Shipping the contract half
+# (dropping feed_packing_completions_natural_uq) in the same release as the expand half would run it
+# before the new binary serves and 42P10 every packing submission from an old instance. Retire this
+# guard in the same change that lands the contract migration.
+feed-packing-rollout-guard:
+	node tools/agent-hooks/check-feed-packing-rollout.mjs --self-test
+	node tools/agent-hooks/check-feed-packing-rollout.mjs
+
 operational-location-guard:
 	node tools/agent-hooks/check-operational-location.mjs --self-test
 	node tools/agent-hooks/check-operational-location.mjs

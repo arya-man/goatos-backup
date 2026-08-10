@@ -40,7 +40,6 @@ func basePackingRequest() feeddirectionapp.FeedPackingVerificationEnqueueRequest
 		ShedID:          "44444444-4444-4444-8444-444444444444",
 		ShedName:        "Mandela 1",
 		PartitionLabel:  "Part 2",
-		SessionNo:       1,
 		Workflow:        "normal",
 		TargetDate:      time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
 		PackingProofRef: "55555555-5555-4555-8555-555555555555",
@@ -50,7 +49,9 @@ func basePackingRequest() feeddirectionapp.FeedPackingVerificationEnqueueRequest
 
 func TestPackingItemCarriesTheExpectedRation(t *testing.T) {
 	req := basePackingRequest()
-	req.RationSummary = "Maize 12.5 kg · Soya 4 kg"
+	// The whole DAY, broken down by session -- one video now covers both, so the verifier is shown
+	// the same two figures the packer was. See packingExpectation.
+	req.RationSummary = "Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg"
 	req.HeadCountSummary = "38"
 
 	got := enqueuePacking(t, req)
@@ -59,8 +60,9 @@ func TestPackingItemCarriesTheExpectedRation(t *testing.T) {
 		t.Fatalf("context rows = %+v, want the ration and the head count", got.ContextRows)
 	}
 	// Order matters: the ration is what the verifier checks the video against, so it leads.
-	if got.ContextRows[0].Label != "Expected ration" || got.ContextRows[0].Value != "Maize 12.5 kg · Soya 4 kg" {
-		t.Errorf("row 0 = %+v, want the expected ration first", got.ContextRows[0])
+	if got.ContextRows[0].Label != "Expected ration" ||
+		got.ContextRows[0].Value != "Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg" {
+		t.Errorf("row 0 = %+v, want the whole day's expected ration first", got.ContextRows[0])
 	}
 	if got.ContextRows[1].Value != "38" {
 		t.Errorf("row 1 = %+v, want the pen's head count", got.ContextRows[1])
@@ -85,7 +87,41 @@ func TestPackingItemCarriesPartitionAsAField(t *testing.T) {
 	if got.PartitionLabel == nil || *got.PartitionLabel != "Part 2" {
 		t.Fatalf("PartitionLabel = %v, want the pen as its own field", got.PartitionLabel)
 	}
-	if got.SubjectLabel == nil || *got.SubjectLabel != "Session 1 · Mandela 1 - Part 2" {
-		t.Errorf("SubjectLabel = %v, want session and operational location", got.SubjectLabel)
+	if got.SubjectLabel == nil || *got.SubjectLabel != "Mandela 1 - Part 2" {
+		t.Errorf("SubjectLabel = %v, want the operational location", got.SubjectLabel)
+	}
+}
+
+// The verifier's subject is the PEN, with NO session prefix (maintainer decision 2026-08-10). One
+// video covers the pen's whole day, so "Session 1 · Mandela 1 - Part 2" would name one half of the
+// work she is judging and read as though a second clip were still owed.
+//
+// Asserted as an exact string, not a "contains the shed" check: the defect this replaces was a label
+// that was present and correct-looking and still described the wrong scope.
+func TestPackingSubjectNamesThePenWithoutASessionPrefix(t *testing.T) {
+	got := enqueuePacking(t, basePackingRequest())
+
+	if got.SubjectLabel == nil {
+		t.Fatal("SubjectLabel is nil; the verifier's card would show no location at all")
+	}
+	if *got.SubjectLabel != "Mandela 1 - Part 2" {
+		t.Fatalf("SubjectLabel = %q, want %q -- no session prefix, and shed and pen always together",
+			*got.SubjectLabel, "Mandela 1 - Part 2")
+	}
+}
+
+// An UNDIVIDED shed renders bare, with no dangling separator and never the matching key 'whole'.
+func TestPackingSubjectOfAnUndividedShedIsTheBareShedName(t *testing.T) {
+	req := basePackingRequest()
+	req.ShedName = "Yashoda"
+	req.PartitionLabel = ""
+
+	got := enqueuePacking(t, req)
+
+	if got.SubjectLabel == nil || *got.SubjectLabel != "Yashoda" {
+		t.Fatalf("SubjectLabel = %v, want a bare %q", got.SubjectLabel, "Yashoda")
+	}
+	if got.PartitionLabel != nil {
+		t.Errorf("PartitionLabel = %v, want nil for an undivided shed", got.PartitionLabel)
 	}
 }

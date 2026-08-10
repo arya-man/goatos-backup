@@ -42,25 +42,29 @@ type FeedPackingVerificationEnqueueRequest struct {
 	ShedID          string
 	ShedName        string
 	PartitionLabel  string
-	SessionNo       int32
 	Workflow        string
 	TargetDate      time.Time
 	PackingProofRef string
 	OperatorID      string
 	CapturedAt      time.Time
 	IdempotencyKey  string
-	// RationSummary is the FROZEN expected ration for this pen-session -- "Maize 12.5 kg · Soya 4 kg"
-	// -- carried onto the verifier's item so she can judge the video against what should have been
-	// packed. Without it the queue item carried the shed, pen, session, operator and clip and nothing
-	// about the feed, so a verifier could confirm a video EXISTED but not that the work was RIGHT
-	// (STG 2026-08-09).
+	// RationSummary is the FROZEN expected ration for this pen's WHOLE DAY, broken down by session --
+	// "Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg" -- carried onto the
+	// verifier's item so she can judge the video against what should have been packed. Without it the
+	// queue item carried the shed, pen, operator and clip and nothing about the feed, so a verifier
+	// could confirm a video EXISTED but not that the work was RIGHT (STG 2026-08-09).
+	//
+	// The BREAKDOWN is the point, not decoration: one video now covers both sessions, so a verifier
+	// judging it against a single day-total could not tell a crew that packed the morning share twice
+	// from one that packed morning and evening correctly. She is shown the same two figures the
+	// packer was shown.
 	//
 	// Read from the ISSUED sheet at submit time and stored on the item, so re-authoring the feed
 	// config afterwards cannot rewrite what the verifier is judging against. Blank when the sheet
 	// cannot be read: a completion must never fail because its decoration could not be composed.
 	RationSummary string
-	// HeadCountSummary is the pen's projected head count for that session, the denominator the
-	// ration was computed from. Blank when unknown.
+	// HeadCountSummary is the pen's projected head count, the denominator the ration was computed
+	// from. One figure for the day -- the same animals are fed at every session. Blank when unknown.
 	HeadCountSummary string
 }
 
@@ -73,7 +77,6 @@ type CompletePackingInput struct {
 	// PartitionLabel is the pen the operator actually worked ("2", "Part 3"); empty for an
 	// undivided shed. Carried end-to-end so ONE pen's proof closes ONE pen -- see migration 000137.
 	PartitionLabel  string
-	SessionNo       int32
 	TargetDate      time.Time
 	Workflow        string
 	PackingProofRef string
@@ -122,9 +125,6 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		return ports.CompletePackingResult{}, ports.ErrInvalidTargetDate
 	}
 	in.TargetDate = biztime.BusinessDayStart(in.TargetDate)
-	if in.SessionNo < 1 {
-		return ports.CompletePackingResult{}, ports.ErrInvalidSession
-	}
 	switch in.Workflow {
 	case domain.WorkflowNormal, domain.WorkflowExperiment:
 	case "":
@@ -155,7 +155,6 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		ParkID:          in.ParkID,
 		ShedID:          in.ShedID,
 		PartitionLabel:  in.PartitionLabel,
-		SessionNo:       in.SessionNo,
 		TargetDate:      in.TargetDate,
 		Workflow:        in.Workflow,
 		PackingProofRef: in.PackingProofRef,
@@ -182,7 +181,6 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 			ShedID:           in.ShedID,
 			ShedName:         result.ShedName,
 			PartitionLabel:   result.PartitionLabel,
-			SessionNo:        in.SessionNo,
 			Workflow:         in.Workflow,
 			TargetDate:       in.TargetDate,
 			PackingProofRef:  in.PackingProofRef,
@@ -200,9 +198,15 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	return result, nil
 }
 
-// packingExpectation reads the FROZEN issued sheet and composes what this pen-session was expected
-// to be packed with: the ration ("Maize 12.5 kg · Soya 4 kg") and the head count it was computed
-// from. Both are display strings for the verifier's screen (dumb-renderer rule).
+// packingExpectation reads the FROZEN issued sheet and composes what this PEN-DAY was expected to be
+// packed with: the ration, broken down by session, and the head count it was computed from. Both are
+// display strings for the verifier's screen (dumb-renderer rule).
+//
+// The ration reads "Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg". The
+// per-session breakdown is REQUIRED, not cosmetic: since 2026-08-10 one video covers the pen's whole
+// day, so a verifier handed only a day total could not distinguish a crew that packed the morning
+// share twice from one that packed both shares correctly. She judges the clip against the same two
+// figures the packer was shown. A park authoring ONE session yields one segment and no "|".
 //
 // FAIL-OPEN, deliberately. A completion is the operator's work reaching the server; it must never
 // fail because a decoration could not be composed. An unreadable or never-issued sheet yields blank
@@ -211,7 +215,7 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 //
 // It reads the same frozen rows the packing worklist serves, so the verifier sees byte-for-byte what
 // the packer was shown, and reads them ONCE per completion (a submit, not a list) bounded by the
-// park's sheds x sessions x items -- never by herd size.
+// park's pens x sessions x items -- never by herd size.
 func (s *Service) packingExpectation(ctx context.Context, in CompletePackingInput) (ration string, heads string) {
 	if s.issues == nil {
 		return "", ""
@@ -221,28 +225,45 @@ func (s *Service) packingExpectation(ctx context.Context, in CompletePackingInpu
 	if err != nil || !served {
 		return "", ""
 	}
-	// Match on the SAME identity the completion is keyed by -- shed + pen + session -- with the pen
-	// normalized the way the natural key normalizes it, so "Part 3" and "part 3" are one pen.
+	// Match on the SAME identity the completion is keyed by -- shed + pen -- with the pen normalized
+	// the way the natural key normalizes it, so "Part 3" and "part 3" are one pen. The session is no
+	// longer part of that identity; the row now carries every session for this pen.
 	wantPartition := domain.PartitionMatchKey(in.PartitionLabel)
 	for _, row := range domain.BuildPackingRows(scopeRows, domain.DistinctFeedItems(scopeRows)) {
-		if row.ShedID != in.ShedID || row.SessionNo != in.SessionNo {
+		if row.ShedID != in.ShedID {
 			continue
 		}
 		if domain.PartitionMatchKey(row.PartitionLabel) != wantPartition {
 			continue
 		}
-		parts := make([]string, 0, len(row.Items))
-		for _, item := range row.Items {
-			// A blocked item has no resolved quantity. Naming it without one still tells the
-			// verifier it was expected in the bag, which is more useful than dropping it silently.
-			if item.QuantityKg == nil {
-				parts = append(parts, item.FeedItem)
+		segments := make([]string, 0, len(row.Sessions))
+		for _, session := range row.Sessions {
+			parts := make([]string, 0, len(session.Items))
+			for _, item := range session.Items {
+				// A blocked item has no resolved quantity. Naming it without one still tells the
+				// verifier it was expected in the bag, which is more useful than dropping it
+				// silently.
+				if item.QuantityKg == nil {
+					parts = append(parts, item.FeedItem)
+					continue
+				}
+				parts = append(parts, item.FeedItem+" "+*item.QuantityKg+" kg")
+			}
+			if len(parts) == 0 {
 				continue
 			}
-			parts = append(parts, item.FeedItem+" "+*item.QuantityKg+" kg")
+			// The session is NAMED with its authored label ("Morning"), never "Session 1": the
+			// verifier's screen is farm copy, and a positional number tells her nothing about which
+			// half of the day she is looking at. Falls back to the number only if a park authored a
+			// session with no label.
+			name := strings.TrimSpace(session.SessionLabel)
+			if name == "" {
+				name = "Session " + strconv.Itoa(int(session.SessionNo))
+			}
+			segments = append(segments, name+": "+strings.Join(parts, " · "))
 		}
-		if len(parts) > 0 {
-			ration = strings.Join(parts, " · ")
+		if len(segments) > 0 {
+			ration = strings.Join(segments, " | ")
 		}
 		if row.HeadCount > 0 {
 			heads = strconv.FormatInt(row.HeadCount, 10)

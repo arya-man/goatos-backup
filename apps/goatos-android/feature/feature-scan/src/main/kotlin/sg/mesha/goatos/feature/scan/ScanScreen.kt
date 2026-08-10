@@ -440,10 +440,12 @@ fun ScanScreen(
                     items(
                         state.proofActionNeeded,
                         key = { row ->
-                            "proof-${row.obligationId.takeIf { it.isNotBlank() }
-                                ?: listOf(row.goatId, row.vaccineLabel, row.primaryTag)
+                            val baseParts = listOf(row.goatId, row.vaccineLabel, row.primaryTag)
+                            val rowId = row.obligationId.takeIf { it.isNotBlank() }
+                                ?: (baseParts + row.secondaryTag.orEmpty())
                                     .filter { it.isNotBlank() }
-                                    .joinToString("|")}"
+                                    .joinToString("|")
+                            "proof-$rowId"
                         },
                         contentType = { "proof_needed_row" },
                     ) { row ->

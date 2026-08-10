@@ -697,18 +697,56 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
+Confirmed feed-PACKING PEN-DAY grain (maintainer decision 2026-08-10, SUPERSEDING
+the shed-SESSION grain of the packing gate below, for PACKING ONLY): a packer
+packs a pen's whole day in one go, so feed packing is shown as ONE CARD and proved
+by ONE VIDEO per operational location per feed day. The morning and evening shares
+are a BREAKDOWN inside that card ("Morning 17.8 kg … Evening 17.8 kg … Pack total
+35.6 kg"), never two cards. Completion grain is `(tenant, park, shed, partition,
+target_date, workflow)` (migration `000148`).
+
+Three things a future change must not undo, each of which reintroduces a shipped
+defect:
+
+1. **The PEN did not merge.** Castro 1/2/3 are different animals on different
+   rations; `000137` exists because one Castro - 1 clip closed out all three.
+   Collapsing the session is not licence to collapse the partition.
+2. **Feed DISTRIBUTION is untouched** and is still gated per shed-SESSION. This is
+   the first place the two flows diverge, deliberately. `completedKey`
+   (session-bearing, distribution) and `packingCompletedKey` (pen-day) are separate
+   functions rather than one with a `0` argument, precisely so the wrong one cannot
+   be reused — that would mark a distribution session fed because its sibling was.
+   Removing `session_no` from the DISTRIBUTION completion was caught in development
+   on 2026-08-10 and would have collapsed its morning/evening records.
+3. **A session is not a work item.** It carries no completion, proof or
+   verification state, and none may be added — that rebuilds the two-card model one
+   field at a time.
+
+`session_no` is REJECTED, not ignored, on `POST /feed-direction/packing/complete`:
+accepted-and-ignored, a stale client's evening submission would key the same
+pen-day row and come back as an already-pending no-op, so the operator would see
+his video accepted while nothing recorded it. `/feed-packing/worklist` has no
+`session` filter. `summary.line_count` halves but `total_kg_by_feed_item` does NOT
+— the crew still carries out both bags. The verifier's item is subjected on the PEN
+(no `Session N ·` prefix) and its expected-ration context names BOTH sessions and
+their quantities, because a day total alone cannot distinguish a crew that packed
+the morning share twice from one that packed both correctly. Canonical prose:
+`docs/decisions/feed-distribution-verification.md` → "Feed packing is proved ONCE
+PER PEN PER DAY".
+
 Confirmed feed-PACKING verification gate (maintainer decision 2026-07-26,
 SUPERSEDING the "FEED PACKING IS DELIBERATELY NOT GATED" rule that the
-feed-distribution lock above originally carried): feed PACKING is now gated the
-same way as feed direction. The operator completes a packing shed-session with
+feed-distribution lock above originally carried; its GRAIN is in turn superseded by
+the 2026-08-10 pen-day rule above): feed PACKING is now gated the
+same way as feed direction. The operator completes a packing pen-day with
 ONE MANDATORY packing VIDEO (`packing_proof_ref`); a completion missing it is
 rejected 422 `proof_required`. That flips a NEW `feed_packing_completions` row to
 `pending_verification` and enqueues ONE `feed_packing` verification item carrying
 the video — NOTHING is completed yet. ONE verifier APPROVE
-(`ApplyVerifiedPacking`) flips the packing session to `completed` (this is when
+(`ApplyVerifiedPacking`) flips the pen-day to `completed` (this is when
 `feed.packing.completed` is emitted); a REJECT (`BouncePackingForRework`) flips
 it to `rework` for a re-shoot. Applies to BOTH `normal` and `experiment`
-workflows; `overlayPackingCompleted` now reads `ListVerifiedPacking`. The gated
+workflows; the serve overlay reads `ListPackingCompletionStatuses`. The gated
 flow is a SEPARATE record on a NEW table, never an ALTER of the old packing
 table. The OLD instant packing path — `feed_direction_session_completions`
 (migration `000030`), `POST /feed-direction/complete`, `feed.direction.completed`,
@@ -861,8 +899,78 @@ holds `task.verify`, so that half of the split is contract-layer, not a backend 
 that shared SOP route. Canonical source: `context/architecture/verifier-app-and-flow.md`
 → "Verifier WEB workspace"; code `backend/internal/adminui/app/verifier_lens.go`.
 
+Confirmed AFTERNOON FEED CORRECTION rule (maintainer decision 2026-08-10,
+SUPERSEDING the APPROVAL half — and only that half — of the 2026-07-27 projection
+rule immediately below): **a RAISED shifting counts toward the feed sheet before
+a park head approves it, and the 14:00 correction reopens any pen already packed
+against the old count.**
+
+The defect it fixes: a low-priority movement raised at 09:00 is due TOMORROW, but
+tomorrow's normal sheet was issued at **07:00 that same morning** and is already
+being packed. Ten animals arriving in a pen fed for one had no feed at all,
+because the projection waited for authorization. Under-feeding animals that
+really arrive is worse than over-packing for a movement the park head later turns
+down.
+
+Three parts, and each narrowing is load-bearing:
+
+1. **Approval no longer starts the feed clock; only REJECTION stops it.** The
+   projection now counts `authorization_state='pending' AND event_status='pending'`
+   alongside the existing authorized set. The two branches are disjoint on
+   `authorization_state`, so one movement contributes exactly once as it travels
+   from raised to approved. `rejected`, `canceled` and `applied` are excluded by
+   construction — a movement that is turned down stops feeding a shed at once.
+   The effective date for a RAISED movement is the **ACTIONS lead time**
+   (`ShiftingActionsDueFrom`: low priority raised before 13:30 IST → tomorrow, at
+   or after 13:30 → the day after), **not** the raise day. This is the one place
+   the two rules deliberately meet: an unapproved movement has no authorization
+   instant, and the honest answer to "when do these animals eat here" is the day
+   they are expected to walk. Anchoring on the raise day would feed a destination
+   a full day before a 13:45 raise's animals move.
+   Canonical rule: `counts/domain.FeedShiftingRaisedEffectiveBusinessDate`.
+2. **The 14:00 correction REOPENS an already-packed pen.** The correction
+   (`correction_time`, already 14:00 for both workflows — this rule adds no new
+   clock) recomputes the frozen sheet, and any pen whose packing was already
+   submitted goes back to `rework` with an operator-facing sentence, its
+   still-pending verification item `withdrawn`, and `verified_by`/`verified_at`
+   cleared. An **already-APPROVED** video is reopened too: it proves the packer
+   packed the OLD quantity, which is now the wrong quantity, so an approved clip
+   is no more usable than an unapproved one.
+3. **Two narrowings that must not be widened.** *Experiment is EXEMPT* — its
+   rations are authored as absolute kg per pen, so a head-count change moves no
+   quantity there and reopening one would discard a good video for a sheet that
+   did not change. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
+   relabelled ration group and is shed-wide, so driving the reopen from it would
+   make the packers of Castro - 1 and Castro - 3 refilm because Castro - 2 gained
+   animals. Making an operator refilm is expensive; it is spent only where the
+   number of mouths actually moved. Canonical rule:
+   `feeddirection/domain.CellDiff.HeadCountChangedPens` →
+   `app.reopenPackingForCorrection` → `ports.ReopenPackingForFeedChange`.
+
+There is **no new state**: a reopened pen uses the existing `rework`, which
+normalizes to the client bucket `pending` ("needs my action again"). That means
+the CHIP CANNOT distinguish a reopened pen from one nobody has packed — the
+backend-composed `rework_reason` on `FeedPackingRow` is the only thing that can,
+so it must never be dropped from the contract or replaced by client-side copy.
+
+**No lock is lifted and none may be.** The transport lock is 15:30, after the
+14:00 correction, so the correction was never blocked by it; `ErrAmendAfterLock`
+stays. Do not add a path that amends a locked sheet — past the transport cutoff
+the feed has physically left and a correction cannot reach the shed.
+
+Pinned by `TestFeedShiftingRaisedEffectiveBusinessDate`,
+`TestRaisedAndAuthorizedRulesStayDistinct`, `TestDiffCellsReportsOnlyTheChangedPenOfASharedShed`,
+`TestAfternoonCorrectionNeverReopensExperimentPacking` and
+`TestPackingReworkReasonIsCarriedOnlyWhileThePenIsActuallyInRework`. Every one of
+those was mutation-tested when written: deleting the experiment branch, keying the
+reopen on the shed, or widening it past head count each turns one red.
+
 Confirmed feed-direction shifting-projection timing rule (maintainer decision
-2026-07-27, SUPERSEDING the priority-based lead-day rule — normal 2-day /
+2026-07-27; its APPROVAL requirement is SUPERSEDED by the 2026-08-10 afternoon
+correction rule ABOVE — a raised movement now counts before approval — while
+everything below about AUTHORIZED movements, zero lead, no priority branch and
+the applied/pending_verification boundary stands unchanged. This rule itself
+SUPERSEDED the priority-based lead-day rule — normal 2-day /
 high-priority 1-day — that the projection previously applied): the feed sheet's
 projected shed head count = the live herd PLUS every authorized-but-unexecuted
 shifting, with NO lead time and NO priority branch. A shifting is a pending feed

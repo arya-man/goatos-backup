@@ -66,6 +66,44 @@ func FeedShiftingCountsToward(approvedAt time.Time, targetDate time.Time) bool {
 	return !effective.After(target)
 }
 
+// FeedShiftingRaisedEffectiveBusinessDate is the feed-effective business date of a movement that has
+// been RAISED but NOT YET APPROVED.
+//
+// MAINTAINER DECISION (2026-08-10, SUPERSEDING the approval half of the 2026-07-27 rule above): a
+// raised movement counts toward the feed sheet before a park head has authorized it. Approval is no
+// longer what starts the feed clock; only a REJECTION stops it.
+//
+// The problem it fixes: a low-priority movement raised at 09:00 is due TOMORROW, but tomorrow's
+// normal sheet was issued at 07:00 THIS MORNING and is already being packed. Waiting for approval
+// meant the destination pen was packed for the head count it had at breakfast, so ten animals
+// arriving tomorrow had no feed at all. Under-feeding animals that really arrive is worse than
+// over-packing for a movement the park head later rejects -- and a rejected movement stops counting
+// the moment it is rejected, because only authorization_state='pending' contributes.
+//
+// The date is the ACTIONS lead time, NOT the raise day. This is the one place the two rules
+// deliberately meet: an unapproved movement has no authorization instant to anchor on, and the
+// honest answer to "when do these animals eat here" is the day they are expected to walk --
+// ShiftingActionsDueFrom, i.e. low priority raised before 13:30 IST -> tomorrow, at or after 13:30
+// -> the day after. Anchoring on the raise DAY instead would feed the destination from tomorrow for
+// a 13:45 raise whose animals do not move until the day after, which is the same over-feeding bug
+// one day earlier.
+//
+// An APPROVED movement keeps the 2026-07-27 rule unchanged (effective = the authorization business
+// date, no lead, no priority branch). The two are not merged: this one answers "how many mouths will
+// be here" for work nobody has authorized yet, that one for work that is already authorized.
+func FeedShiftingRaisedEffectiveBusinessDate(priority string, raisedAt time.Time) time.Time {
+	return biztime.BusinessDayStart(ShiftingActionsDueFrom(priority, raisedAt))
+}
+
+// FeedShiftingRaisedCountsToward reports whether a raised-but-unapproved shifting contributes to the
+// projected counts for feed day targetDate. Same <= as the authorized rule: once a movement is due it
+// keeps counting until it is executed or rejected, so an unapproved movement sitting in the park
+// head's queue for days does not silently stop feeding a destination whose animals are still coming.
+func FeedShiftingRaisedCountsToward(priority string, raisedAt time.Time, targetDate time.Time) bool {
+	effective := FeedShiftingRaisedEffectiveBusinessDate(priority, raisedAt)
+	return !effective.After(biztime.BusinessDayStart(targetDate))
+}
+
 // FeedShiftingIsOverdue reports whether an authorized-but-unexecuted shifting has
 // been pending SINCE BEFORE the packing day and still has not physically happened.
 //

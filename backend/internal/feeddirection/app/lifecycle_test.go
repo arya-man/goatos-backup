@@ -102,7 +102,15 @@ func (f *fakeIssueStore) AmendIssue(_ context.Context, cmd ports.AmendIssueComma
 	h.AmendedAt = &at
 	h.AmendmentCount++
 	h.GenerationInputFingerprint = cmd.Fingerprint
-	return ports.AmendResult{Header: *h, Outcome: ports.AmendOutcomeAmended, AffectedShedIDs: diff.AffectedShedIDs}, nil
+	// HeadCountChangedPens is carried through DELIBERATELY. Dropping it here would make every test of
+	// the packing reopen pass vacuously -- the service would receive an empty pen set and correctly
+	// reopen nothing, whatever the production adapter actually returns.
+	return ports.AmendResult{
+		Header:               *h,
+		Outcome:              ports.AmendOutcomeAmended,
+		AffectedShedIDs:      diff.AffectedShedIDs,
+		HeadCountChangedPens: diff.HeadCountChangedPens,
+	}, nil
 }
 
 func (f *fakeIssueStore) LockIssue(_ context.Context, cmd ports.LockIssueCommand) (ports.LockResult, error) {
@@ -672,4 +680,137 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 // 2026-07-30.
 func feedDayTarget() time.Time {
 	return time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+}
+
+// ---------------------------------------------------------------------------
+// The afternoon correction reopens already-packed pens (maintainer decision 2026-08-10)
+// ---------------------------------------------------------------------------
+//
+// A low-priority movement raised in the morning is due tomorrow, and tomorrow's normal sheet was
+// issued at 07:00 and is already being packed. The 14:00 correction recomputes it -- but a pen whose
+// bag was packed and filmed at 09:00 was packed for the OLD head count, and nothing was telling the
+// packer. These pin that the correction sends exactly those pens back, and no others.
+
+// newPackingLifecycleService is newLifecycleService plus a packing store, so a test can observe what
+// the correction asked the store to reopen.
+func newPackingLifecycleService(now time.Time) (*Service, *fakeCountsReader, *fakePackingStore) {
+	svc, _, counts, _ := newLifecycleService(now)
+	packing := &fakePackingStore{}
+	return svc.WithPackingStore(packing), counts, packing
+}
+
+// THE CASE THE FEATURE EXISTS FOR. Animals arrive in shed B, so its quantities move, and the
+// correction reopens exactly that pen -- carrying the pen key the completion is keyed on and an
+// operator-facing sentence saying why.
+func TestAfternoonCorrectionReopensPackingForAPenWhoseAnimalCountMoved(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, counts, packing := newPackingLifecycleService(asOf)
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection: %v", err)
+	}
+
+	// Animals shift into shed B between the 07:00 issue and the 14:00 correction.
+	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Sirohi", HeadCount: 40}}
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection: %v", err)
+	}
+
+	if len(packing.reopenCalls) != 1 {
+		t.Fatalf("packing reopen calls = %d, want exactly one for the correction", len(packing.reopenCalls))
+	}
+	call := packing.reopenCalls[0]
+	if call.Workflow != domain.WorkflowNormal {
+		t.Fatalf("reopen workflow = %q, want normal", call.Workflow)
+	}
+	if len(call.Pens) != 1 || call.Pens[0].ShedID != shedB {
+		t.Fatalf("reopened pens = %+v, want only shed B -- shed A did not move and its video is still good", call.Pens)
+	}
+	// The packer is TOLD WHY. A reopened pen surfaces as lifecycle_status "pending", the same bucket
+	// as one nobody has packed, so without this sentence the card is indistinguishable from work they
+	// never started -- and they would be shown the same pen twice with no explanation.
+	if !strings.Contains(call.Reason, "Animals moved") {
+		t.Fatalf("reopen reason = %q, want a farm sentence naming the animal movement", call.Reason)
+	}
+	// Copy firewall: operator-facing text must not leak implementation vocabulary.
+	for _, banned := range []string{"amend", "correction", "shifting_events", "projection", "workflow", "row_version"} {
+		if strings.Contains(strings.ToLower(call.Reason), banned) {
+			t.Fatalf("reopen reason %q leaks the internal word %q to an operator", call.Reason, banned)
+		}
+	}
+	// The feed day, not the day the correction ran: the packer is working today on tomorrow's sheet.
+	if got := call.TargetDate.Format("2006-01-02"); got != "2026-07-30" {
+		t.Fatalf("reopen target date = %s, want the FEED day 2026-07-30, not the correction day", got)
+	}
+}
+
+// A COSMETIC amendment reprints the sheet but must NOT cost an operator their video. This is the
+// narrowing that makes the feature affordable: reopening is expensive, so it is spent only where the
+// number of mouths actually moved.
+func TestAfternoonCorrectionDoesNotReopenPackingWhenNoAnimalCountMoved(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, _, packing := newPackingLifecycleService(asOf)
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection: %v", err)
+	}
+
+	// Nothing changed at all: the herd and the config are identical.
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection: %v", err)
+	}
+
+	if len(packing.reopenCalls) != 0 {
+		t.Fatalf("reopen calls = %+v, want none -- an unchanged sheet must not discard a packing video", packing.reopenCalls)
+	}
+}
+
+// EXPERIMENT IS EXEMPT, and this is the half a later change is most likely to break by "simplifying"
+// the branch away. Experiment rations are authored as ABSOLUTE KG PER PEN, so a head-count change
+// moves no quantity there -- reopening one would throw away a perfectly good video for a sheet that
+// did not change.
+func TestAfternoonCorrectionNeverReopensExperimentPacking(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, counts, packing := newPackingLifecycleService(asOf)
+	svc.schedule = &fakeScheduleReader{
+		parks: []string{testPark},
+		clocks: []domain.WorkflowClock{
+			normalClock(),
+			{Workflow: domain.WorkflowExperiment, DirectionTime: "14:00:00", CorrectionTime: "14:00:00"},
+		},
+	}
+	// shed B is a REAL experiment pen: an authored ABSOLUTE kg total for the whole pen, not a
+	// per-head rate. Without this the experiment sheet generates no rows at all and the assertion
+	// below passes for the wrong reason -- it would pass with the exemption deleted.
+	svc.config.(*fakeConfigRepo).snapshot.ExperimentByLocation = map[string][]domain.ExperimentCell{
+		domain.ExperimentLocationKey(shedB, ""): {
+			{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000"},
+		},
+	}
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowExperiment, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection(experiment): %v", err)
+	}
+
+	// The same herd movement that reopens a NORMAL pen above.
+	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Sirohi", HeadCount: 40}}
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowExperiment,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection(experiment): %v", err)
+	}
+
+	if len(packing.reopenCalls) != 0 {
+		t.Fatalf("experiment reopen calls = %+v, want none -- experiment quantities are authored in absolute kg and do not move with head count", packing.reopenCalls)
+	}
 }

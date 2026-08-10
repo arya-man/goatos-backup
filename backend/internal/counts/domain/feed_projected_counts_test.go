@@ -203,3 +203,141 @@ func TestFeedShiftingOverdueImpliesCounting(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// RAISED but NOT YET APPROVED (maintainer decision 2026-08-10)
+// ---------------------------------------------------------------------------
+
+// istAt (minute precision, fixed date) already lives in this package -- shifting_visibility_test.go.
+// The 13:30 cutoff needs minutes and ist() above carries whole hours only, so these cases reuse it
+// rather than declaring a second helper that could drift from the one the lead-time rule is tested with.
+
+// TestFeedShiftingRaisedEffectiveBusinessDate pins the rule that fixed the real defect: a
+// low-priority movement raised in the MORNING is due tomorrow, but tomorrow's normal sheet was
+// issued at 07:00 that same morning and is already being packed. Waiting for a park head's approval
+// meant the destination pen was packed for the head count it had at breakfast.
+//
+// The date is the ACTIONS lead time, deliberately NOT the raise day. The 13:45 case below is the one
+// that makes the difference visible: those animals do not walk until the day AFTER tomorrow, so
+// feeding their destination from tomorrow would be the same over-feeding bug one day early.
+func TestFeedShiftingRaisedEffectiveBusinessDate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		priority string
+		raisedAt time.Time
+		want     time.Time
+	}{
+		{
+			name:     "low priority raised in the morning is due tomorrow",
+			priority: "low",
+			raisedAt: istAt(2026, time.August, 10, 9, 0),
+			want:     day(2026, time.August, 11),
+		},
+		{
+			name:     "low priority raised one minute before the cutoff is still tomorrow",
+			priority: "low",
+			raisedAt: istAt(2026, time.August, 10, 13, 29),
+			want:     day(2026, time.August, 11),
+		},
+		{
+			name:     "low priority raised exactly at 13:30 slips to the day after",
+			priority: "low",
+			raisedAt: istAt(2026, time.August, 10, 13, 30),
+			want:     day(2026, time.August, 12),
+		},
+		{
+			name:     "low priority raised at 13:45 does NOT reach tomorrow's sheet",
+			priority: "low",
+			raisedAt: istAt(2026, time.August, 10, 13, 45),
+			want:     day(2026, time.August, 12),
+		},
+		{
+			// High priority carries no lead at all: it is executed the same day, so its animals eat
+			// at the destination today.
+			name:     "high priority is effective the day it is raised",
+			priority: "high",
+			raisedAt: istAt(2026, time.August, 10, 16, 0),
+			want:     day(2026, time.August, 10),
+		},
+		{
+			// UTC never defines a Goat OS business day. 09:00 UTC is 14:30 in India -- AFTER the
+			// cutoff -- so a UTC-derived comparison would put this on tomorrow's sheet and feed a
+			// destination a day before its animals arrive.
+			name:     "the cutoff reads the India wall clock, not UTC",
+			priority: "low",
+			raisedAt: time.Date(2026, time.August, 10, 9, 0, 0, 0, time.UTC),
+			want:     day(2026, time.August, 12),
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := FeedShiftingRaisedEffectiveBusinessDate(tc.priority, tc.raisedAt)
+			if !got.Equal(tc.want) {
+				t.Fatalf("FeedShiftingRaisedEffectiveBusinessDate(%q, %s) = %s, want %s",
+					tc.priority, tc.raisedAt.Format(time.RFC3339), got.Format(time.RFC3339), tc.want.Format(time.RFC3339))
+			}
+		})
+	}
+}
+
+// TestFeedShiftingRaisedCountsToward: once due, an unapproved movement keeps counting until it is
+// executed or rejected -- the same <= the authorized rule uses. A movement sitting unapproved in the
+// park head's queue for days must not silently stop feeding a destination whose animals are still
+// expected to arrive.
+func TestFeedShiftingRaisedCountsToward(t *testing.T) {
+	t.Parallel()
+
+	raised := istAt(2026, time.August, 10, 9, 0) // low priority -> due 2026-08-11
+
+	cases := []struct {
+		name       string
+		targetDate time.Time
+		want       bool
+	}{
+		{"the raise day itself is too early -- the animals have not moved", day(2026, time.August, 10), false},
+		{"the due day counts", day(2026, time.August, 11), true},
+		{"a later day still counts while the movement is unexecuted", day(2026, time.August, 20), true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := FeedShiftingRaisedCountsToward("low", raised, tc.targetDate); got != tc.want {
+				t.Fatalf("FeedShiftingRaisedCountsToward(low, %s, %s) = %t, want %t",
+					raised.Format(time.RFC3339), tc.targetDate.Format("2006-01-02"), got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRaisedAndAuthorizedRulesStayDistinct guards the merge this pair keeps inviting. The two rules
+// look alike and answer different questions, and collapsing them silently changes which day a shed
+// is fed for.
+//
+// An APPROVED movement counts from its authorization day with NO lead. A RAISED one counts from the
+// day its animals are expected to walk. Feeding an unapproved movement's destination from the raise
+// day would feed it a day early, every time.
+func TestRaisedAndAuthorizedRulesStayDistinct(t *testing.T) {
+	t.Parallel()
+
+	at := istAt(2026, time.August, 10, 9, 0)
+
+	authorized := FeedShiftingEffectiveBusinessDate(at)
+	raised := FeedShiftingRaisedEffectiveBusinessDate("low", at)
+
+	if !authorized.Equal(day(2026, time.August, 10)) {
+		t.Fatalf("authorized effective date = %s, want the authorization day itself", authorized.Format("2006-01-02"))
+	}
+	if !raised.Equal(day(2026, time.August, 11)) {
+		t.Fatalf("raised effective date = %s, want the day the animals are due to move", raised.Format("2006-01-02"))
+	}
+	if authorized.Equal(raised) {
+		t.Fatal("the raised and authorized rules collapsed to one date; they answer different questions and must not be merged")
+	}
+}

@@ -1455,10 +1455,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Per-shed packing worklist for one park and one feed day.
-         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: one row per shed per session, with the shed's ration grains already summed, because a packer fills one bag per feed item per shed rather than one per grain. The totals are summed from the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
+         * Per-pen packing worklist for one park and one feed day.
+         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: ONE ROW PER OPERATIONAL LOCATION PER DAY, with the pen's ration grains already summed, because a packer fills one bag per feed item per pen rather than one per grain. The totals are summed from the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
          *
-         *     READ-ONLY. Nothing here is recorded: there is no proof capture, no video, and no stored packing state. `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the shed short), and `empty` when the shed holds no projected animals, which is not a configuration gap.
+         *     The DAY is the grain, not the session (maintainer decision 2026-08-10, superseding the per-shed-session row). A packer packs a pen's whole day in one go, so the crew was being shown the same pen twice and asked to film it twice. The sessions survive intact as the `sessions` breakdown on each row, and one video now proves the pen-day.
+         *
+         *     The PARTITION is still part of the grain and is not affected by that: Castro 1 and Castro 2 are physically different pens holding different animals on different rations, and are two separate rows.
+         *
+         *     `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the pen short), and `empty` when the pen holds no projected animals, which is not a configuration gap. `lifecycle_status` and `completed` report the pen-day's verification state, recorded through `POST /feed-direction/packing/complete`.
          *
          *     `items` is a page of SHEDS; `summary` is the store draw for the WHOLE filtered worklist and is invariant to `limit`/`offset` -- see `FeedPackingWorklistSummary`.
          */
@@ -1529,12 +1533,16 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit one shed-session's feed packing for verifier approval.
+         * Submit one pen's whole packing DAY for verifier approval.
          * @description The verifier-GATED feed PACKING completion (maintainer decision, 2026-07-26, SUPERSEDING the earlier "packing stays instant, no verifier" rule). The operator submits ONE mandatory packing VIDEO (`packing_proof_ref`), which writes a `pending_verification` row and enqueues ONE verification item carrying the video. NOTHING is completed here.
          *
-         *     The packing session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-packing/worklist` rows for that shed-session report `completed: true`.
+         *     ONE VIDEO COVERS THE PEN'S WHOLE DAY (maintainer decision 2026-08-10, superseding the per-shed-session completion). A packer packs a pen's morning and evening shares in one go, so `session_no` has left both this request and the completion's natural key -- which is now (tenant, park, shed, partition, target_date, workflow). The verification item's expected-ration context still names both sessions and their quantities, so the verifier judges the clip against the same two figures the packer was shown.
          *
-         *     This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert) and from the distribution gate. The packing video is MANDATORY: a request missing `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         *     The PEN remains part of the identity. A partitioned shed has one completion PER PEN, and one pen's video must never close out its neighbours -- see `partition_label` and migration 000137.
+         *
+         *     The pen-day is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-packing/worklist` row for that pen-day reports `completed: true`.
+         *
+         *     This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert) and from the distribution gate, which is still per shed-SESSION. The packing video is MANDATORY: a request missing `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the pen-day natural key.
          */
         post: operations["completeFeedPacking"];
         delete?: never;
@@ -3349,6 +3357,8 @@ export interface components {
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
+            /** @description Every ration-group label that carries an in-force authored rate. This is NOT the set of labels reachable through items: items is the BREED map and that table is adult breeds only, so the fixed 'Kid' group -- which kids resolve to by age band -- appears in no row of it. Build a ration-group filter from this field; build a BREED filter from items. Whole-set and unpaginated on purpose -- limit/offset/has_more describe items only. */
+            ration_groups: string[];
             limit: number;
             offset: number;
             has_more: boolean;
@@ -3589,28 +3599,57 @@ export interface components {
             partition_label?: string;
             /** @description Backend-composed physical feed location label. Render verbatim. */
             operational_location_display: string;
-            session_no: number;
-            session_label: string;
             /** @enum {string} */
             workflow: "normal" | "experiment";
             /** @description The trial group of a hand-authored experiment pen, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
             experiment_arm: string;
             /**
              * Format: int64
-             * @description The operational pen's projected or informational head count. An undivided shed is its single pen; never interpret a partitioned row as the building-wide count.
+             * @description The operational pen's projected or informational head count, counted ONCE for the day. The same animals are fed at every session, so this is never multiplied by the number of sessions. An undivided shed is its single pen; never interpret a partitioned row as the building-wide count.
              */
             head_count: number;
-            /** @description Operational-pen expected quantity per feed item, with the ration grains already summed within that pen (an undivided shed is one pen), because a packer fills one bag per item per operational location. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
-            items: components["schemas"]["FeedDirectionItemQuantity"][];
-            /** @description Sum of the resolved items, as an exact decimal string. */
+            /**
+             * @description The day's feeding sessions, in authored session order -- the "Morning this much, Evening this much" breakdown the packer reads off one card. Never empty for a generated pen: a park authoring one session yields one entry.
+             *
+             *     A session is a BREAKDOWN LINE, not a work item. It carries no completion, proof or verification state, and none may be added: the pen-day is what is filmed and verified, and per-session state would reintroduce the retired two-card model one field at a time.
+             */
+            sessions: components["schemas"]["FeedPackingSession"][];
+            /** @description The WHOLE DAY's resolved total, as an exact decimal string, summed from the already-rounded session totals so it equals what the sessions above print rather than differing by a rounding step. */
             total_kg: string;
             /**
-             * @description DERIVED from the generation result, not stored -- this surface records nothing. `ready`: every item resolved. `blocked`: at least one item has no authored ration, so the line must NOT be packed from the resolved remainder. `empty`: the shed holds no projected animals, which is not a configuration gap and must not be confused with one.
+             * @description The pen-day state, DERIVED from the generation result and never stored, rolled up from `sessions`. `blocked` when ANY session is blocked -- the day cannot be packed as printed, and a real gap must not be hidden because a sibling session happens to have nothing to feed. `empty` only when EVERY session is empty, which is not a configuration gap and must not be confused with one. Otherwise `ready`.
              * @enum {string}
              */
             status: "ready" | "blocked" | "empty";
-            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a client can show a "completed" badge without losing the packing state. This packing line IS one shed-session, so it maps 1:1 to the completion. */
+            /** @description True when this PEN-DAY has a verifier-approved packing completion (`feed.packing.completed`). Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a client can show a "completed" badge without losing the packing state. */
             completed: boolean;
+            /**
+             * @description The pen-day's verification-lifecycle bucket -- the finer state `completed` collapses. `rework` merges into `pending`, because a bounced pen is the operator's to act on again. Orthogonal to `status` (the ration state): a pen-day can be blocked underneath and still be awaiting a verdict.
+             * @enum {string}
+             */
+            lifecycle_status: "pending" | "pending_verification" | "completed";
+            /**
+             * @description Why this pen came back to the packer, present only while the pen is in rework (which surfaces above as `lifecycle_status: pending`). Two very different things put a pen there and the status alone cannot tell them apart: a verifier rejected the video, or the afternoon feed correction changed how many animals the pen feeds, so the recorded video no longer proves the right quantity and the bag must be repacked to the new amounts.
+             *
+             *     Backend-composed farm copy. Render verbatim; never substitute a client-side sentence and never derive one from the status.
+             */
+            rework_reason?: string;
+            /** @description The deduplicated union of every session's blocked reasons. */
+            blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
+        };
+        FeedPackingSession: {
+            session_no: number;
+            /** @description The authored session name ("Morning"). Farm copy; render verbatim. */
+            session_label: string;
+            /** @description This session's expected quantity per feed item, with the ration grains already summed within the pen, because a packer fills one bag per item per operational location. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. An item authored in the OTHER session only appears here as a resolved `0.000` so both sessions list the same items in the same order -- which is a different statement from a blocked cell and must not be confused with one. */
+            items: components["schemas"]["FeedDirectionItemQuantity"][];
+            /** @description Sum of this session's resolved items, as an exact decimal string. */
+            total_kg: string;
+            /**
+             * @description This session's own ready|blocked|empty state. A pen can be ready in the morning and blocked in the evening when the two sessions draw on different feed items, so the packer is told WHICH share is short rather than being handed one flag over the whole day.
+             * @enum {string}
+             */
+            status: "ready" | "blocked" | "empty";
             blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
         };
         FeedDirectionCompleteRequest: {
@@ -3704,13 +3743,15 @@ export interface components {
             park_id?: string;
             /**
              * Format: uuid
-             * @description The shed whose packing session was carried out.
+             * @description The shed whose packing day was carried out.
              */
             shed_id: string;
-            /** @description The PEN inside the shed that was packed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one completion PER PEN, so omitting it records the work against the whole shed and one video stands as proof for every pen. See FeedDistributionCompleteRequest and migration 000137. */
+            /**
+             * @description The PEN inside the shed that was packed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one completion PER PEN, so omitting it records the work against the whole shed and one video stands as proof for every pen. See FeedDistributionCompleteRequest and migration 000137.
+             *
+             *     The session is NOT part of the identity and `session_no` is NOT accepted -- see below.
+             */
             partition_label?: string;
-            /** @description The feeding session that was packed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
-            session_no: number;
             /**
              * Format: date
              * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
@@ -3728,7 +3769,7 @@ export interface components {
             /** Format: uuid */
             completion_id: string;
             /**
-             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the shed-session had already been verifier-approved. Never `completed` on a first submit -- packing is done only at verifier approval.
+             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the pen-day had already been verifier-approved. Never `completed` on a first submit -- packing is done only at verifier approval.
              * @enum {string}
              */
             status: "pending_verification" | "completed";
@@ -3791,9 +3832,13 @@ export interface components {
             scope: "filtered";
             /** @description Distinct sheds in the whole filtered scope. */
             shed_count: number;
-            /** @description Shed x session packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. */
+            /** @description PEN-DAY packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. A line is a pen-DAY since 2026-08-10, so on a two-session park this is half what it used to be for the same physical work. */
             line_count: number;
-            /** @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero. */
+            /**
+             * @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero.
+             *
+             *     Counts EVERY SESSION of every pen -- the packer carries out the morning bag AND the evening bag, so this figure did NOT halve when the lines above did.
+             */
             total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
             /** @description Blocked item cells in the whole filtered scope. */
             blocked_count: number;
@@ -11746,9 +11791,11 @@ export interface operations {
                 park_id: string;
                 /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
                 target_date: string;
-                /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. Same contract as the preview. */
-                session?: number;
-                /** @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview. */
+                /**
+                 * @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview.
+                 *
+                 *     There is deliberately no `session` parameter, unlike the preview. A packing line is a whole pen-day carrying every session as a breakdown, so narrowing to one session could only mean "show the pen but hide half its bags" -- a worklist that understates what the packer must carry out.
+                 */
                 workflow?: "normal" | "experiment";
                 /** @description The only live-compute path; see the preview's `draft`. Absent/false serves the frozen issued worklist (or its pending/never-issued state). */
                 draft?: boolean;
@@ -11867,7 +11914,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The shed-session is recorded pending_verification (or was already completed). The packing session is not done until a verifier approves. */
+            /** @description The pen-day is recorded pending_verification (or already held THIS SAME video). The packing is not done until a verifier approves. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11880,7 +11927,21 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
+            /**
+             * @description Either the `Idempotency-Key` was reused with a different payload, or this pen-day already holds a DIFFERENT packing video (`code: packing_already_recorded`).
+             *
+             *     A pen-day accepts exactly ONE video, so a second, different one is a CONFLICT and not a replay -- it cannot be stored, and answering success would tell the operator their recording was accepted while nothing recorded it and no verifier ever saw it. A genuine re-send is unaffected: an identical request replays on its idempotency key, and re-sending the SAME `packing_proof_ref` under a new key still matches the stored proof and returns `200`.
+             *
+             *     The client must treat this as TERMINAL and surface it, never retry it.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description The mandatory packing video is missing (`code: proof_required`). */
             422: {
                 headers: {

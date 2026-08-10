@@ -161,9 +161,11 @@ type PackingQuery struct {
 	TenantID   string
 	ParkID     string
 	TargetDate time.Time
-	// SessionNo optionally narrows the worklist to a single feeding session. Zero means every
-	// session, mirroring PreviewQuery.SessionNo.
-	SessionNo int32
+	// There is deliberately NO SessionNo here, unlike PreviewQuery. A packing line is a whole pen-day
+	// carrying every session as a breakdown (maintainer decision 2026-08-10), so narrowing to one
+	// session could only hide half of a bag the packer must still carry out. Re-adding it would
+	// silently under-report the store draw.
+	//
 	// Workflow optionally narrows the served issue to one dispatch workflow. Empty means both.
 	Workflow string
 	// Status optionally narrows to one verification-lifecycle bucket (SessionStatus* value). Empty
@@ -473,15 +475,19 @@ type PreviewSummary struct {
 
 // PackingSummary rolls up the whole filtered worklist, on exactly the same terms as PreviewSummary.
 //
-// It is a distinct type because its RowCount counts PACKING LINES (shed x session), not ration
-// grains -- a packer's unit of work is the bag, and reporting the preview's grain count here would
-// overstate the job. Every other field carries the same meaning and the same whole-scope guarantee.
+// It is a distinct type because its LineCount counts PACKING LINES, not ration grains -- a packer's
+// unit of work is the bag, and reporting the preview's grain count here would overstate the job.
+// Every other field carries the same meaning and the same whole-scope guarantee.
+//
+// A LINE IS NOW A PEN-DAY, not a pen-session (maintainer decision 2026-08-10). On a two-session park
+// this halves LineCount and BlockedLineCount for the same physical work, which is correct: the
+// packer fills one bag per pen per day. ShedCount is unaffected -- it always counted distinct sheds.
 type PackingSummary struct {
 	// Scope is always SummaryScopeFiltered.
 	Scope string `json:"scope"`
 	// ShedCount is the number of distinct sheds in the whole filtered scope.
 	ShedCount int32 `json:"shed_count"`
-	// LineCount is the number of shed x session packing lines in the whole filtered scope.
+	// LineCount is the number of pen-day packing lines in the whole filtered scope.
 	LineCount int32 `json:"line_count"`
 	// TotalKgByFeedItem sums the RESOLVED per-shed quantities across the whole filtered scope.
 	TotalKgByFeedItem []FeedItemTotal `json:"total_kg_by_feed_item"`
@@ -548,7 +554,41 @@ type FeedItemTotal struct {
 	BlockedCells int32 `json:"blocked_cells"`
 }
 
-// PackingRow is one shed/session line of the packing worklist.
+// PackingSession is ONE feeding session's share of a pen's day, nested inside the pen's PackingRow.
+//
+// The session is no longer a work item -- it is a BREAKDOWN LINE. A packer packs a pen's whole day
+// in one go and films it once (maintainer decision 2026-08-10), so the morning and evening shares
+// are two numbers on one card rather than two cards with two videos. The split itself is unchanged:
+// each session is still generated at its own authored split_fraction and rounded UP on its own, so
+// these are the same figures the direction sheet prints.
+//
+// There is no per-session completion, proof or verification state here, and none may be added: the
+// pen-day is the unit that is filmed and verified, and a per-session state would reintroduce the
+// two-card model one field at a time.
+type PackingSession struct {
+	SessionNo    int32  `json:"session_no"`
+	SessionLabel string `json:"session_label"`
+	// Items is this session's expected quantity per feed item, grains already summed.
+	Items []ItemQuantity `json:"items"`
+	// TotalKg sums this session's resolved items.
+	TotalKg string `json:"total_kg"`
+	// Status is this session's own ready|blocked|empty state. A pen can be ready in the morning and
+	// blocked in the evening when the two sessions draw on different feed items, so the packer is
+	// told WHICH share is short rather than being handed one flag over the whole day.
+	Status string `json:"status"`
+	// BlockedReasons lists the distinct gaps behind this session's blocked status.
+	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
+}
+
+// PackingRow is one operational location's whole packing DAY -- the bag a packer fills and films.
+//
+// Grain is (park, shed, partition, workflow, feed day). The session is NOT part of the identity: it
+// was until 2026-08-10, which put a pen on the worklist twice and asked for the same video twice.
+// Sessions now nest inside as breakdown lines.
+//
+// The PARTITION remains part of the identity and must never be collapsed the way the session was.
+// Castro 1 and Castro 2 are physically different pens holding different animals with different
+// rations; merging them is the 2026-08-08 defect, not a further simplification of this one.
 type PackingRow struct {
 	ParkID    string `json:"park_id"`
 	ParkLabel string `json:"park_label"`
@@ -561,33 +601,53 @@ type PackingRow struct {
 	// and one shed's partitions can carry very different quantities when some are on an authored
 	// experiment and the rest on the per-head grid.
 	PartitionLabel string `json:"partition_label,omitempty"`
-	SessionNo      int32  `json:"session_no"`
-	SessionLabel   string `json:"session_label"`
-	Workflow       string `json:"workflow"`
+	// OperationalLocationDisplay is the backend-composed shed+pen label ("Castro - 2",
+	// "Godel 1 - Part 3", bare "Yashoda" when undivided), built with platform/oploc so every surface
+	// renders the pen the same way. The contract has REQUIRED this field since the packing schema was
+	// written, but the struct never carried it, so admin-web fell through to its `|| shed_label`
+	// branch and printed a bare "Castro" against all three of Castro's pens.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	Workflow                   string `json:"workflow"`
 	// ExperimentArm is the trial group of a hand-authored experiment shed, empty on normal lines.
 	// Carried here as well as on DirectionRow so the packer knows which trial a bag belongs to
 	// without cross-referencing the direction sheet -- the same authored value, never a shed tag.
 	ExperimentArm string `json:"experiment_arm"`
-	// HeadCount is the shed's projected head count, summed across its ration grains.
+	// HeadCount is the pen's projected head count, summed across its ration grains. It is the pen's
+	// population, NOT a per-session figure, so it is counted once for the day and never multiplied by
+	// the number of sessions.
 	HeadCount int64 `json:"head_count"`
-	// Items is the SHED-level expected quantity per feed item -- the grains are already summed,
-	// because a packer fills one bag per item per shed, not one per ration grain.
-	Items []ItemQuantity `json:"items"`
-	// TotalKg sums the resolved items.
+	// Sessions is the day's split, in authored session order -- the "session 1 this much, session 2
+	// this much" breakdown the packer reads. Never empty for a generated pen: a pen with one authored
+	// session carries one entry.
+	Sessions []PackingSession `json:"sessions"`
+	// TotalKg is the WHOLE DAY's resolved total, summed from the already-rounded session totals so it
+	// equals what the sessions above print rather than differing by a rounding step.
 	TotalKg string `json:"total_kg"`
-	// Status is the packing state (ready | blocked | empty), derived from the generation result.
+	// Status is the pen-day packing state rolled up from Sessions: blocked when ANY session is
+	// blocked (the day cannot be packed as printed), empty only when EVERY session is empty, else
+	// ready. Blocked wins over empty because a real gap must not be hidden by a sibling session that
+	// happens to have nothing to feed.
 	Status string `json:"status"`
-	// Completed is true when this shed-session has a recorded feed.direction.completed. It is
-	// orthogonal to Status: a completed line was still ready/blocked/empty underneath, and reporting
-	// both lets the client show a "completed" badge without losing the packing state. A shed-session
-	// is completed as a whole, so this packing line (which IS one shed-session) maps 1:1 to it.
+	// Completed is true when this PEN-DAY has a verifier-approved packing completion. Orthogonal to
+	// Status: a completed pen-day was still ready/blocked/empty underneath, so a client can show a
+	// "completed" badge without losing the packing state.
 	Completed bool `json:"completed"`
-	// LifecycleStatus is the verification-lifecycle bucket of this shed-session's feed-PACKING
-	// completion (one of the SessionStatus* values), the finer state Completed collapses. Orthogonal
-	// to Status (the ready/blocked/empty ration state): a line can be blocked underneath and still be
+	// LifecycleStatus is the verification-lifecycle bucket of this PEN-DAY's feed-PACKING completion
+	// (one of the SessionStatus* values), the finer state Completed collapses. Orthogonal to Status
+	// (the ready/blocked/empty ration state): a pen-day can be blocked underneath and still be
 	// pending_verification. Set by the serve path from feed_packing_completions.
 	LifecycleStatus string `json:"lifecycle_status"`
-	// BlockedReasons lists the distinct gaps behind a blocked status.
+	// ReworkReason is the backend-composed sentence telling the packer WHY this pen came back to
+	// them, present only while LifecycleStatus is rework. Two very different things land in that one
+	// state and the state alone cannot tell them apart: a verifier rejected the video, or the
+	// afternoon correction changed how many animals the pen feeds and the old video no longer proves
+	// the right quantity (maintainer decision 2026-08-10). Without this the operator is shown the
+	// same bare "needs another video" card for both and has no way to know the numbers moved.
+	//
+	// Backend owns this copy per the golden frontend rule; clients render it verbatim.
+	ReworkReason string `json:"rework_reason,omitempty"`
+	// BlockedReasons is the deduplicated UNION of every session's blocked reasons, so the card can
+	// state the day's gaps without the client folding the sessions itself.
 	BlockedReasons []BlockedReason `json:"blocked_reasons,omitempty"`
 }
 

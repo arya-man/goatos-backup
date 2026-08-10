@@ -169,6 +169,21 @@ class ScanEdgeCaseScreenshotTest {
     }
 
     @Test
+    fun scanProofNeededSameGoatMultipleObligations() = shot("scan_case_08b_proof_same_goat_multi_obligation") {
+        ScanScreen(
+            state = baseState().copy(
+                ringDone = 2,
+                doneCount = 2,
+                pendingCount = 0,
+                proofActionNeeded = sameGoatMultiObligationProofRows(),
+                feed = emptyList(),
+                canSubmit = false,
+                footNote = "Two proof videos needed for the same goat",
+            ),
+        )
+    }
+
+    @Test
     fun scanPendingOverlay() = shot("scan_case_09_pending_overlay") {
         ScanScreen(
             state = baseState().copy(
@@ -316,10 +331,34 @@ private fun proofRows(vararg statuses: ProofUploadStatus): List<RosterRow> =
             status = ScanStatus.DONE,
             scannedAtLabel = "Scanned Tue, 4:${52 - index} PM IST",
             goatId = "goat-$index",
+            obligationId = "obligation-$index",
             proofClipCount = if (status == ProofUploadStatus.MISSING) 0 else 1,
             proofUploadStatus = status,
         )
     }
+
+private fun sameGoatMultiObligationProofRows() = listOf(
+    RosterRow(
+        primaryTag = "901007000503785",
+        secondaryTag = null,
+        vaccineLabel = "ET+TT",
+        status = ScanStatus.DONE,
+        scannedAtLabel = "Scanned Tue, 4:52 PM IST",
+        goatId = "goat-same",
+        obligationId = "obligation-et-tt",
+        proofUploadStatus = ProofUploadStatus.MISSING,
+    ),
+    RosterRow(
+        primaryTag = "901007000503785",
+        secondaryTag = null,
+        vaccineLabel = "PPR",
+        status = ScanStatus.DONE,
+        scannedAtLabel = "Scanned Tue, 4:51 PM IST",
+        goatId = "goat-same",
+        obligationId = "obligation-ppr",
+        proofUploadStatus = ProofUploadStatus.MISSING,
+    ),
+)
 
 private fun rosterRows() = listOf(
     RosterRow("901007000503785", null, "ET+TT", ScanStatus.DONE, scannedAtLabel = "Scanned Tue, 4:52 PM IST"),

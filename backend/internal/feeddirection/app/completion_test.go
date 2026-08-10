@@ -76,9 +76,15 @@ func (f *fakeDistributionStore) BounceDistributionForRework(_ context.Context, _
 // fakeDistributionStore). Maintainer decision 2026-07-26 gated packing too.
 type fakePackingStore struct {
 	verified    []ports.VerifiedPacking
-	statuses    []ports.SessionCompletionStatus
+	statuses    []ports.PackingCompletionStatus
 	listCalls   int
 	statusCalls int
+	// reopenCalls records every ReopenPackingForFeedChange the correction issued, so a test can
+	// assert BOTH that a normal correction reopens the right pens and that an experiment one is
+	// never called at all -- the two halves of the 2026-08-10 rule.
+	reopenCalls    []ports.ReopenPackingParams
+	reopenedIDs    []string
+	reopenCallsErr error
 }
 
 func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePackingParams) (ports.CompletePackingResult, error) {
@@ -90,7 +96,7 @@ func (f *fakePackingStore) ListVerifiedPacking(_ context.Context, _, _ string, _
 	return f.verified, nil
 }
 
-func (f *fakePackingStore) ListPackingSessionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.SessionCompletionStatus, error) {
+func (f *fakePackingStore) ListPackingCompletionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.PackingCompletionStatus, error) {
 	f.statusCalls++
 	return f.statuses, nil
 }
@@ -101,6 +107,14 @@ func (f *fakePackingStore) ApplyVerifiedPacking(_ context.Context, _ ports.Apply
 
 func (f *fakePackingStore) BouncePackingForRework(_ context.Context, _ ports.BouncePackingParams) (bool, error) {
 	return false, nil
+}
+
+func (f *fakePackingStore) ReopenPackingForFeedChange(_ context.Context, p ports.ReopenPackingParams) (ports.ReopenPackingResult, error) {
+	f.reopenCalls = append(f.reopenCalls, p)
+	if f.reopenCallsErr != nil {
+		return ports.ReopenPackingResult{}, f.reopenCallsErr
+	}
+	return ports.ReopenPackingResult{ReopenedCompletionIDs: f.reopenedIDs}, nil
 }
 
 type fakeProofValidator struct {
@@ -191,12 +205,16 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	}
 }
 
-func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
+func TestPackingOverlaysCompletedPenDays(t *testing.T) {
 	t.Parallel()
-	// The PACKING overlay now reads the PACKING verification-gated table (maintainer decision,
-	// 2026-07-26): a packing session is Completed only after a verifier approves, i.e. status='completed'
-	// in feed_packing_completions. The overlay reads ListPackingSessionStatuses (which also surfaces
+	// The PACKING overlay reads the PACKING verification-gated table (maintainer decision
+	// 2026-07-26): a pen-day is Completed only after a verifier approves, i.e. status='completed' in
+	// feed_packing_completions. The overlay reads ListPackingCompletionStatuses (which also surfaces
 	// pending_verification/rework for the status filter).
+	//
+	// The overlay key is the PEN-DAY since 2026-08-10: shed + pen + workflow, no session. This test
+	// stamps ONE pen and asserts nothing else moves, which is what fails if the key ever loses the
+	// pen -- the 2026-08-08 defect where one Castro - 1 clip marked Castro - 2 and Castro - 3 too.
 	store := &fakePackingStore{}
 	service, _, _ := newTestService()
 	service.WithPackingStore(store)
@@ -210,16 +228,31 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 		t.Fatal("no packing lines to overlay")
 	}
 	target := page.Items[0]
-	store.statuses = []ports.SessionCompletionStatus{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow, Status: domain.SessionStatusCompleted}}
+	store.statuses = []ports.PackingCompletionStatus{{
+		ShedID:         target.ShedID,
+		PartitionLabel: target.PartitionLabel,
+		Workflow:       target.Workflow,
+		Status:         domain.SessionStatusCompleted,
+	}}
 	page2, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
 		t.Fatalf("PackingWorklist 2: %v", err)
 	}
+	matched := false
 	for _, r := range page2.Items {
-		want := r.ShedID == target.ShedID && r.SessionNo == target.SessionNo && r.Workflow == target.Workflow
+		want := r.ShedID == target.ShedID &&
+			domain.PartitionMatchKey(r.PartitionLabel) == domain.PartitionMatchKey(target.PartitionLabel) &&
+			r.Workflow == target.Workflow
 		if r.Completed != want {
-			t.Fatalf("packing line (%s s%d %s) completed=%v, want %v", r.ShedID, r.SessionNo, r.Workflow, r.Completed, want)
+			t.Fatalf("packing line (%s pen %q %s) completed=%v, want %v",
+				r.ShedID, r.PartitionLabel, r.Workflow, r.Completed, want)
 		}
+		if want {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatal("the completed pen-day was not present in the re-served page -- the overlay key missed every row")
 	}
 }
 
@@ -435,5 +468,85 @@ func TestCompleteSessionSkipsProofValidationWhenNoRefs(t *testing.T) {
 	}
 	if store.completeCalls != 1 {
 		t.Fatalf("store completeCalls = %d, want 1", store.completeCalls)
+	}
+}
+
+// A reopened pen must be able to SAY it was reopened.
+//
+// 'rework' has no client bucket of its own -- it normalizes to "pending", the operator's "needs my
+// action" state -- so an operator looking at the card cannot tell a pen whose video was thrown away
+// from one they never packed. The stored sentence is the only thing that distinguishes them, and it
+// must not survive onto any other state: a stale reason on a re-submitted pen would tell a packer to
+// redo work they have already redone.
+func TestPackingReworkReasonIsCarriedOnlyWhileThePenIsActuallyInRework(t *testing.T) {
+	t.Parallel()
+	const reason = "Animals moved in or out of this pen, so the feed quantities changed. Pack the new amounts and record a new video."
+
+	store := &fakePackingStore{}
+	service, _, _ := newTestService()
+	service.WithPackingStore(store)
+
+	q := domain.PackingQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate()}
+	seed, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	if len(seed.Items) == 0 {
+		t.Fatal("no packing lines to overlay")
+	}
+	target := seed.Items[0]
+
+	find := func(page domain.PackingPage) domain.PackingRow {
+		t.Helper()
+		for _, r := range page.Items {
+			if r.ShedID == target.ShedID &&
+				domain.PartitionMatchKey(r.PartitionLabel) == domain.PartitionMatchKey(target.PartitionLabel) &&
+				r.Workflow == target.Workflow {
+				return r
+			}
+		}
+		t.Fatal("the overlaid pen was not present in the re-served page -- the overlay key missed every row")
+		return domain.PackingRow{}
+	}
+
+	// In rework: the sentence reaches the card, and the card still reads as the operator's to act on.
+	store.statuses = []ports.PackingCompletionStatus{{
+		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, Workflow: target.Workflow,
+		Status: domain.PackingStatusRework, ReworkReason: reason,
+	}}
+	reworked, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist (rework): %v", err)
+	}
+	row := find(reworked)
+	if row.ReworkReason != reason {
+		t.Fatalf("rework reason = %q, want the stored sentence -- without it the card is indistinguishable from an unpacked pen", row.ReworkReason)
+	}
+	if row.LifecycleStatus != domain.SessionStatusPending {
+		t.Fatalf("lifecycle status = %q, want pending: a reopened pen is the operator's to act on again", row.LifecycleStatus)
+	}
+
+	// Re-submitted: the row is awaiting a verdict again. The reason must be gone even if a stale one
+	// were still stored, or the packer is told to repack what they just repacked.
+	store.statuses = []ports.PackingCompletionStatus{{
+		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, Workflow: target.Workflow,
+		Status: domain.SessionStatusAwaitingVerification, ReworkReason: reason,
+	}}
+	resubmitted, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist (resubmitted): %v", err)
+	}
+	if got := find(resubmitted).ReworkReason; got != "" {
+		t.Fatalf("rework reason = %q on a re-submitted pen, want empty", got)
+	}
+
+	// A pen nobody has touched has no completion row at all and therefore no reason.
+	store.statuses = nil
+	untouched, err := service.PackingWorklist(context.Background(), q)
+	if err != nil {
+		t.Fatalf("PackingWorklist (untouched): %v", err)
+	}
+	if got := find(untouched).ReworkReason; got != "" {
+		t.Fatalf("rework reason = %q on a pen with no completion row, want empty", got)
 	}
 }

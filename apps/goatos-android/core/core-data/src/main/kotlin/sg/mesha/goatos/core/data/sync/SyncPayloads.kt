@@ -325,7 +325,16 @@ data class FeedPackingCompletePayload(
     /** The PEN worked; null for an undivided shed. Defaulted so an outbox row written by an older
      *  build still decodes — it simply predates per-pen completions. */
     @SerialName("partition_label") val partitionLabel: String? = null,
-    @SerialName("session_no") val sessionNo: Int,
+    /**
+     * LEGACY, read-only, never sent.
+     *
+     * The completion is per PEN-DAY since 2026-08-10, so the session is no longer part of it and is
+     * not put on the wire. The field survives here ONLY so a row an EARLIER build already queued
+     * still decodes: the outbox is durable, and dropping the property outright would make an
+     * operator's recorded-but-unsynced video fail to parse and die terminally. A legacy row simply
+     * loses its session, which is exactly right -- its pen-day row absorbs it.
+     */
+    @SerialName("session_no") val sessionNo: Int = 0,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
     /** Outbox id of the MANDATORY packing VIDEO's PROOF_UPLOAD item. */

@@ -617,7 +617,6 @@ interface AppApiService {
     suspend fun getFeedPackingWorklist(
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
-        @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("status") status: String?,
         @Query("limit") limit: Int?,
@@ -1294,13 +1293,12 @@ class RetrofitAppApi(
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
-        session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto =
-        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
+        service.getFeedPackingWorklist(parkId, targetDate, workflow, status, limit, offset)
 
     override suspend fun completeFeedDirectionSession(
         idempotencyKey: String,

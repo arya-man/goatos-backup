@@ -247,10 +247,22 @@ type RationGroup struct {
 }
 
 type RationGroupPage struct {
-	Items   []RationGroup `json:"items"`
-	Limit   int32         `json:"limit"`
-	Offset  int32         `json:"offset"`
-	HasMore bool          `json:"has_more"`
+	Items []RationGroup `json:"items"`
+	// RationGroups is every group label that actually carries an in-force authored rate, which is NOT
+	// the same set as the labels reachable through Items.
+	//
+	// Items is the BREED map, and that table is adult breeds only -- kids resolve to the fixed 'Kid'
+	// group by age band and never appear in it. So a caller building a ration-group picker from Items
+	// offers six of the seven live groups and silently makes every 'Kid' rate unreachable (134 of 721
+	// rows per park on the current data). This field is the honest vocabulary for that picker; Items
+	// stays the breed map, and a breed picker must keep reading it.
+	//
+	// Whole-set and unpaginated on purpose: it is a vocabulary, not a page of rows. Limit/Offset/
+	// HasMore describe Items only.
+	RationGroups []string `json:"ration_groups"`
+	Limit        int32    `json:"limit"`
+	Offset       int32    `json:"offset"`
+	HasMore      bool     `json:"has_more"`
 }
 
 // ShedTag is one entry of the authored tag vocabulary the grid is indexed by.

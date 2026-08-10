@@ -465,20 +465,22 @@ func insertFeedDistributionCompletedOutbox(ctx context.Context, tx pgx.Tx, o fee
 		"workflow":      o.Workflow,
 		"verified_by":   o.VerifiedBy,
 	}
-	envelope := map[string]any{
-		"event_id":        eventID,
-		"event_type":      feedDistributionCompletedEventType,
-		"schema_version":  feedDistributionCompletedSchemaVersion,
-		"schema_ref":      feedDistributionCompletedSchemaRef,
-		"aggregate_type":  feedDistributionCompletedAggregateType,
-		"aggregate_id":    o.CompletionID,
-		"producer":        "feeddirection",
-		"idempotency_key": idempotencyKey,
-		"subject_type":    "shed",
-		"subject_id":      o.ShedID,
-		"payload":         payload,
-		"trace_id":        o.TraceID,
-	}
+	envelope := feedEventEnvelope{
+		EventID:        eventID,
+		EventType:      feedDistributionCompletedEventType,
+		SchemaVersion:  feedDistributionCompletedSchemaVersion,
+		SchemaRef:      feedDistributionCompletedSchemaRef,
+		AggregateType:  feedDistributionCompletedAggregateType,
+		AggregateID:    o.CompletionID,
+		IdempotencyKey: idempotencyKey,
+		TenantID:       o.TenantID,
+		ParkID:         o.ParkID,
+		ShedID:         o.ShedID,
+		ActorID:        o.VerifiedBy,
+		OccurredAt:     businessInstant(o.TargetDate),
+		Payload:        payload,
+		TraceID:        o.TraceID,
+	}.build()
 	envelopeJSON, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("feeddirection: marshal distribution outbox envelope: %w", err)

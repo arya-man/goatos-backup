@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -41,6 +42,10 @@ const (
 	feedPackingPendingAction   = "feed.packing.pending_verification"
 	feedPackingReworkAction    = "feed.packing.rework"
 	feedPackingCompletedAction = "feed.packing.completed"
+	// feedPackingReopenedAction distinguishes a pen reopened by the afternoon feed correction from
+	// one a verifier rejected. Both land in 'rework'; only the audit says which, and an operator
+	// asking "why am I packing this again" is answered by the reason on the row, not by the state.
+	feedPackingReopenedAction = "feed.packing.reopened_for_feed_change"
 )
 
 var _ ports.PackingCompletionStore = (*Repository)(nil)
@@ -73,11 +78,28 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		return ports.CompletePackingResult{}, err
 	}
 
+	// The shed's display NAME, for the verification item's subject label.
+	//
+	// CompletePackingResult has carried ShedName/PartitionLabel since the packing gate was written and
+	// NOTHING EVER FILLED THEM, so every packing item reached the verifier with an EMPTY subject
+	// label -- a card in the review queue naming no location at all. The field existed, the enqueue
+	// read it, and the value was always "": the exact declared-but-never-populated shape AGENTS.md
+	// bans, and invisible to any test that checks whether a field is carried rather than what it says.
+	//
+	// Only the NAME is taken from the canonical resolver. Its partition half is agree-or-go-bare at
+	// SHED grain, which is right for a caller that knows only a shed and wrong here: this completion
+	// is for ONE named pen, and Castro (three pens) would resolve bare and lose it. The caller's own
+	// partition is the honest value.
+	shedLocation, err := oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, p.ShedID))
+	if err != nil {
+		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: resolve packing shed location: %w", err)
+	}
+	shedName := shedLocation.ShedName
+
 	fingerprint := requestFingerprint(
 		p.ParkID,
 		p.ShedID,
 		domain.PartitionMatchKey(p.PartitionLabel),
-		fmt.Sprintf("%d", p.SessionNo),
 		targetDate,
 		p.Workflow,
 		packingProof,
@@ -98,7 +120,13 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit idempotent packing replay: %w", err)
 		}
 		committed = true
-		return ports.CompletePackingResult{CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false}, nil
+		// The location travels on the replay path too. It costs nothing and keeps every return from
+		// this method the same shape, so a future caller cannot find it populated on one path and
+		// blank on another.
+		return ports.CompletePackingResult{
+			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
+			ShedName: shedName, PartitionLabel: p.PartitionLabel,
+		}, nil
 	}
 
 	var (
@@ -107,30 +135,35 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		status       = domain.PackingStatusPendingVerification
 		newlyPending bool
 	)
+	// session_no is written as the PEN-DAY sentinel 0 (migration 000148). The column is retained so
+	// the pre-merge rows stay readable as history with the session they were shot for; every row
+	// written from here on carries 0, which is what the natural key now uniques on.
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_packing_completions (
   tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
   packing_proof_ref, completed_by, idempotency_key
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
-  $8, nullif($9::text, '')::uuid, $10
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), 0, $5::date, $6, 'pending_verification',
+  $7, nullif($8::text, '')::uuid, $9
 )
-ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
-		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
+		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, targetDate, p.Workflow,
 		packingProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
-		var existingStatus string
+		// Natural-key conflict: a row for this PEN-DAY already exists. Its state AND its stored video
+		// decide the outcome -- the proof_ref is read because a second, DIFFERENT video is a conflict,
+		// not a replay. See ports.ErrPackingAlreadyRecorded.
+		var existingStatus, existingProof string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version
+SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, '')
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
-			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
+  AND partition_key = $6 AND target_date = $4::date AND workflow = $5`,
+			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
 			domain.PartitionMatchKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &existingProof); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
 		switch existingStatus {
@@ -155,12 +188,21 @@ RETURNING row_version`,
 			if err := writePackingAudit(ctx, tx, p, completionID, feedPackingPendingAction); err != nil {
 				return ports.CompletePackingResult{}, err
 			}
-		case domain.PackingStatusPendingVerification:
-			// Already awaiting verification: idempotent no-op, no new verification item.
-			status = domain.PackingStatusPendingVerification
-		case domain.PackingStatusCompleted:
-			// Already verified/completed: no-op.
-			status = domain.PackingStatusCompleted
+		case domain.PackingStatusPendingVerification, domain.PackingStatusCompleted:
+			// The pen-day already holds a video. Whether this is an idempotent no-op or a CONFLICT
+			// depends entirely on whether it is the SAME video.
+			//
+			// SAME proof -> a genuine re-send under a different idempotency key. Nothing to do, and
+			// answering success is correct: the operator's recording IS on the row.
+			//
+			// DIFFERENT proof -> a second, distinct recording for a unit that accepts exactly one. It
+			// cannot be stored, so it must not be acknowledged. Returning success here told the
+			// operator their video was accepted while nothing recorded it and no verifier ever saw
+			// it -- silent loss of work they had physically done.
+			if packingProof != existingProof {
+				return ports.CompletePackingResult{}, ports.ErrPackingAlreadyRecorded
+			}
+			status = existingStatus
 		default:
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: unexpected packing status %q", existingStatus)
 		}
@@ -182,7 +224,13 @@ RETURNING row_version`,
 		return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: commit packing completion: %w", err)
 	}
 	committed = true
-	return ports.CompletePackingResult{CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending}, nil
+	return ports.CompletePackingResult{
+		CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending,
+		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
+		// compose the verifier's subject label, and a path that leaves them blank ships an item
+		// naming no location.
+		ShedName: shedName, PartitionLabel: p.PartitionLabel,
+	}, nil
 }
 
 // readPackingByID reads a row's status and row_version within the transaction, for the idempotent
@@ -206,15 +254,15 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID
 	return status, rowVersion, nil
 }
 
-// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, session, workflow) for one
-// park-day in one bounded indexed read -- the packing serving-read overlay.
+// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, workflow) for one
+// park-day in one bounded indexed read.
 func (r *Repository) ListVerifiedPacking(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.VerifiedPacking, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded read of ONE park-day's VERIFIED packing shed-sessions, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's shed catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
+	// scale-guard:ignore: bounded read of ONE park-day's VERIFIED packing pen-days, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, session_no, workflow
+SELECT shed_id::text, coalesce(partition_label, ''), workflow
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND status = 'completed'`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
@@ -225,7 +273,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND
 	out := make([]ports.VerifiedPacking, 0)
 	for rows.Next() {
 		var d ports.VerifiedPacking
-		if err := rows.Scan(&d.ShedID, &d.SessionNo, &d.Workflow); err != nil {
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.Workflow); err != nil {
 			return nil, fmt.Errorf("feeddirection: scan verified packing: %w", err)
 		}
 		out = append(out, d)
@@ -233,28 +281,32 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND
 	return out, rows.Err()
 }
 
-// ListPackingSessionStatuses returns EVERY (shed, session, workflow) with a feed_packing_completions
-// row for one park-day plus its RAW status -- the packing serve path's status overlay + filter
-// source (includes pending_verification and rework, not just completed).
-func (r *Repository) ListPackingSessionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.SessionCompletionStatus, error) {
+// ListPackingCompletionStatuses returns EVERY (shed, partition, workflow) with a
+// feed_packing_completions row for one park-day plus its RAW status -- the packing serve path's
+// status overlay + filter source (includes pending_verification and rework, not just completed).
+//
+// One row per PEN-DAY. Legacy pre-merge rows were collapsed to one per pen-day by migration 000148,
+// and every row written since carries the session_no 0 sentinel, so this cannot return two rows for
+// one pen and leave the overlay picking whichever arrived first.
+func (r *Repository) ListPackingCompletionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.PackingCompletionStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded read of ONE park-day's packing shed-session statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's shed catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
+	// scale-guard:ignore: bounded read of ONE park-day's packing pen-day statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, coalesce(partition_label, ''), session_no, workflow, status
+SELECT shed_id::text, coalesce(partition_label, ''), workflow, status, coalesce(rework_reason, '')
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
 	if err != nil {
-		return nil, fmt.Errorf("feeddirection: list packing session statuses: %w", err)
+		return nil, fmt.Errorf("feeddirection: list packing completion statuses: %w", err)
 	}
 	defer rows.Close()
-	out := make([]ports.SessionCompletionStatus, 0)
+	out := make([]ports.PackingCompletionStatus, 0)
 	for rows.Next() {
-		var d ports.SessionCompletionStatus
-		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
-			return nil, fmt.Errorf("feeddirection: scan packing session status: %w", err)
+		var d ports.PackingCompletionStatus
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.Workflow, &d.Status, &d.ReworkReason); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan packing completion status: %w", err)
 		}
 		out = append(out, d)
 	}
@@ -383,6 +435,162 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 	return tag.RowsAffected() > 0, nil
 }
 
+// ReopenPackingForFeedChange moves every named pen's submitted packing back to 'rework' because the
+// afternoon correction changed how many animals that pen feeds, and withdraws the verification items
+// queued for the superseded videos. See ports.ReopenPackingForFeedChange for the rule.
+//
+// ONE set-based statement per step over the pens the amend diff named -- never a query per pen.
+func (r *Repository) ReopenPackingForFeedChange(ctx context.Context, p ports.ReopenPackingParams) (ports.ReopenPackingResult, error) {
+	if len(p.Pens) == 0 {
+		return ports.ReopenPackingResult{}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	shedIDs := make([]string, 0, len(p.Pens))
+	partitionKeys := make([]string, 0, len(p.Pens))
+	for _, pen := range p.Pens {
+		shedIDs = append(shedIDs, pen.ShedID)
+		// Normalized here as well as by the caller: this is the value that must line up with the
+		// generated partition_key column, and a raw 'Part 3' would silently match nothing.
+		partitionKeys = append(partitionKeys, domain.PartitionMatchKey(pen.PartitionKey))
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: begin reopen packing tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	// The pen list is unnested into a join rather than compared with a pair of parallel = ANY()
+	// predicates. Two independent array predicates would match the CROSS PRODUCT of the sheds and
+	// the partitions -- reopening Castro - 3 because Castro - 1 changed and Godel 1 - Part 3 did.
+	// UNNEST(...) WITH ORDINALITY-free positional pairing keeps each shed bound to its own pen.
+	//
+	// verified_by/verified_at are cleared: the row is no longer verified, and leaving the old
+	// verifier stamped on it would credit them with approving a video for quantities they never saw.
+	//
+	// scale-guard:ignore: one set-based UPDATE over the pens named by a single park-day's amend diff (bounded by the park's pen catalog, never by herd size), covered by feed_packing_completions_natural_uq (tenant_id, park_id, shed_id, partition_key, target_date, workflow); binds carry the casts and the indexed columns stay bare.
+	rows, err := tx.Query(ctx, `
+UPDATE feed_packing_completions c
+SET status = 'rework',
+    rework_reason = nullif($6, ''),
+    verified_by = NULL,
+    verified_at = NULL,
+    updated_at = now(),
+    row_version = c.row_version + 1
+FROM unnest($4::uuid[], $5::text[]) AS pen(shed_id, partition_key)
+WHERE c.tenant_id = $1::uuid
+  AND c.park_id = $2::uuid
+  AND c.target_date = $3::date
+  AND c.workflow = $7
+  AND c.shed_id = pen.shed_id
+  AND c.partition_key = pen.partition_key
+  -- 'rework' is excluded: that row is already back with the operator, and touching it would bump
+  -- row_version and overwrite a verifier's real rejection reason with this one.
+  AND c.status IN ('pending_verification', 'completed')
+RETURNING c.completion_id::text, c.shed_id::text`,
+		p.TenantID, p.ParkID, p.TargetDate.Format("2006-01-02"),
+		shedIDs, partitionKeys, strings.TrimSpace(p.Reason), p.Workflow)
+	if err != nil {
+		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: reopen packing for feed change: %w", err)
+	}
+	type reopened struct{ completionID, shedID string }
+	moved := make([]reopened, 0, len(p.Pens))
+	for rows.Next() {
+		var m reopened
+		if err := rows.Scan(&m.completionID, &m.shedID); err != nil {
+			rows.Close()
+			return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: scan reopened packing: %w", err)
+		}
+		moved = append(moved, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: iterate reopened packing: %w", err)
+	}
+	if len(moved) == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: commit empty reopen: %w", err)
+		}
+		committed = true
+		return ports.ReopenPackingResult{}, nil
+	}
+
+	completionIDs := make([]string, 0, len(moved))
+	for _, m := range moved {
+		completionIDs = append(completionIDs, m.completionID)
+	}
+
+	// 'withdrawn', not DELETE -- the clip and its trail stay readable while the item leaves the
+	// verifier's PENDING queue. Without this the verifier would still be holding a card for a video
+	// of the old quantity, and approving it would flip the row straight back to 'completed' behind
+	// the operator who is at that moment repacking the pen. Same mechanism as migration 000148 step 2.
+	//
+	// scale-guard:ignore: one set-based UPDATE over the completion ids just returned above (bounded by the park's pen catalog); source_ref_id is compared bare against a cast bind array.
+	tag, err := tx.Exec(ctx, `
+UPDATE verification_items
+SET status = 'withdrawn',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND source_module = 'feed'
+  AND source_ref_type = 'feed_packing_completion'
+  -- source_ref_id is a uuid column, so the bind array carries the uuid cast and the column stays
+  -- bare: a ::text[] array raises "operator does not exist: uuid = text", and casting the COLUMN to
+  -- text instead would compile while disabling its index (the non-sargable-cast anti-pattern).
+  AND source_ref_id = ANY($2::uuid[])
+  AND status = 'pending'`, p.TenantID, completionIDs)
+	if err != nil {
+		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: withdraw superseded packing verification items: %w", err)
+	}
+
+	recorder := audit.NewTxRecorder(tx)
+	for _, m := range moved {
+		// scale-guard:ignore: the audit recorder buffers rows on the open transaction; this loop issues no query per iteration and is bounded by the pens of one park-day.
+		if err := recorder.Record(ctx, audit.Event{
+			TenantID: p.TenantID,
+			// No ActorID: nobody pressed anything. audit_log.actor_id is a UUID, so the provenance
+			// string the service could otherwise pass ("goatos-api") is not a shortened actor but a
+			// type error that aborts this INSERT and rolls the whole reopen back -- leaving every pen
+			// that should have gone back to its packer still marked done. ActorType carries the
+			// system-ness; see ports.ReopenPackingParams for why the field does not exist.
+			ActorType:    "system",
+			Action:       feedPackingReopenedAction,
+			ResourceType: feedPackingResourceType,
+			ResourceID:   m.completionID,
+			ScopeType:    "shed",
+			ScopeID:      m.shedID,
+			AfterState: map[string]any{
+				"park_id":     p.ParkID,
+				"shed_id":     m.shedID,
+				"target_date": p.TargetDate.Format("2006-01-02"),
+				"workflow":    p.Workflow,
+				"status":      domain.PackingStatusRework,
+				"reason":      strings.TrimSpace(p.Reason),
+			},
+			Metadata: map[string]any{"source": "feed-packing-shifting-correction"},
+			TraceID:  p.TraceID,
+		}); err != nil {
+			return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: write packing reopen audit: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: commit reopen packing: %w", err)
+	}
+	committed = true
+	return ports.ReopenPackingResult{
+		ReopenedCompletionIDs: completionIDs,
+		WithdrawnItemCount:    int(tag.RowsAffected()),
+	}, nil
+}
+
 func writePackingAudit(ctx context.Context, tx pgx.Tx, p ports.CompletePackingParams, completionID, action string) error {
 	actorType := strings.TrimSpace(p.ActorType)
 	if actorType == "" {
@@ -398,12 +606,16 @@ func writePackingAudit(ctx context.Context, tx pgx.Tx, p ports.CompletePackingPa
 		ScopeType:    "shed",
 		ScopeID:      p.ShedID,
 		AfterState: map[string]any{
-			"park_id":     p.ParkID,
-			"shed_id":     p.ShedID,
-			"session_no":  p.SessionNo,
-			"target_date": p.TargetDate.Format("2006-01-02"),
-			"workflow":    p.Workflow,
-			"status":      domain.PackingStatusPendingVerification,
+			"park_id": p.ParkID,
+			"shed_id": p.ShedID,
+			// The PEN, which the natural key and the request fingerprint both use and the audit did
+			// not record. With the session gone from the grain it is the only thing distinguishing
+			// one Castro completion from another, so an audit row without it cannot say which pen
+			// was packed.
+			"partition_label": p.PartitionLabel,
+			"target_date":     p.TargetDate.Format("2006-01-02"),
+			"workflow":        p.Workflow,
+			"status":          domain.PackingStatusPendingVerification,
 		},
 		Metadata: map[string]any{"source": "feed-packing-completion"},
 		TraceID:  p.TraceID,
@@ -462,20 +674,25 @@ func insertFeedPackingCompletedOutbox(ctx context.Context, tx pgx.Tx, o feedPack
 		"workflow":      o.Workflow,
 		"verified_by":   o.VerifiedBy,
 	}
-	envelope := map[string]any{
-		"event_id":        eventID,
-		"event_type":      feedPackingCompletedEventType,
-		"schema_version":  feedPackingCompletedSchemaVersion,
-		"schema_ref":      feedPackingCompletedSchemaRef,
-		"aggregate_type":  feedPackingCompletedAggregateType,
-		"aggregate_id":    o.CompletionID,
-		"producer":        "feeddirection",
-		"idempotency_key": idempotencyKey,
-		"subject_type":    "shed",
-		"subject_id":      o.ShedID,
-		"payload":         payload,
-		"trace_id":        o.TraceID,
-	}
+	envelope := feedEventEnvelope{
+		EventID:        eventID,
+		EventType:      feedPackingCompletedEventType,
+		SchemaVersion:  feedPackingCompletedSchemaVersion,
+		SchemaRef:      feedPackingCompletedSchemaRef,
+		AggregateType:  feedPackingCompletedAggregateType,
+		AggregateID:    o.CompletionID,
+		IdempotencyKey: idempotencyKey,
+		TenantID:       o.TenantID,
+		ParkID:         o.ParkID,
+		ShedID:         o.ShedID,
+		// The verifier who approved the video is the actor; a blank one emits actor_type "system".
+		ActorID: o.VerifiedBy,
+		// The FEED DAY, not the moment the verdict landed: the business fact this event reports is
+		// that a pen's feed for that day is packed and proved.
+		OccurredAt: businessInstant(o.TargetDate),
+		Payload:    payload,
+		TraceID:    o.TraceID,
+	}.build()
 	envelopeJSON, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("feeddirection: marshal packing outbox envelope: %w", err)
