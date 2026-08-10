@@ -230,7 +230,7 @@ lumpsum AS (
 )
 SELECT business_date::text, weighing_type, park, rfid_1, rfid_2, display_id, breed, gender, shed,
        weight_kg, total_weight_kg, average_weight_kg, animal_count,
-       video_verification_status, COALESCE(video_verified_at::text, ''),
+       video_verification_status, COALESCE(verified_at::text, ''),
        proof_ids, proof_providers, proof_object_keys
 FROM (
   SELECT * FROM individual
