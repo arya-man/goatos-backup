@@ -128,6 +128,10 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
+	toLocationID, err := r.resolveMoveDestinationOperationalLocationID(ctx, tx, cmd, toPartitionLabel)
+	if err != nil {
+		return nil, err
+	}
 	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID &&
 		oploc.SamePartition(stringValue(state.PartitionLabel), stringValue(toPartitionLabel)) {
 		return nil, ports.ErrWriteConflict
@@ -135,13 +139,13 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
-SET current_location_id = $4::uuid,
+SET current_location_id = $6::uuid,
     park_id = $3::uuid,
     shed_id = $4::uuid,
     updated_at = $5::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-		cmd.TenantID, cmd.GoatID, cmd.ToParkID, cmd.ToShedID, cmd.OccurredAt); err != nil {
+		cmd.TenantID, cmd.GoatID, cmd.ToParkID, cmd.ToShedID, cmd.OccurredAt, toLocationID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -153,7 +157,7 @@ INSERT INTO goat_location_history (
   $7, $8::timestamptz, $9::uuid, $10
 )`,
 		cmd.TenantID, cmd.GoatID, stringValue(state.CurrentLocation), stringValue(state.PartitionLabel),
-		cmd.ToShedID, stringValue(toPartitionLabel), goatLocationHistoryReasonMove, cmd.OccurredAt,
+		toLocationID, stringValue(toPartitionLabel), goatLocationHistoryReasonMove, cmd.OccurredAt,
 		cmd.ActorID, cmd.StoredIdempotencyKey); err != nil {
 		return nil, err
 	}
@@ -1225,6 +1229,30 @@ SELECT EXISTS (
 		return nil, ports.ErrPartitionRequired
 	}
 	return nil, nil
+}
+
+func (r *Repository) resolveMoveDestinationOperationalLocationID(ctx context.Context, tx pgx.Tx, cmd ports.MoveGoatCommand, partitionLabel *string) (string, error) {
+	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
+		return cmd.ToShedID, nil
+	}
+	var locationID string
+	err := tx.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND status = 'active'
+  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+ORDER BY partition_label
+LIMIT 1`, cmd.TenantID, cmd.ToShedID, *partitionLabel).Scan(&locationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrPartitionNotInShed
+	}
+	if err != nil {
+		return "", fmt.Errorf("identity: move goat: destination operational location: %w", err)
+	}
+	return locationID, nil
 }
 
 func exitedLifecycleStatus(status string) bool {

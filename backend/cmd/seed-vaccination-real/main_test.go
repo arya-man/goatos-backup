@@ -163,7 +163,8 @@ func TestSeedReconciliationOneToManyPaginationScheduledDateScopeHierarchyStatusB
 	t.Run("status buckets and one to many vaccination rows stay at goat shed grain", func(t *testing.T) {
 		goatSQL := activeGoatShedInvariantSQL()
 		for _, want := range []string{
-			"g.current_location_id <> g.shed_id",
+			"current_loc.location_type = 'pen'",
+			"current_loc.parent_location_id = g.shed_id",
 			"shed.location_type <> 'shed'",
 			"shed.parent_location_id IS DISTINCT FROM g.park_id",
 			"g.lifecycle_status NOT IN",

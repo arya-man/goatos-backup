@@ -985,13 +985,46 @@ RETURNING location_id::text`,
 }
 
 func upsertOperational(ctx context.Context, tx pgx.Tx, tenantID, locationID string, op domain.OperationalAttributes) error {
-	_, err := tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 INSERT INTO location_operational_attributes (
   tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination,
   usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes, updated_at
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
 )
+ON CONFLICT (location_id) DO UPDATE
+SET usable_for_counts = EXCLUDED.usable_for_counts,
+    usable_for_feed = EXCLUDED.usable_for_feed,
+    usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+    usable_for_sop = EXCLUDED.usable_for_sop,
+    is_holding = EXCLUDED.is_holding,
+    is_quarantine = EXCLUDED.is_quarantine,
+    is_icu = EXCLUDED.is_icu,
+    display_order = EXCLUDED.display_order,
+    notes = EXCLUDED.notes,
+    updated_at = now()`,
+		tenantID, locationID, op.UsableForCounts, op.UsableForFeed, op.UsableForVaccination, op.UsableForSOP,
+		op.IsHolding, op.IsQuarantine, op.IsICU, op.DisplayOrder, nullableString(op.Notes)); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+INSERT INTO location_operational_attributes (
+  tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination,
+  usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes, updated_at
+)
+SELECT
+  $1::uuid,
+  sp.operational_location_id,
+  $3, $4, $5, $6, $7, $8, $9, $10, $11, now()
+FROM shed_partitions sp
+JOIN locations pen
+  ON pen.tenant_id = sp.tenant_id
+ AND pen.location_id = sp.operational_location_id
+ AND pen.location_type = 'pen'
+ AND pen.status = 'active'
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND sp.status = 'active'
 ON CONFLICT (location_id) DO UPDATE
 SET usable_for_counts = EXCLUDED.usable_for_counts,
     usable_for_feed = EXCLUDED.usable_for_feed,

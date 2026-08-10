@@ -726,7 +726,20 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
 					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
+				VALUES (
+					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+					COALESCE((
+						SELECT sp.operational_location_id
+						FROM shed_partitions sp
+						WHERE sp.tenant_id=$2
+						  AND sp.shed_id=$12
+						  AND sp.status='active'
+						  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+						      regexp_replace(lower(btrim($18)), '^part[[:space:]]+', '')
+						LIMIT 1
+					), $12),
+					$12,$13,$14,$15,$16,$17,now()
+				)
 				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
 					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 					origin_type=EXCLUDED.origin_type, dob=EXCLUDED.dob,
@@ -734,7 +747,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
 					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
 			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
-			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
+			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus, gi.partitionLabel)
 	}); err != nil {
 		return err
 	}
@@ -2724,6 +2737,9 @@ FROM goats g
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
+LEFT JOIN locations current_loc
+  ON current_loc.tenant_id = g.tenant_id
+ AND current_loc.location_id = g.current_location_id
 LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
@@ -2733,7 +2749,14 @@ WHERE g.tenant_id = $1::uuid
     g.shed_id IS NULL
     OR g.park_id IS NULL
     OR g.current_location_id IS NULL
-    OR g.current_location_id <> g.shed_id
+    OR NOT (
+      g.current_location_id = g.shed_id
+      OR (
+        current_loc.location_type = 'pen'
+        AND current_loc.status = 'active'
+        AND current_loc.parent_location_id = g.shed_id
+      )
+    )
     OR shed.location_type <> 'shed'
     OR shed.status <> 'active'
     OR park.location_type <> 'park'

@@ -139,7 +139,7 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	}
 	if params.LocationID != nil {
 		args = append(args, *params.LocationID)
-		where = append(where, fmt.Sprintf("g.current_location_id = $%d::uuid", len(args)))
+		where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_id = $%d::uuid)", len(args), len(args)))
 	}
 	if params.Status != nil {
 		args = append(args, *params.Status)
@@ -296,7 +296,7 @@ func (r *Repository) FindIdentifierMatches(ctx context.Context, params ports.Res
 	}
 	if params.LocationID != nil {
 		args = append(args, *params.LocationID)
-		where = append(where, fmt.Sprintf("g.current_location_id = $%d::uuid", len(args)))
+		where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_id = $%d::uuid)", len(args), len(args)))
 	}
 
 	query := `
