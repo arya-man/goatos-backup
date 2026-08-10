@@ -49,3 +49,21 @@ goats.shed_id             = same shed location
 
 Terminal history, accepted proofs, submitted observations, and immutable event
 payloads are not rewritten by this migration.
+
+## Partition Retirement Follow-up
+
+This PR keeps mapped active pens protected from ordinary location retirement so
+an admin cannot accidentally hide a partition that `shed_partitions` still marks
+active. When a product flow for retiring a partition is added, it must retire the
+catalog row and deactivate the mapped pen in one database transaction:
+
+```text
+1. lock shed_partitions row by tenant_id + shed_id + normalized_label
+2. verify no live goats/tasks still require that partition
+3. set mapped locations.status = inactive
+4. set shed_partitions.status = retired
+5. invalidate location/partition pickers
+```
+
+Do not implement partition retirement by calling the generic location retire API
+on the mapped pen first; that path intentionally blocks mapped pens.
