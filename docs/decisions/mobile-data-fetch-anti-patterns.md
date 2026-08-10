@@ -237,11 +237,14 @@ against `origin/main`; a genuinely-bounded case appends
   using LazyColumn/Row please make sure you provide a unique key for each item.`
   thrown in the LazyList **measure pass**, which pops the whole screen. This
   shipped in `0.1.6-stg` (Crashlytics, field operators) and was fixed in
-  `a9c35a1d` by keying on the unique per-row `obligationId`. The guard flags a
-  `key = { it.goatId }`-style bare entity selector (`goatId`, `animalId`,
-  `goatUuid`, …); a string-template or composite key
-  (`key = { "${it.goatId}|${it.vaccineLabel}" }`) is allowed because it is
-  row-unique.
+  `a9c35a1d` by keying on the unique per-row `obligationId`. The proof-needed
+  feed hit the same class again when staging carried multiple active vaccine
+  obligations per goat; the row key must prefer `obligationId` before `goatId`.
+  The guard flags a `key = { it.goatId }`-style bare entity selector (`goatId`,
+  `animalId`, `goatUuid`, …) and Elvis/fallback keys where the entity id wins
+  before the row id. A string-template/composite key is allowed only when no
+  row id exists and the composite includes enough row-grain fields, e.g.
+  `goatId|vaccineLabel|primaryTag`.
 - **`lazy-list-missing-key` (state loss).** `items(<collection>)` /
   `itemsIndexed(<collection>)` with no `key =` falls back to positional identity,
   so an insert/remove/reorder reuses an item's remembered state (checkbox,

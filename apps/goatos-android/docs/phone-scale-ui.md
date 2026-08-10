@@ -43,8 +43,9 @@ Also banned: a `LazyColumn`/scrollable `Column` nested directly inside another l
 row lambda (two scrollables sharing one measure/scroll axis — an infinite-constraint or
 double-scroll bug). Hoist the inner list to its own destination/sheet.
 
-Machine-checked: `lazy-list-missing-key`, `nested-scroll-in-lazy-items`, `column-foreach-unbounded`
-in `check-android-compose-lists.mjs`.
+Machine-checked: `lazy-list-missing-key`, `lazy-list-entity-id-key`,
+`nested-scroll-in-lazy-items`, and `column-foreach-unbounded` in
+`check-android-compose-lists.mjs`.
 
 ## 2. Chips are for a small, fixed set — not an unbounded dimension
 

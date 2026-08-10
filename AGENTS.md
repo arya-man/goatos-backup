@@ -184,6 +184,9 @@ surface still works. Examples:
 - Android weighing list edits: repeated Compose row keys must include full
   work/category/period identity, not only `campaignShedId`; run
   `WeighingRouteIdentityTest` for this guardrail.
+- Android vaccination proof-list edits: proof-needed rows are obligation-grain,
+  not goat-grain. Key by `obligationId` before `goatId`, and run
+  `ScanProofIdentityTest` plus `make android-compose-lists-guard`.
 - Admin-web component/style edit: run the relevant typecheck/test/lint slice or
   a focused browser check, not the whole product suite.
 - Docs/copy/config-only edit: inspect the diff and run format/schema validation

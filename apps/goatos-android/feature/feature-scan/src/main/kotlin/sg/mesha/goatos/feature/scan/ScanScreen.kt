@@ -439,7 +439,12 @@ fun ScanScreen(
                     item { ProofGate(rows = state.proofActionNeeded) }
                     items(
                         state.proofActionNeeded,
-                        key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" },
+                        key = { row ->
+                            "proof-${row.obligationId.takeIf { it.isNotBlank() }
+                                ?: listOf(row.goatId, row.vaccineLabel, row.primaryTag)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString("|")}"
+                        },
                         contentType = { "proof_needed_row" },
                     ) { row ->
                         ProofNeededFeedRow(

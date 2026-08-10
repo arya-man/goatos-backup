@@ -17,7 +17,8 @@
 //
 //   [lazy-list-entity-id-key]
 //     A key whose primary selector is a bare per-ENTITY id (goatId/animalId/...), used
-//     on a list that renders one row per OBLIGATION/record. A goat with two due vaccines
+//     on a list that renders one row per OBLIGATION/record. This includes Elvis/fallback
+//     keys that try goatId before obligationId. A goat with two due vaccines
 //     (ET+TT · PPR) then produces two rows with the SAME key ->
 //     "IllegalArgumentException: Key <x> was already used" in the LazyList measure pass,
 //     which pops the whole screen (shipped crash, Crashlytics 0.1.6-stg, fixed a9c35a1d).
@@ -112,6 +113,7 @@ const isAndroidKt = (rel) =>
 // hold >1 row per entity. Row-unique ids (id, obligationId, rowId, uuid, key)
 // are intentionally excluded.
 const ENTITY_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(goatId|animalId|goatUuid|animalUuid|herdAnimalId|tagId)\b/;
+const ROW_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(obligationId|rowId|uiKey|stableKey|captureId|completionId|assignmentId|id)\b/;
 
 const lineOf = (source, index) => source.slice(0, index).split("\n").length;
 
@@ -249,19 +251,24 @@ export function findingsForSource(source) {
           }
         } else {
           // has a key -> check it is not a bare per-entity id on a per-row list.
-          const keyMatch = /\bkey\s*=\s*\{([\s\S]*?)\}/.exec(args);
+          const keyMatch = /\bkey\s*=\s*\{([\s\S]*)/.exec(args);
           if (keyMatch) {
-            const keyBody = keyMatch[1];
+            const keyBody = keyMatch[1].split(/,\s*(?:contentType|span)\s*=/)[0];
+            const entityMatch = ENTITY_ID.exec(keyBody);
+            const rowMatch = ROW_ID.exec(keyBody);
+            const entityBeforeRow = entityMatch && rowMatch && entityMatch.index < rowMatch.index;
             const composite =
-              keyBody.includes('"') || keyBody.includes("`") || / to \b/.test(keyBody) || /Pair\s*\(/.test(keyBody);
-            if (!composite && ENTITY_ID.test(keyBody)) {
+              !entityBeforeRow &&
+              (keyBody.includes('"') || keyBody.includes("`") || / to \b/.test(keyBody) || /Pair\s*\(/.test(keyBody));
+            if (entityMatch && (!composite || entityBeforeRow)) {
               findings.push({
                 line: startLine,
                 rule: "lazy-list-entity-id-key",
                 message:
                   "lazy key selects a per-entity id (goatId/animalId/...): a list with >1 row per " +
                   "entity (e.g. a goat with two due vaccines) yields duplicate keys -> " +
-                  "'Key was already used' crash. Key the unique per-row id (obligationId) or a composite.",
+                  "'Key was already used' crash. Key the unique per-row id (obligationId) first, " +
+                  "or use a composite only when no row id exists.",
               });
             }
           }
@@ -481,6 +488,7 @@ function selfTest() {
     ["items(rows) { r -> Row(r) }", "lazy-list-missing-key"],
     ["itemsIndexed(rows) { i, r -> Row(r) }", "lazy-list-missing-key"],
     ["items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
+    ['items(proofRows, key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" }) { }', "lazy-list-entity-id-key"],
     ["items(list, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
   ];
   for (const [inner, rule] of bad) {
