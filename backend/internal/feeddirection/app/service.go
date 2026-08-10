@@ -461,10 +461,14 @@ func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQue
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
-	pageRows := stampAndFilterDirectionRows(result.pageRows, statusMap, "")
+	// One row per operational location, on the same terms as the served paths (see
+	// domain.CollapseDirectionRowsByLocation). Draft pages inside generate, so page and scope are
+	// folded separately; both folds are keyed on (shed, partition, session), and a shed's rows never
+	// straddle a page, so the page is exactly the collapsed rows of its own sheds.
+	pageRows := domain.CollapseDirectionRowsByLocation(stampAndFilterDirectionRows(result.pageRows, statusMap, ""))
 	return domain.PreviewPage{
 		Items:      pageRows,
-		Summary:    domain.SummarizeScope(result.scopeRows, result.config.PlannedFeedItems()),
+		Summary:    domain.SummarizeScope(domain.CollapseDirectionRowsByLocation(result.scopeRows), result.config.PlannedFeedItems()),
 		Lifecycle:  domain.Lifecycle{State: domain.LifecycleStateDraft, Workflows: []domain.WorkflowLifecycle{}},
 		Draft:      true,
 		TargetDate: biztime.BusinessDate(normalized.TargetDate),

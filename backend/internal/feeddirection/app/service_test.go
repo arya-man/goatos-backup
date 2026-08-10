@@ -214,9 +214,59 @@ func TestPreviewIssuesAConstantNumberOfReadsRegardlessOfPageSize(t *testing.T) {
 	if len(counts.requestedIDs) != 1 || len(counts.requestedIDs[0]) != 2 {
 		t.Fatalf("batched shed ids = %v, want one call naming both sheds", counts.requestedIDs)
 	}
-	// Two sheds x two sessions; Shed A has two grains, Shed B one -> (2+1) x 2 = 6 rows.
-	if len(page.Items) != 6 {
-		t.Fatalf("rows = %d, want 6", len(page.Items))
+	// Two sheds x two sessions = 4 rows. The sheet is ONE row per operational location per session,
+	// so shed A's two ration grains arrive merged rather than as two rows.
+	if len(page.Items) != 4 {
+		t.Fatalf("rows = %d, want 4 (2 pens x 2 sessions)", len(page.Items))
+	}
+}
+
+// THE END-TO-END PROOF OF THE SHEET GRAIN (maintainer decision 2026-08-10). Shed A holds two ration
+// grains -- 10 adult Beetal on the 200 g/head rate and 6 kids on the 100 g/head rate. It used to
+// print as TWO rows per session, which an operator had to re-add at the pen door and which pointed
+// at ONE completion between them. It is now one row whose columns name both cohorts and whose
+// quantity is their sum.
+func TestPreviewServesOneMergedRowPerPenPerSession(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	var shedARows []domain.DirectionRow
+	for _, row := range page.Items {
+		if row.ShedID == shedA {
+			shedARows = append(shedARows, row)
+		}
+	}
+	if len(shedARows) != 2 {
+		t.Fatalf("shed A rows = %d, want 2 (one per session, NOT one per ration grain): %+v", len(shedARows), shedARows)
+	}
+
+	row := shedARows[0]
+	if row.HeadCount != 16 {
+		t.Errorf("head count = %d, want 16 (10 adults + 6 kids in the pen)", row.HeadCount)
+	}
+	// Both cohorts named, dominant first -- the operator still sees what is standing in the pen.
+	if row.ShedTag != "Non-Pregnant + F2-Male" {
+		t.Errorf("shed tag = %q, want %q", row.ShedTag, "Non-Pregnant + F2-Male")
+	}
+	if row.RationGroup != "Beetal/Sirohi + Kid" {
+		t.Errorf("ration group = %q, want %q", row.RationGroup, "Beetal/Sirohi + Kid")
+	}
+	// 10 x 200 g x 0.5 = 1000 g, plus 6 x 100 g x 0.5 = 300 g -> 1.300 kg for the pen this session.
+	if row.SessionTotalKg != "1.300" {
+		t.Errorf("session total = %q, want 1.300 (both grains summed)", row.SessionTotalKg)
+	}
+	if len(row.Items) != 1 || row.Items[0].QuantityKg == nil || *row.Items[0].QuantityKg != "1.300" {
+		t.Errorf("items = %+v, want a single merged Concentrate cell of 1.300", row.Items)
+	}
+	if row.Blocked {
+		t.Error("row reports a gap; every cell in this fixture is authored")
 	}
 }
 
@@ -241,9 +291,10 @@ func TestPagingBySheDKeepsEachShedsGrainsWhole(t *testing.T) {
 			t.Fatalf("page 1 contains shed %q; a page must not mix sheds when limit=1", row.ShedID)
 		}
 	}
-	// Shed A's two grains x two sessions, all present on one page.
-	if len(first.Items) != 4 {
-		t.Fatalf("page 1 rows = %d, want all 4 of shed A's rows", len(first.Items))
+	// Shed A's merged row for each of the two sessions, both present on one page. A shed's sessions
+	// must not straddle a boundary either: two half-sheets each read as a complete instruction.
+	if len(first.Items) != 2 {
+		t.Fatalf("page 1 rows = %d, want both of shed A's session rows", len(first.Items))
 	}
 	// The session totals are therefore complete, not halved by a boundary.
 	if first.Items[0].SessionTotalKg == "0.000" {
@@ -299,8 +350,9 @@ func TestPreviewSummaryIsInvariantToPageSize(t *testing.T) {
 	if want.ShedCount != 2 {
 		t.Fatalf("whole-set shed_count = %d, want 2", want.ShedCount)
 	}
-	if want.RowCount != 6 {
-		t.Fatalf("whole-set row_count = %d, want 6 (3 grains x 2 sessions)", want.RowCount)
+	// The summary describes exactly what the sheet renders: one row per pen per session.
+	if want.RowCount != 4 {
+		t.Fatalf("whole-set row_count = %d, want 4 (2 pens x 2 sessions)", want.RowCount)
 	}
 
 	for i, got := range summaries {

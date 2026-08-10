@@ -3408,6 +3408,7 @@ export interface components {
             /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
             detail: string;
         };
+        /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
             /** Format: uuid */
             park_id: string;
@@ -3417,11 +3418,11 @@ export interface components {
             shed_label: string;
             /** @description The row's operational partition within the physical shed ("1", "Part 3"), absent for a shed that has none. A feed row's grain is the OPERATIONAL LOCATION, not the shed: one shed can run an authored experiment on some partitions while the rest stay on the per-head ration grid, so Castro 1 and Castro 2 are two rows sharing one shed_id. Clients MUST render shed + partition together ("Castro 1", "Godel 2 - Part 3") and must never display the bare shed name for a partitioned row, or two different pens appear as two identical lines. */
             partition_label?: string;
-            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A shed holding two stages reports both, joined by ` + `. */
+            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A pen holding two stages reports both, joined by ` + `, dominant (largest head count) first. */
             shed_tag: string;
-            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the shed; a multi-breed shed reports every breed joined by ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one. */
+            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the pen; a multi-breed pen reports every breed joined by ` + ` (`Beetal + Sojat`), dominant first, rather than naming one and implying it is the only one. THE ROW IS NOT SPLIT PER BREED -- see the row's own grain description. */
             breed: string;
-            /** @description What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
+            /** @description What the breed resolved to in the ration grid, joined by ` + ` when the pen holds more than one (`Beetal/Sirohi + Kid`). EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
             ration_group: string;
             /** @description The trial group a hand-authored experiment pen is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the pen is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
             experiment_arm: string;
@@ -3442,10 +3443,13 @@ export interface components {
             items: components["schemas"]["FeedDirectionItemQuantity"][];
             /** @description Sum of the RESOLVED items only, as an exact decimal string. Blocked items contribute nothing because they have no number to contribute -- `blocked` is what tells the reader this total is partial. */
             session_total_kg: string;
+            /** @description True when part of this pen's ration is unauthored, so `session_total_kg` covers only part of the pen. The quantities that ARE configured still carry numbers -- the operator feeds those animals and records their video -- and `blocked_reasons` names the gap. An item where NOTHING resolved has a null `quantity_kg` and is never rendered as 0. */
             blocked: boolean;
+            /** @description The distinct gaps behind `blocked`, each naming the exact missing coordinate (park / ration group / tag / feed item) so an operator can locate and close it. Absent on a fully resolved row. Present because one row covers a whole pen: when only part of the pen's ration is authored, the row must say WHICH part is missing. */
+            blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
             /** @description A movement this row's projected head count already assumes came due before the target date and still has not been executed. */
             overdue_pending: boolean;
-            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). The ration numbers are generated the same way; this reports that the feeding was carried out. A whole shed-session is completed at once, so every ration grain of the same (shed, session) reports `completed` together. */
+            /** @description True when this pen's session has a recorded completion (`feed.direction.completed`). The ration numbers are generated the same way; this reports that the feeding was carried out. Completion is recorded per (shed, partition, session, workflow), which is exactly this row's grain, so it maps 1:1. */
             completed: boolean;
         };
         FeedDirectionFeedItemTotal: {
