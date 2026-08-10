@@ -129,6 +129,17 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-runtime-permission-sdk-gates",
+      "script": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --self-test",
+      "owningDoc": "docs/mobile/README.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Runtime permission request/blocking lists must gate OS-versioned permissions by SDK. POST_NOTIFICATIONS is runtime-grantable only on Android 13+, so Android 12 capture/upload entry must never require it."
+    },
+    {
       "id": "android-row-action-scope",
       "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
       "makeTarget": "android-row-action-scope-guard",

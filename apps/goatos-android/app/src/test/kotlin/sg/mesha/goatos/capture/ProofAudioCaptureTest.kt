@@ -73,6 +73,55 @@ class ProofAudioCaptureTest {
     }
 
     @Test
+    fun `android 10 capture gate requires location for bluetooth but never notifications`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ),
+            mandatoryCapturePermissionsForSdk(29),
+        )
+    }
+
+    @Test
+    fun `android 12 capture gate requires bluetooth connect but never notifications`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ),
+            mandatoryCapturePermissionsForSdk(31),
+        )
+    }
+
+    @Test
+    fun `android 12L capture gate still never requires notifications`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ),
+            mandatoryCapturePermissionsForSdk(32),
+        )
+    }
+
+    @Test
+    fun `android 13 capture gate adds runtime notifications`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.POST_NOTIFICATIONS,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            ),
+            mandatoryCapturePermissionsForSdk(33),
+        )
+    }
+
+    @Test
     fun `the microphone row reads as farm language, not a platform constant`() {
         assertEquals(
             "The permission gate renders this label to a field operator, so it must be farm " +
