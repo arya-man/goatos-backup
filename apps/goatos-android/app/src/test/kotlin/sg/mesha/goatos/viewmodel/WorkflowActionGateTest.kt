@@ -93,7 +93,70 @@ class WorkflowActionGateTest {
             blocked = true,
         )
 
-        assertFalse(canRecordWorkflowVideo(action, draftsSubmitting = false, predecessorsReady = true))
+        assertFalse(
+            canRecordWorkflowVideo(
+                action,
+                blocked = workflowBlockedForOperator(action, isDeath = false, predecessorsReady = true),
+                draftsSubmitting = false,
+                predecessorsReady = true,
+            ),
+        )
+    }
+
+    /**
+     * Death holds BOTH videos as local drafts until Submit, so the backend has seen no completion
+     * and correctly reports the second video blocked behind the first. Honouring that verbatim left
+     * the operator with a recorded death video and no post-mortem control (maintainer, 2026-08-10).
+     */
+    @Test
+    fun `death post-mortem opens once the first video exists as a local draft`() {
+        val postMortem = WorkflowActionDto(
+            actionKey = "post_mortem_video",
+            actionType = "action",
+            requiresVideo = true,
+            status = "pending",
+            blocked = true,
+            blockedReason = "previous_action",
+        )
+
+        assertFalse(workflowBlockedForOperator(postMortem, isDeath = true, predecessorsReady = true))
+        assertTrue(
+            canRecordWorkflowVideo(
+                postMortem,
+                blocked = workflowBlockedForOperator(postMortem, isDeath = true, predecessorsReady = true),
+                draftsSubmitting = false,
+                predecessorsReady = true,
+            ),
+        )
+    }
+
+    /** The override is scoped: no draft recorded, no local answer — the backend block stands. */
+    @Test
+    fun `death post-mortem stays blocked with no first video`() {
+        val postMortem = WorkflowActionDto(
+            actionKey = "post_mortem_video",
+            actionType = "action",
+            requiresVideo = true,
+            status = "pending",
+            blocked = true,
+            blockedReason = "previous_action",
+        )
+
+        assertTrue(workflowBlockedForOperator(postMortem, isDeath = true, predecessorsReady = false))
+    }
+
+    /** Only `previous_action` is stale pre-submit; every other reason is real. */
+    @Test
+    fun `a death row blocked for any other reason is still blocked`() {
+        val gated = WorkflowActionDto(
+            actionType = "action",
+            requiresVideo = true,
+            status = "pending",
+            blocked = true,
+            blockedReason = "signoff",
+        )
+
+        assertTrue(workflowBlockedForOperator(gated, isDeath = true, predecessorsReady = true))
     }
 
     @Test
@@ -105,7 +168,14 @@ class WorkflowActionGateTest {
             blocked = false,
         )
 
-        assertTrue(canRecordWorkflowVideo(action, draftsSubmitting = false, predecessorsReady = true))
+        assertTrue(
+            canRecordWorkflowVideo(
+                action,
+                blocked = workflowBlockedForOperator(action, isDeath = false, predecessorsReady = true),
+                draftsSubmitting = false,
+                predecessorsReady = true,
+            ),
+        )
     }
 
     @Test

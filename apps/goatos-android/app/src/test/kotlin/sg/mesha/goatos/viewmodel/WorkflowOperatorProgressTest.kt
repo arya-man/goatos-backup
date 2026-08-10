@@ -98,13 +98,38 @@ class WorkflowOperatorProgressTest {
         assertTrue(card.canOpenDetail)
     }
 
+    /**
+     * The acknowledgement is BACKEND-confirmed completion. `actionsDone` alone cannot say it:
+     * it counts a pre-submit local draft as operator progress, so reading it here would flip the
+     * footer to "Submitted" the moment the second video was recorded and permanently disable the
+     * Submit that still had to upload both.
+     */
     @Test
     fun `death footer becomes disabled submitted acknowledgement at two of two`() {
-        val state = WorkflowDetailUiState(isDeath = true, actionsDone = 2, actionsTotal = 2)
+        val state = WorkflowDetailUiState(
+            isDeath = true,
+            actionsDone = 2,
+            actionsTotal = 2,
+            deathBackendActionsDone = 2,
+        )
 
         assertTrue(state.showDeathSubmissionButton)
         assertEquals(WorkflowDeathSubmissionLabel.SUBMITTED, state.deathSubmissionLabel)
         assertFalse(state.deathSubmissionEnabled)
+    }
+
+    @Test
+    fun `two local drafts are operator progress and still offer Submit`() {
+        val state = WorkflowDetailUiState(
+            isDeath = true,
+            actionsDone = 2,
+            actionsTotal = 2,
+            deathBackendActionsDone = 0,
+            deathDraftCount = 2,
+        )
+
+        assertEquals(WorkflowDeathSubmissionLabel.SUBMIT, state.deathSubmissionLabel)
+        assertTrue(state.deathSubmissionEnabled)
     }
 
     @Test

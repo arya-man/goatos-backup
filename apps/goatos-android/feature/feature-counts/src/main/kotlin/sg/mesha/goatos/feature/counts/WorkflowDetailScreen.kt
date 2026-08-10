@@ -119,8 +119,19 @@ data class WorkflowDetailUiState(
     /** "Birth · WF-0521"-style template line, VM-built from backend fields. */
     val templateLine: String = "",
     val facts: List<Pair<String, String>> = emptyList(),
+    /**
+     * Operator progress. On Death this counts a pre-submit LOCAL draft as done: the operator has
+     * recorded that video and nothing more is asked of them for that row until Submit. It is
+     * therefore NOT backend truth and must never gate submission — see [deathBackendActionsDone].
+     */
     val actionsDone: Int = 0,
     val actionsTotal: Int = 0,
+    /**
+     * Backend-confirmed finished actions, the only count the death submission gate may read.
+     * With two local drafts and nothing uploaded, [actionsDone] is already 2 while this is still
+     * 0 — and that is exactly the moment Submit has to be tappable.
+     */
+    val deathBackendActionsDone: Int = 0,
     val actions: List<WorkflowActionUi> = emptyList(),
     val isRefreshing: Boolean = false,
     val isCapturingVideo: Boolean = false,
@@ -140,7 +151,7 @@ data class WorkflowDetailUiState(
     val showDeathSubmissionButton: Boolean get() = isDeath
     val deathSubmissionLabel: WorkflowDeathSubmissionLabel
         get() = when {
-            actionsTotal > 0 && actionsDone >= actionsTotal -> WorkflowDeathSubmissionLabel.SUBMITTED
+            actionsTotal > 0 && deathBackendActionsDone >= actionsTotal -> WorkflowDeathSubmissionLabel.SUBMITTED
             deathUploadFailed -> WorkflowDeathSubmissionLabel.UPLOAD_FAILED
             deathDraftsSubmitting || isSubmittingDeath -> WorkflowDeathSubmissionLabel.UPLOADING
             else -> WorkflowDeathSubmissionLabel.SUBMIT
