@@ -757,6 +757,12 @@ tests.
 - Rework tasks for rejected media or shortfall.
 - Offline-first capture with later sync, idempotency, and no duplicate close.
 
+Ground-operator park scope is not loosened for demos, throwaway databases, or
+seeded E2E. A Feed operator phone shows exactly one park: the park that operator
+is assigned to execute in. CBE and CPT require separate operator principals.
+Multi-park Feed views are director/CEO oversight views for status and follow-up,
+not ground execution surfaces.
+
 ## 9. Reliability history and non-negotiable architecture lessons
 
 This section is intentionally explicit. Future GoatOS kernel/backend developers

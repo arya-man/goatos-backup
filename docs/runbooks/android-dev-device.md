@@ -121,6 +121,12 @@ genuinely demands real Firebase creds to proceed in dev IS a regression: restore
 There is NO in-app role/user picker in dev — one build = one baked identity. To be a role, mint the
 bearer for a user that has that role's grant, then run. Role comes from `user_scope_grants`.
 
+Golden rule: a ground operator is always single-park, even in throwaway/dev data.
+Do not seed one operator user with CBE and CPT visibility. If you need to compare
+parks, seed two operator users (one per park) or use a director/CEO oversight
+user. Seeing multiple park chips/tasks on a ground-operator phone is a bad seed
+or a backend scope bug, not an acceptable demo shortcut.
+
 **Two steps, per role:**
 
 ```bash
@@ -204,7 +210,7 @@ roster import.
 
 | role (`-role`) | suggested user-id | can do | Counts module |
 |---|---|---|---|
-| `operator` | `…000101` (the script default) | EXECUTE a drive: scan → submit + proof. RECORD birth + death in Counts. Cannot close/verify a drive. | capture only — Birth/Death + Shifting, **no census** |
+| `operator` | `…000101` (the script default) | EXECUTE a drive in exactly one assigned park: scan → submit + proof. RECORD birth + death in Counts for that same park. Cannot close/verify a drive and must never see another park's ground work. | capture only — Birth/Death + Shifting, **no census** |
 | `park_head` | `…000102` | leadership follow-up in app; close + post verification on admin-web | capture only — Birth/Death + Shifting, **no census** |
 | `pc_director` | `…000103` | leadership follow-up in app; close + post verification on admin-web | **none — module not in drawer** |
 | `ceo_internal` | `…000104` | leadership follow-up in app; close + post verification on admin-web | full — census + Birth/Death + Shifting |
