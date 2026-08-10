@@ -104,6 +104,29 @@ func TestSignedDownloadPinsGeneration(t *testing.T) {
 	}
 }
 
+func TestSignedDownloadRequestsInlinePlayback(t *testing.T) {
+	storage := newTestStorage(t)
+	storage.now = func() time.Time { return time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC) }
+
+	signed, err := storage.PrepareDownload(context.Background(), domain.Artifact{
+		ObjectKey: "tenant/proofs/proof-1.mp4",
+		MimeType:  "video/mp4",
+	}, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("PrepareDownload() error = %v", err)
+	}
+	u, err := url.Parse(signed)
+	if err != nil {
+		t.Fatalf("parse signed URL: %v", err)
+	}
+	if got := u.Query().Get("response-content-disposition"); got != "inline" {
+		t.Fatalf("response-content-disposition = %q, want inline", got)
+	}
+	if got := u.Query().Get("response-content-type"); got != "video/mp4" {
+		t.Fatalf("response-content-type = %q, want video/mp4", got)
+	}
+}
+
 func newTestStorage(t *testing.T) *Storage {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

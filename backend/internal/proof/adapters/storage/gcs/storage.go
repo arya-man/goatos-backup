@@ -93,7 +93,10 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 }
 
 func (s *Storage) PrepareDownload(_ context.Context, proof domain.Artifact, expires time.Duration) (string, error) {
-	query := map[string]string{}
+	query := map[string]string{
+		"response-content-disposition": "inline",
+		"response-content-type":        contentTypeOrDefault(proof.MimeType),
+	}
 	if generation := generationFromProof(proof); generation != "" {
 		query["generation"] = generation
 	}
