@@ -109,6 +109,27 @@ job_image() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
 
+wait_service_ready() {
+  local service="$1"
+  local expected_phase="${2:-ready}"
+  local attempt latest_created latest_ready ready_condition
+
+  for attempt in $(seq 1 60); do
+    read -r latest_created latest_ready ready_condition < <(
+      gcloud run services describe "$service" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --format='value(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.conditions[?type="Ready"].status)'
+    )
+    if [[ -n "$latest_created" && "$latest_created" == "$latest_ready" && "$ready_condition" == "True" ]]; then
+      return 0
+    fi
+    echo "waiting for $service $expected_phase revision readiness: created=${latest_created:-?} ready=${latest_ready:-?} condition=${ready_condition:-?} attempt=$attempt"
+    sleep 5
+  done
+  die "$service did not reach $expected_phase readiness before continuing"
+}
+
 smoke_http() {
   local url="$1"
   local expected="$2"
@@ -136,7 +157,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=migrate,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+rollout_order=drain_kernel_worker,migrate,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -174,6 +195,7 @@ deploy() {
     --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=false" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy,rollout_phase=pre_migration_drain" \
     --quiet
+  wait_service_ready "$KERNEL_WORKER_SERVICE" "pre-migration drain"
 
   run gcloud run jobs update "$MIGRATE_JOB" \
     --project="$PROJECT_ID" \
@@ -219,6 +241,7 @@ deploy() {
     --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
+  wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
 
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
