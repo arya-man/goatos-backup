@@ -121,6 +121,18 @@ func feedPerKgGain(pen Pen) *float64 {
 	if *pen.ADGGPerDay <= 0 {
 		return nil
 	}
+	// A ration of ZERO grams has no conversion ratio either, and this is a real
+	// case rather than a defensive check: K1 kids are authored at 0 g because they
+	// are on MILK, which the ration grid does not carry. Staging returns exactly
+	// this — 0 g planned against a genuine 139 g/day of gain.
+	//
+	// The arithmetic answer, 0.0 kg of feed per kg of gain, is not merely useless:
+	// it sorts every milk-fed kid pen to the top of a "most efficient pens" ranking
+	// on the strength of feed the farm does give them and this grid cannot see.
+	// Reporting nothing is the honest answer.
+	if *pen.PlannedFeedGPerHeadDay <= 0 {
+		return nil
+	}
 	ratio := *pen.PlannedFeedGPerHeadDay / *pen.ADGGPerDay
 	return &ratio
 }
