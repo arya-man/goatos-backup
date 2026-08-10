@@ -925,17 +925,17 @@ expected AS (
     MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
     MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
   FROM obligation_batches ob
-  JOIN (
-    SELECT
-      vc.batch_id,
-      COUNT(*)::int AS completion_count,
-      COUNT(DISTINCT vc.goat_id)::int AS total_count
-    FROM (
-      SELECT batch_id, goat_id
-      FROM vaccination_completions
-      WHERE tenant_id = $1::uuid
-        AND batch_id IS NOT NULL
-        AND status IN ('recorded', 'accepted')
+	JOIN (
+	    SELECT
+	      vc.batch_id,
+	      COUNT(*)::int AS completion_count,
+	      COUNT(DISTINCT vc.goat_id)::int AS total_count
+	    FROM (
+	      SELECT tenant_id, batch_id, goat_id, sop_submission_item_id
+	      FROM vaccination_completions
+	      WHERE tenant_id = $1::uuid
+	        AND batch_id IS NOT NULL
+	        AND status IN ('recorded', 'accepted')
       UNION ALL
       -- A sent-back animal MUST still be counted in the drive. Its completion row was moved to
       -- the rejection archive (migration 000093), so counting only the live table dropped it out
@@ -943,10 +943,10 @@ expected AS (
       -- rejected-count read 0, and the drive offered a Close button while an animal was still
       -- waiting to be redone. Close is only allowed when EVERY video in the drive, across all its
       -- sheds, has been verified.
-      SELECT vcr.batch_id, vcr.goat_id
-      FROM vaccination_completion_rejections vcr
-      WHERE vcr.tenant_id = $1::uuid
-        AND vcr.batch_id IS NOT NULL
+	      SELECT vcr.tenant_id, vcr.batch_id, vcr.goat_id, vcr.sop_submission_item_id
+	      FROM vaccination_completion_rejections vcr
+	      WHERE vcr.tenant_id = $1::uuid
+	        AND vcr.batch_id IS NOT NULL
         -- ...but NOT one that has since been redone. A sent-back animal that was re-vaccinated and
         -- re-approved has BOTH an archived rejection and a live completion, so counting both made
         -- completion_count exceed the number of proofs that can ever exist (5 live + 2 archived = 7
@@ -959,11 +959,33 @@ expected AS (
           WHERE live.tenant_id = vcr.tenant_id
             AND live.batch_id = vcr.batch_id
             AND live.goat_id = vcr.goat_id
-            AND live.status IN ('recorded', 'accepted')
-        )
-    ) vc
-    GROUP BY vc.batch_id
-  ) completion_counts
+	            AND live.status IN ('recorded', 'accepted')
+	        )
+	    ) vc
+	    WHERE (
+	      ($9 = '' AND $10 = '')
+	      OR EXISTS (
+	        SELECT 1
+	        FROM sop_submission_items si_scope
+	        JOIN verification_items vi_scope
+	          ON vi_scope.tenant_id = si_scope.tenant_id
+	         AND vi_scope.source_submission_id = si_scope.submission_id
+	         AND (
+	           (vi_scope.source_ref_type = 'sop_submission' AND vi_scope.source_ref_id = si_scope.submission_id)
+	           OR (vi_scope.source_ref_type = 'vaccination_goat' AND vi_scope.source_ref_id = si_scope.goat_id)
+	         )
+	        WHERE si_scope.tenant_id = vc.tenant_id
+	          AND si_scope.item_id = vc.sop_submission_item_id
+	          AND vi_scope.category = $2
+	          AND ($9 = '' OR vi_scope.shed_id = $9::uuid)
+	          AND (
+	            $10 = ''
+	            OR regexp_replace(lower(btrim(COALESCE(vi_scope.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10
+	          )
+	      )
+	    )
+	    GROUP BY vc.batch_id
+	  ) completion_counts
     ON completion_counts.batch_id = ob.batch_id
   LEFT JOIN vaccination_drive_assignments vda
     ON vda.tenant_id = ob.tenant_id
@@ -1092,19 +1114,24 @@ proofs AS (
     closed_vi.shed_id
   FROM vaccination_completions vc
   LEFT JOIN LATERAL (
-    SELECT vi2.item_id, vi2.closed_at, vi2.verified_at, vi2.captured_at, vi2.park_id, vi2.shed_id
-    FROM sop_submission_items si2
-    JOIN verification_items vi2
+	    SELECT vi2.item_id, vi2.closed_at, vi2.verified_at, vi2.captured_at, vi2.park_id, vi2.shed_id
+	    FROM sop_submission_items si2
+	    JOIN verification_items vi2
       ON vi2.tenant_id = si2.tenant_id
      AND vi2.source_submission_id = si2.submission_id
      AND (
        (vi2.source_ref_type = 'sop_submission' AND vi2.source_ref_id = si2.submission_id)
        OR (vi2.source_ref_type = 'vaccination_goat' AND vi2.source_ref_id = si2.goat_id)
      )
-    WHERE si2.tenant_id = vc.tenant_id
-      AND si2.item_id = vc.sop_submission_item_id
-      AND vi2.category = $2
-    ORDER BY vi2.verified_at DESC NULLS LAST, vi2.captured_at DESC NULLS LAST, vi2.item_id DESC
+	    WHERE si2.tenant_id = vc.tenant_id
+	      AND si2.item_id = vc.sop_submission_item_id
+	      AND vi2.category = $2
+	      AND ($9 = '' OR vi2.shed_id = $9::uuid)
+	      AND (
+	        $10 = ''
+	        OR regexp_replace(lower(btrim(COALESCE(vi2.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10
+	      )
+	    ORDER BY vi2.verified_at DESC NULLS LAST, vi2.captured_at DESC NULLS LAST, vi2.item_id DESC
     LIMIT 1
   ) closed_vi ON TRUE
   WHERE vc.tenant_id = $1::uuid
@@ -1127,16 +1154,17 @@ proofs AS (
           AND bs.park_id = $8::uuid
       )
     )
-    AND (
-      $9 = ''
-      OR EXISTS (
-        SELECT 1
-        FROM batch_scope bs
-        WHERE bs.batch_id = vc.batch_id
-          AND bs.shed_id = $9::uuid
-      )
-    )
-),
+	    AND (
+	      $9 = ''
+	      OR EXISTS (
+	        SELECT 1
+	        FROM batch_scope bs
+	        WHERE bs.batch_id = vc.batch_id
+	          AND bs.shed_id = $9::uuid
+	      )
+	    )
+	    AND (($9 = '' AND $10 = '') OR closed_vi.item_id IS NOT NULL)
+	),
 -- LATEST VERDICT PER PROOF. A rejection makes the operator re-shoot, so one completion/goat can
 -- carry SEVERAL verification_items over time: rejected, rejected again, finally approved. The
 -- readiness gate below gates on rejected_completion_count = 0, so counting every historical row

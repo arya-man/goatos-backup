@@ -2223,6 +2223,15 @@ ORDER BY
 func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	if strings.TrimSpace(q.PartitionLabel) == "" {
+		partitioned, err := r.shedHasActivePartitions(ctx, q.TenantID, q.ShedID)
+		if err != nil {
+			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster partition check: %w", err)
+		}
+		if partitioned {
+			return domain.ScanRosterResult{}, ports.ErrInvalidArgument
+		}
+	}
 	// task_id is OPTIONAL: when present the roster is pinned to that task's batch (task-scoped);
 	// when absent it falls back to the shed-wide roster (the pre-refactor behaviour the current
 	// app still relies on). The pinned identity is only resolved when a task is supplied.
@@ -2294,6 +2303,20 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		result.NextCursor = &domain.ScanRosterCursor{GoatID: last.GoatID, ObligationID: last.ObligationID}
 	}
 	return result, nil
+}
+
+func (r *Repository) shedHasActivePartitions(ctx context.Context, tenantID, shedID string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.shed_id = $2::uuid
+    AND sp.status = 'active'
+    AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
+)`, tenantID, shedID).Scan(&exists)
+	return exists, err
 }
 
 const scanRosterSQL = `
