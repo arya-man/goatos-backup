@@ -1933,14 +1933,19 @@ proofed_shed AS (
     AND p.scope_type = 'shed'
     AND p.subject_type = 'shed'
     AND p.upload_state = 'completed'
-    AND EXISTS (
-      SELECT 1
-      FROM eligible e
-      WHERE e.shed_id = p.scope_id
-        AND (NOT $3::boolean OR e.shed_id = $4)
-    )
-    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
-),
+	    AND EXISTS (
+	      SELECT 1
+	      FROM eligible e
+	      WHERE e.shed_id = p.scope_id
+	        AND (NOT $3::boolean OR e.shed_id = $4)
+	    )
+	    AND (
+	      $5::text = ''
+	      OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+	    )
+	    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+	),
 verification_pending AS (
   -- SHED-SCOPED. verification_items carries its own shed_id (set from the submitting
   -- completion's shed at CreateItem time -- internal/sopbridge/vaccination_submission.go), so a
@@ -1970,9 +1975,14 @@ shed_submission_state AS (
   FROM sop_submissions ss
   CROSS JOIN LATERAL jsonb_array_elements(ss.proof_refs) AS proof(ref)
   WHERE ss.tenant_id = $1
-    AND ss.task_id = $2
-    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
-    AND proof.ref ->> 'upload_state' = 'completed'
+	    AND ss.task_id = $2
+	    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
+	    AND (
+	      $5::text = ''
+	      OR regexp_replace(lower(btrim(COALESCE(ss.partition_label, 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+	    )
+	    AND proof.ref ->> 'upload_state' = 'completed'
     AND proof.ref ->> 'proof_type' = 'video'
     AND proof.ref ->> 'subject_type' = 'shed'
     AND EXISTS (

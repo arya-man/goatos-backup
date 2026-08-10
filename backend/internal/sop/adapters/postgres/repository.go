@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/sop/domain"
 	"github.com/vgoats/goatos/backend/internal/sop/ports"
@@ -1181,12 +1182,17 @@ proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p
   JOIN target_shed target ON target.shed_id IS NOT NULL AND p.scope_id = target.shed_id
-  WHERE p.tenant_id = $1::uuid
-    AND p.scope_type = 'shed'
-    AND p.subject_type = 'shed'
-    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
-    AND p.upload_state = 'completed'
-)
+	  WHERE p.tenant_id = $1::uuid
+	    AND p.scope_type = 'shed'
+	    AND p.subject_type = 'shed'
+	    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+	    AND (
+	      NULLIF(BTRIM($5), '') IS NULL
+	      OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+	    )
+	    AND p.upload_state = 'completed'
+	)
 SELECT COALESCE((SELECT n FROM expected), 0),
        COALESCE((SELECT n FROM handled), 0),
        CASE WHEN $3 = 'shed'
@@ -1365,19 +1371,20 @@ WHERE tenant_id = $1::uuid
 	var submissionID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO sop_submissions (
-  tenant_id, task_id, sop_version_id, submitted_by, idempotency_key,
-  answers, proof_refs, state, validation_report, accepted_at
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5,
-  $6::jsonb, $7::jsonb, $8, $9::jsonb,
-  CASE WHEN $8 = 'accepted' THEN now() ELSE NULL END
-)
-RETURNING submission_id::text`,
+	  tenant_id, task_id, sop_version_id, submitted_by, idempotency_key,
+	  partition_label, answers, proof_refs, state, validation_report, accepted_at
+	) VALUES (
+	  $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5,
+	  nullif(btrim($6), ''), $7::jsonb, $8::jsonb, $9, $10::jsonb,
+	  CASE WHEN $9 = 'accepted' THEN now() ELSE NULL END
+	)
+	RETURNING submission_id::text`,
 		cmd.TenantID,
 		cmd.TaskID,
 		cmd.Body.SOPVersionID,
 		cmd.ActorID,
 		cmd.Body.IdempotencyKey,
+		cmd.Body.PartitionLabel,
 		answers,
 		proofRefs,
 		cmd.TaskState,
@@ -2006,11 +2013,12 @@ LIMIT 1`), cmd.TenantID, cmd.Body.SOPCode)
 
 func (r *Repository) existingSubmission(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, bool, error) {
 	var submissionID, taskID, answersRaw, proofRaw string
+	var partitionRaw pgtype.Text
 	err := tx.QueryRow(ctx, `
-SELECT submission_id::text, task_id::text, answers::text, proof_refs::text
-FROM sop_submissions
-WHERE tenant_id = $1::uuid AND idempotency_key = $2
-LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &answersRaw, &proofRaw)
+	SELECT submission_id::text, task_id::text, COALESCE(partition_label, ''), answers::text, proof_refs::text
+	FROM sop_submissions
+	WHERE tenant_id = $1::uuid AND idempotency_key = $2
+	LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &partitionRaw, &answersRaw, &proofRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SubmissionSummary{}, false, nil
 	}
@@ -2019,7 +2027,10 @@ LIMIT 1`, cmd.TenantID, cmd.Body.IdempotencyKey).Scan(&submissionID, &taskID, &a
 	}
 	answers, _ := json.Marshal(nonNilMap(cmd.Body.Answers))
 	proof, _ := json.Marshal(cmd.Body.ProofRefs)
-	if taskID != cmd.TaskID || !jsonEqual([]byte(answersRaw), answers) || !jsonEqual([]byte(proofRaw), proof) {
+	if taskID != cmd.TaskID ||
+		!oploc.SamePartition(partitionRaw.String, cmd.Body.PartitionLabel) ||
+		!jsonEqual([]byte(answersRaw), answers) ||
+		!jsonEqual([]byte(proofRaw), proof) {
 		return domain.SubmissionSummary{}, false, ports.ErrIdempotencyConflict
 	}
 	submissions, err := r.listSubmissions(ctx, cmd.TenantID, taskID)
@@ -2040,6 +2051,10 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
+	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+	if err != nil {
+		return err
+	}
 	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
 	if err != nil {
 		return err
@@ -2059,6 +2074,56 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 		}
 	}
 	return nil
+}
+
+func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, partitionLabel string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		return keys, nil
+	}
+	goatIDs := make([]string, 0, len(keys))
+	for _, item := range keys {
+		if goatID := strings.TrimSpace(item.GoatID); goatID != "" {
+			goatIDs = append(goatIDs, goatID)
+		}
+	}
+	if len(goatIDs) == 0 {
+		return keys, nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT gsp.goat_id::text
+FROM goat_shed_partitions gsp
+WHERE gsp.tenant_id = $1::uuid
+  AND gsp.goat_id = ANY($2::uuid[])
+  AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
+		tenantID, goatIDs, partitionLabel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	allowed := map[string]struct{}{}
+	for rows.Next() {
+		var goatID string
+		if err := rows.Scan(&goatID); err != nil {
+			return nil, err
+		}
+		allowed[goatID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	filtered := keys[:0]
+	for _, item := range keys {
+		goatID := strings.TrimSpace(item.GoatID)
+		if goatID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		if _, ok := allowed[goatID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 func filterSubmissionItemsToProofSheds(ctx context.Context, tx pgx.Tx, tenantID string, refs []domain.ProofReference, idempotencyKey string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {

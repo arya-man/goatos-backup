@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	vaccexecports "github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
 const (
@@ -1152,6 +1154,11 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed - Part 2')`,
 		testTenant, secondGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "partition roster catalog",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+		 VALUES ($1, $2, 'Part 1', '1', 'active', 'manual'), ($1, $2, 'Part 2', '2', 'active', 'manual')
+		 ON CONFLICT DO NOTHING`,
+		testTenant, testShed)
 	execProjectionSQL(t, ctx, pool, "operator a roster partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 1', 1)`,
@@ -1167,11 +1174,11 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 
 	repo := NewRepository(pool, 5*time.Second)
 	operatorA, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
-	if err != nil {
-		t.Fatalf("ScanRoster(operator A): %v", err)
+	if !errors.Is(err, vaccexecports.ErrInvalidArgument) {
+		t.Fatalf("ScanRoster(operator A blank partition) err=%v, want ErrInvalidArgument", err)
 	}
-	if len(operatorA.Rows) != 2 {
-		t.Fatalf("operator A roster rows=%#v, want both assigned sibling partitions", operatorA.Rows)
+	if len(operatorA.Rows) != 0 {
+		t.Fatalf("operator A blank partition rows=%#v, want none", operatorA.Rows)
 	}
 
 	operatorAPart2, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "2", TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
@@ -1182,9 +1189,9 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		t.Fatalf("operator A Part 2 roster rows=%#v, want only Part 2 goat", operatorAPart2.Rows)
 	}
 
-	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
+	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "Part 2", TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
 	if err != nil {
-		t.Fatalf("ScanRoster(operator B): %v", err)
+		t.Fatalf("ScanRoster(operator B, Part 2): %v", err)
 	}
 	if len(operatorB.Rows) != 1 || operatorB.Rows[0].GoatID != secondGoat {
 		t.Fatalf("operator B roster rows=%#v, want only Part 2 goat", operatorB.Rows)
