@@ -69,12 +69,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Isolation - Part 1', 'active')`,
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 		tenant, partitionedGoat, godelOne)
 
-	raw, err := os.ReadFile("000148_partition_operational_location_mapping.sql")
+	raw, err := os.ReadFile("000149_partition_operational_location_mapping.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
 	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
-		t.Fatalf("replay 000148: %v", err)
+		t.Fatalf("replay 000149: %v", err)
 	}
 
 	var currentLocationID, shedID, currentType, parentID string
@@ -159,7 +159,7 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`
 
 	exec(`UPDATE goats SET lifecycle_status='sold' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat)
 	if _, err := pool.Exec(ctx, migrationDown(string(raw))); err != nil {
-		t.Fatalf("rollback 000148: %v", err)
+		t.Fatalf("rollback 000149: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
 SELECT current_location_id::text
