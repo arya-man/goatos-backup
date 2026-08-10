@@ -452,8 +452,20 @@ export async function FeedConfigPage({
   const byDisplayOrder = <T extends { display_order: number }>(rows: readonly T[]) =>
     [...rows].sort((a, b) => a.display_order - b.display_order);
 
-  const rationGroupOptions = rationGroups
-    ? toOptions(uniqueSorted(rationGroups.items.map((group) => group.ration_group)))
+  // The GROUP filter reads `ration_groups`, never `items`.
+  //
+  // `items` is the breed -> group MAP, and that table is adult breeds only: kids resolve to the fixed
+  // 'Kid' group by age band and appear in no row of it. Building this control from `items` therefore
+  // offered six of the seven live groups and made every 'Kid' rate unreachable from the filter -- 134
+  // of 721 rows per park, with the backend perfectly willing to answer `ration_group=Kid` if the URL
+  // was typed by hand. `ration_groups` is the backend's list of groups that actually carry an
+  // in-force rate, so the control can no longer disagree with the grid it filters.
+  //
+  // `?.length` rather than a bare presence check, so a backend older than this build (no such field)
+  // degrades to the same grid-derived fallback a FAILED catalog read uses, instead of throwing on
+  // `undefined.map` and taking the whole route down over a deploy-order skew.
+  const rationGroupOptions = rationGroups?.ration_groups?.length
+    ? toOptions(rationGroups.ration_groups)
     : toOptions(uniqueSorted(gridRows.map((row) => row.ration_group)));
   // Real BREEDS, from the same breed -> ration-group map the backend resolves the filter through, so
   // every option is one the query can answer. Deduplicated and sorted by breed rather than by group:

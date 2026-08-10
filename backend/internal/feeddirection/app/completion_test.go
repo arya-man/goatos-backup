@@ -76,7 +76,7 @@ func (f *fakeDistributionStore) BounceDistributionForRework(_ context.Context, _
 // fakeDistributionStore). Maintainer decision 2026-07-26 gated packing too.
 type fakePackingStore struct {
 	verified    []ports.VerifiedPacking
-	statuses    []ports.SessionCompletionStatus
+	statuses    []ports.PackingCompletionStatus
 	listCalls   int
 	statusCalls int
 }
@@ -90,7 +90,7 @@ func (f *fakePackingStore) ListVerifiedPacking(_ context.Context, _, _ string, _
 	return f.verified, nil
 }
 
-func (f *fakePackingStore) ListPackingSessionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.SessionCompletionStatus, error) {
+func (f *fakePackingStore) ListPackingCompletionStatuses(_ context.Context, _, _ string, _ time.Time) ([]ports.PackingCompletionStatus, error) {
 	f.statusCalls++
 	return f.statuses, nil
 }
@@ -191,12 +191,16 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	}
 }
 
-func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
+func TestPackingOverlaysCompletedPenDays(t *testing.T) {
 	t.Parallel()
-	// The PACKING overlay now reads the PACKING verification-gated table (maintainer decision,
-	// 2026-07-26): a packing session is Completed only after a verifier approves, i.e. status='completed'
-	// in feed_packing_completions. The overlay reads ListPackingSessionStatuses (which also surfaces
+	// The PACKING overlay reads the PACKING verification-gated table (maintainer decision
+	// 2026-07-26): a pen-day is Completed only after a verifier approves, i.e. status='completed' in
+	// feed_packing_completions. The overlay reads ListPackingCompletionStatuses (which also surfaces
 	// pending_verification/rework for the status filter).
+	//
+	// The overlay key is the PEN-DAY since 2026-08-10: shed + pen + workflow, no session. This test
+	// stamps ONE pen and asserts nothing else moves, which is what fails if the key ever loses the
+	// pen -- the 2026-08-08 defect where one Castro - 1 clip marked Castro - 2 and Castro - 3 too.
 	store := &fakePackingStore{}
 	service, _, _ := newTestService()
 	service.WithPackingStore(store)
@@ -210,16 +214,31 @@ func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 		t.Fatal("no packing lines to overlay")
 	}
 	target := page.Items[0]
-	store.statuses = []ports.SessionCompletionStatus{{ShedID: target.ShedID, SessionNo: target.SessionNo, Workflow: target.Workflow, Status: domain.SessionStatusCompleted}}
+	store.statuses = []ports.PackingCompletionStatus{{
+		ShedID:         target.ShedID,
+		PartitionLabel: target.PartitionLabel,
+		Workflow:       target.Workflow,
+		Status:         domain.SessionStatusCompleted,
+	}}
 	page2, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
 		t.Fatalf("PackingWorklist 2: %v", err)
 	}
+	matched := false
 	for _, r := range page2.Items {
-		want := r.ShedID == target.ShedID && r.SessionNo == target.SessionNo && r.Workflow == target.Workflow
+		want := r.ShedID == target.ShedID &&
+			domain.PartitionMatchKey(r.PartitionLabel) == domain.PartitionMatchKey(target.PartitionLabel) &&
+			r.Workflow == target.Workflow
 		if r.Completed != want {
-			t.Fatalf("packing line (%s s%d %s) completed=%v, want %v", r.ShedID, r.SessionNo, r.Workflow, r.Completed, want)
+			t.Fatalf("packing line (%s pen %q %s) completed=%v, want %v",
+				r.ShedID, r.PartitionLabel, r.Workflow, r.Completed, want)
 		}
+		if want {
+			matched = true
+		}
+	}
+	if !matched {
+		t.Fatal("the completed pen-day was not present in the re-served page -- the overlay key missed every row")
 	}
 }
 

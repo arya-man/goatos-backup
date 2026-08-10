@@ -443,29 +443,29 @@ object Routes {
     // PACKING. Distinct route from the two L0 feed roots, [FEED_COMPLETE] (the untouched packing/
     // direction-shared completion), and [FEED_DISTRIBUTION_COMPLETE] — never a prefix reuse. Same
     // grain args; simpler than distribution — the operator records ONE mandatory proof here.
+    // No {session_no} segment: the capture covers the pen's whole DAY (maintainer decision
+    // 2026-08-10), so the route's grain is park/shed/pen/day/workflow.
     const val FEED_PACKING_COMPLETE =
-        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
+        "/feed/packing/complete/{park_id}/{shed_id}/{workflow}/{target_date}?shed_label={shed_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
 
     fun feedPackingCompleteRoute(
         parkId: String,
         shedId: String,
-        sessionNo: Int,
         workflow: String,
         targetDate: String,
         shedLabel: String,
-        sessionLabel: String,
         // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
         // still resolves; the completion needs it because proof is per-pen, not per-shed.
         partitionLabel: String,
-        // The row's backend-owned lifecycle bucket. The capture screen refuses when the session
+        // The row's backend-owned lifecycle bucket. The capture screen refuses when the pen-day
         // is already with the verifier; without it the screen has only the LOCAL draft to go on,
         // and a reinstall wipes that.
         lifecycleStatus: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
-        return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
+        return "/feed/packing/complete/${e(park)}/${e(shedId)}/${e(workflow)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}" +
             "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
     }
 
@@ -2352,14 +2352,12 @@ fun AppNavHost(
                                 Routes.feedPackingCompleteRoute(
                                     parkId = event.parkId,
                                     shedId = event.shedId,
-                                    sessionNo = event.sessionNo,
                                     workflow = event.workflow,
                                     // The completion records the FEED day (= packing day + 1), matching the
                                     // read query; targetDateLabel is the packing-day axis, feedForDateLabel is
                                     // the feed day the backend keys on.
                                     targetDate = state.feedForDateLabel,
                                     shedLabel = event.shedLabel,
-                                    sessionLabel = event.sessionLabel,
                                     partitionLabel = event.partitionLabel,
                                     lifecycleStatus = event.lifecycleStatus,
                                 ),
@@ -2503,14 +2501,9 @@ fun AppNavHost(
             arguments = listOf(
                 navArgument(FeedPackingCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
                 navArgument(FeedPackingCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
-                navArgument(FeedPackingCompleteViewModel.ARG_SESSION_NO) { type = NavType.StringType },
                 navArgument(FeedPackingCompleteViewModel.ARG_WORKFLOW) { type = NavType.StringType },
                 navArgument(FeedPackingCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
                 navArgument(FeedPackingCompleteViewModel.ARG_SHED_LABEL) {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument(FeedPackingCompleteViewModel.ARG_SESSION_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },

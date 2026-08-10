@@ -214,7 +214,24 @@ data class FeedDirectionPreviewPageDto(
 // READ — GET /feed-packing/worklist
 // ---------------------------------------------------------------------------
 
-/** One shed/session packing line — a packer fills one bag per item per shed. */
+/** One session's share of a pen's packing day — a breakdown line, never a work item of its own. */
+@Serializable
+data class FeedPackingSessionDto(
+    @SerialName("session_no") val sessionNo: Int = 0,
+    @SerialName("session_label") val sessionLabel: String = "",
+    @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
+    @SerialName("total_kg") val totalKg: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
+)
+
+/**
+ * One PEN-DAY packing line — the bag a packer fills and films.
+ *
+ * The session left this row's identity on 2026-08-10 (maintainer decision): a packer packs a pen's
+ * whole day in one go, so showing the pen twice asked for the same video twice. The sessions are now
+ * the [sessions] breakdown inside one card, backed by ONE video.
+ */
 @Serializable
 data class FeedPackingRowDto(
     @SerialName("park_id") val parkId: String = "",
@@ -225,12 +242,14 @@ data class FeedPackingRowDto(
     // unable to tell which pen either bag is for, and the quantities can differ sharply when some
     // partitions run an authored experiment and the rest the per-head grid.
     @SerialName("partition_label") val partitionLabel: String? = null,
-    @SerialName("session_no") val sessionNo: Int = 0,
-    @SerialName("session_label") val sessionLabel: String = "",
+    // Backend-composed shed+pen label; render verbatim rather than re-joining the two halves.
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("workflow") val workflow: String = "",
     @SerialName("experiment_arm") val experimentArm: String = "",
+    // The pen's animals, counted ONCE for the day — never multiplied by the number of sessions.
     @SerialName("head_count") val headCount: Long = 0,
-    @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
+    @SerialName("sessions") val sessions: List<FeedPackingSessionDto> = emptyList(),
+    // The whole DAY's total, summed from the already-rounded session totals.
     @SerialName("total_kg") val totalKg: String = "",
     @SerialName("status") val status: String = "",
     // Orthogonal to [status]: a completed line was still ready/blocked/empty underneath. Backend-owned.
@@ -241,11 +260,12 @@ data class FeedPackingRowDto(
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String
-        // Same rule as the direction row, and it bites harder here: this key had ONLY
-        // shedId|workflow|sessionNo, so every partition of a shed collapsed into a single bag line.
-        // One bag per OPERATIONAL LOCATION is the whole point -- Castro 1 and Castro 2 are packed
-        // separately and can carry very different quantities.
-        get() = listOf(shedId, partitionLabel.orEmpty(), workflow, sessionNo.toString()).joinToString("|")
+        // The PEN-DAY identity, matching the completion's natural key. sessionNo left this key with
+        // the merge; the PARTITION did not and must not. The key was once shedId|workflow|sessionNo,
+        // so every partition of a shed collapsed into a single bag line -- one bag per OPERATIONAL
+        // LOCATION is the whole point, since Castro 1 and Castro 2 are packed separately and can
+        // carry very different quantities.
+        get() = listOf(shedId, partitionLabel.orEmpty(), workflow).joinToString("|")
 
     companion object {
         const val STATUS_READY = "ready"
@@ -427,7 +447,8 @@ data class FeedPackingCompleteRequestDto(
     /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
      *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
     @SerialName("partition_label") val partitionLabel: String? = null,
-    @SerialName("session_no") val sessionNo: Int,
+    /** No `session_no`: ONE video covers the pen's whole day (maintainer decision 2026-08-10), and
+     *  the route rejects the field outright rather than accepting and ignoring it. */
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
     @SerialName("packing_proof_ref") val packingProofRef: String,

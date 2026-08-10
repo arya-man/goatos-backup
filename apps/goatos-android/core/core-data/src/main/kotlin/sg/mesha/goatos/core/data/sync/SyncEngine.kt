@@ -655,7 +655,9 @@ class SyncEngine(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
                 partitionLabel = payload.partitionLabel,
-                sessionNo = payload.sessionNo,
+                // payload.sessionNo is deliberately NOT sent: the completion is per pen-DAY, and
+                // the route rejects the field. A legacy queued row carrying one drains as its
+                // pen-day completion.
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
                 distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),

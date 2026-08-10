@@ -42,7 +42,6 @@ func packingParams() ports.CompletePackingParams {
 		TenantID:        fdTenant,
 		ParkID:          fdPark,
 		ShedID:          fdShedA,
-		SessionNo:       1,
 		TargetDate:      businessDay(2026, 7, 22),
 		Workflow:        domain.WorkflowNormal,
 		PackingProofRef: "proof-packing-0001",
@@ -69,7 +68,6 @@ func TestCompletePackingRequiresVideoAtAppLayer(t *testing.T) {
 		TenantID:       fdTenant,
 		ParkID:         fdPark,
 		ShedID:         fdShedA,
-		SessionNo:      1,
 		TargetDate:     businessDay(2026, 7, 22),
 		Workflow:       domain.WorkflowNormal,
 		CompletedBy:    fdActor,
@@ -172,7 +170,7 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, pending.Comp
 	if err != nil {
 		t.Fatalf("ListVerifiedPacking: %v", err)
 	}
-	if len(verified) != 1 || verified[0].ShedID != fdShedA || verified[0].SessionNo != 1 || verified[0].Workflow != domain.WorkflowNormal {
+	if len(verified) != 1 || verified[0].ShedID != fdShedA || verified[0].Workflow != domain.WorkflowNormal {
 		t.Fatalf("verified packing = %+v, want one (Shed A, session 1, normal)", verified)
 	}
 

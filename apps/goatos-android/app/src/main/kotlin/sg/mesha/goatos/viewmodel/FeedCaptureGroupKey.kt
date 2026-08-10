@@ -50,6 +50,34 @@ internal fun feedCaptureGroupKey(
     "$prefix:${dateToken(targetDate)}:$shedId:${partitionMatchToken(partitionLabel)}:$sessionNo:$workflow"
 
 /**
+ * The identity of one feed PACKING capture: a shed's PEN, on one feed DAY, in one workflow.
+ *
+ * No session (maintainer decision 2026-08-10). One video covers the pen's whole day, so all three
+ * things this key drives -- the durable draft, the submit idempotency key, and the outbox group --
+ * are pen-day scoped, matching the completion's natural key on the server.
+ *
+ * A dedicated function rather than calling [feedCaptureGroupKey] with `sessionNo = 0`: a literal
+ * zero in a call site reads as a session number and invites the next author to pass a real one,
+ * which would split one pen-day into two drafts and two idempotency keys -- letting the same pen be
+ * filmed and submitted twice. [PEN_DAY_TOKEN] states that the segment is not a session at all.
+ * DISTRIBUTION is still per shed-session and keeps [feedCaptureGroupKey] unchanged.
+ *
+ * Upgrade note: this key differs from the one an earlier build used, so a capture left half-recorded
+ * across the upgrade is not rehydrated and the operator re-films. Nothing is lost that was already
+ * submitted -- an ALREADY-QUEUED outbox row carries its own stored group and idempotency keys and
+ * still drains untouched.
+ */
+internal fun feedPackingCaptureGroupKey(
+    shedId: String,
+    partitionLabel: String,
+    workflow: String,
+    targetDate: String,
+): String =
+    "feed-pack:${dateToken(targetDate)}:$shedId:${partitionMatchToken(partitionLabel)}:$PEN_DAY_TOKEN:$workflow"
+
+private const val PEN_DAY_TOKEN = "day"
+
+/**
  * The feed day as a key segment.
  *
  * Blank collapses to [UNDATED_TOKEN] rather than an empty segment, so a route that somehow omits the

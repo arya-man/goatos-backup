@@ -415,8 +415,10 @@ func TestPackingSummaryIsInvariantToPageSize(t *testing.T) {
 	if want.ShedCount != 2 {
 		t.Fatalf("whole-set shed_count = %d, want 2", want.ShedCount)
 	}
-	if want.LineCount != 4 {
-		t.Fatalf("whole-set line_count = %d, want 4 (2 sheds x 2 sessions)", want.LineCount)
+	// A LINE IS A PEN-DAY since 2026-08-10, so the same 2 sheds x 2 sessions is 2 lines, not 4. The
+	// store draw asserted below is unchanged by that -- it still counts both sessions of both sheds.
+	if want.LineCount != 2 {
+		t.Fatalf("whole-set line_count = %d, want 2 (2 sheds, one pen-day bag each)", want.LineCount)
 	}
 
 	for i, got := range summaries {
@@ -437,40 +439,61 @@ func TestPackingSummaryIsInvariantToPageSize(t *testing.T) {
 	}
 }
 
-// The packing worklist honours the session filter: session=1 returns only session-1 lines, exactly
-// as the preview does. The test snapshot is 2 sheds x 2 sessions (Morning=1, Evening=2), so an
-// unfiltered worklist is 4 lines and session=1 is 2.
-func TestPackingWorklistFiltersBySession(t *testing.T) {
+// The packing worklist serves ONE LINE PER PEN-DAY carrying every session (maintainer decision
+// 2026-08-10), and there is no session filter to narrow it with. The test snapshot is 2 sheds x 2
+// sessions (Morning=1, Evening=2), which used to be 4 lines and is now 2.
+//
+// The summary follows: LineCount counts pen-days, so it halves, while the store draw
+// TotalKgByFeedItem must NOT -- the packer still carries out the morning bag AND the evening bag.
+// That pairing is the point of the test. A fold that iterated the row instead of its sessions would
+// halve the draw too and send the crew out with half the feed.
+func TestPackingWorklistServesOneLinePerPenDayCarryingEverySession(t *testing.T) {
 	t.Parallel()
 	service, _, _ := newTestService()
 
-	all, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
-		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 50,
-	})
+	q := domain.PackingQuery{Draft: true, TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 50}
+	all, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
-		t.Fatalf("PackingWorklist(all sessions): %v", err)
+		t.Fatalf("PackingWorklist: %v", err)
 	}
-	if len(all.Items) != 4 {
-		t.Fatalf("unfiltered worklist = %d lines, want 4 (2 sheds x 2 sessions)", len(all.Items))
+	if len(all.Items) != 2 {
+		t.Fatalf("worklist = %d lines, want 2 (2 sheds x 1 pen-day each, NOT 2 sheds x 2 sessions)", len(all.Items))
 	}
-
-	one, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
-		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), SessionNo: 1, Limit: 50,
-	})
-	if err != nil {
-		t.Fatalf("PackingWorklist(session=1): %v", err)
+	if all.Summary.LineCount != 2 {
+		t.Fatalf("summary line_count = %d, want 2 -- a line is a pen-day", all.Summary.LineCount)
 	}
-	if len(one.Items) != 2 {
-		t.Fatalf("session=1 worklist = %d lines, want 2 (2 sheds x 1 session)", len(one.Items))
-	}
-	for _, row := range one.Items {
-		if row.SessionNo != 1 {
-			t.Fatalf("session=1 filter returned a session %d line: %+v", row.SessionNo, row)
+	for _, row := range all.Items {
+		if len(row.Sessions) != 2 {
+			t.Fatalf("pen-day %s carries %d sessions, want 2 -- merging the cards must not drop a session's bag",
+				row.ShedID, len(row.Sessions))
+		}
+		if row.Sessions[0].SessionNo != 1 || row.Sessions[1].SessionNo != 2 {
+			t.Fatalf("pen-day %s session order = %d,%d, want 1,2",
+				row.ShedID, row.Sessions[0].SessionNo, row.Sessions[1].SessionNo)
 		}
 	}
-	// The summary follows the filter too, so it never over-reports the store draw for one session.
-	if one.Summary.LineCount != 2 {
-		t.Fatalf("session=1 summary line_count = %d, want 2", one.Summary.LineCount)
+
+	// The store draw counts BOTH sessions of every pen. Recomputed here from the served sessions so
+	// the assertion is independent of the summary's own fold rather than restating it.
+	wantByItem := map[string]int64{}
+	for _, row := range all.Items {
+		for _, session := range row.Sessions {
+			for _, item := range session.Items {
+				if item.QuantityKg == nil {
+					continue
+				}
+				wantByItem[item.FeedItem] += kgToGrams(t, *item.QuantityKg)
+			}
+		}
+	}
+	if len(wantByItem) == 0 {
+		t.Fatal("fixture served no resolved quantities; the draw assertion would be vacuous")
+	}
+	for _, total := range all.Summary.TotalKgByFeedItem {
+		if grams := kgToGrams(t, total.QuantityKg); grams != wantByItem[total.FeedItem] {
+			t.Fatalf("store draw for %s = %q, want the sum of BOTH sessions (%d g) -- a day-level fold would under-report it",
+				total.FeedItem, total.QuantityKg, wantByItem[total.FeedItem])
+		}
 	}
 }
 
@@ -796,19 +819,38 @@ func TestPackingWorklistAgreesWithThePreviewExactly(t *testing.T) {
 		}
 	}
 
-	if len(packing.Items) != len(expected) {
-		t.Fatalf("packing lines = %d, want %d (one per shed per session)", len(packing.Items), len(expected))
-	}
+	// The bag is now per PEN-DAY while the sheet stays per-session, so the comparable figure is the
+	// bag's SESSION total. The pen-day total is checked separately below as the sum of them, which is
+	// what stops the merge from quietly losing or double-counting a session.
+	sessionsSeen := 0
 	for _, line := range packing.Items {
-		want := expected[key{line.ShedID, line.SessionNo}]
-		grams := kgToGrams(t, line.TotalKg)
-		if grams != want {
-			t.Fatalf("shed %s session %d packing total = %d g, preview sum = %d g",
-				line.ShedID, line.SessionNo, grams, want)
+		var dayGrams int64
+		for _, session := range line.Sessions {
+			sessionsSeen++
+			want, ok := expected[key{line.ShedID, session.SessionNo}]
+			if !ok {
+				t.Fatalf("packing carries shed %s session %d, which the preview never emitted",
+					line.ShedID, session.SessionNo)
+			}
+			grams := kgToGrams(t, session.TotalKg)
+			if grams != want {
+				t.Fatalf("shed %s session %d packing total = %d g, preview sum = %d g",
+					line.ShedID, session.SessionNo, grams, want)
+			}
+			dayGrams += grams
+		}
+		if got := kgToGrams(t, line.TotalKg); got != dayGrams {
+			t.Fatalf("shed %s pen-day total = %d g, but its sessions sum to %d g", line.ShedID, got, dayGrams)
 		}
 		if line.Status != domain.PackingStatusReady {
 			t.Fatalf("status = %q, want %q", line.Status, domain.PackingStatusReady)
 		}
+	}
+	// Every (shed, session) the preview emitted is accounted for on exactly one bag -- so merging the
+	// cards dropped nothing.
+	if sessionsSeen != len(expected) {
+		t.Fatalf("packing carried %d shed-sessions across its bags, want %d (one per preview shed-session)",
+			sessionsSeen, len(expected))
 	}
 }
 

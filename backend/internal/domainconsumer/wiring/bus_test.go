@@ -50,7 +50,7 @@ func (f *fakeFeedStore) ListVerifiedPacking(context.Context, string, string, tim
 	return nil, nil
 }
 
-func (f *fakeFeedStore) ListPackingSessionStatuses(context.Context, string, string, time.Time) ([]feedports.SessionCompletionStatus, error) {
+func (f *fakeFeedStore) ListPackingCompletionStatuses(context.Context, string, string, time.Time) ([]feedports.PackingCompletionStatus, error) {
 	return nil, nil
 }
 

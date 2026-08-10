@@ -23,8 +23,12 @@ var (
 	ErrPackingStoreUnavailable = errors.New("feeddirection: packing completion store is not configured")
 )
 
-// CompletePackingParams is the persisted gated-completion write, at the shed-session grain
-// (tenant, park, shed, session_no, target_date, workflow).
+// CompletePackingParams is the persisted gated-completion write, at the PEN-DAY grain
+// (tenant, park, shed, partition, target_date, workflow).
+//
+// session_no left this key on 2026-08-10 (maintainer decision): a packer packs a pen's whole day in
+// one go and films it ONCE, so the day is the unit that is proved and verified. The pen did NOT
+// leave the key and must not -- see PartitionLabel.
 type CompletePackingParams struct {
 	TenantID string
 	ParkID   string
@@ -32,7 +36,6 @@ type CompletePackingParams struct {
 	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
 	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
 	PartitionLabel string
-	SessionNo      int32
 	TargetDate     time.Time
 	Workflow       string
 	// PackingProofRef is the ONE MANDATORY packing VIDEO proof_id. It travels into the queued
@@ -65,12 +68,32 @@ type CompletePackingResult struct {
 	ShedName, PartitionLabel string
 }
 
-// VerifiedPacking identifies one VERIFIED (status='completed') shed-session for the packing
+// VerifiedPacking identifies one VERIFIED (status='completed') PEN-DAY for the packing
 // serving-read overlay.
 type VerifiedPacking struct {
-	ShedID    string
-	SessionNo int32
-	Workflow  string
+	ShedID string
+	// PartitionLabel is the pen. It was missing here while this type keyed on shed alone, which is
+	// why ListVerifiedPacking could not key the overlay and the production path uses
+	// ListPackingCompletionStatuses instead.
+	PartitionLabel string
+	Workflow       string
+}
+
+// PackingCompletionStatus is one PEN-DAY's packing completion row with its RAW status
+// ('pending_verification' | 'rework' | 'completed'), for the serve-path status overlay + filter.
+//
+// Deliberately NOT the shared SessionCompletionStatus: distribution is still gated per shed-SESSION
+// and keeps that type. Reusing it here would leave a SessionNo field that packing must always set to
+// a meaningless zero, and the next author would key an overlay on it.
+type PackingCompletionStatus struct {
+	ShedID string
+	// PartitionLabel is the pen this completion covers ("2", "Part 3"), empty for an undivided
+	// shed. It is part of the completion's IDENTITY: without it every pen of a shed resolves to
+	// one status, so a video shot in Castro - 1 marked Castro - 2 and Castro - 3 "in review" too
+	// (reported on STG 2026-08-08). See migration 000137.
+	PartitionLabel string
+	Workflow       string
+	Status         string
 }
 
 // ApplyPackingParams flips a packing completion whose video a verifier APPROVED
@@ -98,21 +121,20 @@ type BouncePackingParams struct {
 // packing overlay reports verified sessions.
 type PackingCompletionStore interface {
 	// CompletePacking records the operator's mandatory video at 'pending_verification' (or moves a
-	// 'rework' row back to it), idempotent on both the request key and the shed-session natural key. It
+	// 'rework' row back to it), idempotent on both the request key and the pen-day natural key. It
 	// does NOT emit feed.packing.completed -- that fires only at verifier approval.
 	CompletePacking(ctx context.Context, p CompletePackingParams) (CompletePackingResult, error)
 
-	// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, session, workflow) for one
-	// park-day in one bounded indexed read -- the packing serving-read overlay. Bounded by the park's
-	// shed catalog x sessions, never by herd size.
+	// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, workflow) for
+	// one park-day in one bounded indexed read. Bounded by the park's pen catalog, never by herd size.
 	ListVerifiedPacking(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]VerifiedPacking, error)
 
-	// ListPackingSessionStatuses returns EVERY (shed, session, workflow) that has a
+	// ListPackingCompletionStatuses returns EVERY (shed, partition, workflow) that has a
 	// feed_packing_completions row for one park-day, each with its RAW status -- the packing serve
 	// path's status overlay + filter source. Unlike ListVerifiedPacking (completed-only), this includes
-	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's shed catalog
-	// x sessions, never by herd size.
-	ListPackingSessionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]SessionCompletionStatus, error)
+	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's pen catalog,
+	// never by herd size.
+	ListPackingCompletionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]PackingCompletionStatus, error)
 
 	// ApplyVerifiedPacking flips 'pending_verification' -> 'completed', stamps verified_by/at, and emits
 	// feed.packing.completed in one transaction. Returns applied=true only when it actually flipped a

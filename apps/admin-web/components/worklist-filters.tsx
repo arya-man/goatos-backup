@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 
 export type WorklistFilterOption = { value: string; label: string };
 
@@ -84,8 +85,15 @@ export function WorklistFilters({
   const routerSearchParams = useSearchParams();
   const current = routerSearchParams?.toString() ?? "";
   const [optimisticSearch, setOptimisticSearch] = useState<{ from: string; search: string } | null>(null);
-  const effectiveSearch = optimisticSearch?.from === current ? optimisticSearch.search : current;
+  const optimisticActive = optimisticSearch?.from === current;
+  const effectiveSearch = optimisticActive ? optimisticSearch.search : current;
   const effectiveParams = useMemo(() => new URLSearchParams(effectiveSearch), [effectiveSearch]);
+
+  // The clear-vs-fallback rule lives in its own React-free module so it can be unit-tested; see it
+  // for the defect it prevents.
+  const shownValue = (param: string, serverValue: string, clearable: boolean) =>
+    worklistFilterShownValue(effectiveParams.get(param), serverValue, Boolean(optimisticActive), clearable);
+
   const allLabel = copy(pageContract, "filter.all_option");
   // Resolved ONLY when a multi-select is actually on the bar. `copy` throws on a key the contract
   // does not carry, and this component is shared by pages that have no multi-valued filter and
@@ -174,10 +182,18 @@ export function WorklistFilters({
             : field.kind === "compare"
               ? {
                   ...field,
-                  op: effectiveParams.get(field.param) ?? field.op,
-                  value: effectiveParams.get(field.valueParam) ?? field.value,
+                  op: shownValue(field.param, field.op, true),
+                  value: shownValue(field.valueParam, field.value, true),
                 }
-              : { ...field, value: effectiveParams.get(field.param) ?? field.value };
+              : {
+                  ...field,
+                  value: shownValue(
+                    field.param,
+                    field.value,
+                    // A date is always clearable; a select is clearable only when it offers All.
+                    field.kind === "select" ? field.allowAll !== false : true,
+                  ),
+                };
 
         return effectiveField.kind === "multiselect" ? (
           <MultiSelectFilter

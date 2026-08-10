@@ -361,10 +361,17 @@ func TestCollapsedRowMatchesThePackingLineItPacks(t *testing.T) {
 	if packing[0].HeadCount != collapsed[0].HeadCount {
 		t.Errorf("head count: sheet %d, bag %d", collapsed[0].HeadCount, packing[0].HeadCount)
 	}
+	// One authored session here, so the bag's DAY total is that session's total and the two figures
+	// are directly comparable. On a two-session park the sheet row is per-session while the bag is
+	// per-day, and the comparable figure is packing[0].Sessions[i].TotalKg -- see
+	// TestPackingBagSplitsTheDayIntoSessionsAndSumsThem.
+	if len(packing[0].Sessions) != 1 {
+		t.Fatalf("expected 1 session on the bag, got %d", len(packing[0].Sessions))
+	}
 	if packing[0].TotalKg != collapsed[0].SessionTotalKg {
 		t.Errorf("total: sheet %q, bag %q", collapsed[0].SessionTotalKg, packing[0].TotalKg)
 	}
-	for _, want := range packing[0].Items {
+	for _, want := range packing[0].Sessions[0].Items {
 		got := findItem(t, collapsed[0], want.FeedItem)
 		if got.QuantityKg == nil || want.QuantityKg == nil || *got.QuantityKg != *want.QuantityKg {
 			t.Errorf("%s: sheet %v, bag %v", want.FeedItem, got.QuantityKg, want.QuantityKg)
