@@ -1237,15 +1237,21 @@ func (r *Repository) resolveMoveDestinationOperationalLocationID(ctx context.Con
 	}
 	var locationID string
 	err := tx.QueryRow(ctx, `
-SELECT operational_location_id::text
-FROM shed_partitions
-WHERE tenant_id = $1::uuid
-  AND shed_id = $2::uuid
-  AND status = 'active'
-  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
-      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
-ORDER BY partition_label
-LIMIT 1`, cmd.TenantID, cmd.ToShedID, *partitionLabel).Scan(&locationID)
+	SELECT sp.operational_location_id::text
+	FROM shed_partitions sp
+	JOIN locations pen
+	  ON pen.tenant_id = sp.tenant_id
+	 AND pen.location_id = sp.operational_location_id
+	 AND pen.location_type = 'pen'
+	 AND pen.parent_location_id = sp.shed_id
+	 AND pen.status = 'active'
+	WHERE sp.tenant_id = $1::uuid
+	  AND sp.shed_id = $2::uuid
+	  AND sp.status = 'active'
+	  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+	      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+	ORDER BY sp.partition_label
+	LIMIT 1`, cmd.TenantID, cmd.ToShedID, *partitionLabel).Scan(&locationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrPartitionNotInShed
 	}

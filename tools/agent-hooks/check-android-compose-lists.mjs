@@ -218,14 +218,6 @@ function findTrailingLambda(source, afterIndex) {
   return null;
 }
 
-function extractKeyBody(args) {
-  const keyMatch = /\bkey\s*=\s*\{/.exec(args);
-  if (!keyMatch) return null;
-  const open = keyMatch.index + keyMatch[0].length - 1;
-  const block = blockAt(args, open);
-  return block ? block.body : null;
-}
-
 // Domain/state-ish keyword allowlist for the column-foreach-unbounded and
 // chip-row-unbounded-dimension rules — see the module doc comment above for why this is
 // intentionally narrow.
@@ -256,6 +248,14 @@ function blockAt(source, open) {
     }
   }
   return null;
+}
+
+function extractKeyBody(args) {
+  const marker = /\bkey\s*=\s*\{/g.exec(args);
+  if (!marker) return null;
+  const open = marker.index + marker[0].length - 1;
+  const block = blockAt(args, open);
+  return block ? block.body.trim() : null;
 }
 
 export function findingsForSource(source) {
@@ -593,6 +593,7 @@ function selfTest() {
     ["items(rows, key = { it.shedId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionLocationItem(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.parentShedId }) { Text(it.operationalLocationDisplay) }", "lazy-list-parent-location-key"],
     ["itemsIndexed(rows, key = { _, row -> row.locationId }) { _, row -> Text(row.partitionLabel.orEmpty() + row.shedId) }", "lazy-list-parent-location-key"],
   ];
   for (const [inner, rule] of bad) {
@@ -607,6 +608,7 @@ function selfTest() {
     'items(rows, key = { "${it.shedId}|${it.partitionLabel.orEmpty()}" }) { }',
     "items(rows, key = { it.operationalLocationId }) { Text(it.partitionLabel.orEmpty()) }",
     "items(rows, key = { it.locationId }) { Text(it.operationalLocationDisplay + it.shedName) }",
+    "items(rows, key = { it.locationId }) { Text(it.operationalLocationDisplay) }",
     "items(3) { Dot() }",
     "items(pageCount) { i -> Page(i) }",
     "items(rows.size) { i -> Row(rows[i]) }",
