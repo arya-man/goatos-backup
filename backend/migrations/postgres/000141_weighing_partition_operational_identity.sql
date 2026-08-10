@@ -20,16 +20,6 @@ DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
 DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
 DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
 
-ALTER TABLE public.weighing_campaign_sheds
-  ADD COLUMN IF NOT EXISTS partition_label text;
-
-ALTER TABLE public.weighing_campaign_sheds
-  ADD COLUMN IF NOT EXISTS partition_label text;
-
-DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
-DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
-DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
-
 WITH alias_matches AS (
   SELECT
     wcs.campaign_shed_id,
@@ -40,8 +30,6 @@ WITH alias_matches AS (
   JOIN public.locations alias
     ON alias.tenant_id=wcs.tenant_id
    AND alias.location_id=wcs.location_id
-   AND alias.location_type='shed'
-   AND alias.status='inactive'
   JOIN public.locations parent
     ON parent.tenant_id=alias.tenant_id
    AND parent.parent_location_id=alias.parent_location_id
@@ -52,10 +40,7 @@ WITH alias_matches AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
-  WHERE (
-      lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
-      OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
-    )
+  WHERE lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
     AND wcs.status NOT IN ('canceled', 'closed', 'completed')
 )
 UPDATE public.weighing_campaign_sheds wcs
@@ -127,6 +112,11 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_open_date_partit
   ON public.weighing_campaign_sheds (tenant_id, start_business_date, location_id, COALESCE(partition_label, ''))
   INCLUDE (campaign_id, park_id, operator_user_id, weighing_category, status)
   WHERE status NOT IN ('canceled', 'closed', 'completed');
+
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_campaign_location_uidx;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date_v2;
+DROP INDEX CONCURRENTLY IF EXISTS public.uq_weighing_open_shed_per_park_date;
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_idx;
 
 -- +goose Down
 -- +goose NO TRANSACTION
