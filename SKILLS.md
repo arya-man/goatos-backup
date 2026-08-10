@@ -110,16 +110,19 @@ state, never a screen-wide `actionInFlight`/`busy` gate. Machine guard:
 `make android-row-action-scope-guard` (also included in `make mobile-guard` and
 local CI).
 
-Android weighing list identity guardrail:
+Android Compose list identity guardrail:
 
 ```text
 .agents/skills/goatos-build/references/frontend-mobile.md
 ```
 
 Load the "Android Compose list identity" section whenever a change touches
-weighing assignment cards, leadership weighing summaries, evidence galleries,
-or Compose `LazyColumn`/`LazyRow` keys. `campaignShedId` alone is not a valid
-UI key for repeated weighing rows. Regression guard: `WeighingRouteIdentityTest`.
+weighing assignment cards, leadership weighing summaries, vaccination proof
+rows, evidence galleries, or Compose `LazyColumn`/`LazyRow` keys.
+`campaignShedId` alone is not a valid UI key for repeated weighing rows, and
+`goatId` alone is not valid for vaccination obligation/proof rows. Regression
+guards: `WeighingRouteIdentityTest`, `ScanProofIdentityTest`, and
+`make android-compose-lists-guard`.
 
 ## Leadership Assistant Coverage Skill
 
