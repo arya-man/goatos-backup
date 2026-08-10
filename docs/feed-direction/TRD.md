@@ -1,6 +1,13 @@
 # Feed -> Feed Direction - Technical Requirements / Design (TRD)
 
-> Feed Transport override (maintainer decision 2026-07-29): `docs/decisions/feed-transport-verification.md` supersedes any transport session/batch/consolidation wording in this TRD. Transport is one daily task per active physical shed at 15:30 IST, under today's date, with one mandatory live-camera video and append-only verifier/rework attempts.
+> Feed Transport override (maintainer decisions 2026-07-29 and 2026-08-10):
+> `docs/decisions/feed-transport-verification.md` supersedes any transport
+> session/batch/consolidation wording in this TRD. Transport is one daily task per
+> active physical shed, under today's date, with one mandatory live-camera video
+> and append-only verifier/rework attempts. Source policy requires loaded,
+> diff-corrected feed to be staged outside sheds by Day N 15:00. Current 15:30
+> task creation is compatibility behavior to replace with pre-deadline creation
+> and assignment; it is not the accepted deadline.
 
 **Status:** Draft v5, refined against source-first counter-review, read-model review, and dependency-closure audit
 **Date:** 2026-06-30
@@ -380,7 +387,7 @@ smaller design. Do not add typed tables only to mirror the legacy Google Sheet.
 ### Full direction
 
 ```text
-Day N configured publish time, recommended default 09:00
+Day N configured publish time, accepted default 09:00
   -> load published feed_direction protocol version
   -> consume the horizon-aware Counts/Shifting projection for tomorrow
   -> apply feed eligibility exclusions and source-backed transforms
@@ -394,7 +401,7 @@ Day N configured publish time, recommended default 09:00
 ### Diff
 
 ```text
-Day N cutoff, recommended default 13:30
+Day N cutoff, accepted default 13:30
   -> collect eligible post-run shiftings before or at cutoff
      under the projection policy
   -> calculate affected-shed/session/feed restatement rows using the same

@@ -129,8 +129,15 @@ high-risk cohort placement.
 Known conflict: older docs and the current mock mention "v1 midnight / v2 2 PM".
 The newer June 2026 source says Day N 09:00 full direction for Day N+1,
 13:30 cutoff, 13:30-13:45 Diff, 15:00 stage, and Day N+1 09:00/15:00 serving.
-Treat the newer model as the recommended default, keep the clock values
-configurable, and get Feed Director sign-off before hardcoding schedules.
+Maintainer timing confirmation on 2026-08-10 accepts this newer model as the
+default hard chain. Keep clock values effective-dated/configurable for an
+authorized future policy version, but do not treat the current 07:00/14:00/
+15:30 implementation values as source authority. Packing/loading/Transport
+staging is complete by Day N 15:00; physical Distribution is due at the
+published Day N+1 09:00/15:00 sessions. The 2026-08-10 maintainer policy allows
+no ordinary grace for those accepted hard clocks. Water is hard only when its
+effective session procedure separately pins applicability, sequencing, owner,
+deadline/grace, and proof.
 
 Bridge conflict rule: the June 2026 source keeps high-priority post-cutoff
 additions as a manual SOP. GoatOS may log the top-up and proof, but must not
@@ -317,7 +324,8 @@ published feed protocol rule_dsl
   -> eligible pre-cutoff shiftings produce Diff runs from affected-shed
      restatement snapshots
   -> stale open obligations for affected sheds are canceled/superseded explicitly
-  -> 15:00 packing/staging starts, stock reserve happens here
+  -> by 15:00 packing/loading/transport staging is complete outside sheds;
+     stock reservation and packing must start early enough to meet that boundary
   -> accepted packing proof consumes actual quantity and releases remainder
   -> transport, consumption, and wastage stages record proof, rejection, and rework
   -> verification, missed/flagged escalation, projections, dashboards
@@ -413,7 +421,7 @@ not generate a bridge Diff row that changes source-shed quantities.
 | Day N 09:00 | Full Feed Direction for Day N+1 | Computed from tomorrow projected count; no stock locked yet |
 | Day N 13:30 | Cutoff | Changes after this do not enter Day N+1 formal Diff |
 | Day N 13:30-13:45 | Diff | Source-facing net correction may be emitted; canonical GoatOS run stores affected-shed/session/feed restatement rows and supersedes stale work |
-| Day N 15:00 | Packing/staging | Stock reserve starts here; feed staged outside sheds |
+| Day N 15:00 | Packing/loading/Transport terminal | Stock was reserved and packing started earlier; packed and corrected feed is already staged outside sheds |
 | Day N+1 09:00 | Session 1 served | Proof/consumption recorded |
 | Day N+1 15:00 | Session 2 served | Proof/consumption recorded |
 

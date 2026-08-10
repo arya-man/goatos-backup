@@ -65,6 +65,13 @@ create, retain as canonical, or exempt a private task authority, scheduler,
 owner fallback, overdue calculation, reminder/escalation ladder, verification
 queue, or screen-only follow-up state.
 If the shared task adapter is not ready, the feature remains shadowed or blocked.
+Every phase that creates a human clock, reminder, escalation, breach, exception,
+appeal, manager/Director follow-up, CEO metric, or HR handoff also follows
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`. It must declare
+available, planned, flexible, hard, clinical-safe, contact, and appeal clocks as
+separate fields; mark non-applicable values explicitly; and prove that a breach
+cannot become a personal finding or payroll input without attribution, notice,
+appeal, and independent decision.
 Every phase declares an Idempotency & Replay section for all mutating routes,
 imports, workers, webhooks, mobile submissions, server actions, outbox
 producers/consumers, and state transitions. It must list key source, semantic

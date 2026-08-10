@@ -39,6 +39,14 @@ the task shadowed. Operator and verifier/sign-off work are sibling leaves.
 Acknowledgement stops contacts, not the work clock. Authorized descendant
 reopen propagates upward.
 
+Every task also follows
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`. Planned,
+available, flexible, hard-deadline, clinical-safe, contact, and appeal clocks
+are distinct. A deadline breach is evidence, not an employee violation. A
+personal finding requires attribution, notice, appeal, and an independent
+decision; any HR action is a separate boundary and the task kernel never
+changes payroll.
+
 ## Precedence
 
 This is the governing active decision for operational coordination. Where an
@@ -68,6 +76,7 @@ the exact-head single-PR landing gate before any implementation batch can close.
 - `context/execution/defect-prevention-execution-contract.md`
 - `context/execution/operational-kernel-program-state.md`
 - `context/repo-audits/current-whole-project-remediation-ledger.md`
+- `docs/decisions/task-timing-alerting-violations-and-appeals.md`
 
 Changing this decision requires explicit maintainer authority plus same-change
 updates to those sources, the applicable module docs, structural guards,

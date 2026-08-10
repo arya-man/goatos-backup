@@ -724,10 +724,15 @@ alongside the distribution route, which had been unregistered and would 403).
 Canonical source: `docs/decisions/feed-distribution-verification.md`; migration
 `000033_feed_packing_verification_gate.sql`.
 
-Confirmed Feed Transport daily verification rule (maintainer decision 2026-07-29,
-SUPERSEDING transport session/batch/consolidation wording): at 15:30 IST, create one
-today-task per active physical shed. Feed Transport is never per feed session. The
-operator records one mandatory fresh in-app-camera video; submit moves the task to
+Confirmed Feed Transport daily verification rule (maintainer decisions 2026-07-29
+and 2026-08-10, SUPERSEDING transport session/batch/consolidation wording): Feed
+Transport is one daily task per active physical shed and is never per feed session.
+The controlling source clock requires packed/diff-corrected feed to be loaded and
+staged outside sheds by Day N 15:00 for Day N+1 service. The current 15:30 task
+creation is compatibility behavior and a source/runtime defect: materialize and
+assign the task early enough to complete by 15:00; a versioned route policy may be
+stricter. The operator records one mandatory fresh in-app-camera video; submit
+moves the task to
 `verification_due`. Verifier APPROVE moves it to `completed`; REJECT moves it to
 `rework` assigned to the same operator. Every rework requires a new video and appends
 a new proof attempt; rejected proof attempts remain immutable history. Canonical source:
@@ -885,6 +890,20 @@ spec `backend/internal/counts/domain.FeedShiftingEffectiveBusinessDate` /
 case). This changes ONLY the shifting-aware feed projection; the 7:30-style
 auto-issue scheduler and the calendar surfacing of next-day feed remain
 separate, unbuilt items.
+
+Confirmed Feed Direction stage-clock rule (maintainer decision 2026-08-10):
+the source default is Day N 09:00 full direction for Day N+1, Day N 13:30
+shifting cutoff, Day N 13:30-13:45 Diff, Day N 15:00 packed/diff-corrected feed
+staged outside sheds, then Day N+1 09:00 and 15:00 serving slots. Packing,
+transport, and distribution are time-bounded work, not timeless claim pools.
+The source requires packing/loading/transport staging outside sheds to be
+complete by Day N 15:00. The current Transport materializer's 15:30 creation is
+a source/runtime defect, not an accepted extension: create and assign the task
+early enough to meet the 15:00 hard deadline; route/park policy may be stricter.
+Missing owner, stock/config, route, vehicle, system, or proof readiness is
+attributed before any person-level candidate. Follow
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`; a verifier delay
+is never charged to the operator.
 
 ## Domain Event Integration Is Mandatory
 
@@ -1086,6 +1105,14 @@ resolver; the exception is not a substitute owner and the task stays hidden.
 Operator and verifier/sign-off work are separate sibling leaves.
 Acknowledgement stops contacts, not the work clock, and authorized descendant
 reopen propagates upward.
+
+Task clocks and accountability follow
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`. Planned,
+available, flexible, hard-deadline, clinical-safe, contact, and appeal clocks
+must never be collapsed. Vaccination drives and Weighing allow the accepted
+two-day carry-forward described there. A breach is not a personal violation:
+the kernel must complete attribution, notice, appeal, and independent decision
+before a final finding, and it never calculates or changes salary/payroll.
 
 Read and obey
 `context/execution/operational-task-kernel-remediation-plan.md` and

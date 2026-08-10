@@ -699,6 +699,14 @@ date outright.
 | `weighing.work_item.rolled_forward` | DOWNWARD + UPWARD | assigned operator + `growth_director` + `ceo_internal` |
 | `weighing.work_item.delayed` | UPWARD only (escalation) | `growth_director` + `ceo_internal` |
 
+These rows describe the legacy pre-cutover cadence, not disciplinary policy.
+Under the accepted 2026-08-10 timing decision, D+1 and D+2 are normal
+carry-forward. The shared-kernel adapter must suppress incident/page/voice and
+must not create a breach or employee violation for ordinary Weighing aging.
+After D+2 it may create a Director-owned capacity/unblock follow-up while
+keeping execution open. See
+`docs/decisions/task-timing-alerting-violations-and-appeals.md`.
+
 One event per `(campaign, operator)` group per pass — never one per work item.
 Each is enqueued in the SAME transaction as the state change it describes, with a
 deterministic idempotency key of `(event type, tenant, campaign, operator,

@@ -1,16 +1,16 @@
 # Notification & Event Delivery on GCP (the "we used SQS" answer)
 
-Status: **documents existing implementation** (the pipeline is already built and
-wired; this doc is the map, not a proposal).
+Status: **documents the current 5k-to-50k runtime and future scale-out boundary**.
 
 ## TL;DR
 
 You do **not** rebuild SQS on GCP. Goat OS follows the operational kernel: a
 **transactional Postgres outbox** is the source of truth, an **outbox relay**
-moves durable events to **Pub/Sub**, **Cloud Tasks** handles near-term timed
-dispatch/retry, **Cloud Scheduler** drives the sweeper that scans indexed
-Postgres due-windows, and device push lands via **FCM** behind a replaceable
-gateway port. Every hop is idempotent and replay-safe.
+moves durable events to **Pub/Sub**, the consolidated **kernel worker** runs
+bounded cadence stages, durable **`notification_requests`** rows own
+dispatch/retry/leases, and device push lands via **FCM** behind a replaceable
+gateway port. Cloud Scheduler/Cloud Run Jobs and Cloud Tasks are future
+per-hotspot scale-out options, not the current normal topology.
 
 See `context/architecture/operational-kernel.md` (line ~118: "Kafka / SQS event
 bus → transactional Postgres outbox → outbox relay → Pub/Sub topic/subscription
@@ -20,13 +20,13 @@ with DLQ") and `context/architecture/operational-kernel-system-design.md`.
 
 | AWS (SQS-based push) | GCP equivalent | Why |
 |---|---|---|
-| SQS work queue | **Cloud Tasks** | per-message HTTP dispatch, named-task dedup, retry/backoff, per-queue rate limit — the closest 1:1 to an SQS-driven sender |
+| SQS work queue | Postgres **`notification_requests`** today; Cloud Tasks only as future scale-out | durable queue, idempotency, lease, retry/backoff and exhaustion evidence |
 | SQS/SNS event bus, fan-out | **Pub/Sub** topic/subscription | event spine, at-least-once, many idempotent consumers |
 | SQS FIFO (order + dedup) | Pub/Sub **ordering keys** + exactly-once subscription | per-recipient / per-obligation ordering |
 | SQS DLQ | Pub/Sub **dead-letter topic** + parked Postgres row | failed-after-N visibility |
 | SQS visibility timeout | ack deadline / **Postgres lease token** | in-flight lease; stale leases reclaimed |
-| SQS delay | Cloud Tasks `schedule_time` / row `next_attempt_at` | near-term timers |
-| CloudWatch cron | **Cloud Scheduler** → sweeper | due / reminder / escalation ticks |
+| SQS delay | Postgres row `next_attempt_at` / contact timer | near-term timers |
+| CloudWatch cron | Consolidated **kernel-worker cadence stage** today; Cloud Scheduler → isolated worker only after measured scale-out | due / reminder / escalation scans |
 | SNS → APNs/GCM device push | **FCM** behind `notification/ports.Gateway` | last-hop device push |
 
 ## How it is actually built in this repo
@@ -34,11 +34,10 @@ with DLQ") and `context/architecture/operational-kernel-system-design.md`.
 ```
 business txn ──(ONE Postgres txn)──▶ canonical row + audit + OUTBOX event (idempotency key + fingerprint)
 outbox relay  cmd/outbox-relay  ──▶ Pub/Sub  (internal/outbox/adapters/publisher/pubsub/)
-domain event consumer  cmd/domain-event-consumer  ◀── Pub/Sub sub (internal/domainconsumer/adapters/pubsub)
-        │  builds obligations / calendar events / durable notification_requests rows
-Cloud Scheduler ──tick──▶ sweeper  cmd/obligation-sweeper  scans indexed Postgres due-windows
-        │  near-term dispatch/retry ──▶ Cloud Tasks (internal/platform/taskqueue/cloudtasks.go)
-notification dispatcher  cmd/notification-dispatcher  ──▶ notification/app.Service.RunOnce
+domain event consumer  ◀── Pub/Sub sub (internal/domainconsumer/adapters/pubsub)
+        │  builds canonical obligations/events and durable notification_requests rows
+kernel-worker cadence stages ──▶ bounded indexed Postgres due/reminder/escalation scans
+notification-dispatcher stage  ──▶ notification/app.Service.RunOnce
         │  lease-claim durable rows ──▶ Gateway.Send ──▶ Slack | email | FCM | incident(Opsgenie/PagerDuty)
 ```
 
@@ -48,11 +47,11 @@ notification dispatcher  cmd/notification-dispatcher  ──▶ notification/app
 |---|---|
 | Event spine (outbox → Pub/Sub) | `internal/outbox/adapters/publisher/pubsub/{publisher,gcp}.go`, `cmd/outbox-relay` |
 | Pub/Sub consumer | `internal/domainconsumer/adapters/pubsub/subscriber.go`, `cmd/domain-event-consumer` |
-| Near-term timed dispatch/retry | `internal/platform/taskqueue/cloudtasks.go` |
-| Scheduler-driven sweeper | `cmd/obligation-sweeper` |
+| Current cadence/time spine | `cmd/kernel-worker`, `internal/kernelstages` |
+| Future optional queue adapter | `internal/platform/taskqueue/cloudtasks.go` (not current normal authority) |
 | Delivery queue + retry + DLQ | `internal/notification/{domain,ports,app,adapters/postgres}` |
 | Multi-channel send (incl. FCM) | `internal/notification/adapters/gateway/gateway.go` |
-| Worker entrypoint | `cmd/notification-dispatcher` |
+| Current worker entrypoint | `cmd/kernel-worker` notification-dispatcher stage |
 
 ## Your mechanisms, mapped to the real code
 
@@ -109,23 +108,22 @@ notification dispatcher  cmd/notification-dispatcher  ──▶ notification/app
 
 ## Hard rule (do not violate)
 
-**Far-future due state lives in Postgres, never in the queue.** Cloud Tasks is
-near-term dispatch/retry only; Cloud Scheduler drives a sweeper that scans
-indexed Postgres windows. The queue is transport; Postgres is truth. A queue is
-not a calendar database.
+**Far-future due state lives in Postgres, never in a transport queue.** Current
+kernel-worker stages scan indexed Postgres windows and materialize durable
+notification/contact rows. Cloud Tasks or independently scheduled jobs may be
+introduced only as measured scale-out adapters; they never become the calendar.
 
-## Firebase / FCM status (deferred)
+## Firebase / FCM status
 
-The FCM sender (`gateway.sendFCM`, OAuth2 bearer via a service-account token
-source) is **coded**, but the Firebase project + credentials are a **deferred,
-org-gated step** (see `docs/mobile/firebase-india-setup.md`; maintainer decision
-to defer). Everything up to the last hop — outbox, relay, Pub/Sub, Cloud Tasks,
-Scheduler, sweeper, the notification delivery queue, and every non-FCM channel —
-needs **zero Firebase** and runs today. When Firebase is unlocked, only the FCM
-adapter's credentials get wired; no pipeline change.
+The FCM sender, backend device lifecycle, Android `FirebaseMessagingService`,
+token registration/refresh, and logout deregistration plumbing are coded. Source
+and infrastructure configuration do not prove that production credentials,
+tokens, provider reachability, or a real device delivery are live. Treat those
+as deployment certification. The outbox, event bus, cadence stages, Postgres
+delivery queue, and non-FCM gateways remain testable without Firebase.
 
 ## Local / dev
 
-Pub/Sub and Cloud Tasks run in emulator / local-eventbus mode; the dispatcher
-supports `GOATOS_NOTIFICATION_DRY_RUN` to mark channels delivered without
-external sends. Adapters are env-selected the same way as the observability sink.
+Pub/Sub runs in emulator/local-eventbus mode; the dispatcher supports
+`GOATOS_NOTIFICATION_DRY_RUN` to mark channels delivered without external sends.
+Adapters are env-selected the same way as the observability sink.

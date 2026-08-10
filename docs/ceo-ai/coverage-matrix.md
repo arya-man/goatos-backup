@@ -24,6 +24,19 @@ Legend: **Cube** governed metric · **view** = `ceo_ai.*` reporting view · **to
 = MCP Toolbox curated tool · **api** = Mesha read API · **EXCLUDED** = documented
 non-leadership surface.
 
+## Governing CEO operations lens
+
+The CEO does not receive or navigate one card or alert per field operation.
+Under `docs/decisions/task-timing-alerting-violations-and-appeals.md`, CEO reads
+must aggregate shared task truth into critical incidents, hard breaches,
+unowned exceptions, flexible carry-forward, verification aging, Director
+follow-up aging, workload saturation, and open appeals, with drill-down to the
+exact task/evidence/history when needed. Vaccination and Weighing ordinary
+carry-forward remain clearly separated from hard breaches. Raw late rows,
+unadjudicated violation candidates, and notification-delivery rows are not
+employee guilt, ranking, salary, or payroll inputs. HR receives only final,
+appeal-complete findings through its separate authorized process.
+
 ## A. Read APIs
 
 Source inventory: the read-API catalog the planner consumes. Leadership-relevant

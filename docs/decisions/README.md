@@ -7,6 +7,14 @@ link it from `context/README.md`.
 
 Active ADRs:
 
+- `docs/decisions/task-timing-alerting-violations-and-appeals.md` - Accepted
+  timing and accountability policy: planned/available/flexible/hard/clinical
+  clocks are separate; Vaccination drives and Weighing have an accepted two-day
+  carry-forward band; alerts use an acknowledgement-gated named-person
+  waterfall; a hard breach becomes an employee violation only after attribution,
+  notice, appeal, and Director decision; HR action is separate and the task
+  kernel never changes payroll.
+
 - `docs/decisions/operational-task-kernel-non-deviation.md` - Accepted
   governing decision: every operational module participates in one shared,
   event-driven task/ticketing waterfall. Older module-specific task, scheduler,
@@ -48,13 +56,15 @@ Active ADRs:
 
 - `docs/decisions/notification-delivery.md` - Notification & event delivery on
   GCP (the "we used SQS" answer): transactional Postgres outbox → outbox relay →
-  Pub/Sub → Cloud Tasks (near-term dispatch) + Cloud Scheduler (sweeper) →
-  notification delivery queue → replaceable multi-channel gateway
-  (Slack/email/FCM/incident); idempotent, lease-based, DLQ; Postgres is the
-  calendar, the queue is transport.
+  Pub/Sub → consolidated kernel-worker cadence stages → durable Postgres
+  notification queue → replaceable multi-channel gateway
+  (Slack/email/FCM/incident); idempotent, lease-based, exhausted/DLQ evidence;
+  Postgres is the calendar. Cloud Tasks/Scheduler are future scale-out adapters,
+  not the current normal topology.
 - `docs/decisions/fcm-device-lifecycle.md` - FCM registration-token lifecycle:
   couple on launch/login, decouple on logout; store only a token hash on
-  `workforce_member_devices`; backend contract shipped, mobile SDK wiring TODO
+  `workforce_member_devices`; backend and mobile plumbing exist, while deployed
+  credential/device reachability still requires exact-environment proof
   gated on the `goatos-prod` Firebase project.
 - `docs/decisions/stale-binary-migration-drift-guard.md` - Stale-binary
   migration-drift guard: `internal/platform/migrationguard.Check` fails
@@ -65,13 +75,13 @@ Active ADRs:
 
 Pending sign-off ADRs:
 
-- `docs/decisions/vaccination-notification-rules.md` - Proposed vaccination
-  notification rule layer on top of the built pipeline: the reminder cadence
-  ladder (advance notice at D-7, daily reminders, due-today), park-scoped vs
-  all-park-leadership audience resolution, the overdue→missed escalation ladder
-  (PHC SLAs), a reusable declarative `notification_policy` framework future
-  obligation features plug into, and the channel roadmap (FCM now; SMS/email/
-  WhatsApp/voice/Slack documented).
+- `docs/decisions/vaccination-notification-rules.md` - Partially implemented
+  Vaccination compatibility catalog: the D-7/D-6..D0 reminder cadence exists,
+  while legacy due-age escalation still needs replacement by the shared
+  named-person run/step/contact waterfall. The accepted drive policy is D+1/D+2
+  flexible carry-forward capped by exact animal clinical latest-safe time; it
+  does not create a personal violation. FCM is the intended first named-person
+  channel; SMS/WhatsApp/voice remain unbuilt.
 - `docs/decisions/vaccination-work-session-bundle.md` - Proposed vaccination
   work-session grouping for combo/bundle drives: promote the existing
   scope/session batch key above per-vaccine batches, keep per-vaccine
