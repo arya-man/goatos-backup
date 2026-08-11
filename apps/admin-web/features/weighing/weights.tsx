@@ -84,17 +84,20 @@ function penGapCell(pen: PenGrowthFeedRow, pageContract: AdminUiPageContract) {
     // there is simply nothing else like it in the estate to judge it against.
     return <span className="muted small">{copy(pageContract, "pens.vs_peers.none")}</span>;
   }
+  // Rounded for display only. A pen that rounds to 0 is LEVEL with its peers and
+  // gets a neutral chip: the earlier version treated anything not negative as
+  // "ahead", so a pen exactly on the pace read as a green success.
   const pct = Math.round(pen.adg_vs_peer_pct);
-  const behind = pct < 0;
+  const tone = pct < 0 ? "dng" : pct > 0 ? "ok" : "mut";
+  const label = pct < 0 ? "pens.vs_peers.behind" : pct > 0 ? "pens.vs_peers.ahead" : "pens.vs_peers.level";
   return (
     <>
-      <Tag tone={behind ? "dng" : "ok"}>
+      <Tag tone={tone}>
         {pct > 0 ? "+" : ""}
         {pct.toLocaleString("en-IN")}%
       </Tag>{" "}
       <span className="muted small">
-        {copy(pageContract, behind ? "pens.vs_peers.behind" : "pens.vs_peers.ahead")} ·{" "}
-        {pen.peer_pen_count.toLocaleString("en-IN")}
+        {copy(pageContract, label)} · {pen.peer_pen_count.toLocaleString("en-IN")}
       </span>
     </>
   );

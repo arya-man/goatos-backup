@@ -2210,6 +2210,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.pens.basis":   "A pen is only ever compared with pens weighed the same way, because a per-kid gain and a whole-shed average are not the same measurement.",
 			"pens.vs_peers.ahead":  "ahead of similar pens",
 			"pens.vs_peers.behind": "behind similar pens",
+			// A pen that rounds to 0% is LEVEL, not ahead. Without its own line it read
+			// as a green success for a pen sitting exactly on the pace.
+			"pens.vs_peers.level":  "level with similar pens",
 			"pens.vs_peers.none":   "nothing else like it to compare with",
 			"pens.feed.planned":    "planned per kid per day",
 			"pens.feed.conversion": "kg of feed per kg gained",
