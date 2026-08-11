@@ -183,11 +183,11 @@ interface ExecutionRepository {
      *  page size 1 and 20. */
     fun observeScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<List<StatusCount>>
 
-    /** R50-008: Status aggregates for a bounded obligation-id set (the local unsynced overlay). */
+    /** R50-008: Effective status aggregates for a bounded goat-id set (the local unsynced overlay). */
     suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
-        obligationIds: List<String>,
+        goatIds: List<String>,
         partitionLabel: String? = null,
     ): List<StatusCount>
 }
@@ -486,11 +486,11 @@ class DefaultExecutionRepository(
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
-        obligationIds: List<String>,
+        goatIds: List<String>,
         partitionLabel: String?,
     ): List<StatusCount> =
-        if (obligationIds.isEmpty()) emptyList()
-        else scanRosterRowDao.countByStatusForObligations(scanRosterRowScopeKey(shedId, taskId, partitionLabel), obligationIds)
+        if (goatIds.isEmpty()) emptyList()
+        else scanRosterRowDao.countByStatusForGoats(scanRosterRowScopeKey(shedId, taskId, partitionLabel), goatIds)
 }
 
 private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
