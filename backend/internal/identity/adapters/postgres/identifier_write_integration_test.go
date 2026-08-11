@@ -26,6 +26,10 @@ const (
 	adminCreateOrphanShed       = "00000000-0000-4000-8000-000000003903"
 	adminCreateWrongParkShed    = "00000000-0000-4000-8000-000000003904"
 	adminMoveTargetShed         = "00000000-0000-4000-8000-000000003905"
+	adminCreateBirthShed        = "00000000-0000-4000-8000-000000003906"
+	adminCreateDeathShed        = "00000000-0000-4000-8000-000000003907"
+	adminCreateBirthPartShed    = "00000000-0000-4000-8000-000000003908"
+	adminCreateDeathPartShed    = "00000000-0000-4000-8000-000000003909"
 )
 
 func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
@@ -110,7 +114,22 @@ WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, m
 		if created.Goat.LocationPath.PartitionLabel == nil || *created.Goat.LocationPath.PartitionLabel != "Part 3" || created.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin move target shed - Part 3" {
 			t.Fatalf("partitioned create location = %#v", created.Goat.LocationPath)
 		}
-		var storedPartition, sourceShedName, identityEventPartition, outboxPartition string
+		var storedPartition, sourceShedName, exactPartitionShedID, goatShedID, goatCurrentLocationID, goatShedGroupID, identityEventPartition, identityEventShedID, outboxPartition, outboxScopeShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, meshaTenant, shedID).Scan(&exactPartitionShedID); err != nil {
+			t.Fatalf("read exact partition shed id: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT shed_id::text, current_location_id::text, shed_group_id::text
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID).Scan(&goatShedID, &goatCurrentLocationID, &goatShedGroupID); err != nil {
+			t.Fatalf("read partitioned goat exact residence: %v", err)
+		}
+		if goatShedID != exactPartitionShedID || goatCurrentLocationID != exactPartitionShedID || goatShedGroupID != shedID {
+			t.Fatalf("partitioned goat residence shed/current/group = %s/%s/%s, want exact/exact/group %s/%s/%s", goatShedID, goatCurrentLocationID, goatShedGroupID, exactPartitionShedID, exactPartitionShedID, shedID)
+		}
 		if err := pool.QueryRow(ctx, `
 SELECT partition_label, COALESCE(source_shed_name, '')
 FROM goat_shed_partitions
@@ -121,19 +140,22 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.Go
 			t.Fatalf("stored partition/source = %q/%q, want canonical label and human operational display", storedPartition, sourceShedName)
 		}
 		if err := pool.QueryRow(ctx, `
-SELECT payload->>'partition_label'
+SELECT payload->>'partition_label', payload->>'shed_id'
 FROM goat_identity_events
-WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&identityEventPartition); err != nil {
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&identityEventPartition, &identityEventShedID); err != nil {
 			t.Fatalf("read identity event partition: %v", err)
 		}
 		if err := pool.QueryRow(ctx, `
-SELECT payload->'payload'->>'partition_label'
+SELECT payload->'payload'->>'partition_label', payload->'visibility_scope'->>'shed_id'
 FROM outbox_messages
-WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&outboxPartition); err != nil {
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&outboxPartition, &outboxScopeShedID); err != nil {
 			t.Fatalf("read outbox partition: %v", err)
 		}
 		if identityEventPartition != "Part 3" || outboxPartition != "Part 3" {
 			t.Fatalf("event partitions identity/outbox = %q/%q", identityEventPartition, outboxPartition)
+		}
+		if identityEventShedID != exactPartitionShedID || outboxScopeShedID != exactPartitionShedID {
+			t.Fatalf("goat.created exact shed identity/outbox = %s/%s, want %s", identityEventShedID, outboxScopeShedID, exactPartitionShedID)
 		}
 
 		replay, err := repo.CreateAdminGoat(ctx, partitioned)
@@ -217,8 +239,9 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, bareResult.Goat
 		// carries no feed shed tag, which blocks the whole shed's feed packing (unknown_shed_tag).
 		// This reproduces the exact production defect: G-001683/G-001684 were created via the birth
 		// flow with a blank stage and blocked Gandhi 2 / Godel 1 - Part 1 feed packing.
-		seedShedProfile(t, pool, adminCreateShedLocation, "adult")
+		seedShedProfile(t, pool, adminCreateBirthShed, "adult")
 		motherCmd := adminGoatCreateCommand(t, "idem-birth-mother-0001", "aid1-birth-mother-0001", "birth-mother-aid2-0001")
+		motherCmd.ShedID = adminCreateBirthShed
 		mother, err := repo.CreateAdminGoat(ctx, motherCmd)
 		if err != nil {
 			t.Fatalf("create canonical mother: %v", err)
@@ -241,6 +264,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, bareResult.Goat
 		cmd := adminGoatCreateCommand(t, "idem-birth-inherit-0001", "aid1-birth-inherit-0001", "birth-inherit-aid2-0001")
 		cmd.OriginType = "birth"
 		cmd.ManagementStage = nil // birth form supplies none
+		cmd.ShedID = adminCreateBirthShed
 		cmd.DamID = validation.DamGoatID
 		litterSize := 2
 		cmd.LitterSize = &litterSize
@@ -280,6 +304,56 @@ WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.cr
 		}
 		if eventMother != mother.Goat.GoatID {
 			t.Fatalf("goat.created dam_id=%s, want canonical mother %s", eventMother, mother.Goat.GoatID)
+		}
+
+		seedShedProfile(t, pool, adminCreateBirthPartShed, "adult")
+		partitionLabel := "Part 4"
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, $3, '4', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+			meshaTenant, adminCreateBirthPartShed, partitionLabel); err != nil {
+			t.Fatalf("seed birth partition catalog: %v", err)
+		}
+		var exactBirthShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '4'`,
+			meshaTenant, adminCreateBirthPartShed).Scan(&exactBirthShedID); err != nil {
+			t.Fatalf("read birth exact partition shed id: %v", err)
+		}
+
+		birthPartition := adminGoatCreateCommand(t, "idem-birth-partition-0001", "aid1-birth-partition-0001", "birth-partition-aid2-0001")
+		birthPartition.OriginType = "birth"
+		birthPartition.ManagementStage = nil
+		birthPartition.ShedID = adminCreateBirthPartShed
+		birthPartition.PartitionLabel = &partitionLabel
+		birthPartition.RequirePartitionGrain = true
+		birthPartition.DamID = validation.DamGoatID
+		birthPartition.LitterSize = &litterSize
+		partitionedBirth, err := repo.CreateAdminGoat(ctx, birthPartition)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat birth into partition: %v", err)
+		}
+		var birthShedID, birthCurrentLocationID, birthGroupID, birthOutboxScopeShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT shed_id::text, current_location_id::text, shed_group_id::text
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+			meshaTenant, partitionedBirth.Goat.GoatID).Scan(&birthShedID, &birthCurrentLocationID, &birthGroupID); err != nil {
+			t.Fatalf("read partition birth exact residence: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'visibility_scope'->>'shed_id'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`,
+			meshaTenant, partitionedBirth.Goat.GoatID).Scan(&birthOutboxScopeShedID); err != nil {
+			t.Fatalf("read partition birth goat.created outbox scope: %v", err)
+		}
+		if birthShedID != exactBirthShedID || birthCurrentLocationID != exactBirthShedID || birthGroupID != adminCreateBirthPartShed || birthOutboxScopeShedID != exactBirthShedID {
+			t.Fatalf("partition birth shed/current/group/outbox = %s/%s/%s/%s, want exact/exact/group/exact %s/%s/%s/%s", birthShedID, birthCurrentLocationID, birthGroupID, birthOutboxScopeShedID, exactBirthShedID, exactBirthShedID, adminCreateBirthPartShed, exactBirthShedID)
 		}
 	})
 
@@ -384,7 +458,27 @@ FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 	})
 
 	t.Run("admin goat exit blocks death guardrail transitions", func(t *testing.T) {
+		deathPartitionLabel := "Part 1"
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, $3, '1', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+			meshaTenant, adminCreateDeathPartShed, deathPartitionLabel); err != nil {
+			t.Fatalf("seed death partition catalog: %v", err)
+		}
+		var deathExactShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '1'`,
+			meshaTenant, adminCreateDeathPartShed).Scan(&deathExactShedID); err != nil {
+			t.Fatalf("read death exact partition shed id: %v", err)
+		}
 		create := adminGoatCreateCommand(t, "idem-create-goat-death-0001", "aid1-admin-death-0001", "admin-death-aid2-0001")
+		create.ShedID = adminCreateDeathPartShed
+		create.PartitionLabel = &deathPartitionLabel
+		create.RequirePartitionGrain = true
 		created, err := repo.CreateAdminGoat(ctx, create)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat for death guardrail: %v", err)
@@ -421,13 +515,6 @@ FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		}
 		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
-		if _, err := pool.Exec(ctx, `
-INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Synthetic admin create shed - Part 1')`,
-			meshaTenant, created.Goat.GoatID, adminCreateShedLocation); err != nil {
-			t.Fatalf("seed death partition placement: %v", err)
-		}
-
 		approved := cmd
 		approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
 		approved.StoredIdempotencyKey = meshaTenant + ":criticalDeathGoat:" + created.Goat.GoatID + ":" + approved.ClientIdempotencyKey
@@ -445,6 +532,17 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Synthetic admin create shed - Part 1
 			t.Fatalf("approved critical death result=%#v, want dead goat.exited", exited)
 		}
 		assertGoatLifecycleOutbox(t, pool, approved.StoredIdempotencyKey, exited.Events[0].EventID, created.Goat.GoatID, "goat.exited", created.Goat.GoatID)
+		var deathScopeShedID, deathPayloadShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'visibility_scope'->>'shed_id', payload->'payload'->>'current_shed_id'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.exited'`,
+			meshaTenant, created.Goat.GoatID).Scan(&deathScopeShedID, &deathPayloadShedID); err != nil {
+			t.Fatalf("read partition death outbox exact shed: %v", err)
+		}
+		if deathScopeShedID != deathExactShedID || deathPayloadShedID != deathExactShedID {
+			t.Fatalf("death shed scope/payload = %s/%s, want existing exact shed %s", deathScopeShedID, deathPayloadShedID, deathExactShedID)
+		}
 	})
 
 	t.Run("admin goat stage writes goat.stage_changed outbox for rule recheck", func(t *testing.T) {
@@ -1124,9 +1222,17 @@ INSERT INTO locations (
 	($6::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_WRONG_PARK_SHED', 'Synthetic admin create wrong-park shed',
 	 $7::uuid, 'IN', 'Asia/Kolkata', 'active'),
 	($8::uuid, $2::uuid, 'shed', 'ADMIN_MOVE_TARGET_SHED', 'Synthetic admin move target shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($9::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_BIRTH_SHED', 'Synthetic admin create birth shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($10::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_DEATH_SHED', 'Synthetic admin create death shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($11::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_BIRTH_PARTITION_SHED', 'Synthetic admin create birth partition shed',
+	 $4::uuid, 'IN', 'Asia/Kolkata', 'active'),
+	($12::uuid, $2::uuid, 'shed', 'ADMIN_CREATE_DEATH_PARTITION_SHED', 'Synthetic admin create death partition shed',
 	 $4::uuid, 'IN', 'Asia/Kolkata', 'active')
 ON CONFLICT (tenant_id, location_code) DO NOTHING`,
-		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation, adminMoveTargetShed); err != nil {
+		adminCreateFarmLocation, meshaTenant, adminCreateShedLocation, cbeLocation, adminCreateOrphanShed, adminCreateWrongParkShed, cptLocation, adminMoveTargetShed, adminCreateBirthShed, adminCreateDeathShed, adminCreateBirthPartShed, adminCreateDeathPartShed); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(context.Background(), `
@@ -1145,9 +1251,9 @@ SET name = EXCLUDED.name,
 SELECT count(*)
 FROM locations
 WHERE tenant_id = $1
-  AND location_id IN ($2, $3, $4, $5, $6)
-  AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed, adminMoveTargetShed); got != 5 {
-		t.Fatalf("admin create fixture locations = %d, want 5", got)
+  AND location_id IN ($2, $3, $4, $5, $6, $7, $8, $9, $10)
+  AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed, adminMoveTargetShed, adminCreateBirthShed, adminCreateDeathShed, adminCreateBirthPartShed, adminCreateDeathPartShed); got != 9 {
+		t.Fatalf("admin create fixture locations = %d, want 9", got)
 	}
 }
 

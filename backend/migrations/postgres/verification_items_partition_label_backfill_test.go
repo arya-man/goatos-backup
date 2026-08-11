@@ -89,8 +89,34 @@ func splitTopLevelStatements(sql string) []string {
 	remaining := sql
 	for {
 		remaining = strings.TrimLeft(remaining, " \t\n")
+		for strings.HasPrefix(remaining, "--") {
+			if newline := strings.Index(remaining, "\n"); newline >= 0 {
+				remaining = strings.TrimLeft(remaining[newline+1:], " \t\n")
+				continue
+			}
+			remaining = ""
+			break
+		}
 		if remaining == "" {
 			break
+		}
+		if strings.HasPrefix(remaining, "CREATE OR REPLACE PROCEDURE") {
+			start := strings.Index(remaining, "$$")
+			end := -1
+			if start >= 0 {
+				end = strings.Index(remaining[start+2:], "$$;")
+				if end >= 0 {
+					end += start + 2
+				}
+			}
+			if end < 0 {
+				stmts = append(stmts, remaining)
+				break
+			}
+			end += len("$$;")
+			stmts = append(stmts, remaining[:end])
+			remaining = remaining[end:]
+			continue
 		}
 		if strings.HasPrefix(remaining, "DO $$") {
 			end := strings.Index(remaining, "$$;")
