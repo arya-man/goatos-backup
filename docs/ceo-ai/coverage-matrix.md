@@ -476,6 +476,21 @@ read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or leadership KPI.
 Leadership visibility remains through the existing weighing monitor/video APIs
 and verification surfaces, so this is an explicit documented exclusion.
 
+## Explicit exclusion: feed proof media validator (2026-08-11)
+
+`func:ValidateFeedProofMedia`
+(`backend/internal/feeddirection/adapters/proof/validator.go`) is write-path
+validation for feed proof intake. It enforces that the operator captures the
+expected proof media kinds — feed weight photo, feed distribution video, and
+water distribution video — before the existing feed completion and verification
+workflow accepts the submission. It adds NO new leadership KPI, table, read API
+route, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL fallback
+surface. The leadership assistant read surface remains the existing feed
+completion/verification reporting coverage. Explicit documented exclusion — no
+coverage-matrix mapping required.
+
+| feed_proof_media_validator | func:ValidateFeedProofMedia | Explicit exclusion: write-path proof media validation only; existing feed completion and verification reads remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: counts census lifecycle facet + Android UI modernization (2026-07-23)
 
 `GET /counts/breakdown` (row 35 above, already `api + view:animal_current_scope`)
