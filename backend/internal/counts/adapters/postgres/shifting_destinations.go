@@ -26,13 +26,18 @@ import (
 //   - The status/retired_at filters live in the JOIN's ON clause for the shed side. Putting them in
 //     WHERE would silently convert the LEFT JOIN back into an inner join and drop exactly those
 //     empty parks.
+//   - legacy partition-alias locations are suppressed at the shed JOIN. If an active sibling
+//     parent shed ("Castro") has an active partition catalog row "1", then the old active shed row
+//     named "Castro 1" is not a separate destination; the parent+partition row renders as
+//     "Castro - 1". Genuine same-named sheds in different parks remain because the sibling check is
+//     park-local.
 //   - partitions comes from the shed_partitions CATALOG (status='active'), LEFT JOINed so a shed
 //     with no catalog rows still yields exactly ONE destination row with partition_label NULL --
 //     the bare, non-partitioned shed. A shed WITH real partitions returns one row per partition.
 //     This is the critical difference from the prior goat_shed_partitions LATERAL: the catalog
 //     includes EMPTY partitions (e.g. Yashoda 5) that no goat currently occupies, making them
-//     reachable as shifting destinations. The partition_label here is the normalized_label from
-//     the catalog, never a raw 'whole' sentinel.
+//     reachable as shifting destinations. The partition_label returned to callers is the catalog's
+//     human label; normalized_label remains an internal matching key and never drives display copy.
 //   - animal_count is computed per operational location using the SAME normalization:
 //     count of goats whose goat_shed_partitions.partition_label matches, zero for empty partitions.
 //   - management_stages is computed per SHED (not per partition): the cohort vocabulary offered to
@@ -53,7 +58,7 @@ SELECT
     park.name,
     shed.location_id::text,
     shed.name,
-    partitions.normalized_label,
+    partitions.partition_label,
     COALESCE(animal_count.count, 0),
     COALESCE(stage_agg.stages, ARRAY[]::text[])
 FROM locations park
@@ -63,6 +68,27 @@ LEFT JOIN locations shed
       AND shed.location_type = 'shed'
       AND shed.status = 'active'
       AND shed.retired_at IS NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM locations parent_shed
+          JOIN shed_partitions parent_partition
+            ON parent_partition.tenant_id = parent_shed.tenant_id
+           AND parent_partition.shed_id = parent_shed.location_id
+           AND parent_partition.status = 'active'
+          WHERE parent_shed.tenant_id = shed.tenant_id
+            AND parent_shed.parent_location_id = shed.parent_location_id
+            AND parent_shed.location_type = 'shed'
+            AND parent_shed.status = 'active'
+            AND parent_shed.retired_at IS NULL
+            AND parent_shed.location_id <> shed.location_id
+            AND regexp_replace(lower(btrim(shed.name)), '[^a-z0-9]+', '', 'g')
+                LIKE regexp_replace(lower(btrim(parent_shed.name)), '[^a-z0-9]+', '', 'g') || '%'
+            AND regexp_replace(
+                    regexp_replace(lower(btrim(shed.name)), '[^a-z0-9]+', '', 'g'),
+                    '^' || regexp_replace(lower(btrim(parent_shed.name)), '[^a-z0-9]+', '', 'g'),
+                    ''
+                ) = parent_partition.normalized_label
+      )
 -- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
 LEFT JOIN shed_partitions partitions
        ON partitions.tenant_id = park.tenant_id
@@ -145,7 +171,7 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 			continue
 		}
 		shedStages = nonClinicalShiftingStages(shedStages)
-		// partitionLabel comes from the shed_partitions catalog (normalized_label). A non-partitioned
+		// partitionLabel comes from the shed_partitions catalog's display label. A non-partitioned
 		// shed comes through with partitionLabel nil -- exactly one entry, never synthesized as "whole".
 		// animalCount is 0 for empty partitions (e.g. Yashoda 5 with no goats) and the true count
 		// of goats occupying this partition for filled ones.

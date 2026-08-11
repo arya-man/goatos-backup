@@ -421,6 +421,12 @@ FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		}
 		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Synthetic admin create shed - Part 1')`,
+			meshaTenant, created.Goat.GoatID, adminCreateShedLocation); err != nil {
+			t.Fatalf("seed death partition placement: %v", err)
+		}
 
 		approved := cmd
 		approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
