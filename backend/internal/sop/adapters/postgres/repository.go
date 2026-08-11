@@ -1280,6 +1280,7 @@ func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskI
 			return nil, fmt.Errorf("sop: resolve proof exact shed: %w", err)
 		}
 		shedID = resolvedShedID
+		partitionLabel = ""
 	}
 	rows, err := r.pool.Query(ctx, `
 WITH task_scope AS (

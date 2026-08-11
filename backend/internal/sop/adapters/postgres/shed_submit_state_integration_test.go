@@ -470,7 +470,7 @@ func TestCompletedTaskProofRefsResolvesLegacyPartitionRequestToExactShed(t *test
 		exactShed, tenantID, parkID)
 	execShedSubmitState(t, ctx, pool, "partition mapping",
 		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
-		 VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'test', $3::uuid)
+		 VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual', $3::uuid)
 		 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
 		 SET status='active', operational_location_id=EXCLUDED.operational_location_id`,
 		tenantID, groupShed, exactShed)

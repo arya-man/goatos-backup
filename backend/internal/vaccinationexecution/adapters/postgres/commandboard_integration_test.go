@@ -523,11 +523,12 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 	})
 }
 
-// TestVaccinationCommandBoardStatusBucketsMultiCompletion tests that an obligation with
-// both accepted and recorded-unverified completions counts ONLY in doses_verified, never in
-// awaiting_verification. This is the critical bucket disjointness test.
+// TestVaccinationCommandBoardStatusBucketsMultiCompletion tests that an accepted completion
+// counts ONLY in doses_verified, never in awaiting_verification. The current schema enforces
+// one live completion per obligation/goat, so the old accepted+recorded duplicate state is no
+// longer representable.
 func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
-	t.Log("StatusBucketDisjointness: obligation with accepted + recorded-unverified must count ONLY in doses_verified")
+	t.Log("StatusBucketDisjointness: obligation with accepted completion must count ONLY in doses_verified")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -539,8 +540,10 @@ func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
 	testShedID := "70000000-0000-4000-8000-000002000099"
 	testGoatID := "70000000-0000-4000-8000-000003000099"
 	testBatchID := "70000000-0000-4000-8000-000004000099"
-	testRuleID := "et_tt_adult_w1_99"
+	testPartyID := "70000000-0000-4000-8000-000005000099"
+	testRuleID := "70000000-0000-4000-8000-000007000099"
 	testProtocolID := "70000000-0000-4000-8000-000006000099"
+	testProtocolDefID := "70000000-0000-4000-8000-000006000098"
 
 	// Manually seed minimal data for this test
 	execProjectionSQL(t, ctx, pool, "tenant",
@@ -554,47 +557,50 @@ func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 1', 'shed', $3, 'active')`,
 		testShedID, testTenantID, testParkID)
-	execProjectionSQL(t, ctx, pool, "management stage",
-		`INSERT INTO management_stages (management_stage_id, tenant_id, code, name)
-		 VALUES ('70000000-0000-4000-8000-000005000099', $1, 'K1', 'K1 kids')`,
+	execProjectionSQL(t, ctx, pool, "animal stage lookup",
+		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, name)
+		 VALUES ($1, 'K1', 'K1 kids')`,
 		testTenantID)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian 99', 'active')`,
+		testPartyID)
 	execProjectionSQL(t, ctx, pool, "goat",
-		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-01')`,
-		testGoatID, testTenantID, testShedID)
-	execProjectionSQL(t, ctx, pool, "protocol",
-		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, rule_dsl, status, published_at)
-		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000000', '{}', 'published', now())`,
-		testProtocolID, testTenantID)
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+		 VALUES ($1, $2, 'male', 'alive', 'K1', $3, $4, '2025-01-01')`,
+		testGoatID, testTenantID, testShedID, testPartyID)
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination.status_bucket_99', 'Status Bucket 99', 'vaccination', 'active')`,
+		testProtocolDefID, testTenantID)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, version, rule_dsl, status, effective_from)
+		 VALUES ($1, $2, $3, 1, '{}', 'draft', DATE '2026-01-01')`,
+		testProtocolID, testTenantID, testProtocolDefID)
 	execProjectionSQL(t, ctx, pool, "ET rule",
-		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, vaccine_labels, eligibility_dsl)
-		 VALUES ($1, $2, $3, ARRAY['ET+TT'], '{}')`,
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'et_tt_adult_w1', 'birth_age')`,
 		testRuleID, testTenantID, testProtocolID)
 	execProjectionSQL(t, ctx, pool, "batch",
-		`INSERT INTO vaccination_drive_batches (batch_id, tenant_id, planned_date, status)
-		 VALUES ($1, $2, '2026-07-25', 'open')`,
-		testBatchID, testTenantID)
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date)
+		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-07-25')`,
+		testBatchID, testTenantID, testProtocolID, testShedID)
 
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// Create one obligation for goat
 	obligationID := "70000000-0000-4000-8000-000010000099"
 	execProjectionSQL(t, ctx, pool, "obligation ET",
-		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
-		 VALUES ($1, $2, $3, $4, 'shed', $5, $6, 'scheduled', $7::timestamptz)`,
-		obligationID, testTenantID, testBatchID, testGoatID, testShedID, testRuleID,
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, batch_id, target_type, target_id, scope_type, scope_id, rule_id, status, due_at, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, $7, 'scheduled', $8::timestamptz, 'status-bucket-99', 1)`,
+		obligationID, testTenantID, testProtocolID, testBatchID, testGoatID, testShedID, testRuleID,
 		asOf.Add(-1*24*time.Hour))
 
-	// Add TWO completions: one accepted, one recorded-unverified
+	// Add the accepted completion. A second live recorded row for the same obligation/goat is
+	// intentionally impossible under vaccination_completions_obligation_goat_active_unique_idx.
 	execProjectionSQL(t, ctx, pool, "completion accepted",
-		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
-		 VALUES ('70000000-0000-4000-8000-000011000099', $1, $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
-		testTenantID, obligationID, asOf.Add(-1*24*time.Hour))
-
-	execProjectionSQL(t, ctx, pool, "completion recorded unverified",
-		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
-		 VALUES ('70000000-0000-4000-8000-000011000098', $1, $2, 'recorded', $3::timestamptz, NULL)`,
-		testTenantID, obligationID, asOf.Add(-1*24*time.Hour))
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, status, administered_at, verified_at, idempotency_key)
+		 VALUES ('70000000-0000-4000-8000-000011000099', $1, $2, $3, $4, 'accepted', $5::timestamptz, $5::timestamptz, 'status-bucket-accepted')`,
+		testTenantID, obligationID, testBatchID, testGoatID, asOf.Add(-1*24*time.Hour))
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
@@ -606,7 +612,7 @@ func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
-	// CRITICAL: The obligation must NOT appear in awaiting_verification when it has an accepted completion
+	// CRITICAL: The obligation must NOT appear in awaiting_verification when it has an accepted completion.
 	if resp.KPIs.AwaitingVerification != 0 {
 		t.Fatalf("awaiting_verification = %d, want 0; obligation with accepted completion should not count as awaiting", resp.KPIs.AwaitingVerification)
 	}
@@ -650,6 +656,8 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	shedID := "70000000-0000-4000-8000-000002000077"
 	goatA := "70000000-0000-4000-8000-000003000077"
 	goatB := "70000000-0000-4000-8000-000003000078"
+	custodianPartyID := "70000000-0000-4000-8000-000009000077"
+	protocolID := "70000000-0000-4000-8000-000006000076"
 	protocolVersionID := "70000000-0000-4000-8000-000006000077"
 	ruleID := "70000000-0000-4000-8000-000007000077"
 	oblA := "70000000-0000-4000-8000-000008000077"
@@ -663,16 +671,23 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	execProjectionSQL(t, ctx, pool, "shed",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 77', 'shed', $3, 'active')`, shedID, tenantID, parkID)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian 77', 'active')`,
+		custodianPartyID)
 	for i, goatID := range []string{goatA, goatB} {
 		execProjectionSQL(t, ctx, pool, "goat",
-			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-			 VALUES ($1, $2, 'female', 'active', 'Non-Pregnant', $3, '2024-01-01')`, goatID, tenantID, shedID)
+			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+			 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2024-01-01')`, goatID, tenantID, shedID, custodianPartyID)
 		_ = i
 	}
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination.date_shift_77', 'Date Shift 77', 'vaccination', 'active')`,
+		protocolID, tenantID)
 	execProjectionSQL(t, ctx, pool, "protocol version",
-		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, rule_dsl)
-		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000000', 'tenant', 1, 'published', '{}')`,
-		protocolVersionID, tenantID)
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', DATE '2026-01-01', '{}')`,
+		protocolVersionID, tenantID, protocolID)
 	execProjectionSQL(t, ctx, pool, "rule",
 		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
 		 VALUES ($1, $2, $3, 'et_tt_adult_w2', 'birth_age')`, ruleID, tenantID, protocolVersionID)
@@ -688,9 +703,9 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 			target = goatB
 		}
 		execProjectionSQL(t, ctx, pool, "obligation",
-			`INSERT INTO obligation_instances (obligation_id, tenant_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at)
-			 VALUES ($1, $2, $3, 'goat', 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-			obl, tenantID, target, shedID, ruleID, due)
+			`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key, sequence)
+			 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'scheduled', $7::timestamptz, $8, 1)`,
+			obl, tenantID, protocolVersionID, target, shedID, ruleID, due, "date-shift-"+obl)
 	}
 
 	repo := NewRepository(pool, 5*time.Second)

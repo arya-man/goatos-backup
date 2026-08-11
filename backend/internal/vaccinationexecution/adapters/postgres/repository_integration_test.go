@@ -1284,6 +1284,10 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-SCAN-ONE','rfid-scan
 	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-roster-scan-second")
 	execProjectionSQL(t, ctx, pool, "link scanned second task", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, secondObl)
+	execProjectionSQL(t, ctx, pool, "scan roster drive assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+VALUES ($1,$2,'2026-06-24',$3,$4,$5,'K1 Shed','whole',2)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 	execProjectionSQL(t, ctx, pool, "second goat tag", `
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
 VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-SCAN-TWO','rfid-scan-two','active','global','v1',now())`, testTenant, secondGoat)
@@ -1348,15 +1352,15 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Park drive','in_progress',$5,'park',$6,
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 VALUES ($1,$2,'shed','SHED-PROJ-P1','K1 Shed - Part 1',$3,'active')`,
 		part1Shed, testTenant, testPark)
-	execProjectionSQL(t, ctx, pool, "partition catalog maps old shed to exact shed", `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
-VALUES ($1,$2,'Part 1','1','active','manual',$3)`,
-		testTenant, testShed, part1Shed)
 	execProjectionSQL(t, ctx, pool, "goat exact partition residence", `
 UPDATE goats
 SET shed_group_id=$1, shed_id=$2, current_location_id=$2
 WHERE tenant_id=$3 AND goat_id=$4`,
 		testShed, part1Shed, testTenant, testGoat)
+	execProjectionSQL(t, ctx, pool, "partition catalog maps old shed to exact shed", `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1,$2,'Part 1','1','active','manual',$3)`,
+		testTenant, testShed, part1Shed)
 	execProjectionSQL(t, ctx, pool, "goat partition evidence", `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1,$2,$3,'Part 1','K1 Shed - Part 1')`,
@@ -1455,6 +1459,10 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Park task over tenant batch','in_progre
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
 VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','TENANT-BATCH-RFID','tenant-batch-rfid','active','global','v1',now())`,
 		testTenant, testGoat)
+	execProjectionSQL(t, ctx, pool, "tenant batch drive assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+VALUES ($1,$2,'2026-06-24',$3,$4,$5,'K1 Shed','whole',1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
