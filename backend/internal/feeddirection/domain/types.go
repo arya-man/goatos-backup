@@ -481,7 +481,7 @@ type PackingSummary struct {
 	Scope string `json:"scope"`
 	// ShedCount is the number of distinct sheds in the whole filtered scope.
 	ShedCount int32 `json:"shed_count"`
-	// LineCount is the number of pen-day packing lines in the whole filtered scope.
+	// LineCount is the number of packing lines (pen x session) in the whole filtered scope.
 	LineCount int32 `json:"line_count"`
 	// TotalKgByFeedItem sums the RESOLVED per-shed quantities across the whole filtered scope.
 	TotalKgByFeedItem []FeedItemTotal `json:"total_kg_by_feed_item"`

@@ -500,6 +500,59 @@ func TestPackingWorklistFiltersBySession(t *testing.T) {
 	}
 }
 
+// The session filter must hold on the FROZEN path too -- the one a packer actually reads.
+//
+// The sibling test above proves it on the DRAFT path, where the session narrows generation itself, so
+// it passes even when the served path ignores the filter completely. That is exactly what shipped:
+// restoring the `session` query parameter without restoring servePacking's filterPreviewRows call
+// answered `session=1` with 200 and BOTH of every pen's bags, and since the session is part of the
+// client's Room cache key those two bags were then cached AS session 1.
+//
+// Driven through PackingWorklist with no Draft flag and a clock past the 07:00 gate, so the sheet is
+// genuinely issued and read back from the issue store.
+func TestFrozenPackingWorklistFiltersBySession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	// 08:00 IST: normal has fired, so the sheet is frozen and served rather than generated.
+	svc, store := newTwoWorkflowService(8)
+
+	q := domain.PackingQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget(), Limit: 50}
+	all, err := svc.PackingWorklist(ctx, q)
+	if err != nil {
+		t.Fatalf("PackingWorklist(all sessions): %v", err)
+	}
+	if len(store.headers) == 0 {
+		t.Fatal("nothing was frozen; this test would be exercising the draft path it exists to bypass")
+	}
+	if len(all.Items) != 4 {
+		t.Fatalf("unfiltered frozen worklist = %d lines, want 4 (2 sheds x 2 sessions)", len(all.Items))
+	}
+
+	one := q
+	one.SessionNo = 1
+	page, err := svc.PackingWorklist(ctx, one)
+	if err != nil {
+		t.Fatalf("PackingWorklist(session=1): %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("frozen session=1 worklist = %d lines, want 2 -- the filter is not applied to served rows",
+			len(page.Items))
+	}
+	for _, row := range page.Items {
+		if row.SessionNo != 1 {
+			t.Fatalf("frozen session=1 returned a session %d line: %+v", row.SessionNo, row)
+		}
+	}
+	// The summary follows the filter, so one session's store draw is never reported as the day's.
+	if page.Summary.LineCount != 2 {
+		t.Fatalf("frozen session=1 summary line_count = %d, want 2", page.Summary.LineCount)
+	}
+	if page.Summary.LineCount >= all.Summary.LineCount {
+		t.Fatalf("one session's line_count (%d) is not smaller than the day's (%d); the summary ignored the filter",
+			page.Summary.LineCount, all.Summary.LineCount)
+	}
+}
+
 // The feed read exposes the served park's session split as backend-owned filter vocabulary, on both
 // surfaces, so the client renders its session picker from the contract and holds no session list of
 // its own (the golden frontend rule).

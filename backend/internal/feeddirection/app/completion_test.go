@@ -208,7 +208,7 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
 	// The PACKING overlay reads the PACKING verification-gated table (maintainer decision
-	// 2026-07-26): a pen-day is Completed only after a verifier approves, i.e. status='completed' in
+	// 2026-07-26): a shed-session is Completed only after a verifier approves, i.e. status='completed' in
 	// feed_packing_completions. The overlay reads ListPackingCompletionStatuses (which also surfaces
 	// pending_verification/rework for the status filter).
 	//
