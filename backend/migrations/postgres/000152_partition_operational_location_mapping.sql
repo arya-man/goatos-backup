@@ -38,10 +38,6 @@ BEGIN
   END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS goats_shed_group_idx
-  ON public.goats (tenant_id, shed_group_id)
-  WHERE shed_group_id IS NOT NULL;
-
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1433,12 +1429,6 @@ WHERE pen.location_type = 'shed'
   );
 
 DROP INDEX IF EXISTS public.shed_partitions_operational_location_unique;
-DROP INDEX IF EXISTS public.goats_shed_group_idx;
-
-ALTER TABLE public.goats
-  DROP CONSTRAINT IF EXISTS goats_shed_group_tenant_fk;
-
-ALTER TABLE public.goats DROP COLUMN IF EXISTS shed_group_id;
 
 ALTER TABLE public.shed_partitions
   DROP COLUMN IF EXISTS operational_location_id;

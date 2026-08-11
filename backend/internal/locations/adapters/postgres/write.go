@@ -168,7 +168,7 @@ SELECT EXISTS (
 		nextStatus = strings.TrimSpace(*cmd.Status)
 	}
 	if cmd.ClearParent || cmd.ParentLocationID != nil ||
-		(nextType != "" && !strings.EqualFold(nextType, "pen")) ||
+		(nextType != "" && !strings.EqualFold(nextType, "shed") && !strings.EqualFold(nextType, "pen")) ||
 		(nextStatus != "" && !strings.EqualFold(nextStatus, "active")) {
 		return ports.ErrWriteConflict
 	}

@@ -168,6 +168,45 @@ WHERE tenant_id=$1::uuid AND location_id=$2::uuid`,
 		}
 	})
 
+	t.Run("update allows unchanged shed type on mapped exact partition shed", func(t *testing.T) {
+		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-mapped-shed-patch-parent", "Synthetic Mapped Patch Shed"))
+		if err != nil {
+			t.Fatalf("CreateLocation parent shed: %v", err)
+		}
+		exactCmd := createLocationCommand("idem-location-mapped-shed-patch-exact", "Synthetic Mapped Patch Shed - Part 1")
+		exact, err := repo.CreateLocation(ctx, exactCmd)
+		if err != nil {
+			t.Fatalf("CreateLocation exact shed: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (
+  tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id
+) VALUES (
+  $1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual', $3::uuid
+)`, testTenantID, created.Location.LocationID, exact.Location.LocationID); err != nil {
+			t.Fatalf("seed shed partition: %v", err)
+		}
+		locationType := "shed"
+		newName := "Synthetic Mapped Patch Shed - Part 1 Renamed"
+		updated, err := repo.UpdateLocation(ctx, ports.UpdateLocationCommand{
+			TenantID: testTenantID, ActorID: testActorID, ClientIdempotencyKey: "idem-location-mapped-shed-patch-update",
+			StoredIdempotencyKey: testTenantID + ":updateLocation:" + exact.Location.LocationID + ":idem-location-mapped-shed-patch-update",
+			IdempotencyScope:     "updateLocation",
+			RequestHash:          "sha256:mapped-shed-patch-update",
+			TraceID:              "trace-mapped-shed-patch-update",
+			LocationID:           exact.Location.LocationID,
+			LocationType:         &locationType,
+			Name:                 &newName,
+			RowVersion:           exact.Location.RowVersion,
+		})
+		if err != nil {
+			t.Fatalf("UpdateLocation mapped exact shed with unchanged shed type: %v", err)
+		}
+		if updated.Location.LocationType != "shed" || updated.Location.Name != newName {
+			t.Fatalf("unexpected mapped shed update: %#v", updated.Location)
+		}
+	})
+
 	t.Run("retire blocks empty mapped partition shed", func(t *testing.T) {
 		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-retire-mapped-shed", "Synthetic Retire Mapped Shed"))
 		if err != nil {
