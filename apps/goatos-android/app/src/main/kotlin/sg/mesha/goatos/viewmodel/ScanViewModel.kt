@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -1189,6 +1190,10 @@ class ScanViewModel @Inject constructor(
                     partitionLabel = partitionLabel,
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                throw error
             } finally {
                 // Only the job that still OWNS the in-flight state may clean it up. Guard on JOB
                 // identity, not subject identity: an A -> B -> A rescan makes a subject-id guard
