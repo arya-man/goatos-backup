@@ -978,6 +978,40 @@ func TestCloseScopeBlockedWhileReworkOutstanding(t *testing.T) {
 	}
 }
 
+// A withdrawn rework remains a close blocker in the same bucket until a replacement
+// shed proof exists, so the close cannot bypass operator sent-back work.
+func TestCloseScopeBlockedWhileLumpSumReworkOutstandingAfterWithdraw(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	shedObs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 92.0, AnimalCount: 8, ProofArtifactID: repoShedProof,
+		IdempotencyKey: "lumpsum:scope-gate-withdrawn-rework", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record lump-sum observation: %v", err)
+	}
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: shedObs.ObservationID, RefType: domain.VerificationRefTypeShed,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot", EventID: "aaaaaaaa-0000-4000-8000-00000000ae01",
+	}); err != nil {
+		t.Fatalf("bounce lump-sum observation: %v", err)
+	}
+
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		Reason: "closing over a withdrawn rework", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-lumpsum-rework-withdrawn",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("close with an outstanding withdrawn rework err=%v, want ErrVerificationPending", err)
+	}
+}
+
 // TestCloseGateIsUnconditionalAndAbandonPathIsGone is the direct replacement for the
 // deleted TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly. That test proved
 // a bucket holding unreviewed evidence COULD be ended by skipping the gate. The
@@ -1279,6 +1313,40 @@ func TestCloseCampaignBlockedWhileSubmittedVideoIsInRework(t *testing.T) {
 		IdempotencyKey: "close-campaign:rework",
 	}); !errors.Is(err, ports.ErrVerificationPending) {
 		t.Fatalf("campaign close with an outstanding rework err=%v, want ErrVerificationPending", err)
+	}
+}
+
+// A withdrawn rework in a lump-sum bucket is still an outstanding task until a
+// replacement submission exists, so campaign close must not sweep past it.
+func TestCloseCampaignBlockedWhileLumpSumReworkOutstandingAfterWithdraw(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	shedObs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 93.0, AnimalCount: 9, ProofArtifactID: repoShedProofTwo,
+		IdempotencyKey: "lumpsum:campaign-gate-withdrawn-rework", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record lump-sum observation: %v", err)
+	}
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: shedObs.ObservationID, RefType: domain.VerificationRefTypeShed,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot", EventID: "aaaaaaaa-0000-4000-8000-00000000ae02",
+	}); err != nil {
+		t.Fatalf("bounce lump-sum observation: %v", err)
+	}
+
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "closing over a withdrawn rework", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:lumpsum-rework-withdrawn",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("campaign close with an outstanding withdrawn rework err=%v, want ErrVerificationPending", err)
 	}
 }
 
