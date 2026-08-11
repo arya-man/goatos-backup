@@ -50,10 +50,11 @@ class GoatOsMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         runCatching {
             val data = message.data
-            val title = message.notification?.title
+            val title = message.notification?.title?.takeIf { it.isNotBlank() }
                 ?: data[PushExtras.TITLE]?.takeIf { it.isNotBlank() }
                 ?: getString(DesignSystemR.string.push_default_title)
-            val body = message.notification?.body ?: data[PushExtras.BODY].orEmpty()
+            val body = message.notification?.body?.takeIf { it.isNotBlank() }
+                ?: data[PushExtras.BODY].orEmpty()
             pushNotifications.show(title = title, body = body, payload = data)
             // TODO(backend): delivery/read ACK. AppApi has no "notification delivered/read" endpoint
             // today (checked core-network's AppApi — out of scope for the mobile FCM slice to invent
