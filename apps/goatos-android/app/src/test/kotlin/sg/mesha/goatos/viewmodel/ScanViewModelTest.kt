@@ -164,6 +164,42 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `unknown vaccination RFID scan reports no goat and no proof captured`() = runTest(dispatcher) {
+        val scanAttempts = FakeScanAttemptRepository()
+        val reader = FakeRfidReaderPort()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = analytics,
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-404")
+        advanceUntilIdle()
+
+        assertEquals(listOf(RfidScanAttemptOutcome.UNKNOWN), scanAttempts.calls.map { it.outcome })
+        val rejected = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.VACCINATION_SCAN_REJECTED
+        }
+        assertEquals("TAG-404", rejected.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID])
+        assertEquals("unknown", rejected.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
+        assertEquals("unknown_tag", rejected.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.REASON])
+        assertEquals("false", rejected.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.PROOF_CAPTURED])
+        assertFalse(rejected.props.containsKey(sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.GOAT_ID))
+    }
+
+    @Test
     fun `persisted RFID capture restores done state after process recreation`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         scanCaptures.recordScan(

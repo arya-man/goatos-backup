@@ -1309,7 +1309,10 @@ class ScanViewModel @Inject constructor(
             }
             row?.goatId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.GOAT_ID, it) }
             row?.vaccineLabel?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.ITEM_ID, it) }
-            put(AnalyticsEvents.Params.PROOF_CAPTURED, (row?.proofUploadStatus != ProofUploadStatus.MISSING).toString())
+            put(
+                AnalyticsEvents.Params.PROOF_CAPTURED,
+                (row?.proofUploadStatus?.let { it != ProofUploadStatus.MISSING } ?: false).toString(),
+            )
             put(AnalyticsEvents.Params.PROOF_UPLOADED, (row?.proofUploadStatus == ProofUploadStatus.SYNCED).toString())
         }
 
