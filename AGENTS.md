@@ -312,6 +312,33 @@ the exact source revision that produced it.
   cannot be verified, say that clearly instead of inferring from local `HEAD`,
   `origin/main`, or memory.
 
+## Mobile/API Provenance For "Who Did What"
+
+When the maintainer asks who performed an action, whether an old APK caused a
+bad submission, which phone captured a bad audio/video proof, or which device
+sent an RFID/weighing/vaccination action, check backend audit and request
+provenance first.
+
+Android sends these headers on every API request:
+
+```text
+X-GoatOS-App-Version
+X-GoatOS-App-Version-Code
+X-GoatOS-Build-Type
+X-GoatOS-Device-Id
+X-GoatOS-Platform
+X-GoatOS-OS-Version
+X-GoatOS-SDK-Version
+X-GoatOS-Device-Model
+```
+
+Backend request logs include the same fields, and `audit_log.metadata->'client'`
+is the durable SQL source. For a specific weighing/vaccination/proof issue,
+join from the domain row to its audit event and inspect that client block before
+guessing from screenshots, Firebase, or local code. Firebase Analytics is useful
+for dashboards; the audit row is the source of truth for a submitted business
+action.
+
 ## WEIGHING IS SCAN-AND-SUBMIT. Nothing else. (Claude AND Codex, every session)
 
 Maintainer statement, 2026-08-03. Sessions keep re-deriving weighing rules that do

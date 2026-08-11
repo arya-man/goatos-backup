@@ -151,6 +151,29 @@ Both `TelemetryInterceptor` and `FirebasePerfNetworkTelemetryReporter` carry a
 live and its `asia-south1` URL is known; `BuildConfig.OTLP_ENDPOINT` is reserved (currently `""`
 for every flavor) for that URL.
 
+## 6.1. API client identity headers
+
+Every authenticated API request also carries client identity headers from
+`BearerAuthInterceptor`, populated in `AppModule` from `BuildConfig`, Android `Build`, and
+`DeviceStore.appInstallIdSync()`:
+
+```
+X-GoatOS-App-Version: <versionName, e.g. 0.1.17>
+X-GoatOS-App-Version-Code: <versionCode, e.g. 18>
+X-GoatOS-Build-Type: <flavor + Debug/Release, e.g. stgRelease>
+X-GoatOS-Device-Id: <stable app install id>
+X-Device-Id: <same stable app install id, legacy backend fallback>
+X-GoatOS-Platform: android
+X-GoatOS-OS-Version: Android <release>
+X-GoatOS-SDK-Version: <SDK_INT>
+X-GoatOS-Device-Model: <manufacturer model>
+```
+
+The backend request middleware records these into request logs and the audit recorder stores them
+under `audit_log.metadata->'client'`. For a bad weighing/vaccination proof, audio/video capture, or
+RFID scan, query the domain row's audit record and inspect that `client` block to identify the exact
+APK version, build, install id, Android OS, SDK, and device model that submitted it.
+
 ## 7. Verification
 
 Run with `JAVA_HOME=$(brew --prefix openjdk@21)` and `ANDROID_HOME=$HOME/Library/Android/sdk`

@@ -43,6 +43,53 @@ class NetworkModuleTest {
     }
 
     @Test
+    fun bearerAuthInterceptorAddsClientMetadataHeaders() {
+        var captured: Request? = null
+        val client = OkHttpClient.Builder()
+            .addInterceptor(
+                BearerAuthInterceptor(
+                    tokenProvider = { null },
+                    requestMetadataProvider = {
+                        RequestMetadata(
+                            appVersion = "0.1.17",
+                            appVersionCode = "18",
+                            buildType = "stgRelease",
+                            deviceId = "install-123",
+                            platform = "android",
+                            osVersion = "Android 14",
+                            sdkVersion = "34",
+                            deviceModel = "Infinix X",
+                        )
+                    },
+                ),
+            )
+            .addInterceptor { chain ->
+                captured = chain.request()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("{}".toResponseBody())
+                    .build()
+            }
+            .build()
+
+        client.newCall(Request.Builder().url("http://localhost/app/bootstrap").build()).execute().close()
+
+        val request = requireNotNull(captured)
+        assertEquals("0.1.17", request.header("X-GoatOS-App-Version"))
+        assertEquals("18", request.header("X-GoatOS-App-Version-Code"))
+        assertEquals("stgRelease", request.header("X-GoatOS-Build-Type"))
+        assertEquals("install-123", request.header("X-GoatOS-Device-Id"))
+        assertEquals("install-123", request.header("X-Device-Id"))
+        assertEquals("android", request.header("X-GoatOS-Platform"))
+        assertEquals("Android 14", request.header("X-GoatOS-OS-Version"))
+        assertEquals("34", request.header("X-GoatOS-SDK-Version"))
+        assertEquals("Infinix X", request.header("X-GoatOS-Device-Model"))
+    }
+
+    @Test
     fun bearerAuthInterceptorFallsBackToEnglishForUnsafeLocale() {
         var captured: Request? = null
         val client = OkHttpClient.Builder()

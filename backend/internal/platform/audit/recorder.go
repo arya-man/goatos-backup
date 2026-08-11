@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
 const defaultTimeout = 3 * time.Second
@@ -97,6 +98,11 @@ func record(ctx context.Context, exec executor, event Event) error {
 	metadata := event.Metadata
 	if metadata == nil {
 		metadata = map[string]any{}
+	}
+	if clientInfo := httpmiddleware.ClientInfoMetadataFromContext(ctx); len(clientInfo) > 0 {
+		if _, exists := metadata["client"]; !exists {
+			metadata["client"] = clientInfo
+		}
 	}
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
