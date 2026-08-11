@@ -15,9 +15,9 @@ import (
 //
 // A partition-bearing shed's catalog name already carries the operational suffix in EXACTLY the
 // two conventions oploc documents ("Castro 2", "Godel 1 - Part 3"), because that name is sourced
-// from the same `locations` catalog the vaccination/counts side reads. This parses that suffix
-// back out so weighing can carry parent-shed name + partition label + a normalized operational
-// display without reading a single animal-scoped row.
+// from the same `locations` catalog the vaccination/counts side reads. Weighing keeps that exact
+// name as the operator identity; it only uses a stored legacy partition_label when reading rows
+// written before the exact-shed cutover.
 // splitShedPartitionName delegates to oploc.SplitShedPartitionName, the single Go home of the
 // catalog naming rule. It was a private regex here until 2026-08-07; the feed seeder needed the
 // same parse, and two copies of this convention is exactly how one caller comes to believe
@@ -34,13 +34,12 @@ func splitShedPartitionName(name string) (parentShedName, partitionLabel string)
 // through oploc.OperationalLocation.Display() so it follows the exact same rendering rule as
 // every other module and can never show the "whole" sentinel.
 func applyShedPartitionDisplay(shed *domain.CampaignShed) {
-	parent, partition := splitShedPartitionName(shed.DisplayName)
+	parent := strings.TrimSpace(shed.DisplayName)
 	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
+	shed.PartitionLabel = ""
 	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedID:         shed.LocationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
+		ShedID:   shed.LocationID,
+		ShedName: parent,
 	}.Display()
 }
 
@@ -79,13 +78,12 @@ func parentShedNameFromStoredPartitionDisplay(displayName, parsedParent, partiti
 
 // applyPlannerShedPartitionDisplay is the PlannerShed twin of applyShedPartitionDisplay.
 func applyPlannerShedPartitionDisplay(shed *domain.PlannerShed) {
-	parent, partition := splitShedPartitionName(shed.Name)
+	parent := strings.TrimSpace(shed.Name)
 	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
+	shed.PartitionLabel = ""
 	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedID:         shed.LocationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
+		ShedID:   shed.LocationID,
+		ShedName: parent,
 	}.Display()
 }
 

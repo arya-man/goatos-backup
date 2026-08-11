@@ -13,9 +13,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
-// TestPartitionLabelExtractedFromDisplayName verifies that partition_label is correctly
-// extracted from display_name when a shed has partitions, and that the OperationalLocationDisplay
-// renders correctly. This is a smoke test for migration 000121.
+// TestPartitionLabelExtractedFromDisplayName verifies that partitioned inputs are canonicalized
+// to the exact shed. A numbered shed such as "Castro 2" must persist as that exact shed name.
 func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -27,10 +26,9 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 	tenantID := uuid.NewString()
 	parkID := uuid.NewString()
 
-	// The write path resolves partition labels from the shed_partitions CATALOG, not from the
-	// display name -- "Castro 2" (a partition) and "Mandela 1" (an ordinary shed) are the same
-	// shape, so only the catalog can tell them apart. Seed the park, the parent sheds, the
-	// partition-alias locations, and the catalog rows the resolver reads.
+	// The write path resolves legacy partition requests from the shed_partitions catalog, then
+	// stores the exact shed row. "Castro 2" and "Mandela 1" are both real sheds by name; only the
+	// catalog can tell whether an old parent+label request should canonicalize to an exact shed.
 	mustExec := func(sql string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, sql, args...); err != nil {
@@ -49,17 +47,17 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
 		{godelParentID, "Godel 1", "active"},
 		{yashodaID, "Yashoda", "active"},
 		{mandelaID, "Mandela 1", "active"},
-		{castroPartID, "Castro 2", "inactive"},
-		{godelPartID, "Godel 1 - Part 3", "inactive"},
+		{castroPartID, "Castro 2", "active"},
+		{godelPartID, "Godel 1 - Part 3", "active"},
 	} {
 		mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4, $5)`, tenantID, l.id, parkID, l.name, l.status)
 	}
 	// Catalog: Castro really has a partition "2"; Godel 1 really has "Part 3". Mandela 1 has NO
 	// catalog partition -- it is an ordinary shed whose name simply ends in a number.
-	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
-       ($1::uuid, $3::uuid, 'Part 3', '3', 'active', 'location_alias')`, tenantID, castroParentID, godelParentID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias', $4::uuid),
+       ($1::uuid, $3::uuid, 'Part 3', '3', 'active', 'location_alias', $5::uuid)`, tenantID, castroParentID, godelParentID, castroPartID, godelPartID)
 
 	// The operator must be park-scoped: weighing rejects a campaign whose operator is not granted
 	// on that park (operators are single-park by invariant).
@@ -89,13 +87,13 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 			{
 				LocationID:       castroPartID,
 				LocationType:     "shed",
-				DisplayName:      "Castro 2", // Numeric partition, PROVEN by the catalog
+				DisplayName:      "Castro 2",
 				WeighingCategory: domain.CategoryPerShedPartition,
 			},
 			{
 				LocationID:       godelPartID,
 				LocationType:     "shed",
-				DisplayName:      "Godel 1 - Part 3", // Worded partition
+				DisplayName:      "Godel 1 - Part 3",
 				WeighingCategory: domain.CategoryPerShedPartition,
 			},
 			{
@@ -112,7 +110,7 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 		t.Fatalf("CreateCampaign failed: %v", err)
 	}
 
-	// Verify partition_label extraction and OperationalLocationDisplay
+	// Verify exact shed canonicalization and OperationalLocationDisplay.
 	tests := []struct {
 		name                               string
 		displayName                        string
@@ -128,17 +126,17 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 			expectedOperationalLocationDisplay: "Yashoda",
 		},
 		{
-			name:                               "numeric partition format",
-			displayName:                        "Castro - 2",
-			expectedPartitionLabel:             "2",
-			expectedParentShedName:             "Castro",
-			expectedOperationalLocationDisplay: "Castro - 2",
+			name:                               "numeric exact shed",
+			displayName:                        "Castro 2",
+			expectedPartitionLabel:             "",
+			expectedParentShedName:             "Castro 2",
+			expectedOperationalLocationDisplay: "Castro 2",
 		},
 		{
-			name:                               "prefixed partition format",
+			name:                               "prefixed exact shed",
 			displayName:                        "Godel 1 - Part 3",
-			expectedPartitionLabel:             "Part 3",
-			expectedParentShedName:             "Godel 1",
+			expectedPartitionLabel:             "",
+			expectedParentShedName:             "Godel 1 - Part 3",
 			expectedOperationalLocationDisplay: "Godel 1 - Part 3",
 		},
 		{
@@ -192,6 +190,9 @@ func TestPartitionAliasResolverRejectsSiblingPartitionLabelLeak(t *testing.T) {
 	castroID := uuid.NewString()
 	gandhiID := uuid.NewString()
 	castroAliasID := uuid.NewString()
+	castroExactID := uuid.NewString()
+	castroExactTwoID := uuid.NewString()
+	gandhiExactID := uuid.NewString()
 	operatorID := uuid.NewString()
 
 	mustExec := func(sql string, args ...any) {
@@ -207,11 +208,14 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
 	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $5::uuid, 'shed', 'Castro', 'active'),
        ($1::uuid, $3::uuid, $5::uuid, 'shed', 'Gandhi', 'active'),
-       ($1::uuid, $4::uuid, $5::uuid, 'shed', 'Castro 1', 'inactive')`, tenantID, castroID, gandhiID, castroAliasID, parkID)
-	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias'),
-       ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
-       ($1::uuid, $3::uuid, '1', '1', 'active', 'location_alias')`, tenantID, castroID, gandhiID)
+       ($1::uuid, $4::uuid, $5::uuid, 'shed', 'Castro 1', 'inactive'),
+       ($1::uuid, $6::uuid, $5::uuid, 'shed', 'Castro 1', 'active'),
+       ($1::uuid, $7::uuid, $5::uuid, 'shed', 'Castro 2', 'active'),
+       ($1::uuid, $8::uuid, $5::uuid, 'shed', 'Gandhi 1', 'active')`, tenantID, castroID, gandhiID, castroAliasID, parkID, castroExactID, castroExactTwoID, gandhiExactID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias', $4::uuid),
+       ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias', $6::uuid),
+       ($1::uuid, $3::uuid, '1', '1', 'active', 'location_alias', $5::uuid)`, tenantID, castroID, gandhiID, castroExactID, gandhiExactID, castroExactTwoID)
 	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
 
@@ -236,11 +240,11 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 	if err != nil {
 		t.Fatalf("CreateCampaign valid alias failed: %v", err)
 	}
-	if got := valid.Sheds[0].LocationID; got != castroID {
-		t.Fatalf("valid alias resolved to location_id %q, want Castro %q", got, castroID)
+	if got := valid.Sheds[0].LocationID; got != castroExactID {
+		t.Fatalf("valid alias resolved to location_id %q, want exact Castro 1 shed %q", got, castroExactID)
 	}
-	if got := valid.Sheds[0].PartitionLabel; got != "1" {
-		t.Fatalf("valid alias partition_label = %q, want 1", got)
+	if got := valid.Sheds[0].PartitionLabel; got != "" {
+		t.Fatalf("valid alias partition_label = %q, want blank because Castro 1 is the shed", got)
 	}
 
 	_, err = repo.CreateCampaign(ctx, domain.CreateCampaign{
@@ -278,6 +282,7 @@ func TestCreateCampaignIdempotentReplayDoesNotRehydrateMutableAlias(t *testing.T
 	parkID := uuid.NewString()
 	castroID := uuid.NewString()
 	castroAliasID := uuid.NewString()
+	castroExactID := uuid.NewString()
 	operatorID := uuid.NewString()
 
 	mustExec := func(sql string, args ...any) {
@@ -292,9 +297,10 @@ ON CONFLICT DO NOTHING`, tenantID)
 VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
 	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Castro', 'active'),
-       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'inactive')`, tenantID, castroID, castroAliasID, parkID)
-	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias')`, tenantID, castroID)
+       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'inactive'),
+       ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Castro 1', 'active')`, tenantID, castroID, castroAliasID, parkID, castroExactID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias', $3::uuid)`, tenantID, castroID, castroExactID)
 	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
 
@@ -344,8 +350,8 @@ func TestPartitionLabelPersistedInDatabase(t *testing.T) {
 	tenantID := uuid.NewString()
 	parkID := uuid.NewString()
 
-	// Same setup as above: the partition is a CATALOG fact, so the fixture must seed the tenant,
-	// park, parent shed, partition-alias location, the catalog row, and a park-scoped operator.
+	// Same setup as above: legacy parent+label inputs are accepted at the boundary, but persisted
+	// as the exact shed.
 	mustExec := func(sql string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, sql, args...); err != nil {
@@ -359,12 +365,12 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
 	castroParentID, castroPartID, duplicateParentID, duplicatePartID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Castro', 'active'),
-       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 2', 'inactive'),
+       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 2', 'active'),
        ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Mandela', 'active'),
-       ($1::uuid, $6::uuid, $4::uuid, 'shed', 'Mandela 2', 'inactive')`, tenantID, castroParentID, castroPartID, parkID, duplicateParentID, duplicatePartID)
-	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
-       ($1::uuid, $3::uuid, '2', '2', 'active', 'location_alias')`, tenantID, castroParentID, duplicateParentID)
+       ($1::uuid, $6::uuid, $4::uuid, 'shed', 'Mandela 2', 'active')`, tenantID, castroParentID, castroPartID, parkID, duplicateParentID, duplicatePartID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias', $4::uuid),
+       ($1::uuid, $3::uuid, '2', '2', 'active', 'location_alias', $5::uuid)`, tenantID, castroParentID, duplicateParentID, castroPartID, duplicatePartID)
 	operatorID := uuid.NewString()
 	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
@@ -398,12 +404,12 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 		t.Fatal("expected at least one shed")
 	}
 	shed := campaign.Sheds[0]
-	if shed.LocationID != castroParentID {
-		t.Fatalf("canonical location_id = %q, want requested alias to resolve to Castro parent %q, not another shed sharing partition label 2", shed.LocationID, castroParentID)
+	if shed.LocationID != castroPartID {
+		t.Fatalf("canonical location_id = %q, want exact Castro 2 shed %q, not parent Castro %q or another shed sharing partition label 2", shed.LocationID, castroPartID, castroParentID)
 	}
 	campaignShedID := shed.CampaignShedID
 
-	// Retrieve the campaign and verify partition_label is persisted
+	// Retrieve the campaign and verify the exact shed is persisted without the legacy label.
 	retrieved, err := repo.CampaignByID(ctx, tenantID, campaign.CampaignID, ports.CampaignAccess{Unrestricted: true})
 	if err != nil {
 		t.Fatalf("CampaignByID failed: %v", err)
@@ -417,10 +423,10 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 	if retrievedShed.CampaignShedID != campaignShedID {
 		t.Errorf("campaign_shed_id mismatch: got %q, want %q", retrievedShed.CampaignShedID, campaignShedID)
 	}
-	if retrievedShed.PartitionLabel != "2" {
-		t.Errorf("partition_label mismatch: got %q, want '2'", retrievedShed.PartitionLabel)
+	if retrievedShed.PartitionLabel != "" {
+		t.Errorf("partition_label mismatch: got %q, want blank because Castro 2 is the shed", retrievedShed.PartitionLabel)
 	}
-	if retrievedShed.OperationalLocationDisplay != "Castro - 2" {
-		t.Errorf("operational_location_display mismatch: got %q, want 'Castro - 2'", retrievedShed.OperationalLocationDisplay)
+	if retrievedShed.OperationalLocationDisplay != "Castro 2" {
+		t.Errorf("operational_location_display mismatch: got %q, want 'Castro 2'", retrievedShed.OperationalLocationDisplay)
 	}
 }

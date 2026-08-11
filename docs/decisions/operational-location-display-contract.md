@@ -64,7 +64,7 @@ a bug.
 An animal's ground location is the operational location:
 
 - No partition → `"Yashoda"` (bare shed name)
-- Numeric partition → `"Castro - 2"`
+- Numeric partition → `"Castro 2"`
 - Prefixed partition → `"Godel 1 - Part 3"`
 
 **Never render `"Yashoda whole"` — `whole` is an internal matching sentinel

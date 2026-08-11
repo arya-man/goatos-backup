@@ -4920,7 +4920,7 @@ components:
           maxLength: 200
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
     GoatSummary:
       type: object

@@ -16,9 +16,9 @@ test("operationalLocationLabel: never renders the literal string 'whole'", () =>
   assert.equal(operationalLocationLabel({ shedName: "Yashoda", partitionLabel: "WHOLE" }), "Yashoda");
 });
 
-test("operationalLocationLabel: numeric partition joins with a dash", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Castro", partitionLabel: "2" }), "Castro - 2");
-  assert.equal(operationalLocationLabel({ shedName: "Gandhi", partitionLabel: "1" }), "Gandhi - 1");
+test("operationalLocationLabel: numeric partition joins as an exact numbered shed", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Castro", partitionLabel: "2" }), "Castro 2");
+  assert.equal(operationalLocationLabel({ shedName: "Gandhi", partitionLabel: "1" }), "Gandhi 1");
 });
 
 test("operationalLocationLabel: prefixed partition convention joins with a dash", () => {
@@ -26,13 +26,10 @@ test("operationalLocationLabel: prefixed partition convention joins with a dash"
   assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "part 3" }), "Godel 1 - part 3");
 });
 
-// The reason the separator changed (2026-08-06): a shed name that itself ends in a
-// digit made the old space form unreadable -- "Godel 1 1", and worse "Godel 1 10".
-// 98 of 130 live STG destination options had this shape.
-test("operationalLocationLabel: digit-terminated shed names stay readable", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1 - 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "10" }), "Godel 1 - 10");
-  assert.equal(operationalLocationLabel({ shedName: "Sumathi 2", partitionLabel: "7" }), "Sumathi 2 - 7");
+test("operationalLocationLabel: bare numeric labels use numbered shed spelling", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "10" }), "Godel 1 10");
+  assert.equal(operationalLocationLabel({ shedName: "Sumathi 2", partitionLabel: "7" }), "Sumathi 2 7");
 });
 
 test("operationalLocationLabel: sourceShedName is already partition-bearing, never re-suffixed", () => {
@@ -43,10 +40,10 @@ test("operationalLocationLabel: sourceShedName is already partition-bearing, nev
     operationalLocationLabel({ shedName: null, sourceShedName: "Castro 1", partitionLabel: "1" }),
     "Castro 1",
   );
-  // And when a real shed name IS present, the single dash separator applies (same rule as above).
+  // And when a real shed name IS present, numeric labels use numbered shed spelling.
   assert.equal(
     operationalLocationLabel({ shedName: "Castro", partitionLabel: "1" }),
-    "Castro - 1",
+    "Castro 1",
   );
 });
 
@@ -85,7 +82,7 @@ const goldenFixture = [
     shedId: "shed-castro-cbe",
     shedName: "Castro",
     partitionLabel: "2",
-    want: "Castro - 2",
+    want: "Castro 2",
   },
   {
     name: "undivided shed, no partition",
@@ -120,14 +117,14 @@ const goldenFixture = [
     shedId: "shed-castro-cbe",
     shedName: "Castro",
     partitionLabel: "1",
-    want: "Castro - 1",
+    want: "Castro 1",
   },
   {
     name: "two same-named sheds, different parks -- CPT",
     shedId: "shed-castro-cpt",
     shedName: "Castro",
     partitionLabel: "1",
-    want: "Castro - 1",
+    want: "Castro 1",
   },
 ];
 

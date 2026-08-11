@@ -51,7 +51,7 @@ var goldenFixture = []goldenFixtureRow{
 		shedID:    "shed-castro-cbe",
 		shedName:  "Castro",
 		partition: "2",
-		want:      "Castro - 2",
+		want:      "Castro 2",
 	},
 	{
 		name:      "undivided shed, no partition",
@@ -86,14 +86,14 @@ var goldenFixture = []goldenFixtureRow{
 		shedID:    "shed-castro-cbe",
 		shedName:  "Castro",
 		partition: "1",
-		want:      "Castro - 1",
+		want:      "Castro 1",
 	},
 	{
 		name:      "two same-named sheds, different parks -- CPT",
 		shedID:    "shed-castro-cpt",
 		shedName:  "Castro",
 		partition: "1",
-		want:      "Castro - 1",
+		want:      "Castro 1",
 	},
 }
 

@@ -29,7 +29,7 @@ func TestResolveShedLocationComposesOperatorFacingDisplay(t *testing.T) {
 		{"partitioned renders both halves", "Godel 1", "Part 3", "Godel 1 - Part 3"},
 		{"unpartitioned renders bare, no trailing separator", "Yashoda", "", "Yashoda"},
 		{"whole sentinel never reaches a screen", "Yashoda", "whole", "Yashoda"},
-		{"numeric partition still gets the dash", "Castro", "2", "Castro - 2"},
+		{"numeric partition reads as numbered shed", "Castro", "2", "Castro 2"},
 		{"unresolvable shed degrades to empty, never a uuid", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

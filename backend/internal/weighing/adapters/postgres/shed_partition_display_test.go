@@ -49,30 +49,28 @@ func TestApplyShedPartitionDisplayNeverRendersWholeSentinel(t *testing.T) {
 	}
 }
 
-func TestApplyShedPartitionDisplayCarriesParentAndPartition(t *testing.T) {
-	// Worded convention: parseable from the name, so parent and partition split.
+func TestApplyShedPartitionDisplayKeepsExactShedName(t *testing.T) {
 	shed := domain.CampaignShed{LocationID: "loc-2", DisplayName: "Godel 1 - Part 3"}
 	applyShedPartitionDisplay(&shed)
-	if shed.ParentShedName != "Godel 1" {
-		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1")
+	if shed.ParentShedName != "Godel 1 - Part 3" {
+		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 - Part 3")
 	}
-	if shed.PartitionLabel != "Part 3" {
-		t.Fatalf("PartitionLabel = %q, want %q", shed.PartitionLabel, "Part 3")
+	if shed.PartitionLabel != "" {
+		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 - Part 3 is the shed", shed.PartitionLabel)
 	}
-	// The composed display uses the " - " separator (2026-08-06).
 	if shed.OperationalLocationDisplay != "Godel 1 - Part 3" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Castro - 2")
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
 	}
 }
 
 func TestApplyPlannerShedPartitionDisplay(t *testing.T) {
 	shed := domain.PlannerShed{LocationID: "loc-3", Name: "Godel 1 - Part 3"}
 	applyPlannerShedPartitionDisplay(&shed)
-	if shed.ParentShedName != "Godel 1" {
-		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1")
+	if shed.ParentShedName != "Godel 1 - Part 3" {
+		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 - Part 3")
 	}
-	if shed.PartitionLabel != "Part 3" {
-		t.Fatalf("PartitionLabel = %q, want %q", shed.PartitionLabel, "Part 3")
+	if shed.PartitionLabel != "" {
+		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 - Part 3 is the shed", shed.PartitionLabel)
 	}
 	if shed.OperationalLocationDisplay != "Godel 1 - Part 3" {
 		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
@@ -81,8 +79,8 @@ func TestApplyPlannerShedPartitionDisplay(t *testing.T) {
 
 func TestPlannerParkBucketsPartitionOneToManyDisplayDoesNotCollapseSiblings(t *testing.T) {
 	sheds := []domain.PlannerShed{
-		{LocationID: "castro", ParentShedName: "Castro", PartitionLabel: "1"},
-		{LocationID: "castro", ParentShedName: "Castro", PartitionLabel: "2"},
+		{LocationID: "castro-1", ParentShedName: "Castro 1"},
+		{LocationID: "castro-2", ParentShedName: "Castro 2"},
 		{LocationID: "yashoda", ParentShedName: "Yashoda"},
 	}
 	seen := map[string]bool{}
@@ -94,11 +92,11 @@ func TestPlannerParkBucketsPartitionOneToManyDisplayDoesNotCollapseSiblings(t *t
 		}
 		seen[key] = true
 	}
-	if got := sheds[0].OperationalLocationDisplay; got != "Castro - 1" {
-		t.Fatalf("first sibling display = %q, want Castro - 1", got)
+	if got := sheds[0].OperationalLocationDisplay; got != "Castro 1" {
+		t.Fatalf("first sibling display = %q, want Castro 1", got)
 	}
-	if got := sheds[1].OperationalLocationDisplay; got != "Castro - 2" {
-		t.Fatalf("second sibling display = %q, want Castro - 2", got)
+	if got := sheds[1].OperationalLocationDisplay; got != "Castro 2" {
+		t.Fatalf("second sibling display = %q, want Castro 2", got)
 	}
 	if got := sheds[2].OperationalLocationDisplay; got != "Yashoda" {
 		t.Fatalf("unpartitioned display = %q, want Yashoda", got)
@@ -124,12 +122,12 @@ func TestPlannerParkBucketsPartitionPaginationPageBoundaryCursorIncludesPartitio
 }
 
 func TestPlannerParkBucketsPartitionParkScopeUsesOperationalKey(t *testing.T) {
-	left := operationalLocationDisplay("park-a-castro", "Castro", "1")
-	right := operationalLocationDisplay("park-b-castro", "Castro", "1")
-	if left != "Castro - 1" || right != "Castro - 1" {
+	left := operationalLocationDisplay("park-a-castro-1", "Castro 1", "")
+	right := operationalLocationDisplay("park-b-castro-1", "Castro 1", "")
+	if left != "Castro 1" || right != "Castro 1" {
 		t.Fatalf("display must be stable across parks, got %q and %q", left, right)
 	}
-	if key := "park-a-castro|1"; key == "park-b-castro|1" {
+	if key := "park-a-castro-1|"; key == "park-b-castro-1|" {
 		t.Fatalf("park-scoped operational keys must include the shed id")
 	}
 }
