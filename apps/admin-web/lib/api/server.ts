@@ -612,6 +612,29 @@ export async function getWeighingGrowth(params: {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Growth Director — the analytics block under the Weights page. One request serves the whole
+// block; every aggregate (bands, medians, feed-per-kg ratios) is computed by the backend over the
+// whole filter, so this layer never re-derives a number from a row slice.
+export type GrowthDirectorWeightsResponse =
+  AppApiComponents["schemas"]["GrowthDirectorWeightsResponse"];
+
+export async function getGrowthDirector(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Feed vertical — Direction, Packing and Config.
 //
 // Two facts drive every signature below and must survive any refactor:
