@@ -252,6 +252,53 @@ SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXC
 	}
 }
 
+func TestPlannerParkBucketsMarksOldParentPartitionTaskScheduledOnNumberedShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21201)
+	numbered := lcpUUID(21202)
+	campaignID := lcpUUID(21203)
+	campaignShedID := lcpUUID(21204)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 710)
+	lsInsertShed(t, ctx, pool, numbered, repoPark, "Alias Parent 1", 711)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'goat_attested', 1)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+	lcpInsertCampaign(t, ctx, pool, campaignID, repoPark, "2026-09-02", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, campaignID, "2026-09-02")
+	lcpInsertBucket(t, ctx, pool, campaignShedID, campaignID, parent, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds
+SET partition_label='1'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
+		repoTenant, campaignShedID)
+
+	page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, "2026-09-02", "", "", domain.MaxPlannerBucketPageSize)
+	if err != nil {
+		t.Fatalf("PlannerParkBuckets: %v", err)
+	}
+	for _, bucket := range page.Sheds {
+		if bucket.LocationID == numbered && bucket.Name == "Alias Parent 1" {
+			if !bucket.Scheduled {
+				t.Fatalf("Alias Parent 1 rendered free; old parent+partition task must mark it scheduled: %+v", bucket)
+			}
+			if bucket.ScheduledCampaignID != campaignID {
+				t.Fatalf("ScheduledCampaignID=%q, want %q", bucket.ScheduledCampaignID, campaignID)
+			}
+			return
+		}
+	}
+	t.Fatalf("Alias Parent 1 not found in planner buckets: %#v", page.Sheds)
+}
+
 // -----------------------------------------------------------------------------
 // 2. COUNTS GRAIN
 // -----------------------------------------------------------------------------
