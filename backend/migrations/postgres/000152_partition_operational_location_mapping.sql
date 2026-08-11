@@ -281,7 +281,7 @@ created AS (
     parent.timezone,
     CASE WHEN sp.status = 'active' THEN 'active' ELSE 'inactive' END,
     COALESCE(an.display_order, COALESCE(sp.display_order, 0)),
-    'Created by migration 000150 from shed_partitions parent+partition mapping'
+    'Created by migration 000152 from shed_partitions parent+partition mapping'
   FROM public.shed_partitions sp
   JOIN public.locations parent
     ON parent.tenant_id = sp.tenant_id
@@ -901,14 +901,14 @@ WHERE loa.tenant_id = pen.tenant_id
   AND loa.location_id = pen.location_id
   AND pen.location_type = 'pen'
   AND pen.operational_notes IN (
-    'Created by migration 000150 from shed_partitions parent+partition mapping',
+    'Created by migration 000152 from shed_partitions parent+partition mapping',
     'Created from active shed_partitions row'
   );
 
 DELETE FROM public.locations pen
 WHERE pen.location_type = 'pen'
   AND pen.operational_notes IN (
-    'Created by migration 000150 from shed_partitions parent+partition mapping',
+    'Created by migration 000152 from shed_partitions parent+partition mapping',
     'Created from active shed_partitions row'
   );
 

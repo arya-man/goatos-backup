@@ -6255,7 +6255,6 @@ CASE
     ELSE lower(btrim(partition_label))
 END) STORED,
     CONSTRAINT feed_packing_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((packing_proof_ref IS NOT NULL) AND (btrim(packing_proof_ref) <> ''::text)))),
-    CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 0)),
     CONSTRAINT feed_packing_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
     CONSTRAINT feed_packing_completions_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
 );
@@ -9296,7 +9295,7 @@ ALTER TABLE ONLY public.feed_distribution_completions
 --
 
 ALTER TABLE public.feed_distribution_completions
-    ADD CONSTRAINT feed_distribution_completions_weight_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((feed_weight_proof_ref IS NOT NULL) AND (btrim(feed_weight_proof_ref) <> ''::text)))) NOT VALID;
+    ADD CONSTRAINT feed_distribution_completions_weight_proof_check CHECK (((status <> 'pending_verification'::text) OR ((feed_weight_proof_ref IS NOT NULL) AND (btrim(feed_weight_proof_ref) <> ''::text)))) NOT VALID;
 
 
 --
@@ -9321,6 +9320,14 @@ ALTER TABLE ONLY public.feed_item_catalog
 
 ALTER TABLE ONLY public.feed_packing_completions
     ADD CONSTRAINT feed_packing_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: feed_packing_completions feed_packing_completions_session_no_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.feed_packing_completions
+    ADD CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 1)) NOT VALID;
 
 
 --
@@ -11878,13 +11885,6 @@ CREATE UNIQUE INDEX feed_packing_completions_idempotency_uq ON public.feed_packi
 --
 
 CREATE UNIQUE INDEX feed_packing_completions_natural_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
-
-
---
--- Name: feed_packing_completions_pen_day_uq; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX feed_packing_completions_pen_day_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, target_date, workflow);
 
 
 --

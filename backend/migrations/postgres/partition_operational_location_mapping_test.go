@@ -74,12 +74,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Isolation - Part 1', 'active')`,
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 		tenant, partitionedGoat, godelOne)
 
-	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
+	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
 	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
-		t.Fatalf("replay 000150: %v", err)
+		t.Fatalf("replay 000152: %v", err)
 	}
 
 	var currentLocationID, shedID, currentType, parentID string
@@ -201,7 +201,7 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`
 
 	exec(`UPDATE goats SET lifecycle_status='sold' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat)
 	if _, err := pool.Exec(ctx, migrationDown(string(raw))); err != nil {
-		t.Fatalf("rollback 000150: %v", err)
+		t.Fatalf("rollback 000152: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
 SELECT current_location_id::text
@@ -250,7 +250,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1', 'active')`, tenant, she
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Godel 1 - Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", shed)
 
-	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
+	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
@@ -436,12 +436,12 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 9', 'active')`,
   ($1::uuid, $2::uuid, 'G-900010', 'female', 'alive', $3::uuid, NULL, $5::uuid, $4::uuid)`,
 		goatID, tenant, custodian, shed, park)
 
-	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
+	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}
 	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
-		t.Fatalf("replay 000150: %v", err)
+		t.Fatalf("replay 000152: %v", err)
 	}
 
 	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
