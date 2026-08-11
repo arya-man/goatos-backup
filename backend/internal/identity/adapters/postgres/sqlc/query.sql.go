@@ -56,10 +56,9 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
-  -- current_location_id is vestigial: NULL for ~81% of the live herd and stale where set, which
-  -- rendered "Unknown location" on animals whose park/shed resolved fine. Shed first, then park,
-  -- matching the bare-shed-name shape already-populated rows return today.
+  -- location_display preserves the legacy park/shed summary shape for this read model.
+  -- Exact residence filters use goats.current_location_id; for partitioned animals,
+  -- goats.shed_id is only the parent/group key.
   COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(farm.location_code, '')::text AS farm_code,
@@ -186,10 +185,9 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
-  -- current_location_id is vestigial: NULL for ~81% of the live herd and stale where set, which
-  -- rendered "Unknown location" on animals whose park/shed resolved fine. Shed first, then park,
-  -- matching the bare-shed-name shape already-populated rows return today.
+  -- location_display preserves the legacy park/shed summary shape for this read model.
+  -- Exact residence filters use goats.current_location_id; for partitioned animals,
+  -- goats.shed_id is only the parent/group key.
   COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(farm.location_code, '')::text AS farm_code,

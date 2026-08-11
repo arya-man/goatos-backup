@@ -265,7 +265,7 @@ WHERE l.status = 'active'
   AND NOT EXISTS (
     SELECT 1 FROM goats g
     WHERE g.tenant_id = l.tenant_id
-      AND (g.shed_id = l.location_id OR g.current_location_id = l.location_id)
+      AND (g.shed_id = l.location_id OR g.current_location_id = l.location_id) -- operational-location:ignore: owner=ravi issue=stg-alias-repair-safety scope=alias-retire-guard-must-find-any-goat-reference-not-exact-residence-filter expiry=2027-08-11
   )
   AND NOT EXISTS (
     SELECT 1 FROM goat_shed_partitions gsp

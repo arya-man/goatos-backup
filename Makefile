@@ -231,9 +231,9 @@ operational-read-model-contract-guard:
 	node tools/agent-hooks/check-operational-read-model-contract.mjs --self-test
 	node tools/agent-hooks/check-operational-read-model-contract.mjs
 
-# operational-location-guard: an animal's ground location is park + physical
-# shed + OPTIONAL partition. Sheds stay normalized in the DB, but no product
-# surface may collapse back to the parent shed when a partition exists.
+# operational-location-guard: an animal's ground location is the real
+# operational shed. For subdivided groups, each partition is the real shed and
+# the parent/group shed id must never be used as an exact residence fallback.
 operational-location-guard:
 	node tools/agent-hooks/check-operational-location.mjs --self-test
 	node tools/agent-hooks/check-operational-location.mjs

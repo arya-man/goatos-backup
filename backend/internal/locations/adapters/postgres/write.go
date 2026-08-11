@@ -1360,7 +1360,7 @@ func usageTx(ctx context.Context, tx pgx.Tx, tenantID, locationID string) (domai
 	usage.LocationID = locationID
 	err := tx.QueryRow(ctx, `
 SELECT
-  (SELECT count(*) FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL),
+  (SELECT count(*) FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL), -- operational-location:ignore: owner=ravi issue=location-usage-reference-safety scope=usage-count-must-find-any-reference-not-exact-residence-filter expiry=2027-08-11
   (SELECT count(*) FROM goat_location_history glh WHERE glh.tenant_id = $1::uuid AND (glh.from_location_id = $2::uuid OR glh.to_location_id = $2::uuid)),
   (SELECT count(*) FROM locations child WHERE child.tenant_id = $1::uuid AND child.parent_location_id = $2::uuid AND child.status = 'active'),
   (SELECT count(*) FROM location_aliases la WHERE la.tenant_id = $1::uuid AND la.canonical_location_id = $2::uuid AND la.status = 'active'),
@@ -1382,7 +1382,7 @@ func hardDeleteLocationBlockedTx(ctx context.Context, tx pgx.Tx, tenantID, locat
 	var blocked bool
 	err := tx.QueryRow(ctx, `
 SELECT
-  EXISTS (SELECT 1 FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL)
+  EXISTS (SELECT 1 FROM goats g WHERE g.tenant_id = $1::uuid AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) AND g.merged_into_goat_id IS NULL) -- operational-location:ignore: owner=ravi issue=location-delete-reference-safety scope=hard-delete-blocker-must-find-any-reference-not-exact-residence-filter expiry=2027-08-11
   OR EXISTS (SELECT 1 FROM goat_location_history glh WHERE glh.tenant_id = $1::uuid AND (glh.from_location_id = $2::uuid OR glh.to_location_id = $2::uuid))
   OR EXISTS (SELECT 1 FROM locations child WHERE child.tenant_id = $1::uuid AND child.parent_location_id = $2::uuid)
   OR EXISTS (SELECT 1 FROM location_aliases la WHERE la.tenant_id = $1::uuid AND la.canonical_location_id = $2::uuid)

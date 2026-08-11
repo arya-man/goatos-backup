@@ -247,7 +247,7 @@ SELECT
     SELECT count(*)
     FROM goats g
     WHERE g.tenant_id = $1::uuid
-      AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid)
+      AND (g.current_location_id = $2::uuid OR g.farm_id = $2::uuid OR g.park_id = $2::uuid OR g.shed_id = $2::uuid OR g.cohort_id = $2::uuid) -- operational-location:ignore: owner=ravi issue=location-usage-reference-safety scope=usage-count-must-find-any-reference-not-exact-residence-filter expiry=2027-08-11
       AND g.merged_into_goat_id IS NULL
   ) AS goats_currently_assigned,
   (

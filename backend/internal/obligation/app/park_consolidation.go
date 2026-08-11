@@ -940,10 +940,10 @@ func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidat
 			used += int32(needed)
 			continue
 		}
-		// The physical shed is the normal packing unit even when its animals came from
-		// different rule rows (for example adult catch-up plus history-backed repeat).
-		// A shed that fits the configured full operator cap carries intact to the next
-		// operator-day; residual capacity must not peel off one of its partitions.
+		// The operational shed/partition is the packing unit even when its animals came
+		// from different rule rows (for example adult catch-up plus history-backed repeat).
+		// A unit that fits the configured full operator cap carries intact to the next
+		// operator-day; residual capacity must not peel off one of its child rows.
 		if int32(group.targetCount) <= configuredAnimalCap {
 			continue
 		}
