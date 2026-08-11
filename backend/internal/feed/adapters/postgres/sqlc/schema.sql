@@ -883,6 +883,7 @@ DECLARE
   candidate_count integer;
   mapped_valid boolean;
   display_partition_label text;
+  source_shed_name text;
 BEGIN
   IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
@@ -892,6 +893,16 @@ BEGIN
   IF display_partition_label IS NULL THEN
     display_partition_label := NEW.normalized_label;
   END IF;
+
+  SELECT CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+    THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+    ELSE NULL
+  END
+  INTO source_shed_name
+  FROM public.goat_shed_partitions gsp
+  WHERE gsp.tenant_id = NEW.tenant_id
+    AND gsp.shed_id = NEW.shed_id
+    AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
 
   SELECT *
   INTO parent_row
@@ -1129,6 +1140,7 @@ BEGIN
     AND (
       lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent_row.name, display_partition_label))
+      OR (source_shed_name IS NOT NULL AND lower(pen.name) = lower(source_shed_name))
     );
 
   IF candidate_count > 1 THEN
@@ -1152,7 +1164,7 @@ BEGIN
       NEW.tenant_id,
       'shed',
       NULL,
-      operational_location_display(parent_row.name, display_partition_label),
+      COALESCE(source_shed_name, operational_location_display(parent_row.name, display_partition_label)),
       parent_row.parent_location_id,
       parent_row.country,
       parent_row.timezone,
