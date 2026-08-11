@@ -210,7 +210,7 @@ func TestPlannerCatalogTakenJoinOneToManyDoesNotMultiplyShedRows(t *testing.T) {
 	}
 }
 
-func TestPlannerParkBucketsSuppressesPartitionAliasLocationsWithNoGoats(t *testing.T) {
+func TestPlannerParkBucketsPrefersNumberedShedLocationsOverParentNumericPartitions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -227,8 +227,8 @@ func TestPlannerParkBucketsSuppressesPartitionAliasLocationsWithNoGoats(t *testi
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
 VALUES
-  ($1::uuid, $2::uuid, 'Part 1', '1', 'goat_attested', 1),
-  ($1::uuid, $2::uuid, 'Part 2', '2', 'goat_attested', 2)
+  ($1::uuid, $2::uuid, '1', '1', 'goat_attested', 1),
+  ($1::uuid, $2::uuid, '2', '2', 'goat_attested', 2)
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
 SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
 		repoTenant, parent)
@@ -240,14 +240,14 @@ SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXC
 			names[bucket.Name]++
 		}
 	}
-	for _, want := range []string{"Alias Parent - Part 1", "Alias Parent - Part 2"} {
+	for _, want := range []string{"Alias Parent 1", "Alias Parent 2"} {
 		if names[want] != 1 {
 			t.Fatalf("bucket %q appears %d times, want exactly once in %#v", want, names[want], names)
 		}
 	}
-	for _, alias := range []string{"Alias Parent 1", "Alias Parent 2"} {
-		if names[alias] != 0 {
-			t.Fatalf("zero-goat partition alias location %q leaked into planner buckets: %#v", alias, names)
+	for _, wrong := range []string{"Alias Parent", "Alias Parent - 1", "Alias Parent - 2"} {
+		if names[wrong] != 0 {
+			t.Fatalf("wrong bucket %q leaked into planner buckets: %#v", wrong, names)
 		}
 	}
 }

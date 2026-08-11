@@ -105,34 +105,6 @@ func TestPlannerParkBucketsPartitionOneToManyDisplayDoesNotCollapseSiblings(t *t
 	}
 }
 
-func TestSuppressPlannerAliasBucketsKeepsOperationalPartitions(t *testing.T) {
-	sheds := []domain.PlannerShed{
-		{LocationID: "parent", ParentShedName: "Castro", PartitionLabel: "1"},
-		{LocationID: "alias-1", Name: "Castro 1", ParentShedName: "Castro 1"},
-		{LocationID: "godel-parent", ParentShedName: "Godel 1", PartitionLabel: "Part 3"},
-		{LocationID: "alias-2", Name: "Godel 1 - Part 3", ParentShedName: "Godel 1 - Part 3"},
-		{LocationID: "real-numbered-shed", Name: "Mandela 1", ParentShedName: "Mandela 1"},
-	}
-	for i := range sheds {
-		applyPlannerShedOperationalDisplay(&sheds[i])
-	}
-	filtered := suppressPlannerAliasBuckets(sheds)
-	names := map[string]int{}
-	for _, shed := range filtered {
-		names[shed.Name]++
-	}
-	for _, want := range []string{"Castro - 1", "Godel 1 - Part 3", "Mandela 1"} {
-		if names[want] != 1 {
-			t.Fatalf("bucket %q appears %d times, want exactly once in %#v", want, names[want], names)
-		}
-	}
-	for _, alias := range []string{"Castro 1"} {
-		if names[alias] != 0 {
-			t.Fatalf("alias %q leaked into planner buckets: %#v", alias, names)
-		}
-	}
-}
-
 func TestPlannerParkBucketsPartitionPaginationPageBoundaryCursorIncludesPartition(t *testing.T) {
 	cursor := plannerBucketCursor{
 		Set:            true,
