@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -67,7 +68,8 @@ import (
 // are the opposite: they ARE what the park chip selects, so a summary that ignored
 // the chip would name people who hold no work in the park on screen.
 func (r *Repository) operatorSummaries(ctx context.Context, tenantID, operatorUserID, parkID string) ([]domain.OperatorSummary, error) {
-	rows, err := r.pool.Query(ctx, `
+	reworkPredicate := shedReworkOutstandingPredicate("cs")
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 SELECT COALESCE(cs.operator_user_id::text, ''),
        COALESCE(op.display_name, ''),
        count(*)::int,
@@ -76,12 +78,7 @@ SELECT COALESCE(cs.operator_user_id::text, ''),
        count(*) FILTER (WHERE cs.status='completed')::int,
        count(*) FILTER (WHERE cs.status='closed')::int,
        count(*) FILTER (WHERE (
-         EXISTS (SELECT 1 FROM weighing_observations wo
-                  WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id
-                    AND wo.submitted_at IS NOT NULL AND wo.verification_status='rework')
-         OR EXISTS (SELECT 1 FROM weighing_shed_observations wso
-                     WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id
-                       AND wso.withdrawn_at IS NULL AND wso.verification_status='rework')
+         %s
        ))::int,
        COALESCE(sum(
          (SELECT count(*) FROM weighing_observations wo
@@ -110,7 +107,7 @@ WHERE cs.tenant_id=$1::uuid
   AND ($3::uuid IS NULL OR wc.park_id=$3::uuid)
 GROUP BY cs.operator_user_id, op.display_name
 ORDER BY COALESCE(op.display_name, '') ASC, COALESCE(cs.operator_user_id::text, '') ASC
-LIMIT $4`,
+LIMIT $4`, reworkPredicate),
 		tenantID,
 		nullableString(strings.TrimSpace(operatorUserID)),
 		nullableString(strings.TrimSpace(parkID)),
