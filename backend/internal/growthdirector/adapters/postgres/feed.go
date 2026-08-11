@@ -13,10 +13,13 @@ const feedRowsCTE = `
 feed_rows AS (
   SELECT r.shed_id, r.shed_label, i.feed_day, r.workflow, r.head_count_informational,
          r.quantity_kg, r.head_count, r.shed_tag_key, r.breed_key,
-         r.feed_item_key, r.feed_item_label, r.blocked_reason_code
+         r.feed_item_key, r.feed_item_label, r.blocked_reason_code,
+         COALESCE(pk.name, '') AS park_name
   FROM feed_direction_issue_rows r
   JOIN feed_direction_issues i
     ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id
+  LEFT JOIN locations pk
+    ON pk.tenant_id = r.tenant_id AND pk.location_id = i.park_id
   WHERE r.tenant_id = $1::uuid
     AND i.park_id = ANY($2::uuid[])
     AND i.feed_day >= $3::date
@@ -55,7 +58,7 @@ func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs 
 	const q = `
 WITH ` + feedRowsCTE + `,
 shed_feed AS (
-  SELECT shed_id, min(shed_label) AS shed_label,
+  SELECT shed_id, min(shed_label) AS shed_label, min(park_name) AS park_name,
          -- NEVER COALESCE quantity_kg: NULL = blocked cell and must stay out of
          -- the sum; an authored 0.000 is a real instruction and stays in.
          sum(quantity_kg) FILTER (WHERE quantity_kg IS NOT NULL
@@ -103,7 +106,7 @@ shed_growth AS (
   WHERE shed_id IS NOT NULL
   GROUP BY shed_id
 )
-SELECT f.shed_id::text, f.shed_label,
+SELECT f.shed_id::text, f.shed_label, f.park_name,
        f.fed_kg_per_head_basis::float8,
        f.experiment_cells,
        h.head_days::bigint,
@@ -121,16 +124,17 @@ ORDER BY f.shed_label, f.shed_id`
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var shedID, shedLabel string
+		var shedID, shedLabel, parkName string
 		var fedKg *float64
 		var experimentCells int
 		var headDays, pairIdentities, growthSpanDays *int64
 		var medianADG, wholeShedDeltaKg *float64
-		if err := rows.Scan(&shedID, &shedLabel, &fedKg, &experimentCells, &headDays, &pairIdentities, &medianADG, &wholeShedDeltaKg, &growthSpanDays); err != nil {
+		if err := rows.Scan(&shedID, &shedLabel, &parkName, &fedKg, &experimentCells, &headDays, &pairIdentities, &medianADG, &wholeShedDeltaKg, &growthSpanDays); err != nil {
 			return out, err
 		}
+		// Park-prefix the label: both parks field identically-named feed sheds.
 		out.Sheds = append(out.Sheds, buildFeedVsGrowthShed(
-			shedID, shedLabel, fedKg, experimentCells, headDays, pairIdentities, medianADG, wholeShedDeltaKg, growthSpanDays,
+			shedID, operationalLabel(parkName, shedLabel, ""), fedKg, experimentCells, headDays, pairIdentities, medianADG, wholeShedDeltaKg, growthSpanDays,
 		))
 	}
 	return out, rows.Err()

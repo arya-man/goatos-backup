@@ -408,3 +408,180 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 		t.Fatalf("single-pair shed: basis must stay whole_shed, got %s", shed.Basis)
 	}
 }
+
+// OPERATIONAL LOCATION GRAIN. Two partitions of the SAME physical shed must
+// stay as two distinct fair-fight/slow-growth rows with distinct
+// operational_keys, never merged by location_id alone. And two parks fielding
+// an identically-named shed ("Castro 1" in both) must render with
+// park-disambiguated labels, never the bare shed name — see
+// docs/decisions/partition-is-operational-shed.md.
+func TestGrowthDirectorOperationalLocationGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedGrowthDirectorFixture(t, ctx, pool)
+
+	const (
+		gdFarmRoot = "00000000-0000-4000-8000-000000000001"
+		gdPark2    = "22222222-0000-4000-8000-000000003002"
+
+		gdShedCastroA = "22222222-0000-4000-8000-000000000111" // "Castro 1" in gdPark
+		gdShedCastroB = "22222222-0000-4000-8000-000000000112" // "Castro 1" in gdPark2 -- same name, different park
+		gdShedPart    = "22222222-0000-4000-8000-000000000120" // one physical shed, two partitions below
+
+		gdCampaignW1B = "22222222-0000-4000-8000-000000000211"
+		gdCampaignW2B = "22222222-0000-4000-8000-000000000212"
+
+		gdBucketW1CA = "22222222-0000-4000-8000-000000000311"
+		gdBucketW2CA = "22222222-0000-4000-8000-000000000312"
+		gdBucketW1CB = "22222222-0000-4000-8000-000000000313"
+		gdBucketW2CB = "22222222-0000-4000-8000-000000000314"
+
+		gdBucketW1P1 = "22222222-0000-4000-8000-000000000321"
+		gdBucketW2P1 = "22222222-0000-4000-8000-000000000322"
+		gdBucketW1P2 = "22222222-0000-4000-8000-000000000323"
+		gdBucketW2P2 = "22222222-0000-4000-8000-000000000324"
+	)
+
+	execGD(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'park', 'CPT', $3::uuid, 'active', 501)
+ON CONFLICT (location_id) DO NOTHING`, gdPark2, gdTenant, gdFarmRoot)
+
+	for _, loc := range [][3]string{
+		{gdShedCastroA, "Castro 1", gdPark},
+		{gdShedCastroB, "Castro 1", gdPark2},
+		{gdShedPart, "Godel 9", gdPark},
+	} {
+		execGD(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'shed', $3, $4::uuid, 'active', 502)
+ON CONFLICT (location_id) DO NOTHING`, loc[0], gdTenant, loc[1], loc[2])
+	}
+	execGD(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`, gdTenant, gdOperator, gdPark2)
+	execGD(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES
+  ($1::uuid, $3::uuid, $4::uuid, '2026-07-06', '2026-07-12', '2026-07-06', 'completed', 100, $5::uuid, $5::uuid),
+  ($2::uuid, $3::uuid, $4::uuid, '2026-07-13', '2026-07-19', '2026-07-13', 'published', 100, $5::uuid, $5::uuid)`,
+		gdCampaignW1B, gdCampaignW2B, gdTenant, gdPark2, gdOperator)
+
+	// Two "Castro 1" buckets, one per park (no partition — the ambiguity is
+	// purely the shared shed name across parks).
+	execGD(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES
+  ($1::uuid, $5::uuid, $7::uuid, $9::uuid,  'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
+  ($2::uuid, $6::uuid, $7::uuid, $9::uuid,  'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
+  ($3::uuid, $5::uuid, $7::uuid, $10::uuid, 'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
+  ($4::uuid, $6::uuid, $7::uuid, $10::uuid, 'shed', 'Castro 1', 'individual_animal', $11::uuid, 0)`,
+		gdBucketW1CA, gdBucketW2CA, gdBucketW1CB, gdBucketW2CB,
+		gdCampaignW1, gdCampaignW2B, gdTenant, gdPark, gdShedCastroA, gdShedCastroB, gdOperator)
+
+	// One physical shed, two OPERATIONAL locations (partitions), both inside
+	// the ORIGINAL fixture's park/campaigns.
+	execGD(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, partition_label, weighing_category, operator_user_id, expected_animal_count)
+VALUES
+  ($1::uuid, $5::uuid, $6::uuid, $7::uuid, 'shed', 'Godel 9', 'Part 1', 'individual_animal', $8::uuid, 0),
+  ($2::uuid, $9::uuid, $6::uuid, $7::uuid, 'shed', 'Godel 9', 'Part 1', 'individual_animal', $8::uuid, 0),
+  ($3::uuid, $5::uuid, $6::uuid, $7::uuid, 'shed', 'Godel 9', 'Part 2', 'individual_animal', $8::uuid, 0),
+  ($4::uuid, $9::uuid, $6::uuid, $7::uuid, 'shed', 'Godel 9', 'Part 2', 'individual_animal', $8::uuid, 0)`,
+		gdBucketW1P1, gdBucketW2P1, gdBucketW1P2, gdBucketW2P2,
+		gdCampaignW1, gdTenant, gdShedPart, gdOperator, gdCampaignW2)
+
+	seedTrio := func(prefix string, w1Bucket, w2Bucket string, w1Kg, w2Kg float64) {
+		for i, tag := range []string{prefix + "1", prefix + "2", prefix + "3"} {
+			goatID := fmt.Sprintf("22222222-0000-4000-8000-0000000%s%02d", prefix, i)
+			seedGoatWithTag(t, ctx, pool, goatID, prefix+fmt.Sprint(i), tag, "Sojat", "male")
+			seedScan(t, ctx, pool, w1Bucket, tag, w1Kg, day(8, 6), "pending")
+			seedScan(t, ctx, pool, w2Bucket, tag, w2Kg, day(15, 6), "pending")
+		}
+	}
+	// Castro-A gains 200 g/day, Castro-B gains 100 g/day: a fair fight cohort
+	// with two distinctly-parked sheds sharing one name.
+	seedTrio("CA", gdBucketW1CA, gdBucketW2CA, 14.0, 15.4)
+	seedTrio("CB", gdBucketW1CB, gdBucketW2CB, 14.0, 14.7)
+	// Godel 9 Part 1 gains 200 g/day, Part 2 gains 100 g/day: same physical
+	// shed, two operational locations.
+	seedTrio("P1", gdBucketW1P1, gdBucketW2P1, 14.0, 15.4)
+	seedTrio("P2", gdBucketW1P2, gdBucketW2P2, 14.0, 14.7)
+
+	from, to := gdWindow()
+	repo := NewRepository(pool, 5*time.Second)
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark, gdPark2}, from, to)
+	if err != nil {
+		t.Fatalf("GetGrowthDirectorWeights: %v", err)
+	}
+
+	// --- Fair fight: find the Sojat/male cohort and assert both Castro-named
+	// sheds and both Godel 9 partitions show up as FOUR distinct sheds, keyed
+	// by distinct operational_key, with park-prefixed / partition-suffixed
+	// labels.
+	var cohort *domain.FairFightCohort
+	for i := range out.FairFight.Cohorts {
+		if out.FairFight.Cohorts[i].Breed == "Sojat" && out.FairFight.Cohorts[i].Sex == "male" {
+			cohort = &out.FairFight.Cohorts[i]
+		}
+	}
+	if cohort == nil {
+		t.Fatalf("expected a Sojat/male fair-fight cohort, got %+v", out.FairFight.Cohorts)
+	}
+	if len(cohort.Sheds) != 4 {
+		t.Fatalf("want 4 distinct operational-location sheds (2 Castro parks + 2 Godel partitions), got %d: %+v",
+			len(cohort.Sheds), cohort.Sheds)
+	}
+	seenKeys := map[string]bool{}
+	seenLabels := map[string]bool{}
+	var castroLabels, godelLabels []string
+	for _, shed := range cohort.Sheds {
+		if seenKeys[shed.OperationalKey] {
+			t.Fatalf("duplicate operational_key %q: two operational locations must never merge", shed.OperationalKey)
+		}
+		seenKeys[shed.OperationalKey] = true
+		if seenLabels[shed.ShedDisplayName] {
+			t.Fatalf("duplicate shed_display_name %q: distinct operational locations must render distinct labels", shed.ShedDisplayName)
+		}
+		seenLabels[shed.ShedDisplayName] = true
+		if shed.LocationID == gdShedCastroA || shed.LocationID == gdShedCastroB {
+			castroLabels = append(castroLabels, shed.ShedDisplayName)
+		}
+		if shed.LocationID == gdShedPart {
+			godelLabels = append(godelLabels, shed.ShedDisplayName)
+		}
+	}
+	if len(castroLabels) != 2 {
+		t.Fatalf("want both Castro 1 sheds present, got %v", castroLabels)
+	}
+	if castroLabels[0] == castroLabels[1] {
+		t.Fatalf("two parks fielding the same shed name must render distinct park-prefixed labels, got %v", castroLabels)
+	}
+	if len(godelLabels) != 2 || godelLabels[0] == godelLabels[1] {
+		t.Fatalf("two partitions of one physical shed must render distinct labels, got %v", godelLabels)
+	}
+	for _, label := range castroLabels {
+		if !strings.Contains(label, "Castro 1") {
+			t.Fatalf("label must still carry the shed name, got %q", label)
+		}
+	}
+
+	// --- Slow growth: the same operational-location grain applies. Two Godel
+	// 9 partitions must appear as two distinct groups with distinct
+	// operational_key, never collapsed into one shed_id-keyed row.
+	var godelGroups []domain.SlowGrowthGroup
+	for _, g := range out.SlowGrowth.Groups {
+		if g.LocationID == gdShedPart {
+			godelGroups = append(godelGroups, g)
+		}
+	}
+	if len(godelGroups) != 2 {
+		t.Fatalf("want 2 distinct slow-growth groups for the two Godel 9 partitions, got %d: %+v", len(godelGroups), godelGroups)
+	}
+	if godelGroups[0].OperationalKey == godelGroups[1].OperationalKey {
+		t.Fatalf("slow-growth groups for two partitions must carry distinct operational_key, got %+v / %+v", godelGroups[0], godelGroups[1])
+	}
+}

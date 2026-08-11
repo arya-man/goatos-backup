@@ -6966,6 +6966,8 @@ export interface components {
         GrowthDirectorFairFightShed: {
             /** Format: uuid */
             location_id: string;
+            /** @description Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed). */
+            operational_key: string;
             shed_display_name: string;
             /** @description The n behind the median. */
             pair_identities: number;
@@ -6984,6 +6986,8 @@ export interface components {
         GrowthDirectorSlowGrowthGroup: {
             /** Format: uuid */
             location_id: string;
+            /** @description Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed). */
+            operational_key: string;
             shed_display_name: string;
             breed: string;
             sex: string;
