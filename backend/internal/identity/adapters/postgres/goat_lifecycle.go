@@ -1146,14 +1146,19 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 	var state goatMutationState
 	var mergedInto, currentLocation, farmID, parkID, shedID pgtype.UUID
 	err := tx.QueryRow(ctx, `
-	SELECT lifecycle_status, merged_into_goat_id, COALESCE(management_stage, ''), COALESCE(health_status, ''), COALESCE(reproductive_status, ''), row_version,
-	       current_location_id, farm_id, park_id, shed_id, gsp.partition_label
+	SELECT g.lifecycle_status, g.merged_into_goat_id, COALESCE(g.management_stage, ''), COALESCE(g.health_status, ''), COALESCE(g.reproductive_status, ''), g.row_version,
+	       g.current_location_id, g.farm_id, g.park_id, g.shed_id, gsp.partition_label
 	FROM goats g
 	LEFT JOIN goat_shed_partitions gsp
 	  ON gsp.tenant_id = g.tenant_id
 	 AND gsp.goat_id = g.goat_id
 	WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid
-	FOR UPDATE`, tenantID, goatID).Scan(
+	-- FOR UPDATE OF g, not a bare FOR UPDATE. Postgres refuses a locking clause on the NULLABLE side
+	-- of an outer join ("FOR UPDATE cannot be applied to the nullable side of an outer join",
+	-- SQLSTATE 0A000), and gsp is exactly that: a goat with no partition row must still be lockable.
+	-- Naming g locks only the row this mutation actually mutates, which is also the correct scope --
+	-- the partition is read here for context, never written by this path.
+	FOR UPDATE OF g`, tenantID, goatID).Scan(
 		&state.LifecycleStatus,
 		&mergedInto,
 		&state.ManagementStage,

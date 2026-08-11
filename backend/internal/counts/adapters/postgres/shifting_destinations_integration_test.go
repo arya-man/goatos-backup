@@ -30,6 +30,8 @@ const (
 	destRetiredPark  = "00000000-0000-4000-8000-000000003003"
 	// A park with no sheds at all, to prove it still appears (LEFT JOIN, not INNER).
 	destEmptyPark = "00000000-0000-4000-8000-000000003004"
+	// Parent shed + partition catalog used to prove old same-park partition aliases are suppressed.
+	destCastroParentCPT = "00000000-0000-4000-8000-000000004104"
 )
 
 func seedDestinationTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -59,6 +61,59 @@ VALUES
 ON CONFLICT (location_id) DO NOTHING`,
 		countsTenant, countsPark, destCastroCPT, destSecondPark, destCastroCBE, destInactiveShed); err != nil {
 		t.Fatalf("seed destination sheds: %v", err)
+	}
+}
+
+// TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases pins the live STG bug where the
+// operator saw both "Castro 1" and "Castro - 1" in the same park. The first is an old active
+// partition-alias location; the second is the canonical parent shed plus shed_partitions row.
+func TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// TWO separate Exec calls, deliberately. pgx sends a parameterised Exec as a PREPARED statement,
+	// and Postgres refuses more than one command in one of those ("cannot insert multiple commands
+	// into a prepared statement", SQLSTATE 42601). Batched into a single string with a `;` the seed
+	// fails, the test fails IN SETUP, and the assertion below never runs -- so the production change
+	// it is supposed to prove would have gone in unproven.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-CASTRO', 'Castro', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+-- 'manual' because shed_partitions_source (migration 000112) allows only
+-- goat_attested / location_alias / manual. 'manual' is the honest one for a hand-seeded pen.
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro partition: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+
+	var labels []string
+	for _, park := range catalog.Parks {
+		if park.ParkID != countsPark {
+			continue
+		}
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destCastroCPT || shed.ShedID == destCastroParentCPT {
+				labels = append(labels, shed.Display)
+			}
+		}
+	}
+	if len(labels) != 1 || labels[0] != "Castro - 1" {
+		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
 	}
 }
 
