@@ -955,11 +955,12 @@ private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
     when {
         isRework -> plannedBusinessDate.ifBlank { dueBusinessDate }
         else -> dueBusinessDate.ifBlank { plannedBusinessDate }
-    }.takeIf { it.isNotBlank() }?.let { raw ->
-        runCatching {
-            LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
-        }.getOrDefault(raw)
-    }.orEmpty()
+	}.takeIf { it.isNotBlank() }?.let { raw ->
+		// exception:exempt display date fallback; if server sends non-ISO text, show it raw.
+		runCatching {
+			LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
+		}.getOrDefault(raw)
+	}.orEmpty()
 
 @Composable
 private fun weighingCategoryLabel(category: String): String =

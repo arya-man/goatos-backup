@@ -980,7 +980,7 @@ func TestCloseScopeBlockedWhileReworkOutstanding(t *testing.T) {
 
 // A withdrawn rework remains a close blocker in the same bucket until a replacement
 // shed proof exists, so the close cannot bypass operator sent-back work.
-func TestCloseScopeBlockedWhileLumpSumReworkOutstandingAfterWithdraw(t *testing.T) {
+func TestCloseScopeBlockedWhileLumpSumReworkOutstandingAfterWithdrawOneToManyPageBoundaryScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1322,7 +1322,7 @@ func TestCloseCampaignBlockedWhileSubmittedVideoIsInRework(t *testing.T) {
 
 // A withdrawn rework in a lump-sum bucket is still an outstanding task until a
 // replacement submission exists, so campaign close must not sweep past it.
-func TestCloseCampaignBlockedWhileLumpSumReworkOutstandingAfterWithdraw(t *testing.T) {
+func TestCloseCampaignBlockedWhileLumpSumReworkOutstandingAfterWithdrawOneToManyPageBoundaryScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
