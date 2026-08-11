@@ -139,7 +139,7 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	}
 	if params.LocationID != nil {
 		args = append(args, *params.LocationID)
-		where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_id = $%d::uuid)", len(args), len(args)))
+		where = append(where, fmt.Sprintf("g.current_location_id = $%d::uuid", len(args)))
 	}
 	if params.Status != nil {
 		args = append(args, *params.Status)
@@ -296,7 +296,7 @@ func (r *Repository) FindIdentifierMatches(ctx context.Context, params ports.Res
 	}
 	if params.LocationID != nil {
 		args = append(args, *params.LocationID)
-		where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_id = $%d::uuid)", len(args), len(args)))
+		where = append(where, fmt.Sprintf("g.current_location_id = $%d::uuid", len(args)))
 	}
 
 	query := `
@@ -449,11 +449,10 @@ func goatSummaryColumns() string {
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display resolves from the animal's OWN park/shed, never goats.current_location_id.
-  -- current_location_id is vestigial: it is NULL for ~81% of the live herd and stale where it is
-  -- set (rows observed pointing at a shed the animal has since left), so joining it produced
-  -- "Unknown location" on animals whose park_name/shed_name resolved correctly in the SAME row.
-  -- Shed first, then park, matching the bare-shed-name shape already-populated rows return today.
+  -- location_display is the operational residence label. For partitioned sheds, shed_id is only
+  -- the parent/grouping key; applyLocationPartition rewrites the display to "<shed> - <partition>".
+  -- Exact filtering above uses current_location_id only, so a parent shed never masquerades as
+  -- the animal's physical residence.
   COALESCE(shed.name, park.name, 'Unknown location'),
   g.farm_id::text,
   farm.location_code,
