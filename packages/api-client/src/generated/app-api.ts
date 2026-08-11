@@ -6763,7 +6763,7 @@ export interface components {
             due_business_date?: string;
             /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
             pending_verification_count: number;
-            /** @description The subset of pending_verification_count that a verifier actively bounced back to the operator. A strict subset, never added to the pending count. */
+            /** @description Work a verifier actively bounced back to the operator and the operator still owes. Individual rework counts submitted animal rows. Shed-grain rework is a bucket signal: a withdrawn rejected lump-sum proof counts as 1 until an open replacement proof exists, so this is not always a subset of pending_verification_count. */
             rework_count?: number;
             /** @description Most recent verifier-provided rework reason for this bucket, when available. */
             latest_rework_reason?: string;

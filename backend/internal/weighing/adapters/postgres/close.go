@@ -397,7 +397,7 @@ WHERE cs.tenant_id=$1::uuid
       WHERE so.tenant_id=cs.tenant_id AND so.campaign_shed_id=cs.campaign_shed_id
         AND so.verification_status <> 'verified'
     )
-    OR ` + shedReworkOutstandingPredicate("cs") + `
+    OR `+shedReworkOutstandingPredicate("cs")+`
   )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
 		return domain.CloseResult{}, err
 	}
