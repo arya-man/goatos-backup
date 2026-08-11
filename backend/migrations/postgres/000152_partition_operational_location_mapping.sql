@@ -181,6 +181,21 @@ BEGIN
   FROM (
     SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
     FROM public.shed_partitions sp
+    LEFT JOIN (
+      SELECT
+        gsp.tenant_id,
+        gsp.shed_id,
+        regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') AS normalized_label,
+        CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+          THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+          ELSE NULL
+        END AS source_shed_name
+      FROM public.goat_shed_partitions gsp
+      GROUP BY gsp.tenant_id, gsp.shed_id, regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+    ) gsp_source
+      ON gsp_source.tenant_id = sp.tenant_id
+     AND gsp_source.shed_id = sp.shed_id
+     AND gsp_source.normalized_label = sp.normalized_label
     JOIN public.locations parent
     ON parent.tenant_id = sp.tenant_id
    AND parent.location_id = sp.shed_id
@@ -200,6 +215,7 @@ BEGIN
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
+      OR (gsp_source.source_shed_name IS NOT NULL AND lower(pen.name) = lower(gsp_source.source_shed_name))
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -246,6 +262,21 @@ BEGIN
   FROM (
     SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
     FROM public.shed_partitions sp
+    LEFT JOIN (
+      SELECT
+        gsp.tenant_id,
+        gsp.shed_id,
+        regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') AS normalized_label,
+        CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+          THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+          ELSE NULL
+        END AS source_shed_name
+      FROM public.goat_shed_partitions gsp
+      GROUP BY gsp.tenant_id, gsp.shed_id, regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+    ) gsp_source
+      ON gsp_source.tenant_id = sp.tenant_id
+     AND gsp_source.shed_id = sp.shed_id
+     AND gsp_source.normalized_label = sp.normalized_label
     JOIN public.locations parent
     ON parent.tenant_id = sp.tenant_id
    AND parent.location_id = sp.shed_id
@@ -265,6 +296,7 @@ BEGIN
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
+      OR (gsp_source.source_shed_name IS NOT NULL AND lower(pen.name) = lower(gsp_source.source_shed_name))
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -299,6 +331,16 @@ WHERE sp.operational_location_id IS NULL
   AND (
     lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
     OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
+    OR lower(pen.name) = lower((
+      SELECT CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+        THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+        ELSE NULL
+      END
+      FROM public.goat_shed_partitions gsp
+      WHERE gsp.tenant_id = sp.tenant_id
+        AND gsp.shed_id = sp.shed_id
+        AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = sp.normalized_label
+    ))
   );
 
 -- Create one canonical shed row per catalog partition still missing a real
@@ -337,6 +379,18 @@ WITH alias_names AS (
         ) = sp.normalized_label
   ORDER BY sp.tenant_id, sp.shed_id, sp.normalized_label, length(alias.name)
 ),
+source_names AS (
+  SELECT
+    gsp.tenant_id,
+    gsp.shed_id,
+    regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') AS normalized_label,
+    CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+      THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+      ELSE NULL
+    END AS source_shed_name
+  FROM public.goat_shed_partitions gsp
+  GROUP BY gsp.tenant_id, gsp.shed_id, regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+),
 created AS (
   INSERT INTO public.locations (
     tenant_id,
@@ -354,7 +408,7 @@ created AS (
     sp.tenant_id,
     'shed',
     NULL,
-    COALESCE(an.display_name, operational_location_display(parent.name, COALESCE(NULLIF(BTRIM(sp.partition_label), ''), sp.normalized_label))),
+    COALESCE(sn.source_shed_name, an.display_name, operational_location_display(parent.name, COALESCE(NULLIF(BTRIM(sp.partition_label), ''), sp.normalized_label))),
     parent.parent_location_id,
     parent.country,
     parent.timezone,
@@ -370,6 +424,10 @@ created AS (
     ON an.tenant_id = sp.tenant_id
    AND an.shed_id = sp.shed_id
    AND an.normalized_label = sp.normalized_label
+  LEFT JOIN source_names sn
+    ON sn.tenant_id = sp.tenant_id
+   AND sn.shed_id = sp.shed_id
+   AND sn.normalized_label = sp.normalized_label
   WHERE sp.operational_location_id IS NULL
   RETURNING tenant_id, location_id, parent_location_id, name
 )
@@ -388,6 +446,13 @@ WHERE sp.tenant_id = created.tenant_id
 	      operational_location_display((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id),
 	                                  sp.normalized_label)
 	    )
+      OR lower(created.name) = lower((
+        SELECT sn.source_shed_name
+        FROM source_names sn
+        WHERE sn.tenant_id = sp.tenant_id
+          AND sn.shed_id = sp.shed_id
+          AND sn.normalized_label = sp.normalized_label
+      ))
 	  );
 
 DO $$
@@ -790,6 +855,7 @@ DECLARE
   candidate_count integer;
   mapped_valid boolean;
   display_partition_label text;
+  source_shed_name text;
 BEGIN
   IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
@@ -799,6 +865,16 @@ BEGIN
   IF display_partition_label IS NULL THEN
     display_partition_label := NEW.normalized_label;
   END IF;
+
+  SELECT CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+    THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+    ELSE NULL
+  END
+  INTO source_shed_name
+  FROM public.goat_shed_partitions gsp
+  WHERE gsp.tenant_id = NEW.tenant_id
+    AND gsp.shed_id = NEW.shed_id
+    AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
 
   SELECT *
   INTO parent_row
@@ -1036,6 +1112,7 @@ BEGIN
     AND (
       lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent_row.name, display_partition_label))
+      OR (source_shed_name IS NOT NULL AND lower(pen.name) = lower(source_shed_name))
     );
 
   IF candidate_count > 1 THEN
@@ -1059,7 +1136,7 @@ BEGIN
       NEW.tenant_id,
       'shed',
       NULL,
-      operational_location_display(parent_row.name, display_partition_label),
+      COALESCE(source_shed_name, operational_location_display(parent_row.name, display_partition_label)),
       parent_row.parent_location_id,
       parent_row.country,
       parent_row.timezone,

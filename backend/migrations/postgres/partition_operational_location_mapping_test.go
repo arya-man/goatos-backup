@@ -29,6 +29,8 @@ func TestPartitionOperationalLocationMappingMovesOnlyPartitionedLiveGoats(t *tes
 		isolationShed     = "f1480000-0000-4000-8000-000000000009"
 		bareShed          = "f1480000-0000-4000-8000-000000000010"
 		bareGoat          = "f1480000-0000-4000-8000-000000000011"
+		castroGroup       = "f1480000-0000-4000-8000-000000000012"
+		castroPartGoat    = "f1480000-0000-4000-8000-000000000013"
 	)
 
 	exec := func(sql string, args ...any) {
@@ -47,8 +49,9 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Godel 1', 'active'),
        ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'active'),
-       ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Bare Shed', 'active')`,
-		tenant, godelOne, castroOne, park, bareShed)
+       ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Bare Shed', 'active'),
+       ($1::uuid, $6::uuid, $4::uuid, 'shed', 'Castro', 'active')`,
+		tenant, godelOne, castroOne, park, bareShed, castroGroup)
 	exec(`DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON shed_partitions`)
 	exec(`DROP FUNCTION IF EXISTS ensure_shed_partition_operational_location()`)
 	exec(`ALTER TABLE shed_partitions ALTER COLUMN operational_location_id DROP NOT NULL`)
@@ -68,11 +71,15 @@ VALUES ($1::uuid, $2::uuid, 'Part 2', '2', 'retired', 'manual')`, tenant, godelO
 ) VALUES
   ($1::uuid, $2::uuid, 'G-900001', 'female', 'alive', $3::uuid, $4::uuid, $6::uuid, $4::uuid),
   ($5::uuid, $2::uuid, 'G-900002', 'female', 'alive', $3::uuid, $7::uuid, $6::uuid, $7::uuid),
-  ($8::uuid, $2::uuid, 'G-900003', 'female', 'alive', $3::uuid, $9::uuid, $6::uuid, $9::uuid)`,
-		partitionedGoat, tenant, custodian, godelOne, undividedGoat, park, castroOne, bareGoat, bareShed)
+  ($8::uuid, $2::uuid, 'G-900003', 'female', 'alive', $3::uuid, $9::uuid, $6::uuid, $9::uuid),
+  ($10::uuid, $2::uuid, 'G-900004', 'female', 'alive', $3::uuid, $11::uuid, $6::uuid, $11::uuid)`,
+		partitionedGoat, tenant, custodian, godelOne, undividedGoat, park, castroOne, bareGoat, bareShed, castroPartGoat, castroGroup)
 	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 		tenant, partitionedGoat, godelOne)
+	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Castro 1')`,
+		tenant, castroPartGoat, castroGroup)
 
 	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
@@ -105,6 +112,19 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	}
 	if currentType != "shed" || parentID != park {
 		t.Fatalf("partitioned goat current location type/parent = %s/%s, want shed/%s", currentType, parentID, park)
+	}
+	var castroCurrentLocationID, castroShedID, castroGroupID, castroCurrentName string
+	if err := pool.QueryRow(ctx, `
+SELECT g.current_location_id::text, g.shed_id::text, COALESCE(g.shed_group_id::text, ''), cur.name
+FROM goats g
+JOIN locations cur ON cur.tenant_id=g.tenant_id AND cur.location_id=g.current_location_id
+WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, castroPartGoat).
+		Scan(&castroCurrentLocationID, &castroShedID, &castroGroupID, &castroCurrentName); err != nil {
+		t.Fatalf("query Castro source-name goat: %v", err)
+	}
+	if castroCurrentLocationID != castroOne || castroShedID != castroOne || castroGroupID != castroGroup || castroCurrentName != "Castro 1" {
+		t.Fatalf("Castro source-name goat mapped to current=%s shed=%s group=%s name=%q; want exact Castro 1=%s with group Castro=%s",
+			castroCurrentLocationID, castroShedID, castroGroupID, castroCurrentName, castroOne, castroGroup)
 	}
 	var penName string
 	if err := pool.QueryRow(ctx, `
