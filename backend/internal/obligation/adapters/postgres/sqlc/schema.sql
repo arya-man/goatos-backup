@@ -953,7 +953,41 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
   PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
+  IF TG_OP = 'INSERT' OR OLD.status <> 'active' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.goats g
+      WHERE g.tenant_id = NEW.tenant_id
+        AND g.shed_id = NEW.shed_id
+        AND g.current_location_id = NEW.shed_id
+        AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+        AND g.merged_into_goat_id IS NULL
+    ) THEN
+      RAISE EXCEPTION 'shed_partition_activation_bare_residents: tenant %, shed %, partition %',
+        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+    END IF;
+  END IF;
+
   IF NEW.operational_location_id IS NOT NULL THEN
+    IF TG_OP = 'UPDATE'
+      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
+      AND (
+        NEW.shed_id IS DISTINCT FROM OLD.shed_id
+        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
+        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.goats g
+        WHERE g.tenant_id = NEW.tenant_id
+          AND g.current_location_id = OLD.operational_location_id
+          AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+          AND g.merged_into_goat_id IS NULL
+      ) THEN
+      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+        NEW.tenant_id, OLD.shed_id, OLD.partition_label;
+    END IF;
+
     SELECT EXISTS (
       SELECT 1
       FROM public.locations pen

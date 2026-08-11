@@ -27,8 +27,13 @@ actual_project_number="$(gcloud projects describe "$PROJECT_ID" --format='value(
 [[ "$actual_project_number" == "$PROJECT_NUMBER" ]] \
   || die "project number mismatch for $PROJECT_ID: expected $PROJECT_NUMBER got $actual_project_number"
 project_parent="$(gcloud projects describe "$PROJECT_ID" --format='value(parent.type,parent.id)')"
-[[ "$project_parent" == "organization 848015369910" ]] \
-  || die "project parent mismatch for $PROJECT_ID: expected organization 848015369910 got $project_parent"
+case "$project_parent" in
+  "folder 188649904255"|"organization 848015369910")
+    ;;
+  *)
+    die "project parent mismatch for $PROJECT_ID: expected folder 188649904255 or organization 848015369910 got $project_parent"
+    ;;
+esac
 
 echo "Creating Goat OS STG Cloud SQL backup"
 echo "account=$active_account"

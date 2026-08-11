@@ -27,7 +27,8 @@ BEGIN
       ADD CONSTRAINT shed_partitions_operational_location_fk
       FOREIGN KEY (tenant_id, operational_location_id)
       REFERENCES public.locations (tenant_id, location_id)
-      ON DELETE RESTRICT;
+      ON DELETE RESTRICT
+      NOT VALID;
   END IF;
 END $$;
 
@@ -350,6 +351,9 @@ BEGIN
   END IF;
 END $$;
 
+ALTER TABLE public.shed_partitions
+  VALIDATE CONSTRAINT shed_partitions_operational_location_fk;
+
 -- Copy parent operational flags onto mapped pen rows. Vaccination/procurement
 -- eligibility code reads location_operational_attributes from the goat's exact
 -- current_location_id; after this migration that is a pen for partitioned goats.
@@ -651,7 +655,41 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
   PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
+  IF TG_OP = 'INSERT' OR OLD.status <> 'active' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.goats g
+      WHERE g.tenant_id = NEW.tenant_id
+        AND g.shed_id = NEW.shed_id
+        AND g.current_location_id = NEW.shed_id
+        AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+        AND g.merged_into_goat_id IS NULL
+    ) THEN
+      RAISE EXCEPTION 'shed_partition_activation_bare_residents: tenant %, shed %, partition %',
+        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+    END IF;
+  END IF;
+
   IF NEW.operational_location_id IS NOT NULL THEN
+    IF TG_OP = 'UPDATE'
+      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
+      AND (
+        NEW.shed_id IS DISTINCT FROM OLD.shed_id
+        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
+        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM public.goats g
+        WHERE g.tenant_id = NEW.tenant_id
+          AND g.current_location_id = OLD.operational_location_id
+          AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+          AND g.merged_into_goat_id IS NULL
+      ) THEN
+      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+        NEW.tenant_id, OLD.shed_id, OLD.partition_label;
+    END IF;
+
     SELECT EXISTS (
       SELECT 1
       FROM public.locations pen
@@ -854,6 +892,9 @@ WHERE g.tenant_id = sp.tenant_id
   AND g.shed_id = sp.shed_id;
 RESET lock_timeout;
 
+ALTER TABLE public.shed_partitions
+  DROP CONSTRAINT IF EXISTS shed_partitions_operational_location_fk;
+
 DELETE FROM public.location_operational_attributes loa
 USING public.locations pen
 WHERE loa.tenant_id = pen.tenant_id
@@ -870,9 +911,6 @@ WHERE pen.location_type = 'pen'
     'Created by migration 000150 from shed_partitions parent+partition mapping',
     'Created from active shed_partitions row'
   );
-
-ALTER TABLE public.shed_partitions
-  DROP CONSTRAINT IF EXISTS shed_partitions_operational_location_fk;
 
 DROP INDEX IF EXISTS public.shed_partitions_operational_location_unique;
 
