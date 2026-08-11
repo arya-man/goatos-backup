@@ -1178,6 +1178,7 @@ type FeedDistributionCompletion struct {
 	UpdatedAt            pgtype.Timestamptz
 	PartitionLabel       pgtype.Text
 	PartitionKey         pgtype.Text
+	FeedWeightProofRef   pgtype.Text
 }
 
 type FeedExperimentConfig struct {

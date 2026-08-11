@@ -416,14 +416,22 @@ object AnalyticsEvents {
     /** The verifier-gated feed-distribution completion detail was opened (a Direction row tapped). */
     const val FEED_DISTRIBUTION_OPENED = "feed_distribution_opened"
 
-    /** The MANDATORY feed-distribution video was captured on the distribution detail. */
+    /** The MANDATORY feed-WEIGHT photo (step 1) was captured on the distribution detail. Its own
+     *  event rather than a [Params.KIND] on the video one: it is the step most likely to be skipped
+     *  or retaken, and the drop-off between it and [FEED_DISTRIBUTION_SUBMITTED] is the funnel that
+     *  says whether the 2026-08-11 third capture is costing operators completions. */
+    const val FEED_DISTRIBUTION_WEIGHT_PHOTO_CAPTURED = "feed_distribution_weight_photo_captured"
+
+    /** The MANDATORY feed-distribution video (step 2) was captured on the distribution detail. */
     const val FEED_DISTRIBUTION_VIDEO_CAPTURED = "feed_distribution_video_captured"
 
-    /** The MANDATORY water-distribution proof was captured. [Params.KIND] is `photo`/`video`. */
+    /** The MANDATORY water-distribution video (step 3) was captured. [Params.KIND] is retained and is
+     *  always `video` since the 2026-08-11 video-only rule; it stays on the event so history before
+     *  and after the change remains comparable in the same funnel. */
     const val FEED_DISTRIBUTION_WATER_PROOF_CAPTURED = "feed_distribution_water_proof_captured"
 
-    /** A feed-distribution completion was submitted for verification (both proofs queued, completion
-     *  enqueued -> the shed-session moves to pending_verification). */
+    /** A feed-distribution completion was submitted for verification (all three proofs queued,
+     *  completion enqueued -> the shed-session moves to pending_verification). */
     const val FEED_DISTRIBUTION_SUBMITTED = "feed_distribution_submitted"
 
     /** A feed-distribution completion or proof could not be queued. [Params.REASON] a coarse cause. */

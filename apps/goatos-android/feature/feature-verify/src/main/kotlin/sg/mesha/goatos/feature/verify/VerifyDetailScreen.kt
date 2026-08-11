@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
@@ -88,14 +90,30 @@ import java.time.format.FormatStyle
  * (Park Head/Director/CEO on admin-web) — this screen only records the verdict.
  */
 
-/** One playable proof clip — [signedUrl] is streamed directly (never proxied/downloaded whole). */
+/**
+ * One proof capture — [signedUrl] is streamed/loaded directly (never proxied or downloaded whole).
+ *
+ * A proof is a VIDEO or a PHOTO, and [mimeType] is the only thing that decides which. Not the label
+ * (farm copy, changeable), not the position in the list (media order is a producer decision), and not
+ * the proof id.
+ */
 data class VerifyMediaItem(
     val signedUrl: String,
     val mimeType: String,
     val proofSubject: String,
     val taskTitle: String? = null,
     val answer: String? = null,
-)
+) {
+    /**
+     * True when these bytes are a still image.
+     *
+     * Deliberately conservative: an ABSENT or unrecognised mime falls through to the video player,
+     * which is the pre-2026-08-11 behaviour for every proof in the system. Guessing "photo" on an
+     * empty mime would render a still frame for a clip the verifier then cannot play.
+     */
+    val isPhoto: Boolean
+        get() = mimeType.startsWith("image/", ignoreCase = true)
+}
 
 /** The context dimensions a reviewer needs: the four fixed ones the spec calls out
  *  (shed/park/operator/timestamp), plus the raiser's own note when the producer supplied one. The
@@ -480,13 +498,20 @@ private fun VerifyEntryCard(
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-                VerifyVideoPlayer(
-                    media = media,
-                    onPlayback = onPlayback,
-                    controlsEnabled = videoControlsEnabled,
-                    viewportBounds = viewportBounds,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                // PHOTO proofs (the feed-weight photo) render as an image; everything else is a clip.
+                // The branch keys on the BACKEND-supplied mime, never on a label or a proof name --
+                // the label is farm copy that can change, the mime is what the bytes are.
+                if (media.isPhoto) {
+                    VerifyProofPhoto(media = media, modifier = Modifier.fillMaxWidth())
+                } else {
+                    VerifyVideoPlayer(
+                        media = media,
+                        onPlayback = onPlayback,
+                        controlsEnabled = videoControlsEnabled,
+                        viewportBounds = viewportBounds,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
         Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
@@ -582,6 +607,56 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
  * camera/recorder/BT capture + observers on lifecycle stop"), so navigating away or the queue
  * recycling this row never leaks a player instance.
  */
+@Composable
+private fun VerifyProofPhoto(
+    media: VerifyMediaItem,
+    modifier: Modifier = Modifier,
+) {
+    // Tap to enlarge. A feed-weight photo is judged by READING A NUMBER off a scale, and at card
+    // width on a phone that number is often a few pixels tall — a photo proof that cannot be
+    // enlarged is a proof the verifier has to approve on faith.
+    var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf2)
+            .aspectRatio(16f / 9f)
+            .clickable { isFullscreen = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = media.signedUrl,
+            // Farm language, and it describes the EVIDENCE rather than the file: a screen reader user
+            // verifying feed hears what they are being asked to judge.
+            contentDescription = stringResource(R.string.verify_detail_photo_description),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    if (isFullscreen) {
+        Dialog(
+            onDismissRequest = { isFullscreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MeshaColors.Ink)
+                    // Tap anywhere to close, matching how the fullscreen video overlay dismisses.
+                    .clickable { isFullscreen = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = media.signedUrl,
+                    contentDescription = stringResource(R.string.verify_detail_photo_description),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun VerifyVideoPlayer(
     media: VerifyMediaItem,

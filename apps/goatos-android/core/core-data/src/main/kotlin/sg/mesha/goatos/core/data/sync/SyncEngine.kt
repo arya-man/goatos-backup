@@ -641,11 +641,19 @@ class SyncEngine(
     /**
      * The verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md).
      * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
-     * verbatim as the `Idempotency-Key` header. BOTH mandatory proofs are resolved from their coupled
-     * PROOF_UPLOAD outbox rows (same group, drained first) exactly like [dispatchShiftingComplete]'s
-     * single video; a missing coupling or a permanently-failed upload is terminal — a gated
-     * completion without both verifiable proofs must not reach the backend. The backend re-rejects a
-     * blank either proof with `422 proof_required` (terminal by [recordFailure]'s check).
+     * verbatim as the `Idempotency-Key` header. ALL THREE mandatory proofs are resolved from their
+     * coupled PROOF_UPLOAD outbox rows (same group, drained first) exactly like
+     * [dispatchShiftingComplete]'s single video; a missing coupling or a permanently-failed upload is
+     * terminal — a gated completion without every verifiable proof must not reach the backend. The
+     * backend re-rejects a blank proof with `422 proof_required` (terminal by [recordFailure]'s
+     * check).
+     *
+     * THE ROLLOUT CASE, stated because it costs an operator real work: a completion queued OFFLINE by
+     * a build that predates the 2026-08-11 weight photo carries only two proofs. It cannot be healed
+     * — the feed has been given out, so the weight photo no longer exists to take — and the backend
+     * would reject it forever. It is failed TERMINALLY with a farm-language reason so the shed-session
+     * returns to the operator's list as work still needing action, exactly as a verifier bounce does,
+     * instead of retrying invisibly until someone notices the feeding never registered.
      */
     private suspend fun dispatchFeedDistributionComplete(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
@@ -658,6 +666,12 @@ class SyncEngine(
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
+                feedWeightProofRef = resolveUploadedProofRef(
+                    payload.feedWeightProofOutboxItemId
+                        ?: throw NonRetryableSyncException(
+                            "This feeding needs a feed weight photo. Please record this shed's feeding again.",
+                        ),
+                ),
                 distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
                 waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
             ),

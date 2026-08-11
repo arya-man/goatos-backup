@@ -18,8 +18,19 @@ var (
 	// is rejected before any state changes.
 	ErrDistributionProofRequired = errors.New("feeddirection: a feed-distribution video proof is required")
 	// ErrWaterProofRequired is returned when a distribution completion omits the MANDATORY
-	// water-distribution proof (photo OR video).
-	ErrWaterProofRequired = errors.New("feeddirection: a water-distribution proof is required")
+	// water-distribution VIDEO. Video-only since 2026-08-11: a photo of a full trough proves a trough
+	// is full, not that this operator filled it today.
+	ErrWaterProofRequired = errors.New("feeddirection: a water-distribution video proof is required")
+	// ErrFeedWeightProofRequired is returned when a distribution completion omits the MANDATORY feed
+	// WEIGHT PHOTO (maintainer decision 2026-08-11). The distribution video proves the feed reached
+	// the animals but cannot prove how much did; the weight photo is the only capture a verifier can
+	// check against the expected ration.
+	ErrFeedWeightProofRequired = errors.New("feeddirection: a feed-weight photo proof is required")
+	// ErrProofMediaKind is returned when a proof reference resolves to the wrong MEDIA KIND for its
+	// step -- a video where the weight PHOTO belongs, or a photo where a VIDEO belongs. Distinct from
+	// ErrInvalidProof (unknown/wrong-tenant/incomplete upload) so the handler can tell the operator
+	// which capture to redo rather than rejecting the whole submission as unrecognised.
+	ErrProofMediaKind = errors.New("feeddirection: proof is the wrong media kind for this step")
 	// ErrDistributionStoreUnavailable is returned when a distribution completion is attempted but no
 	// DistributionCompletionStore is wired -- a deployment/wiring error, surfaced as a 500.
 	ErrDistributionStoreUnavailable = errors.New("feeddirection: distribution completion store is not configured")
@@ -37,8 +48,14 @@ type CompleteDistributionParams struct {
 	SessionNo      int32
 	TargetDate     time.Time
 	Workflow       string
-	// DistributionProofRef is the MANDATORY feed-distribution VIDEO proof_id. WaterProofRef is the
-	// MANDATORY water proof_id (photo or video). Both travel into the queued verification item.
+	// The three MANDATORY proof_ids, in capture order. FeedWeightProofRef is a PHOTO of the weighed
+	// feed taken BEFORE it is given out; DistributionProofRef and WaterProofRef are VIDEOS. All three
+	// travel into the ONE queued verification item.
+	//
+	// FeedWeightProofRef is nullable in the table for rows submitted before the 2026-08-11 rule
+	// (migration 000151 grandfathers them), but it is never optional on THIS path -- a write reaching
+	// the store has already been rejected without it.
+	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
 	// CompletedBy is the operator principal uuid when the caller carries one, else "".

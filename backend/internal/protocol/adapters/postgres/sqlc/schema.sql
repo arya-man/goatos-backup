@@ -5755,6 +5755,7 @@ CASE
     WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
     ELSE lower(btrim(partition_label))
 END) STORED,
+    feed_weight_proof_ref text,
     CONSTRAINT feed_distribution_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((distribution_proof_ref IS NOT NULL) AND (btrim(distribution_proof_ref) <> ''::text) AND (water_proof_ref IS NOT NULL) AND (btrim(water_proof_ref) <> ''::text)))),
     CONSTRAINT feed_distribution_completions_session_no_check CHECK ((session_no >= 1)),
     CONSTRAINT feed_distribution_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
@@ -8881,6 +8882,14 @@ ALTER TABLE ONLY public.feed_direction_session_completions
 
 ALTER TABLE ONLY public.feed_distribution_completions
     ADD CONSTRAINT feed_distribution_completions_pkey PRIMARY KEY (completion_id);
+
+
+--
+-- Name: feed_distribution_completions feed_distribution_completions_weight_proof_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE public.feed_distribution_completions
+    ADD CONSTRAINT feed_distribution_completions_weight_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((feed_weight_proof_ref IS NOT NULL) AND (btrim(feed_weight_proof_ref) <> ''::text)))) NOT VALID;
 
 
 --
@@ -13845,6 +13854,13 @@ CREATE INDEX weighing_observations_campaign_scanned_identifier_idx ON public.wei
 
 
 --
+-- Name: weighing_observations_export_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_observations_export_window_idx ON public.weighing_observations USING btree (tenant_id, accepted_at DESC, campaign_shed_id) INCLUDE (campaign_id, proof_artifact_id, scanned_identifier, weight_kg, verification_status, verified_at);
+
+
+--
 -- Name: weighing_observations_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13898,6 +13914,13 @@ CREATE INDEX weighing_shed_load_tags_load_idx ON public.weighing_shed_load_tags 
 --
 
 CREATE INDEX weighing_shed_observation_proofs_tenant_observation_idx ON public.weighing_shed_observation_proofs USING btree (tenant_id, shed_observation_id, proof_position);
+
+
+--
+-- Name: weighing_shed_observations_export_window_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_shed_observations_export_window_idx ON public.weighing_shed_observations USING btree (tenant_id, accepted_at DESC, campaign_shed_id) INCLUDE (campaign_id, shed_observation_id, proof_artifact_id, weight_kg, average_weight_kg, animal_count, verification_status, verified_at) WHERE (withdrawn_at IS NULL);
 
 
 --

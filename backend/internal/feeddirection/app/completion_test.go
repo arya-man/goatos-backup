@@ -120,7 +120,14 @@ func (f *fakePackingStore) ReopenPackingForFeedChange(_ context.Context, p ports
 type fakeProofValidator struct {
 	calls   int
 	lastIDs []string
-	err     error
+	// lastExpected records the (ref, kind) pairs the service asked for, so a test can assert the
+	// distribution path demands a PHOTO for the weight and VIDEOS for the other two rather than
+	// merely that some validation happened.
+	lastExpected []ports.ExpectedProofMedia
+	err          error
+	// kindErr, when set, is returned instead of err for the media-kind path, letting a test drive a
+	// wrong-kind rejection without also failing plain presence validation.
+	kindErr error
 }
 
 func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids []string) error {
@@ -132,6 +139,19 @@ func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids
 func (f *fakeProofValidator) ValidateLiveCameraVideo(_ context.Context, _, proofID, _ string) error {
 	f.calls++
 	f.lastIDs = []string{proofID}
+	return f.err
+}
+
+func (f *fakeProofValidator) ValidateFeedProofMedia(_ context.Context, _ string, expected []ports.ExpectedProofMedia) error {
+	f.calls++
+	f.lastExpected = expected
+	f.lastIDs = make([]string, 0, len(expected))
+	for _, exp := range expected {
+		f.lastIDs = append(f.lastIDs, exp.ProofID)
+	}
+	if f.kindErr != nil {
+		return f.kindErr
+	}
 	return f.err
 }
 

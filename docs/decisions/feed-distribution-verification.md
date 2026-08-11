@@ -50,14 +50,39 @@ generated session (the ration; operator sees only the two proof prompts, not the
 - **The session is "completed" at verifier approval, not at operator submit.** The serving overlay
   (`ListCompletedSessions`, `status = 'completed'`) shows a session as done only after approval. The
   submit→approval lag is accepted deliberately in exchange for verified distribution.
-- **Both proofs are mandatory.** A completion missing the feed-distribution video OR the water proof
-  is rejected (`422 proof_required`) before any state changes — there is nothing for a verifier to
-  approve. The feed-distribution proof must be a video; the water proof may be a photo or a video.
-- **Capture is sequential and camera-only.** Water capture cannot start until the feed video is
-  recorded. Feed Distribution exposes no gallery/import control for either proof. Automatic outbox
-  upload remains unchanged. Vaccination is explicitly outside this rule and retains gallery upload.
-- **One Accept per session covers both proofs.** The two media travel on a single verification item;
-  the verifier approves (or rejects) the pair together.
+- **THREE proofs are mandatory** (maintainer decision 2026-08-11; it was two until then). A
+  completion missing any one is rejected (`422 proof_required`) before any state changes — there is
+  nothing for a verifier to approve. In capture order:
+
+  | # | Proof | Kind | Notes |
+  |---|-------|------|-------|
+  | 1 | `feed_weight_proof_ref` | **PHOTO** | The weighed feed, before it is given out. Live camera ASSERTED server-side. |
+  | 2 | `distribution_proof_ref` | **VIDEO** | Unchanged. |
+  | 3 | `water_proof_ref` | **VIDEO** | Was photo-OR-video until 2026-08-11. |
+
+  **Why the weight photo.** The distribution video proves the feed reached the animals; it cannot
+  prove HOW MUCH reached them, because a scale reading is not legible in a clip of feed being poured.
+  The weight photo is the only capture that can be checked against the expected ration the verifier
+  is already shown on the item.
+
+  **Why it is FIRST.** It can only be taken while the feed is still on the scale. After distribution
+  there is nothing left to weigh, so a later capture could only ever be staged.
+
+  **Why water is now video-only.** A photo of a full trough proves a trough is full, not that this
+  operator filled it today. The distribution video was always held to that standard.
+
+- **The media KIND is enforced server-side, not trusted from the client.** The phone chooses which
+  capture button it shows; a client built before this rule, or an outbox row queued under it, would
+  happily send a water photo. `feeddirection/adapters/proof.Validator.ValidateFeedProofMedia` checks
+  BOTH the declared `proof_type` and the stored `mime_type` — they are written by different steps of
+  the upload (`/app/proofs/uploads` then `/app/proofs/{id}/complete`) and can genuinely disagree. The
+  weight photo additionally requires `capture_source = in_app_camera`: it is the capture that carries
+  a NUMBER, and a gallery still of a scale is a reading from some other day.
+- **Capture is sequential and camera-only.** Each step unlocks the next (weight → feed → water). Feed
+  Distribution exposes no gallery/import control for any proof. Automatic outbox upload remains
+  unchanged. Vaccination is explicitly outside this rule and retains gallery upload.
+- **One Accept per session covers all three proofs.** The three media travel on a single verification
+  item, in capture order; the verifier approves (or rejects) the set together.
 - **Rejection bounces to `rework`.** The operator re-records and re-submits, which returns the row to
   `pending_verification` (row_version bumped) and enqueues a fresh verification item.
 
@@ -66,9 +91,11 @@ generated session (the ration; operator sees only the two proof prompts, not the
 Feed reuses the generic Verification module (the same machinery vaccination and shifting use):
 
 - **Producer / enqueue** — `feeddirection` `CompleteDistribution` writes a NEW `feed_distribution_completions`
-  row at `pending_verification`, stores the two proof ids in `distribution_proof_ref` +
-  `water_proof_ref`, and (via the composition bridge `feeddirection/adapters/verificationbridge`)
-  enqueues one verification item, category `feed_distribution`, with BOTH proofs as its media refs
+  row at `pending_verification`, stores the three proof ids in `feed_weight_proof_ref` +
+  `distribution_proof_ref` + `water_proof_ref`, and (via the composition bridge
+  `feeddirection/adapters/verificationbridge`)
+  enqueues one verification item, category `feed_distribution`, with ALL THREE proofs as its media
+  refs in capture order
   and a `SourceRef{module: feed, ref_type: feed_distribution_completion, ref_id: <completion_id>}`.
 - **Verifier verdict** — the verifier approves/rejects the item in the same app queue as vaccination
   and shifting proofs (the queue is category-driven, so `feed_distribution` appears automatically).
@@ -95,11 +122,45 @@ touched — it remains packing's completion record):
 - grain `(tenant_id, park_id, shed_id, session_no, target_date, workflow)`, one gated distribution
   completion per shed-session;
 - `status IN ('pending_verification','completed','rework')`;
-- `distribution_proof_ref`, `water_proof_ref` (the two proof ids), `verified_by`, `verified_at`,
-  `rework_reason`, plus the standard `idempotency_key`/`row_version`/audit columns;
-- a `CHECK` requiring a `pending_verification` or `completed` row to carry BOTH proof refs;
+- `distribution_proof_ref`, `water_proof_ref` (the original two proof ids), `verified_by`,
+  `verified_at`, `rework_reason`, plus the standard `idempotency_key`/`row_version`/audit columns;
+- a `CHECK` requiring a `pending_verification` or `completed` row to carry BOTH of those proof refs;
 - the `validate_outbox_event_tenant()` trigger gains a `feed_distribution_completion` branch so the
   `feed.distribution.completed` producer's outbox INSERT validates against this table.
+
+### Migration `000151_feed_distribution_weight_proof.sql` (2026-08-11)
+
+Adds `feed_weight_proof_ref` (nullable text) and a SECOND, separate `CHECK`. Two properties of that
+check are load-bearing and must survive any future edit:
+
+- **`NOT VALID`.** Sessions already submitted, and items sitting in the verifier queue at deploy
+  time, keep their two proofs and are verdicted normally — nobody re-shoots work already done. A
+  `NOT VALID` check binds every INSERT/UPDATE from that point on while never scanning the rows
+  already on disk. Do **not** later `VALIDATE` it: validating would fail on precisely the legacy rows
+  the decision protects.
+- **It covers `pending_verification` ONLY, not `completed`.** A `NOT VALID` check *is* enforced when
+  an old row is UPDATED, and verifier approval is an UPDATE. A check that also covered `completed`
+  would therefore find the NULL weight photo at the exact moment a verifier tried to approve a
+  grandfathered item and refuse — making every in-flight queue item permanently un-approvable on
+  deploy day, the opposite of grandfathering. The narrowing costs nothing because `completed` is
+  reachable ONLY from `pending_verification` (`ApplyVerifiedDistribution` guards on it twice), which
+  this check already enforces. If a future change ever writes `completed` directly, this check must
+  be widened in the SAME change — with a plan for the legacy rows.
+
+The re-submit path stays fully enforced, deliberately: a rejected row goes to `rework` (exempt, so
+proofs can be cleared for the re-shoot) and comes back through `pending_verification`, where the
+check fires. A re-shoot is new work, captured under the new rule.
+
+Pinned by `TestGrandfatheredDistributionRowWithoutWeightPhotoStillVerifies` (which reproduces the
+deploy ORDER — legacy row first, migration second — because `NOT VALID` exempts nothing that is
+inserted afterwards) and `TestGrandfatheredRowReSubmitMustCarryWeightPhoto`.
+
+**Known rollout cost, accepted:** a completion queued OFFLINE by a pre-2026-08-11 build carries no
+weight photo and cannot be healed — the feed has been given out, so the photo no longer exists to
+take. `SyncEngine.dispatchFeedDistributionComplete` fails such a row TERMINALLY with a farm-language
+reason, returning the shed-session to the operator's list as work still needing action (the same
+place a verifier bounce puts it) rather than retrying invisibly until someone notices the feeding
+never registered.
 
 ## Consequences
 

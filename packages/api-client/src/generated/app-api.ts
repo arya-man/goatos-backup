@@ -3706,9 +3706,21 @@ export interface components {
              * @enum {string}
              */
             workflow: "normal" | "experiment";
-            /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
+            /**
+             * @description MANDATORY. The server-minted `proof_id` of the feed-weight PHOTO, captured BEFORE the feed is given out. A blank value is rejected `422 proof_required`.
+             *
+             *     It must be a PHOTO: the server checks both the artifact's `proof_type` and its stored mime, and a video here is rejected `422 proof_required` naming this step. It is captured first because it must be taken while the feed is still on the scale -- after distribution there is nothing left to weigh.
+             *
+             *     Why it exists: the distribution video proves the feed reached the animals but cannot prove HOW MUCH did. This is the only capture a verifier can check against the expected ration shown on the item.
+             */
+            feed_weight_proof_ref: string;
+            /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. Must be a VIDEO -- `proof_type` and mime are both checked. */
             distribution_proof_ref: string;
-            /** @description MANDATORY. The server-minted `proof_id` of the water-distribution proof (a photo OR a video). A blank value is rejected `422 proof_required`. */
+            /**
+             * @description MANDATORY. The server-minted `proof_id` of the water-distribution VIDEO. A blank value is rejected `422 proof_required`.
+             *
+             *     VIDEO-ONLY since 2026-08-11 (it previously accepted a photo OR a video): a photo of a full trough proves a trough is full, not that this operator filled it today. A photo here is rejected `422 proof_required`.
+             */
             water_proof_ref: string;
         };
         FeedDistributionCompleteResponse: {

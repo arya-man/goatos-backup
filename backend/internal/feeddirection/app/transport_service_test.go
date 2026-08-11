@@ -29,6 +29,9 @@ func (v *transportProofValidator) ValidateLiveCameraVideo(_ context.Context, _, 
 	v.shedID = shedID
 	return nil
 }
+func (*transportProofValidator) ValidateFeedProofMedia(context.Context, string, []ports.ExpectedProofMedia) error {
+	return nil
+}
 
 type transportEnqueueSpy struct{ calls int }
 

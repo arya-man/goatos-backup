@@ -18,9 +18,9 @@ type verificationCreator interface {
 }
 
 // Enqueuer adapts the verification module's CreateItem to the feeddirection
-// FeedDistributionVerificationEnqueuer port, so a completed feed distribution (mandatory video + water
-// proof) becomes one generic verification item the verifier queue lists. Feeddirection never writes
-// verification's tables.
+// FeedDistributionVerificationEnqueuer port, so a completed feed distribution (weight photo +
+// distribution video + water video) becomes one generic verification item the verifier queue lists.
+// Feeddirection never writes verification's tables.
 type Enqueuer struct {
 	verification verificationCreator
 }
@@ -33,7 +33,7 @@ func New(v verificationCreator) *Enqueuer {
 var _ feeddirectionapp.FeedDistributionVerificationEnqueuer = (*Enqueuer)(nil)
 
 // EnqueueFeedDistributionVerification maps the feeddirection request to a verification CreateItem.
-// Both proofs travel on ONE item (a verifier approves/rejects the pair together). CreateItem is
+// All THREE proofs travel on ONE item (a verifier approves/rejects the set together). CreateItem is
 // idempotent on (tenant, idempotency_key), so a retry after a prior failure heals rather than
 // duplicates.
 func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) error {
@@ -49,8 +49,14 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 			RefType: feeddirectiondomain.VerificationRefTypeFeed,
 			RefID:   in.CompletionID,
 		},
-		// Both proofs on one item: the feed-distribution video and the water proof.
-		MediaRefs:      []string{in.DistributionProofRef, in.WaterProofRef},
+		// All three proofs on ONE item, in CAPTURE ORDER -- weight photo, distribution video, water
+		// video. The verifier reviews them in the order the work happened, and the weight leads because
+		// it is the only capture that can be checked against the expected ration the item carries.
+		//
+		// A blank weight ref is DROPPED rather than sent as an empty entry: a grandfathered row
+		// (migration 000151) re-enqueued after a rework verdict genuinely has no weight photo, and an
+		// empty string would reach the verifier as a media slot that can never load.
+		MediaRefs:      mediaRefs(in.FeedWeightProofRef, in.DistributionProofRef, in.WaterProofRef),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		PartitionLabel: ptrIfSet(in.PartitionLabel),
@@ -75,6 +81,18 @@ func feedDistributionSubjectLabel(sessionNo int32) *string {
 	}
 	label := fmt.Sprintf("Session %d", sessionNo)
 	return &label
+}
+
+// mediaRefs keeps the supplied proof references in order and drops the blanks, so the item's media
+// list never carries a slot the verifier cannot open.
+func mediaRefs(refs ...string) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref != "" {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func ptrIfSet(s string) *string {

@@ -108,4 +108,34 @@ type CompletionStore interface {
 type ProofValidator interface {
 	ValidateFeedProofs(ctx context.Context, tenantID string, proofIDs []string) error
 	ValidateLiveCameraVideo(ctx context.Context, tenantID, proofID, shedID string) error
+	// ValidateFeedProofMedia asserts each reference is a real, completed, tenant-owned upload AND is
+	// the MEDIA KIND its step requires. It exists because ValidateFeedProofs deliberately does not look
+	// at proof_type: for feed distribution the kind is the rule (weight = PHOTO, distribution and
+	// water = VIDEO), and a submission that satisfies presence while carrying the wrong kind produces a
+	// verification item the verifier cannot judge -- a still frame where a clip was promised.
+	ValidateFeedProofMedia(ctx context.Context, tenantID string, expected []ExpectedProofMedia) error
+}
+
+// MediaKind is the capture kind a proof step demands.
+type MediaKind string
+
+const (
+	// MediaKindPhoto is a still image (proof_type 'photo', mime image/*).
+	MediaKindPhoto MediaKind = "photo"
+	// MediaKindVideo is a clip (proof_type 'video', mime video/*).
+	MediaKindVideo MediaKind = "video"
+)
+
+// ExpectedProofMedia pairs one proof reference with the kind its step requires, plus the error to
+// return when the kind does not match. Carrying the error with the expectation keeps "which capture
+// was wrong" answerable at the call site instead of collapsing every mismatch into one message.
+type ExpectedProofMedia struct {
+	ProofID string
+	Kind    MediaKind
+	// RequireLiveCamera additionally demands metadata capture_source == "in_app_camera", the same
+	// property ValidateLiveCameraVideo enforces for transport. A weight photo pulled from the gallery
+	// is a photo of a scale from some other day; only a live capture ties the reading to this pen's
+	// feed, so the step that carries the number asserts it.
+	RequireLiveCamera bool
+	OnAbsent          error
 }
