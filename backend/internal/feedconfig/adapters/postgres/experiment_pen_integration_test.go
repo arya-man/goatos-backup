@@ -34,6 +34,9 @@ const (
 	fcPennedShed = "00000000-0000-4000-8000-000000004004"
 	fcPenA       = "Part 3"
 	fcPenB       = "Part 4"
+	// A legacy partition-ALIAS row duplicating pen A, and a look-alike that is a real shed.
+	fcPennedAlias      = "00000000-0000-4000-8000-000000004005"
+	fcPennedNotAnAlias = "00000000-0000-4000-8000-000000004006"
 )
 
 // seedPennedShed adds a subdivided shed to the fixture park and catalogs its two pens.
@@ -62,6 +65,23 @@ VALUES
   ($1::uuid, $2::uuid, $4, regexp_replace(lower(btrim($4)), '^part[[:space:]]+', ''), 'manual')
 ON CONFLICT DO NOTHING`, fcTenant, fcPennedShed, fcPenA, fcPenB); err != nil {
 		t.Fatalf("seed shed partitions: %v", err)
+	}
+	// The legacy partition-ALIAS rows: separate shed rows named for a pen of the shed above, ACTIVE.
+	// This is the live STG state as of 2026-08-11 -- 130 of them, all active -- not a hypothetical.
+	// Without the alias exclusion the catalog offers `Kepler 7 - Part 3` twice: once as the real
+	// pen, once as this bare shed, and they are indistinguishable on screen.
+	//
+	// fcPennedNotAnAlias is the false-positive control. It is name-shaped exactly like an alias but
+	// names a pen the catalog does NOT claim ('Part 9'), so it is a real undivided shed and must
+	// keep appearing -- the case that protects `Ho Chi Minh 1` and `Yashoda 2`.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($3::uuid, $1::uuid, 'shed', 'CPT-S4A', 'Kepler 7 - Part 3', $2::uuid, 'active'),
+  ($4::uuid, $1::uuid, 'shed', 'CPT-S4N', 'Kepler 7 - Part 9', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		fcTenant, fcPark, fcPennedAlias, fcPennedNotAnAlias); err != nil {
+		t.Fatalf("seed penned alias rows: %v", err)
 	}
 }
 
@@ -711,6 +731,36 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 		byDisplay[pen.OperationalLocationDisplay] = pen
 	}
 
+	// The legacy partition-ALIAS rows, asserted FIRST because every later lookup in this test is
+	// keyed by display string -- and an alias renders the IDENTICAL string, so it silently overwrites
+	// the real pen in that map and makes the downstream failures read like unrelated label bugs.
+	//
+	// This hazard used to be written off at the bottom of this test as an environment-setup gap, on
+	// the reasoning that STG keeps these rows status='inactive'. That reasoning did not hold: on
+	// 2026-08-11 all 130 of them were ACTIVE on STG, and an operator reported the same duplication
+	// against the shifting picker. status='active' is not evidence that a shed row is a building, so
+	// this read asks the catalog instead.
+	aliasDupes := 0
+	for _, pen := range page.Items {
+		if pen.OperationalLocationDisplay == "Kepler 7 - Part 3" {
+			aliasDupes++
+		}
+		if pen.ShedID == fcPennedAlias {
+			t.Errorf("legacy alias row %s is offered as its own pen -- the same place twice", fcPennedAlias)
+		}
+	}
+	if aliasDupes != 1 {
+		t.Fatalf("`Kepler 7 - Part 3` offered %d times, want exactly 1; got displays %v",
+			aliasDupes, keysOf(byDisplay))
+	}
+
+	// The false-positive control: same name shape, but the catalog claims no pen 'Part 9', so this
+	// is a real undivided shed and hiding it would strand it. This is what protects the live sheds
+	// whose names merely end in a digit (`Ho Chi Minh 1`, `Yashoda 2` -- AGENTS.md Rule 1).
+	if _, ok := byDisplay["Kepler 7 - Part 9"]; !ok {
+		t.Errorf("a real undivided shed was hidden by the alias exclusion; got displays %v", keysOf(byDisplay))
+	}
+
 	// The authored pen, spelled the way the farm spells it and joined the canonical way.
 	penA, ok := byDisplay["Kepler 7 - Part 3"]
 	if !ok {
@@ -747,15 +797,6 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 			t.Fatalf("subdivided shed listed as a bare shed as well as by pen")
 		}
 	}
-
-	// KNOWN ENVIRONMENT HAZARD, deliberately not asserted here because it is not this query's to
-	// fix: the baseline also carries legacy alias rows that are THEMSELVES sheds named
-	// 'Godel 1 - Part 3'. In STG all 120 of them are status='inactive', so the active-only filter
-	// above excludes them and the catalog is clean. Nothing in migrations performs that
-	// deactivation, so on a freshly migrated database they are active and would be offered here as
-	// bare sheds alongside the real pens. That same fresh database also gets an EMPTY
-	// shed_partitions catalog, because migration 000112 seeds pens by reading aliases that are
-	// inactive -- so the gap is in environment setup, upstream of this read.
 
 }
 

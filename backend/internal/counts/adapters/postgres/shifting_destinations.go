@@ -25,14 +25,25 @@ import (
 //     newly-created park is invisible and an operator cannot report a movement into it.
 //   - The status/retired_at filters live in the JOIN's ON clause for the shed side. Putting them in
 //     WHERE would silently convert the LEFT JOIN back into an inner join and drop exactly those
-//     empty parks.
+//     empty parks. The alias exclusion below sits in the same ON clause for the same reason.
+//   - oploc.PartitionAliasExclusionSQL drops legacy partition-ALIAS shed rows. status='active' alone
+//     does NOT mean "this is a building": migration 000112 built shed_partitions by reading alias
+//     rows and documented that they stay 'inactive', but enforced nothing, and on 2026-08-10 all 130
+//     of them went active on STG. Without this the picker offered the same physical pen twice --
+//     `Castro - 1` from the catalog and `Castro 1` from the alias -- with no way to tell them apart.
+//     The catalog, not the status column, is the authority on which pens exist.
 //   - partitions comes from the shed_partitions CATALOG (status='active'), LEFT JOINed so a shed
 //     with no catalog rows still yields exactly ONE destination row with partition_label NULL --
 //     the bare, non-partitioned shed. A shed WITH real partitions returns one row per partition.
 //     This is the critical difference from the prior goat_shed_partitions LATERAL: the catalog
 //     includes EMPTY partitions (e.g. Yashoda 5) that no goat currently occupies, making them
-//     reachable as shifting destinations. The partition_label here is the normalized_label from
-//     the catalog, never a raw 'whole' sentinel.
+//     reachable as shifting destinations. The label selected is partition_label -- the HUMAN label
+//     the farm paints on the pen -- never normalized_label, which is the scrubbed MATCHING KEY.
+//     This query selected the key until 2026-08-11 and therefore rendered `Godel 1 - 3` where the
+//     catalog says `Godel 1 - Part 3` (AGENTS.md defect class 1, the `Mandela 2 - 3` case). It is
+//     not cosmetic: goat_relocate.go writes this label VERBATIM into goat_shed_partitions, so the
+//     animal ended up stamped with the key rather than the pen's real name. The catalog's own
+//     shed_partitions_not_whole CHECK is what keeps the 'whole' sentinel out of either column.
 //   - animal_count is computed per operational location using the SAME normalization:
 //     count of goats whose goat_shed_partitions.partition_label matches, zero for empty partitions.
 //   - management_stages is computed per SHED (not per partition): the cohort vocabulary offered to
@@ -47,13 +58,13 @@ import (
 //
 // mobile-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 // scale-guard:ignore: bounded location catalog cached on-device, not a paginated feed
-const shiftingDestinationCatalogQuery = `
+var shiftingDestinationCatalogQuery = `
 SELECT
     park.location_id::text,
     park.name,
     shed.location_id::text,
     shed.name,
-    partitions.normalized_label,
+    partitions.partition_label,
     COALESCE(animal_count.count, 0),
     COALESCE(stage_agg.stages, ARRAY[]::text[])
 FROM locations park
@@ -63,7 +74,8 @@ LEFT JOIN locations shed
       AND shed.location_type = 'shed'
       AND shed.status = 'active'
       AND shed.retired_at IS NULL
--- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
+      AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
+-- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations MINUS oploc.PartitionAliasExclusionSQL -- the status column alone does not keep partition-alias rows out (on STG all 130 of them are 'active'), so the catalog is asked instead, which is what makes each physical pen appear exactly once
 LEFT JOIN shed_partitions partitions
        ON partitions.tenant_id = park.tenant_id
       AND partitions.shed_id = shed.location_id
