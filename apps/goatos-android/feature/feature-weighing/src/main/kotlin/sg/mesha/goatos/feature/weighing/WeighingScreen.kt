@@ -363,8 +363,11 @@ data class WeighingAssignmentUiRow(
     val isRework: Boolean
         get() = reworkCount > 0
 
+    val isDelayedBacklog: Boolean
+        get() = plannedBusinessDate.isBeforeIsoDate(dueBusinessDate)
+
     val rawStatus: String
-        get() = backendStatus.ifBlank { status }
+        get() = if (isDelayedBacklog) "delayed" else backendStatus.ifBlank { status }
 
     val isClickable: Boolean
         get() = !isSubmittedAndWaitingVerification && !isClosed
@@ -954,6 +957,7 @@ private fun pendingVerificationText(row: WeighingAssignmentUiRow): String =
 private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
     when {
         isRework -> plannedBusinessDate.ifBlank { dueBusinessDate }
+        isDelayedBacklog -> plannedBusinessDate
         else -> dueBusinessDate.ifBlank { plannedBusinessDate }
 	}.takeIf { it.isNotBlank() }?.let { raw ->
 		// exception:exempt display date fallback; if server sends non-ISO text, show it raw.
@@ -961,6 +965,12 @@ private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
 			LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
 		}.getOrDefault(raw)
 	}.orEmpty()
+
+private fun String.isBeforeIsoDate(other: String): Boolean {
+    val left = runCatching { LocalDate.parse(this) }.getOrNull() ?: return false
+    val right = runCatching { LocalDate.parse(other) }.getOrNull() ?: return false
+    return left.isBefore(right)
+}
 
 @Composable
 private fun weighingCategoryLabel(category: String): String =

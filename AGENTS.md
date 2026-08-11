@@ -184,6 +184,11 @@ surface still works. Examples:
 - Android weighing list edits: repeated Compose row keys must include full
   work/category/period identity, not only `campaignShedId`; run
   `WeighingRouteIdentityTest` for this guardrail.
+- Android weighing assignment-card date edits: delayed backlog rows carry both
+  original `planned_business_date` and rolled/current `due_business_date`. Show
+  the operator **Delayed** with the original planned date; do not make old
+  backlog look newly scheduled for today. Run
+  `WeighingAssignmentModeAwarenessTest`.
 - Android vaccination proof-list edits: proof-needed rows are obligation-grain,
   not goat-grain. Key by `obligationId` before `goatId`, and run
   `ScanProofIdentityTest` plus `make android-compose-lists-guard`.

@@ -124,6 +124,14 @@ rows, evidence galleries, or Compose `LazyColumn`/`LazyRow` keys.
 guards: `WeighingRouteIdentityTest`, `ScanProofIdentityTest`, and
 `make android-compose-lists-guard`.
 
+Android weighing delayed-backlog date guardrail:
+
+Delayed weighing rows have two dates: the original `planned_business_date` and
+the rolled/current `due_business_date`. Operator-facing assignment cards must
+show delayed backlog as **Delayed** against the original planned date; never
+render the rolled due date as if the shed was newly scheduled today. Regression
+guard: `WeighingAssignmentModeAwarenessTest`.
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a

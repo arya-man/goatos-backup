@@ -157,7 +157,7 @@ SELECT
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name,
-  COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+  COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), COALESCE(wi.work_state, cs.status),
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
