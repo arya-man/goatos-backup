@@ -1745,7 +1745,7 @@ Current schema shape:
 - `goats.current_location_id` = exact real residence (`Godel 1 - Part 2` for a
   partitioned animal; `Yashoda` for an undivided shed).
 - `goats.shed_id` = exact real shed/partition id. For a partitioned animal this
-  is the partition pen id; for an undivided shed this is the shed id.
+  is the partition shed id; for an undivided shed this is the shed id.
 - `goats.shed_group_id` = parent/group shed id when a partition exists; NULL
   for undivided sheds.
 - `goat_shed_partitions.partition_label` / `shed_partitions.operational_location_id`

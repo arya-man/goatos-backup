@@ -737,6 +737,56 @@ $$;
 
 
 --
+-- Name: copy_shed_partition_profile(uuid, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.copy_shed_partition_profile(p_tenant_id uuid, p_group_shed_id uuid, p_exact_shed_id uuid) RETURNS void
+    LANGUAGE sql
+    AS $$
+  INSERT INTO public.shed_profiles (
+    location_id,
+    tenant_id,
+    animal_stage_id,
+    shed_lifecycle_status_id,
+    sex,
+    capacity,
+    has_icu,
+    notes,
+    context,
+    row_version,
+    created_at,
+    updated_at
+  )
+  SELECT
+    p_exact_shed_id,
+    parent_profile.tenant_id,
+    parent_profile.animal_stage_id,
+    parent_profile.shed_lifecycle_status_id,
+    parent_profile.sex,
+    parent_profile.capacity,
+    parent_profile.has_icu,
+    parent_profile.notes,
+    parent_profile.context,
+    1,
+    now(),
+    now()
+  FROM public.shed_profiles parent_profile
+  WHERE parent_profile.tenant_id = p_tenant_id
+    AND parent_profile.location_id = p_group_shed_id
+  ON CONFLICT (location_id) DO UPDATE
+  SET animal_stage_id = EXCLUDED.animal_stage_id,
+      shed_lifecycle_status_id = EXCLUDED.shed_lifecycle_status_id,
+      sex = EXCLUDED.sex,
+      capacity = EXCLUDED.capacity,
+      has_icu = EXCLUDED.has_icu,
+      notes = EXCLUDED.notes,
+      context = EXCLUDED.context,
+      updated_at = now(),
+      row_version = public.shed_profiles.row_version + 1;
+$$;
+
+
+--
 -- Name: ensure_protocol_child_version_is_draft(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -884,8 +934,9 @@ BEGIN
           updated_at = now()
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'active';
     END IF;
 
@@ -894,8 +945,9 @@ BEGIN
       FROM public.locations pen
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'inactive'
     )
     INTO mapped_valid;
@@ -940,8 +992,10 @@ BEGIN
           is_quarantine = EXCLUDED.is_quarantine,
           is_icu = EXCLUDED.is_icu,
           display_order = EXCLUDED.display_order,
-          notes = EXCLUDED.notes,
-          updated_at = now();
+	          notes = EXCLUDED.notes,
+	          updated_at = now();
+
+      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
       RETURN NEW;
     END IF;
@@ -988,13 +1042,26 @@ BEGIN
         NEW.tenant_id, OLD.shed_id, OLD.partition_label;
     END IF;
 
+    IF TG_OP = 'UPDATE'
+      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
+      AND (
+        NEW.shed_id IS DISTINCT FROM OLD.shed_id
+        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
+        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
+      ) THEN
+      NEW.operational_location_id := NULL;
+    END IF;
+  END IF;
+
+  IF NEW.operational_location_id IS NOT NULL THEN
     SELECT EXISTS (
       SELECT 1
       FROM public.locations pen
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'active'
     )
     INTO mapped_valid;
@@ -1039,26 +1106,25 @@ BEGIN
           is_quarantine = EXCLUDED.is_quarantine,
           is_icu = EXCLUDED.is_icu,
           display_order = EXCLUDED.display_order,
-          notes = EXCLUDED.notes,
-          updated_at = now();
+	          notes = EXCLUDED.notes,
+	          updated_at = now();
+
+      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
       RETURN NEW;
     END IF;
 
-    IF TG_OP = 'UPDATE' AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id THEN
-      NEW.operational_location_id := NULL;
-    ELSE
-      RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
-        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
-    END IF;
+    RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
+      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
   END IF;
 
   SELECT count(*), (array_agg(pen.location_id ORDER BY pen.location_id))[1]
   INTO candidate_count, candidate_id
   FROM public.locations pen
   WHERE pen.tenant_id = NEW.tenant_id
-    AND pen.parent_location_id = NEW.shed_id
-    AND pen.location_type = 'pen'
+    AND pen.parent_location_id = parent_row.parent_location_id
+    AND pen.location_type = 'shed'
+    AND pen.location_id <> NEW.shed_id
     AND pen.status = 'active'
     AND (
       lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
@@ -1084,10 +1150,10 @@ BEGIN
       operational_notes
     ) VALUES (
       NEW.tenant_id,
-      'pen',
+      'shed',
       NULL,
       operational_location_display(parent_row.name, display_partition_label),
-      NEW.shed_id,
+      parent_row.parent_location_id,
       parent_row.country,
       parent_row.timezone,
       'active',
@@ -1138,8 +1204,10 @@ BEGIN
       is_quarantine = EXCLUDED.is_quarantine,
       is_icu = EXCLUDED.is_icu,
       display_order = EXCLUDED.display_order,
-      notes = EXCLUDED.notes,
-      updated_at = now();
+	      notes = EXCLUDED.notes,
+	      updated_at = now();
+
+  PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
   IF TG_OP = 'UPDATE'
     AND OLD.operational_location_id IS NOT NULL
@@ -1942,7 +2010,7 @@ CREATE FUNCTION public.shed_partition_lock_key(p_tenant_id uuid, p_shed_id uuid,
     LANGUAGE sql
     AS $$
   SELECT p_tenant_id::text || ':' || p_shed_id::text || ':' ||
-         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
+	         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
 $$;
 
 

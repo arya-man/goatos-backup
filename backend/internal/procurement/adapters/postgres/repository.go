@@ -2234,10 +2234,9 @@ SELECT sp.operational_location_id::text
 FROM shed_partitions sp
 JOIN locations pen
   ON pen.tenant_id = sp.tenant_id
- AND pen.location_id = sp.operational_location_id
- AND pen.location_type = 'pen'
- AND pen.parent_location_id = sp.shed_id
- AND pen.status = 'active'
+	 AND pen.location_id = sp.operational_location_id
+	 AND pen.location_type = 'shed'
+	 AND pen.status = 'active'
 WHERE sp.tenant_id = $1::uuid
   AND sp.shed_id = $2::uuid
   AND sp.status = 'active'

@@ -3,13 +3,13 @@
 --
 -- Domain invariant after this migration:
 --   * goats.current_location_id = exact operational residence
---       - pen row for partitioned sheds
+--       - partition shed row for partitioned sheds
 --       - shed row for undivided/lumpsum sheds
 --   * goats.shed_id = exact real shed/partition residence
---       - same pen row as current_location_id for partitioned sheds
+--       - same partition shed row as current_location_id for partitioned sheds
 --       - same shed row as current_location_id for undivided/lumpsum sheds
 --   * goats.shed_group_id = legacy parent/group shed when a partition exists
---   * shed_partitions.operational_location_id = durable parent+partition -> pen mapping
+--   * shed_partitions.operational_location_id = durable group+partition -> real shed mapping
 --
 -- This migration intentionally updates only live goats that already have exact
 -- goat_shed_partitions evidence. Terminal history/proofs/observations/events are
@@ -88,7 +88,56 @@ CREATE OR REPLACE FUNCTION public.shed_partition_lock_key(
 LANGUAGE sql
 AS $$
   SELECT p_tenant_id::text || ':' || p_shed_id::text || ':' ||
-         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
+	         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
+$$;
+
+CREATE OR REPLACE FUNCTION public.copy_shed_partition_profile(
+  p_tenant_id uuid,
+  p_group_shed_id uuid,
+  p_exact_shed_id uuid
+) RETURNS void
+LANGUAGE sql
+AS $$
+  INSERT INTO public.shed_profiles (
+    location_id,
+    tenant_id,
+    animal_stage_id,
+    shed_lifecycle_status_id,
+    sex,
+    capacity,
+    has_icu,
+    notes,
+    context,
+    row_version,
+    created_at,
+    updated_at
+  )
+  SELECT
+    p_exact_shed_id,
+    parent_profile.tenant_id,
+    parent_profile.animal_stage_id,
+    parent_profile.shed_lifecycle_status_id,
+    parent_profile.sex,
+    parent_profile.capacity,
+    parent_profile.has_icu,
+    parent_profile.notes,
+    parent_profile.context,
+    1,
+    now(),
+    now()
+  FROM public.shed_profiles parent_profile
+  WHERE parent_profile.tenant_id = p_tenant_id
+    AND parent_profile.location_id = p_group_shed_id
+  ON CONFLICT (location_id) DO UPDATE
+  SET animal_stage_id = EXCLUDED.animal_stage_id,
+      shed_lifecycle_status_id = EXCLUDED.shed_lifecycle_status_id,
+      sex = EXCLUDED.sex,
+      capacity = EXCLUDED.capacity,
+      has_icu = EXCLUDED.has_icu,
+      notes = EXCLUDED.notes,
+      context = EXCLUDED.context,
+      updated_at = now(),
+      row_version = public.shed_profiles.row_version + 1;
 $$;
 
 CREATE OR REPLACE FUNCTION public.reject_active_location_under_inactive_parent()
@@ -132,21 +181,22 @@ BEGIN
   FROM (
     SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
     FROM public.shed_partitions sp
-    JOIN public.locations pen
-      ON pen.tenant_id = sp.tenant_id
-     AND pen.parent_location_id = sp.shed_id
-     AND pen.location_type = 'pen'
-     AND (
-       (sp.status = 'active' AND pen.status = 'active')
-       OR (sp.status = 'retired' AND pen.status = 'inactive')
-     )
-  JOIN public.locations parent
-    ON parent.tenant_id = pen.tenant_id
-   AND parent.location_id = pen.parent_location_id
+    JOIN public.locations parent
+    ON parent.tenant_id = sp.tenant_id
+   AND parent.location_id = sp.shed_id
    AND (
      (sp.status = 'active' AND parent.status = 'active')
      OR sp.status = 'retired'
    )
+    JOIN public.locations pen
+      ON pen.tenant_id = sp.tenant_id
+     AND pen.parent_location_id = parent.parent_location_id
+     AND pen.location_type = 'shed'
+     AND pen.location_id <> sp.shed_id
+     AND (
+       (sp.status = 'active' AND pen.status = 'active')
+       OR (sp.status = 'retired' AND pen.status = 'inactive')
+     )
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
@@ -196,21 +246,22 @@ BEGIN
   FROM (
     SELECT sp.tenant_id, sp.shed_id, sp.normalized_label
     FROM public.shed_partitions sp
-    JOIN public.locations pen
-      ON pen.tenant_id = sp.tenant_id
-     AND pen.parent_location_id = sp.shed_id
-     AND pen.location_type = 'pen'
-     AND (
-       (sp.status = 'active' AND pen.status = 'active')
-       OR (sp.status = 'retired' AND pen.status = 'inactive')
-     )
-  JOIN public.locations parent
-    ON parent.tenant_id = pen.tenant_id
-   AND parent.location_id = pen.parent_location_id
+    JOIN public.locations parent
+    ON parent.tenant_id = sp.tenant_id
+   AND parent.location_id = sp.shed_id
    AND (
      (sp.status = 'active' AND parent.status = 'active')
      OR sp.status = 'retired'
    )
+    JOIN public.locations pen
+      ON pen.tenant_id = sp.tenant_id
+     AND pen.parent_location_id = parent.parent_location_id
+     AND pen.location_type = 'shed'
+     AND pen.location_id <> sp.shed_id
+     AND (
+       (sp.status = 'active' AND pen.status = 'active')
+       OR (sp.status = 'retired' AND pen.status = 'inactive')
+     )
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
@@ -228,14 +279,15 @@ END $$;
 UPDATE public.shed_partitions sp
 SET operational_location_id = pen.location_id,
     updated_at = now()
-FROM public.locations pen
-  JOIN public.locations parent
-    ON parent.tenant_id = pen.tenant_id
-   AND parent.location_id = pen.parent_location_id
+FROM public.locations parent
+JOIN public.locations pen
+  ON pen.tenant_id = parent.tenant_id
+ AND pen.parent_location_id = parent.parent_location_id
 WHERE sp.operational_location_id IS NULL
-  AND pen.tenant_id = sp.tenant_id
-  AND pen.parent_location_id = sp.shed_id
-  AND pen.location_type = 'pen'
+  AND parent.tenant_id = sp.tenant_id
+  AND parent.location_id = sp.shed_id
+  AND pen.location_type = 'shed'
+  AND pen.location_id <> sp.shed_id
   AND (
     (sp.status = 'active' AND parent.status = 'active')
     OR sp.status = 'retired'
@@ -249,10 +301,10 @@ WHERE sp.operational_location_id IS NULL
     OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
   );
 
--- Create one canonical pen row per catalog partition still missing a real
+-- Create one canonical shed row per catalog partition still missing a real
 -- location. Prefer an existing legacy alias display name when one matches the
 -- same parent shed inside the same park; otherwise use "Parent - Part N".
--- Retired partitions are still mapped, but their pen rows stay inactive so
+-- Retired partitions are still mapped, but their shed rows stay inactive so
 -- they preserve history without entering active operator dropdowns.
 WITH alias_names AS (
   SELECT DISTINCT ON (sp.tenant_id, sp.shed_id, sp.normalized_label)
@@ -300,10 +352,10 @@ created AS (
   )
   SELECT
     sp.tenant_id,
-    'pen',
+    'shed',
     NULL,
     COALESCE(an.display_name, operational_location_display(parent.name, COALESCE(NULLIF(BTRIM(sp.partition_label), ''), sp.normalized_label))),
-    sp.shed_id,
+    parent.parent_location_id,
     parent.country,
     parent.timezone,
     CASE WHEN sp.status = 'active' THEN 'active' ELSE 'inactive' END,
@@ -326,18 +378,17 @@ SET operational_location_id = created.location_id,
     updated_at = now()
 FROM created
 WHERE sp.tenant_id = created.tenant_id
-  AND sp.shed_id = created.parent_location_id
-  AND (
-    lower(created.name) = lower(
-      operational_location_display((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id),
-                                  sp.partition_label)
-    )
-    OR regexp_replace(
-         lower(btrim(regexp_replace(substr(created.name, length((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id)) + 1), '^[[:space:]]*-?[[:space:]]*', ''))),
-         '^part[[:space:]]+',
-         ''
-       ) = sp.normalized_label
-  );
+	  AND created.parent_location_id = (SELECT p.parent_location_id FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id)
+	  AND (
+	    lower(created.name) = lower(
+	      operational_location_display((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id),
+	                                  sp.partition_label)
+	    )
+	    OR lower(created.name) = lower(
+	      operational_location_display((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id),
+	                                  sp.normalized_label)
+	    )
+	  );
 
 DO $$
 DECLARE
@@ -352,21 +403,25 @@ BEGIN
   END IF;
 END $$;
 
--- Validate the bridge points to a pen under the physical parent shed. Active
--- partitions must point to active pens; retired partitions may point to
--- inactive pens.
+-- Validate the bridge points to a real partition shed under the same park as
+-- the grouping shed. Active partitions must point to active sheds; retired
+-- partitions may point to inactive sheds.
 DO $$
 DECLARE
   bad_count integer;
 BEGIN
   SELECT count(*) INTO bad_count
   FROM public.shed_partitions sp
+  JOIN public.locations parent
+    ON parent.tenant_id = sp.tenant_id
+   AND parent.location_id = sp.shed_id
   JOIN public.locations pen
     ON pen.tenant_id = sp.tenant_id
    AND pen.location_id = sp.operational_location_id
   WHERE NOT (
-      pen.location_type = 'pen'
-      AND pen.parent_location_id = sp.shed_id
+      pen.location_type = 'shed'
+      AND pen.parent_location_id = parent.parent_location_id
+      AND pen.location_id <> sp.shed_id
       AND (
         (sp.status = 'active' AND pen.status = 'active')
         OR (sp.status = 'retired' AND pen.status = 'inactive')
@@ -381,11 +436,11 @@ END $$;
 ALTER TABLE public.shed_partitions
   VALIDATE CONSTRAINT shed_partitions_operational_location_fk;
 
--- Copy parent operational flags onto mapped pen rows. Vaccination/procurement
+-- Copy parent operational flags onto mapped partition shed rows. Vaccination/procurement
 -- eligibility code reads location_operational_attributes from the goat's exact
--- current_location_id; after this migration that is a pen for partitioned goats.
--- Without this copy, a quarantined/ICU/holding parent shed could look usable
--- through a newly-created pen that has no attributes row.
+-- current_location_id; after this migration that is a partition shed for
+-- partitioned goats. Without this copy, a quarantined/ICU/holding parent group
+-- could look usable through a newly-created shed that has no attributes row.
 INSERT INTO public.location_operational_attributes (
   tenant_id,
   location_id,
@@ -426,10 +481,16 @@ SET usable_for_counts = EXCLUDED.usable_for_counts,
     is_quarantine = EXCLUDED.is_quarantine,
     is_icu = EXCLUDED.is_icu,
     display_order = EXCLUDED.display_order,
-    notes = EXCLUDED.notes,
-    updated_at = now();
+	    notes = EXCLUDED.notes,
+	    updated_at = now();
 
--- Move live partitioned goats to the exact pen location. The partition pen is
+-- Partition sheds inherit the grouping shed profile at cutover. After this,
+-- vaccination/feed/identity code can read shed_profiles from the exact shed id.
+SELECT public.copy_shed_partition_profile(sp.tenant_id, sp.shed_id, sp.operational_location_id)
+FROM public.shed_partitions sp
+WHERE sp.operational_location_id IS NOT NULL;
+
+-- Move live partitioned goats to the exact partition shed location. The partition shed is
 -- the real shed/residence, so goats.shed_id becomes that exact location. The
 -- parent "Godel 1"/"Gandhi" style grouping key is preserved in shed_group_id.
 SET lock_timeout = '2s';
@@ -449,8 +510,177 @@ WHERE g.tenant_id = gsp.tenant_id
   AND g.goat_id = gsp.goat_id
   AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
   AND g.merged_into_goat_id IS NULL
-  AND g.current_location_id IS DISTINCT FROM sp.operational_location_id;
+	  AND g.current_location_id IS DISTINCT FROM sp.operational_location_id;
 RESET lock_timeout;
+
+-- Backfill partition-specific operational rows so the database itself says the
+-- partition location is the shed. The old parent shed remains only in
+-- goat_shed_partitions/shed_partitions as the grouping bridge.
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.vaccination_drive_assignments vda
+SET shed_id = ep.exact_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE vda.tenant_id = ep.tenant_id
+  AND vda.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vda.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.vaccination_eligibility_rollups ver
+SET shed_id = ep.exact_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE ver.tenant_id = ep.tenant_id
+  AND ver.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ver.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.verification_items vi
+SET shed_id = ep.exact_shed_id,
+    updated_at = now(),
+    row_version = vi.row_version + 1
+FROM exact_partition ep
+WHERE vi.tenant_id = ep.tenant_id
+  AND vi.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.health_cases hc
+SET shed_id = ep.exact_shed_id,
+    updated_at = now(),
+    row_version = hc.row_version + 1
+FROM exact_partition ep
+WHERE hc.tenant_id = ep.tenant_id
+  AND hc.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(hc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.feed_transport_tasks ftt
+SET shed_id = ep.exact_shed_id,
+    updated_at = now(),
+    row_version = ftt.row_version + 1
+FROM exact_partition ep
+WHERE ftt.tenant_id = ep.tenant_id
+  AND ftt.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ftt.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+ALTER TABLE public.feed_distribution_completions
+  DROP CONSTRAINT IF EXISTS feed_distribution_completions_weight_proof_check;
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.feed_distribution_completions fdc
+SET shed_id = ep.exact_shed_id,
+    updated_at = now(),
+    row_version = fdc.row_version + 1
+FROM exact_partition ep
+WHERE fdc.tenant_id = ep.tenant_id
+  AND fdc.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+ALTER TABLE public.feed_distribution_completions
+  ADD CONSTRAINT feed_distribution_completions_weight_proof_check
+  CHECK (
+    status <> 'pending_verification'
+    OR (feed_weight_proof_ref IS NOT NULL AND btrim(feed_weight_proof_ref) <> '')
+  ) NOT VALID;
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.feed_packing_completions fpc
+SET shed_id = ep.exact_shed_id,
+    updated_at = now(),
+    row_version = fpc.row_version + 1
+FROM exact_partition ep
+WHERE fpc.tenant_id = ep.tenant_id
+  AND fpc.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fpc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.feed_direction_issue_rows fdir
+SET shed_id = ep.exact_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE fdir.tenant_id = ep.tenant_id
+  AND fdir.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdir.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.feed_experiment_config fec
+SET shed_id = ep.exact_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE fec.tenant_id = ep.tenant_id
+  AND fec.shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fec.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.weighing_campaign_sheds wcs
+SET location_id = ep.exact_shed_id,
+    location_type = 'shed',
+    updated_at = now()
+FROM exact_partition ep
+WHERE wcs.tenant_id = ep.tenant_id
+  AND wcs.location_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(wcs.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
 
 -- Block cutover if a live partitioned goat cannot be mapped exactly.
 DO $$
@@ -472,12 +702,12 @@ BEGIN
     AND sp.operational_location_id IS NULL;
 
   IF unmapped_count <> 0 THEN
-    RAISE EXCEPTION 'live_partitioned_goats_unmapped: % live goats have no operational pen mapping', unmapped_count;
+    RAISE EXCEPTION 'live_partitioned_goats_unmapped: % live goats have no operational shed mapping', unmapped_count;
   END IF;
 END $$;
 
 -- Guard the exact partition residence invariant: every live goat with partition
--- evidence must point to that partition's mapped pen, and its rollup shed must
+-- evidence must point to that partition's mapped shed, and its group shed must
 -- match the partition evidence. This catches stale/cross-shed evidence instead
 -- of silently leaving the animal at a bare or mismatched shed.
 DO $$
@@ -499,12 +729,13 @@ BEGIN
    AND parent.location_id = sp.shed_id
    AND parent.location_type = 'shed'
    AND parent.status = 'active'
-  JOIN public.locations pen
-    ON pen.tenant_id = sp.tenant_id
-   AND pen.location_id = sp.operational_location_id
-   AND pen.location_type = 'pen'
-   AND pen.parent_location_id = sp.shed_id
-   AND pen.status = 'active'
+	  JOIN public.locations pen
+	    ON pen.tenant_id = sp.tenant_id
+	   AND pen.location_id = sp.operational_location_id
+	   AND pen.location_type = 'shed'
+	   AND pen.parent_location_id = parent.parent_location_id
+	   AND pen.location_id <> sp.shed_id
+	   AND pen.status = 'active'
   WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
     AND g.merged_into_goat_id IS NULL
     AND (
@@ -514,7 +745,7 @@ BEGIN
     );
 
   IF bad_count <> 0 THEN
-    RAISE EXCEPTION 'live_partitioned_goats_exact_residence_failed: % live goats do not match goat_shed_partitions mapped pen', bad_count;
+    RAISE EXCEPTION 'live_partitioned_goats_exact_residence_failed: % live goats do not match goat_shed_partitions mapped shed', bad_count;
   END IF;
 END $$;
 
@@ -534,18 +765,9 @@ BEGIN
   WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
     AND g.merged_into_goat_id IS NULL
     AND NOT (
-      (
-        cur.location_type = 'pen'
-        AND cur.location_id = g.shed_id
-        AND g.shed_group_id = cur.parent_location_id
-        AND shed.location_id = cur.location_id
-      )
-      OR (
-        cur.location_type = 'shed'
-        AND cur.location_id = g.shed_id
-        AND g.shed_group_id IS NULL
-        AND shed.parent_location_id = g.park_id
-      )
+      cur.location_type = 'shed'
+      AND cur.location_id = g.shed_id
+      AND shed.parent_location_id = g.park_id
     );
 
   IF bad_count <> 0 THEN
@@ -619,8 +841,9 @@ BEGIN
           updated_at = now()
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'active';
     END IF;
 
@@ -629,8 +852,9 @@ BEGIN
       FROM public.locations pen
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'inactive'
     )
     INTO mapped_valid;
@@ -675,8 +899,10 @@ BEGIN
           is_quarantine = EXCLUDED.is_quarantine,
           is_icu = EXCLUDED.is_icu,
           display_order = EXCLUDED.display_order,
-          notes = EXCLUDED.notes,
-          updated_at = now();
+	          notes = EXCLUDED.notes,
+	          updated_at = now();
+
+      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
       RETURN NEW;
     END IF;
@@ -723,13 +949,26 @@ BEGIN
         NEW.tenant_id, OLD.shed_id, OLD.partition_label;
     END IF;
 
+    IF TG_OP = 'UPDATE'
+      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
+      AND (
+        NEW.shed_id IS DISTINCT FROM OLD.shed_id
+        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
+        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
+      ) THEN
+      NEW.operational_location_id := NULL;
+    END IF;
+  END IF;
+
+  IF NEW.operational_location_id IS NOT NULL THEN
     SELECT EXISTS (
       SELECT 1
       FROM public.locations pen
       WHERE pen.tenant_id = NEW.tenant_id
         AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = NEW.shed_id
-        AND pen.location_type = 'pen'
+        AND pen.parent_location_id = parent_row.parent_location_id
+        AND pen.location_type = 'shed'
+        AND pen.location_id <> NEW.shed_id
         AND pen.status = 'active'
     )
     INTO mapped_valid;
@@ -774,26 +1013,25 @@ BEGIN
           is_quarantine = EXCLUDED.is_quarantine,
           is_icu = EXCLUDED.is_icu,
           display_order = EXCLUDED.display_order,
-          notes = EXCLUDED.notes,
-          updated_at = now();
+	          notes = EXCLUDED.notes,
+	          updated_at = now();
+
+      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
       RETURN NEW;
     END IF;
 
-    IF TG_OP = 'UPDATE' AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id THEN
-      NEW.operational_location_id := NULL;
-    ELSE
-      RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
-        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
-    END IF;
+    RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
+      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
   END IF;
 
   SELECT count(*), (array_agg(pen.location_id ORDER BY pen.location_id))[1]
   INTO candidate_count, candidate_id
   FROM public.locations pen
   WHERE pen.tenant_id = NEW.tenant_id
-    AND pen.parent_location_id = NEW.shed_id
-    AND pen.location_type = 'pen'
+    AND pen.parent_location_id = parent_row.parent_location_id
+    AND pen.location_type = 'shed'
+    AND pen.location_id <> NEW.shed_id
     AND pen.status = 'active'
     AND (
       lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
@@ -819,10 +1057,10 @@ BEGIN
       operational_notes
     ) VALUES (
       NEW.tenant_id,
-      'pen',
+      'shed',
       NULL,
       operational_location_display(parent_row.name, display_partition_label),
-      NEW.shed_id,
+      parent_row.parent_location_id,
       parent_row.country,
       parent_row.timezone,
       'active',
@@ -873,8 +1111,10 @@ BEGIN
       is_quarantine = EXCLUDED.is_quarantine,
       is_icu = EXCLUDED.is_icu,
       display_order = EXCLUDED.display_order,
-      notes = EXCLUDED.notes,
-      updated_at = now();
+	      notes = EXCLUDED.notes,
+	      updated_at = now();
+
+  PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
   IF TG_OP = 'UPDATE'
     AND OLD.operational_location_id IS NOT NULL
@@ -912,6 +1152,7 @@ DROP TRIGGER IF EXISTS locations_active_parent_trg ON public.locations;
 DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON public.shed_partitions;
 DROP FUNCTION IF EXISTS public.operational_location_display(text, text);
 DROP FUNCTION IF EXISTS public.shed_partition_lock_key(uuid, uuid, text);
+DROP FUNCTION IF EXISTS public.copy_shed_partition_profile(uuid, uuid, uuid);
 DROP FUNCTION IF EXISTS public.reject_active_location_under_inactive_parent();
 DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
 
@@ -925,8 +1166,164 @@ FROM public.shed_partitions sp
 WHERE g.tenant_id = sp.tenant_id
   AND g.current_location_id = sp.operational_location_id
   AND g.shed_id = sp.operational_location_id
-  AND g.shed_group_id = sp.shed_id;
+	  AND g.shed_group_id = sp.shed_id;
 RESET lock_timeout;
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.vaccination_drive_assignments vda
+SET shed_id = ep.group_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE vda.tenant_id = ep.tenant_id
+  AND vda.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vda.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.vaccination_eligibility_rollups ver
+SET shed_id = ep.group_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE ver.tenant_id = ep.tenant_id
+  AND ver.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ver.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.verification_items vi
+SET shed_id = ep.group_shed_id,
+    updated_at = now(),
+    row_version = vi.row_version + 1
+FROM exact_partition ep
+WHERE vi.tenant_id = ep.tenant_id
+  AND vi.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.health_cases hc
+SET shed_id = ep.group_shed_id,
+    updated_at = now(),
+    row_version = hc.row_version + 1
+FROM exact_partition ep
+WHERE hc.tenant_id = ep.tenant_id
+  AND hc.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(hc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.feed_transport_tasks ftt
+SET shed_id = ep.group_shed_id,
+    updated_at = now(),
+    row_version = ftt.row_version + 1
+FROM exact_partition ep
+WHERE ftt.tenant_id = ep.tenant_id
+  AND ftt.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ftt.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+ALTER TABLE public.feed_distribution_completions
+  DROP CONSTRAINT IF EXISTS feed_distribution_completions_weight_proof_check;
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.feed_distribution_completions fdc
+SET shed_id = ep.group_shed_id,
+    updated_at = now(),
+    row_version = fdc.row_version + 1
+FROM exact_partition ep
+WHERE fdc.tenant_id = ep.tenant_id
+  AND fdc.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+ALTER TABLE public.feed_distribution_completions
+  ADD CONSTRAINT feed_distribution_completions_weight_proof_check
+  CHECK (
+    status <> 'pending_verification'
+    OR (feed_weight_proof_ref IS NOT NULL AND btrim(feed_weight_proof_ref) <> '')
+  ) NOT VALID;
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.feed_packing_completions fpc
+SET shed_id = ep.group_shed_id,
+    updated_at = now(),
+    row_version = fpc.row_version + 1
+FROM exact_partition ep
+WHERE fpc.tenant_id = ep.tenant_id
+  AND fpc.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fpc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.feed_direction_issue_rows fdir
+SET shed_id = ep.group_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE fdir.tenant_id = ep.tenant_id
+  AND fdir.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdir.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.feed_experiment_config fec
+SET shed_id = ep.group_shed_id,
+    updated_at = now()
+FROM exact_partition ep
+WHERE fec.tenant_id = ep.tenant_id
+  AND fec.shed_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fec.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.weighing_campaign_sheds wcs
+SET location_id = ep.group_shed_id,
+    location_type = 'shed',
+    updated_at = now()
+FROM exact_partition ep
+WHERE wcs.tenant_id = ep.tenant_id
+  AND wcs.location_id = ep.exact_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(wcs.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
 
 ALTER TABLE public.shed_partitions
   DROP CONSTRAINT IF EXISTS shed_partitions_operational_location_fk;
@@ -935,14 +1332,24 @@ DELETE FROM public.location_operational_attributes loa
 USING public.locations pen
 WHERE loa.tenant_id = pen.tenant_id
   AND loa.location_id = pen.location_id
-  AND pen.location_type = 'pen'
+  AND pen.location_type = 'shed'
   AND pen.operational_notes IN (
     'Created by migration 000152 from shed_partitions parent+partition mapping',
     'Created from active shed_partitions row'
   );
 
+DELETE FROM public.shed_profiles sp
+USING public.locations loc
+WHERE sp.tenant_id = loc.tenant_id
+  AND sp.location_id = loc.location_id
+  AND loc.location_type = 'shed'
+  AND loc.operational_notes IN (
+    'Created by migration 000152 from shed_partitions parent+partition mapping',
+    'Created from active shed_partitions row'
+  );
+
 DELETE FROM public.locations pen
-WHERE pen.location_type = 'pen'
+WHERE pen.location_type = 'shed'
   AND pen.operational_notes IN (
     'Created by migration 000152 from shed_partitions parent+partition mapping',
     'Created from active shed_partitions row'

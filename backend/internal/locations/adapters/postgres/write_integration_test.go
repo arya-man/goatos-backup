@@ -114,14 +114,12 @@ func TestLocationWritePathWithDockerPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("shed operational update cascades to mapped active partition pens", func(t *testing.T) {
+	t.Run("shed operational update cascades to mapped active partition sheds", func(t *testing.T) {
 		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-pen-op-cascade-shed", "Synthetic Pen Cascade Shed"))
 		if err != nil {
 			t.Fatalf("CreateLocation shed: %v", err)
 		}
 		penCmd := createLocationCommand("idem-location-pen-op-cascade-pen", "Synthetic Pen Cascade Shed - Part 1")
-		penCmd.LocationType = "pen"
-		penCmd.ParentLocationID = stringPtr(created.Location.LocationID)
 		pen, err := repo.CreateLocation(ctx, penCmd)
 		if err != nil {
 			t.Fatalf("CreateLocation pen: %v", err)
@@ -170,14 +168,12 @@ WHERE tenant_id=$1::uuid AND location_id=$2::uuid`,
 		}
 	})
 
-	t.Run("retire blocks empty mapped partition pen", func(t *testing.T) {
+	t.Run("retire blocks empty mapped partition shed", func(t *testing.T) {
 		created, err := repo.CreateLocation(ctx, createLocationCommand("idem-location-retire-mapped-shed", "Synthetic Retire Mapped Shed"))
 		if err != nil {
 			t.Fatalf("CreateLocation shed: %v", err)
 		}
 		penCmd := createLocationCommand("idem-location-retire-mapped-pen", "Synthetic Retire Mapped Shed - Part 1")
-		penCmd.LocationType = "pen"
-		penCmd.ParentLocationID = stringPtr(created.Location.LocationID)
 		pen, err := repo.CreateLocation(ctx, penCmd)
 		if err != nil {
 			t.Fatalf("CreateLocation pen: %v", err)
@@ -197,10 +193,10 @@ INSERT INTO shed_partitions (
 			RequestHash:          "sha256:retire-mapped-pen",
 			TraceID:              "trace-retire-mapped-pen",
 			LocationID:           pen.Location.LocationID,
-			Reason:               "Synthetic empty mapped pen should still block.",
+			Reason:               "Synthetic empty mapped partition shed should still block.",
 			RowVersion:           pen.Location.RowVersion,
 		}); !errors.Is(err, ports.ErrBlockingUsage) {
-			t.Fatalf("expected mapped pen retirement to block, got %v", err)
+			t.Fatalf("expected mapped partition shed retirement to block, got %v", err)
 		}
 	})
 

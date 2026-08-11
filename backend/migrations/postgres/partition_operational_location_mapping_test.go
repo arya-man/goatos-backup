@@ -18,17 +18,17 @@ func TestPartitionOperationalLocationMappingMovesOnlyPartitionedLiveGoats(t *tes
 	defer pool.Close()
 
 	const (
-		tenant           = "f1480000-0000-4000-8000-000000000001"
-		custodian        = "f1480000-0000-4000-8000-000000000002"
-		park             = "f1480000-0000-4000-8000-000000000003"
-		godelOne         = "f1480000-0000-4000-8000-000000000004"
-		castroOne        = "f1480000-0000-4000-8000-000000000005"
-		partitionedGoat  = "f1480000-0000-4000-8000-000000000006"
-		undividedGoat    = "f1480000-0000-4000-8000-000000000007"
-		activeRetiredPen = "f1480000-0000-4000-8000-000000000008"
-		isolationPen     = "f1480000-0000-4000-8000-000000000009"
-		bareShed         = "f1480000-0000-4000-8000-000000000010"
-		bareGoat         = "f1480000-0000-4000-8000-000000000011"
+		tenant            = "f1480000-0000-4000-8000-000000000001"
+		custodian         = "f1480000-0000-4000-8000-000000000002"
+		park              = "f1480000-0000-4000-8000-000000000003"
+		godelOne          = "f1480000-0000-4000-8000-000000000004"
+		castroOne         = "f1480000-0000-4000-8000-000000000005"
+		partitionedGoat   = "f1480000-0000-4000-8000-000000000006"
+		undividedGoat     = "f1480000-0000-4000-8000-000000000007"
+		activeRetiredShed = "f1480000-0000-4000-8000-000000000008"
+		isolationShed     = "f1480000-0000-4000-8000-000000000009"
+		bareShed          = "f1480000-0000-4000-8000-000000000010"
+		bareGoat          = "f1480000-0000-4000-8000-000000000011"
 	)
 
 	exec := func(sql string, args ...any) {
@@ -57,11 +57,11 @@ VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, godelOn
 	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
 VALUES ($1::uuid, $2::uuid, 'Part 2', '2', 'retired', 'manual')`, tenant, godelOne)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Godel 1 - Part 2', 'active')`,
-		tenant, activeRetiredPen, godelOne)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 - Part 2', 'inactive')`,
+		tenant, activeRetiredShed, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Isolation - Part 1', 'active')`,
-		tenant, isolationPen, godelOne)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Isolation - Part 1', 'active')`,
+		tenant, isolationShed, park)
 	exec(`INSERT INTO goats (
   goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id,
   current_location_id, park_id, shed_id
@@ -94,8 +94,8 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	if currentLocationID == godelOne {
 		t.Fatalf("partitioned goat current_location_id stayed on parent shed %s", godelOne)
 	}
-	if currentLocationID == isolationPen {
-		t.Fatalf("partitioned goat current_location_id reused unrelated numbered pen %s", isolationPen)
+	if currentLocationID == isolationShed {
+		t.Fatalf("partitioned goat current_location_id reused unrelated numbered shed %s", isolationShed)
 	}
 	if shedID != currentLocationID {
 		t.Fatalf("partitioned goat shed_id=%s, want exact partition location %s", shedID, currentLocationID)
@@ -103,8 +103,8 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	if shedGroupID != godelOne {
 		t.Fatalf("partitioned goat shed_group_id=%s, want parent group %s", shedGroupID, godelOne)
 	}
-	if currentType != "pen" || parentID != godelOne {
-		t.Fatalf("partitioned goat current location type/parent = %s/%s, want pen/%s", currentType, parentID, godelOne)
+	if currentType != "shed" || parentID != park {
+		t.Fatalf("partitioned goat current location type/parent = %s/%s, want shed/%s", currentType, parentID, park)
 	}
 	var penName string
 	if err := pool.QueryRow(ctx, `
@@ -116,7 +116,7 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 		t.Fatalf("query partitioned goat location name: %v", err)
 	}
 	if penName != "Godel 1 - Part 1" {
-		t.Fatalf("partitioned goat mapped to pen name %q, want %q", penName, "Godel 1 - Part 1")
+		t.Fatalf("partitioned goat mapped to shed name %q, want %q", penName, "Godel 1 - Part 1")
 	}
 
 	if err := pool.QueryRow(ctx, `
@@ -130,20 +130,20 @@ WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, undividedGoat).
 		t.Fatalf("undivided goat got remapped to current=%s shed=%s, want both %s", currentLocationID, shedID, castroOne)
 	}
 
-	var retiredPenID, retiredPenStatus string
+	var retiredShedID, retiredShedStatus string
 	if err := pool.QueryRow(ctx, `
 SELECT sp.operational_location_id::text, pen.status
 FROM shed_partitions sp
 JOIN locations pen ON pen.tenant_id=sp.tenant_id AND pen.location_id=sp.operational_location_id
 WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='2'`,
-		tenant, godelOne).Scan(&retiredPenID, &retiredPenStatus); err != nil {
+		tenant, godelOne).Scan(&retiredShedID, &retiredShedStatus); err != nil {
 		t.Fatalf("query retired partition mapping: %v", err)
 	}
-	if retiredPenID == "" || retiredPenStatus != "inactive" {
-		t.Fatalf("retired partition mapped to pen=%q status=%q, want inactive pen mapping", retiredPenID, retiredPenStatus)
+	if retiredShedID == "" || retiredShedStatus != "inactive" {
+		t.Fatalf("retired partition mapped to shed=%q status=%q, want inactive shed mapping", retiredShedID, retiredShedStatus)
 	}
-	if retiredPenID == activeRetiredPen {
-		t.Fatalf("retired partition reused active pen %s; want a separate inactive mapping", activeRetiredPen)
+	if retiredShedID != activeRetiredShed {
+		t.Fatalf("retired partition mapped to %s; want existing inactive shed %s", retiredShedID, activeRetiredShed)
 	}
 
 	if _, err := pool.Exec(ctx, `INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
@@ -173,33 +173,33 @@ WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='1'`,
 
 	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
 VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')`, tenant, godelOne)
-	var futurePenID, futurePenStatus string
+	var futureShedID, futureShedStatus string
 	if err := pool.QueryRow(ctx, `
 SELECT sp.operational_location_id::text, pen.status
 FROM shed_partitions sp
 JOIN locations pen ON pen.tenant_id=sp.tenant_id AND pen.location_id=sp.operational_location_id
 WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`,
-		tenant, godelOne).Scan(&futurePenID, &futurePenStatus); err != nil {
+		tenant, godelOne).Scan(&futureShedID, &futureShedStatus); err != nil {
 		t.Fatalf("query future active partition mapping: %v", err)
 	}
-	if futurePenID == "" || futurePenStatus != "active" {
-		t.Fatalf("future active partition mapped to pen=%q status=%q, want active pen mapping", futurePenID, futurePenStatus)
+	if futureShedID == "" || futureShedStatus != "active" {
+		t.Fatalf("future active partition mapped to shed=%q status=%q, want active shed mapping", futureShedID, futureShedStatus)
 	}
 	exec(`UPDATE shed_partitions
 SET shed_id=$3::uuid
 WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='3'`,
 		tenant, godelOne, castroOne)
-	var reparentedPenID, reparentedPenParent string
+	var reparentedShedID, reparentedShedParent string
 	if err := pool.QueryRow(ctx, `
 SELECT sp.operational_location_id::text, pen.parent_location_id::text
 FROM shed_partitions sp
 JOIN locations pen ON pen.tenant_id=sp.tenant_id AND pen.location_id=sp.operational_location_id
 WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`,
-		tenant, castroOne).Scan(&reparentedPenID, &reparentedPenParent); err != nil {
+		tenant, castroOne).Scan(&reparentedShedID, &reparentedShedParent); err != nil {
 		t.Fatalf("query reparented active partition mapping: %v", err)
 	}
-	if reparentedPenID == futurePenID || reparentedPenParent != castroOne {
-		t.Fatalf("reparented partition kept stale pen=%s parent=%s; want new pen under %s", reparentedPenID, reparentedPenParent, castroOne)
+	if reparentedShedID == futureShedID || reparentedShedParent != park {
+		t.Fatalf("reparented partition kept stale shed=%s parent=%s; want new partition shed under park %s", reparentedShedID, reparentedShedParent, park)
 	}
 
 	exec(`UPDATE goats SET lifecycle_status='sold' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat)
@@ -251,7 +251,7 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1', 'active')`, tenant, shed, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Godel 1 - Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", shed)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 - Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", park)
 
 	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
@@ -271,40 +271,40 @@ VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, shed)
 		t.Fatalf("migrate up after down failed: %v", err)
 	}
 
-	var penCount int
+	var partitionShedCount int
 	if err := pool.QueryRow(ctx, `
-SELECT count(*)
-FROM locations
-WHERE tenant_id=$1::uuid
-  AND parent_location_id=$2::uuid
-  AND location_type='pen'
-  AND name = operational_location_display('Godel 1', 'Part 1')
-  AND status='active'`, tenant, shed).Scan(&penCount); err != nil {
-		t.Fatalf("query pen count failed: %v", err)
+	SELECT count(*)
+	FROM locations
+	WHERE tenant_id=$1::uuid
+	  AND parent_location_id=$2::uuid
+	  AND location_type='shed'
+	  AND name = operational_location_display('Godel 1', 'Part 1')
+	  AND status='active'`, tenant, park).Scan(&partitionShedCount); err != nil {
+		t.Fatalf("query partition shed count failed: %v", err)
 	}
-	if penCount != 1 {
-		t.Fatalf("expected one active mapped pen after up-down-up, got %d", penCount)
+	if partitionShedCount != 1 {
+		t.Fatalf("expected one active mapped partition shed after up-down-up, got %d", partitionShedCount)
 	}
 
-	var spPenID string
+	var spShedID string
 	if err := pool.QueryRow(ctx, `
-SELECT sp.operational_location_id::text
-FROM shed_partitions sp
-WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='1'`, tenant, shed).
-		Scan(&spPenID); err != nil {
+	SELECT sp.operational_location_id::text
+	FROM shed_partitions sp
+	WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='1'`, tenant, shed).
+		Scan(&spShedID); err != nil {
 		t.Fatalf("query partition mapping failed: %v", err)
 	}
-	var penID string
+	var partitionShedID string
 	if err := pool.QueryRow(ctx, `
-SELECT location_id::text
-FROM locations
-WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid
-  AND name = operational_location_display('Godel 1', 'Part 1')
-  AND location_type='pen'`, tenant, shed).Scan(&penID); err != nil {
-		t.Fatalf("query pen id failed: %v", err)
+	SELECT location_id::text
+	FROM locations
+	WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid
+	  AND name = operational_location_display('Godel 1', 'Part 1')
+	  AND location_type='shed'`, tenant, park).Scan(&partitionShedID); err != nil {
+		t.Fatalf("query partition shed id failed: %v", err)
 	}
-	if spPenID != penID {
-		t.Fatalf("partition mapped to %s, expected %s", spPenID, penID)
+	if spShedID != partitionShedID {
+		t.Fatalf("partition mapped to %s, expected %s", spShedID, partitionShedID)
 	}
 }
 
@@ -319,7 +319,7 @@ func TestShedPartitionOperationalLocationTriggerRejectsInvalidAndSerializes(t *t
 		park           = "f1490000-0000-4000-8000-000000000002"
 		activeShed     = "f1490000-0000-4000-8000-000000000003"
 		inactiveShed   = "f1490000-0000-4000-8000-000000000004"
-		activePen      = "f1490000-0000-4000-8000-000000000005"
+		activePartShed = "f1490000-0000-4000-8000-000000000005"
 		concurrentShed = "f1490000-0000-4000-8000-000000000006"
 	)
 
@@ -346,8 +346,8 @@ VALUES ($1::uuid, $2::uuid, $5::uuid, 'shed', 'Valid Shed', 'active'),
        ($1::uuid, $4::uuid, $5::uuid, 'shed', 'Concurrent Shed', 'active')`,
 		tenant, activeShed, inactiveShed, concurrentShed, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Valid Shed - Part 9', 'active')`,
-		tenant, activePen, activeShed)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Valid Shed - Part 9', 'active')`,
+		tenant, activePartShed, park)
 
 	expectErr(`INSERT INTO shed_partitions (
   tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id
@@ -357,8 +357,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Valid Shed - Part 9', 'active')`,
 VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, inactiveShed)
 	expectErr(`INSERT INTO shed_partitions (
   tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id
-) VALUES ($1::uuid, $2::uuid, 'Part 9', '9', 'retired', 'manual', $3::uuid)`,
-		tenant, activeShed, activePen)
+	) VALUES ($1::uuid, $2::uuid, 'Part 9', '9', 'retired', 'manual', $3::uuid)`,
+		tenant, activeShed, activePartShed)
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -385,20 +385,20 @@ ON CONFLICT DO NOTHING`,
 		}
 	}
 
-	var penCount int
+	var partitionShedCount int
 	if err := pool.QueryRow(ctx, `
-SELECT count(*)
-FROM locations
-WHERE tenant_id=$1::uuid
-  AND parent_location_id=$2::uuid
-  AND location_type='pen'
-  AND status='active'
-  AND lower(name)=lower('Concurrent Shed - Part 1')`,
-		tenant, concurrentShed).Scan(&penCount); err != nil {
-		t.Fatalf("query concurrent pens: %v", err)
+	SELECT count(*)
+	FROM locations
+	WHERE tenant_id=$1::uuid
+	  AND parent_location_id=$2::uuid
+	  AND location_type='shed'
+	  AND status='active'
+	  AND lower(name)=lower('Concurrent Shed - Part 1')`,
+		tenant, park).Scan(&partitionShedCount); err != nil {
+		t.Fatalf("query concurrent partition sheds: %v", err)
 	}
-	if penCount != 1 {
-		t.Fatalf("concurrent partition insert created %d pens, want exactly 1", penCount)
+	if partitionShedCount != 1 {
+		t.Fatalf("concurrent partition insert created %d partition sheds, want exactly 1", partitionShedCount)
 	}
 }
 
@@ -450,14 +450,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 9', 'active')`,
 	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
 VALUES ($1::uuid, $2::uuid, 'Part 10', $3::text, 'active', 'manual')`, tenant, shed, normalized)
 
-	var penID string
+	var partitionShedID string
 	if err := pool.QueryRow(ctx, `
 SELECT sp.operational_location_id::text
 FROM shed_partitions sp
 WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::text
   AND sp.status='active'`,
-		tenant, shed, normalized).Scan(&penID); err != nil {
-		t.Fatalf("query partition pen: %v", err)
+		tenant, shed, normalized).Scan(&partitionShedID); err != nil {
+		t.Fatalf("query partition shed: %v", err)
 	}
 
 	placementReady := make(chan struct{})
@@ -483,13 +483,13 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::
 			placeErrCh <- err
 			return
 		}
-		var lockedPenID string
+		var lockedPartitionShedID string
 		if err := tx.QueryRow(ctx, `
 SELECT sp.operational_location_id::text
 FROM shed_partitions sp
 WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::text AND sp.status='active'
 FOR SHARE OF sp`,
-			tenant, shed, normalized).Scan(&lockedPenID); err != nil {
+			tenant, shed, normalized).Scan(&lockedPartitionShedID); err != nil {
 			_ = tx.Rollback(ctx)
 			placeErrCh <- err
 			return
@@ -506,7 +506,7 @@ FOR SHARE OF sp`,
 		if _, err := tx.Exec(ctx, `UPDATE goats
 SET current_location_id = $1::uuid
 WHERE tenant_id=$2::uuid AND goat_id=$3::uuid`,
-			lockedPenID, tenant, goatID); err != nil {
+			lockedPartitionShedID, tenant, goatID); err != nil {
 			_ = tx.Rollback(ctx)
 			placeErrCh <- err
 			return
@@ -629,8 +629,8 @@ FROM goats
 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, goatID).Scan(&finalLocation); err != nil {
 		t.Fatalf("query final goat location: %v", err)
 	}
-	if finalLocation != penID {
-		t.Fatalf("goat ended at %q, want partition pen %q", finalLocation, penID)
+	if finalLocation != partitionShedID {
+		t.Fatalf("goat ended at %q, want partition shed %q", finalLocation, partitionShedID)
 	}
 }
 

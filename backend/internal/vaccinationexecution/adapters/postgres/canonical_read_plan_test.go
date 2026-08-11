@@ -52,8 +52,8 @@ func TestCanonicalReadQueryPlans(t *testing.T) {
 			name: "operations list (vaccinationOperationsSQL)",
 			sql:  vaccinationOperationsSQL,
 			// $1 tenant, $2 asOf, $3 dueBefore, $4 park, $5 shed, $6 cursorPark, $7 cursorShed,
-			// $8 cursorStage, $9 limit, $10 cursorParkName, $11 cursorShedName
-			args: []any{testTenant, asOf, dueBefore, "", "", "", "", "", 21, "", ""},
+			// $8 cursorStage, $9 limit, $10 cursorParkName, $11 cursorShedName, $12 cursorPartitionLabel
+			args: []any{testTenant, asOf, dueBefore, "", "", "", "", "", 21, "", "", ""},
 		},
 		{
 			name: "shed summary (shedSummaryCanonicalReadSQL)",
@@ -67,13 +67,13 @@ func TestCanonicalReadQueryPlans(t *testing.T) {
 			sql:  vaccinationScheduleWindowSQL,
 			// $1 tenant, $2 asOf, $3 monthStart, $4 monthEnd, $5 park, $6 cursorPark,
 			// $7 cursorShed, $8 cursorStage, $9 cursorParkName, $10 cursorShedName,
-			// $11 limit, $12 authorizedParks
+			// $11 limit, $12 authorizedParks, $13 cursorPartitionLabel
 			args: []any{
 				testTenant,
 				asOf,
 				time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 				time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-				"", "", "", "", "", "", 50, nil,
+				"", "", "", "", "", "", 50, nil, "",
 			},
 		},
 	}
