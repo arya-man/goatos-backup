@@ -27,12 +27,16 @@ obs AS (
          lower(btrim(o.scanned_identifier)) AS tag_key,
          o.weight_kg, o.accepted_at, o.campaign_id,
          c.period_start_date,
-         cs.location_id AS shed_id, cs.display_name AS shed_label
+         cs.location_id AS shed_id, cs.display_name AS shed_label,
+         COALESCE(cs.partition_label, '') AS partition_label,
+         COALESCE(pk.name, '') AS park_name
   FROM weighing_observations o
   JOIN weighing_campaigns c
     ON c.tenant_id = o.tenant_id AND c.campaign_id = o.campaign_id
   LEFT JOIN weighing_campaign_sheds cs
     ON cs.tenant_id = o.tenant_id AND cs.campaign_shed_id = o.campaign_shed_id
+  LEFT JOIN locations pk
+    ON pk.tenant_id = o.tenant_id AND pk.location_id = c.park_id
   WHERE o.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND c.status <> 'canceled'
@@ -47,7 +51,8 @@ obs AS (
 const roundLatestCTE = `
 round_latest AS (
   SELECT DISTINCT ON (tag_key, campaign_id)
-         tag_key, campaign_id, period_start_date, weight_kg, accepted_at, observation_id, shed_id, shed_label
+         tag_key, campaign_id, period_start_date, weight_kg, accepted_at, observation_id,
+         shed_id, shed_label, partition_label, park_name
   FROM obs
   ORDER BY tag_key, campaign_id, accepted_at DESC, observation_id DESC
 )`
@@ -62,8 +67,10 @@ pairs AS (
          (array_agg(accepted_at ORDER BY period_start_date, accepted_at, observation_id))[1]              AS t_first,
          (array_agg(weight_kg   ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS w_last,
          (array_agg(accepted_at ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS t_last,
-         (array_agg(shed_id     ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS shed_id,
-         (array_agg(shed_label  ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS shed_label
+         (array_agg(shed_id         ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1] AS shed_id,
+         (array_agg(shed_label      ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1] AS shed_label,
+         (array_agg(partition_label ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1] AS partition_label,
+         (array_agg(park_name       ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1] AS park_name
   FROM round_latest
   GROUP BY tag_key
   HAVING count(*) >= 2

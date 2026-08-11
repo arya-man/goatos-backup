@@ -18530,11 +18530,14 @@ components:
     GrowthDirectorFairFightShed:
       type: object
       additionalProperties: false
-      required: [location_id, shed_display_name, pair_identities, median_adg_g_per_day]
+      required: [location_id, operational_key, shed_display_name, pair_identities, median_adg_g_per_day]
       properties:
         location_id:
           type: string
           format: uuid
+        operational_key:
+          type: string
+          description: Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed).
         shed_display_name:
           type: string
         pair_identities:
@@ -18566,6 +18569,7 @@ components:
       additionalProperties: false
       required:
         - location_id
+        - operational_key
         - shed_display_name
         - breed
         - sex
@@ -18577,6 +18581,9 @@ components:
         location_id:
           type: string
           format: uuid
+        operational_key:
+          type: string
+          description: Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed).
         shed_display_name:
           type: string
         breed:

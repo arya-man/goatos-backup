@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // fairFight compares the same (breed, sex) across sheds. A cohort renders only
@@ -40,15 +42,18 @@ cohorted AS (
 ` + breedSexJoin + `
 ),
 shed_cohort AS (
-  SELECT breed, sex, shed_id, shed_label,
+  -- Grain is the OPERATIONAL location (shed + partition): per
+  -- docs/decisions/partition-is-operational-shed.md each partition IS the shed
+  -- for operator work, so two partitions of one location are two rows here.
+  SELECT breed, sex, shed_id, shed_label, partition_label, park_name,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day) AS median_adg_g_day,
          count(*) AS pair_identity_count
   FROM cohorted
   WHERE shed_id IS NOT NULL
-  GROUP BY breed, sex, shed_id, shed_label
+  GROUP BY breed, sex, shed_id, shed_label, partition_label, park_name
   HAVING count(*) >= 3                 -- a median of 2 is a coin flip
 )
-SELECT breed, sex, shed_id::text, COALESCE(shed_label, ''), pair_identity_count, median_adg_g_day
+SELECT breed, sex, shed_id::text, COALESCE(shed_label, ''), COALESCE(partition_label, ''), COALESCE(park_name, ''), pair_identity_count, median_adg_g_day
 FROM (
   SELECT sc.*, count(*) OVER (PARTITION BY breed, sex) AS sheds_in_cohort
   FROM shed_cohort sc
@@ -61,10 +66,10 @@ ORDER BY breed, sex, median_adg_g_day DESC`
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var breed, sex, shedID, shedLabel string
+		var breed, sex, shedID, shedLabel, partitionLabel, parkName string
 		var pairCount int
 		var median float64
-		if err := rows.Scan(&breed, &sex, &shedID, &shedLabel, &pairCount, &median); err != nil {
+		if err := rows.Scan(&breed, &sex, &shedID, &shedLabel, &partitionLabel, &parkName, &pairCount, &median); err != nil {
 			return out, err
 		}
 		n := len(out.Cohorts)
@@ -74,7 +79,8 @@ ORDER BY breed, sex, median_adg_g_day DESC`
 		}
 		out.Cohorts[n-1].Sheds = append(out.Cohorts[n-1].Sheds, domain.FairFightShed{
 			LocationID:       shedID,
-			ShedDisplayName:  shedLabel,
+			OperationalKey:   operationalKey(shedID, partitionLabel),
+			ShedDisplayName:  operationalLabel(parkName, shedLabel, partitionLabel),
 			PairIdentities:   pairCount,
 			MedianADGGPerDay: median,
 		})
@@ -99,7 +105,7 @@ func (r *Repository) slowGrowth(ctx context.Context, tenantID string, parkIDs []
 		return out, err
 	}
 	for i := range groups {
-		key := groups[i].LocationID + "|" + groups[i].Breed + "|" + groups[i].Sex
+		key := groups[i].OperationalKey + "|" + groups[i].Breed + "|" + groups[i].Sex
 		if delta, ok := deltas[key]; ok {
 			d := delta
 			groups[i].WeekOverWeekDeltaG = &d
@@ -134,15 +140,15 @@ cohorted AS (
   FROM adg a
 ` + breedSexJoin + `
 )
-SELECT shed_id::text, COALESCE(shed_label, ''), breed, sex,
+SELECT shed_id::text, COALESCE(shed_label, ''), COALESCE(partition_label, ''), COALESCE(park_name, ''), breed, sex,
        count(*) FILTER (WHERE NOT implausible) AS pair_count,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day)           FILTER (WHERE NOT implausible) AS median_adg_g_day,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_noise_adj_g_day) FILTER (WHERE NOT implausible) AS median_noise_adj_g_day
 FROM cohorted
 WHERE shed_id IS NOT NULL
-GROUP BY shed_id, shed_label, breed, sex
+GROUP BY shed_id, shed_label, partition_label, park_name, breed, sex
 HAVING count(*) FILTER (WHERE NOT implausible) >= 3
-ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, breed, sex`
+ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed, sex`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -151,10 +157,13 @@ ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, breed, sex`
 	groups := []domain.SlowGrowthGroup{}
 	for rows.Next() {
 		var g domain.SlowGrowthGroup
+		var partitionLabel, parkName string
 		var median, noiseAdj *float64
-		if err := rows.Scan(&g.LocationID, &g.ShedDisplayName, &g.Breed, &g.Sex, &g.PairIdentities, &median, &noiseAdj); err != nil {
+		if err := rows.Scan(&g.LocationID, &g.ShedDisplayName, &partitionLabel, &parkName, &g.Breed, &g.Sex, &g.PairIdentities, &median, &noiseAdj); err != nil {
 			return nil, err
 		}
+		g.OperationalKey = operationalKey(g.LocationID, partitionLabel)
+		g.ShedDisplayName = operationalLabel(parkName, g.ShedDisplayName, partitionLabel)
 		if median != nil {
 			g.MedianADGGPerDay = *median
 		}
@@ -189,7 +198,7 @@ func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, pa
 WITH ` + weighingObsCTE + `,
 ` + roundLatestCTE + `,
 consec AS (
-  SELECT tag_key, shed_id, period_start_date AS week_start,
+  SELECT tag_key, shed_id, partition_label, period_start_date AS week_start,
          weight_kg, accepted_at::date AS obs_date, observation_id,
          lag(weight_kg)          OVER w AS prev_w,
          lag(accepted_at::date)  OVER w AS prev_date
@@ -197,7 +206,7 @@ consec AS (
   WINDOW w AS (PARTITION BY tag_key ORDER BY period_start_date, accepted_at, observation_id)
 ),
 consec_adg AS (
-  SELECT tag_key, shed_id, week_start,
+  SELECT tag_key, shed_id, partition_label, week_start,
          (weight_kg - prev_w) * 1000.0 / (obs_date - prev_date) AS adg_g_day
   FROM consec
   WHERE prev_w IS NOT NULL
@@ -216,23 +225,23 @@ week_medians AS (
   -- it a group can look solid overall while its "vs last week" number is one
   -- kid's single pair. Weeks below the floor simply don't exist for the trend,
   -- so the delta stays absent rather than thin.
-  SELECT shed_id, breed, sex, week_start,
+  SELECT shed_id, COALESCE(partition_label, '') AS partition_label, breed, sex, week_start,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day) AS wk_median,
          count(*) AS wk_pairs,
-         row_number() OVER (PARTITION BY shed_id, breed, sex ORDER BY week_start DESC) AS wk_rn
+         row_number() OVER (PARTITION BY shed_id, partition_label, breed, sex ORDER BY week_start DESC) AS wk_rn
   FROM cohorted
   WHERE shed_id IS NOT NULL
-  GROUP BY shed_id, breed, sex, week_start
+  GROUP BY shed_id, partition_label, breed, sex, week_start
 ),
 solid_weeks AS (
-  SELECT *, row_number() OVER (PARTITION BY shed_id, breed, sex ORDER BY week_start DESC) AS solid_rn
+  SELECT *, row_number() OVER (PARTITION BY shed_id, partition_label, breed, sex ORDER BY week_start DESC) AS solid_rn
   FROM week_medians
   WHERE wk_pairs >= 3
 )
-SELECT cur.shed_id::text, cur.breed, cur.sex, (cur.wk_median - prev.wk_median)::float8 AS delta_g
+SELECT cur.shed_id::text, cur.partition_label, cur.breed, cur.sex, (cur.wk_median - prev.wk_median)::float8 AS delta_g
 FROM solid_weeks cur
 JOIN solid_weeks prev
-  ON prev.shed_id = cur.shed_id AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.solid_rn = 2
+  ON prev.shed_id = cur.shed_id AND prev.partition_label = cur.partition_label AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.solid_rn = 2
 WHERE cur.solid_rn = 1`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
 	if err != nil {
@@ -241,12 +250,36 @@ WHERE cur.solid_rn = 1`
 	defer rows.Close()
 	deltas := map[string]float64{}
 	for rows.Next() {
-		var shedID, breed, sex string
+		var shedID, partitionLabel, breed, sex string
 		var delta float64
-		if err := rows.Scan(&shedID, &breed, &sex, &delta); err != nil {
+		if err := rows.Scan(&shedID, &partitionLabel, &breed, &sex, &delta); err != nil {
 			return nil, err
 		}
-		deltas[shedID+"|"+breed+"|"+sex] = delta
+		deltas[operationalKey(shedID, partitionLabel)+"|"+breed+"|"+sex] = delta
 	}
 	return deltas, rows.Err()
+}
+
+// operationalKey is the stable identity of an operational location: parent shed
+// uuid plus normalized partition (docs/decisions/partition-is-operational-shed.md).
+func operationalKey(shedID, partitionLabel string) string {
+	return (oploc.OperationalLocation{ShedID: shedID, PartitionLabel: partitionLabel}).Key()
+}
+
+// operationalLabel renders the park-disambiguated operational display. Both
+// parks field identically-named sheds (a "Castro 1" exists in each), so a bare
+// shed label is ambiguous on any cross-park widget. The bucket display_name may
+// already carry the partition (legacy backfill rows) — appending again would
+// manufacture "Castro 1 - 1", so the partition is appended only when the label
+// does not already end with it.
+func operationalLabel(parkName, shedLabel, partitionLabel string) string {
+	label := strings.TrimSpace(shedLabel)
+	partition := strings.TrimSpace(partitionLabel)
+	if partition != "" && !strings.HasSuffix(label, partition) {
+		label = (oploc.OperationalLocation{ShedName: label, PartitionLabel: partition}).Display()
+	}
+	if parkName = strings.TrimSpace(parkName); parkName != "" {
+		return parkName + " · " + label
+	}
+	return label
 }

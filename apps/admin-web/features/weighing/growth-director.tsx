@@ -120,7 +120,7 @@ export function GrowthDirectorSection({
                 </p>
                 <WeightBars
                   data={cohort.sheds.map((shed) => ({
-                    key: shed.location_id,
+                    key: shed.operational_key,
                     label: `${shed.shed_display_name} (${nf(shed.pair_identities)} ${gd(pageContract, "fair_fight.pair_noun")})`,
                     value: shed.median_adg_g_per_day,
                   }))}
@@ -161,7 +161,7 @@ export function GrowthDirectorSection({
                 </thead>
                 <tbody>
                   {slowGrowth.groups.map((group) => (
-                    <tr key={`${group.location_id}-${group.breed}-${group.sex}`}>
+                    <tr key={`${group.operational_key}-${group.breed}-${group.sex}`}>
                       <td>{group.shed_display_name}</td>
                       <td>{group.breed}</td>
                       <td>{group.sex}</td>

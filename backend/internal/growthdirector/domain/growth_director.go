@@ -136,7 +136,10 @@ type FairFightCohort struct {
 
 // FairFightShed is one shed's showing inside a cohort.
 type FairFightShed struct {
-	LocationID       string  `json:"location_id"`
+	LocationID string `json:"location_id"`
+	// OperationalKey is the stable grouping identity: parent shed uuid plus
+	// normalized partition (partition IS the operational shed).
+	OperationalKey   string  `json:"operational_key"`
 	ShedDisplayName  string  `json:"shed_display_name"`
 	PairIdentities   int     `json:"pair_identities"`
 	MedianADGGPerDay float64 `json:"median_adg_g_per_day"`
@@ -156,7 +159,10 @@ type SlowGrowth struct {
 // distinct campaign weeks — two weeks of weighing are needed before a trend
 // exists.
 type SlowGrowthGroup struct {
-	LocationID         string   `json:"location_id"`
+	LocationID string `json:"location_id"`
+	// OperationalKey is the stable grouping identity: parent shed uuid plus
+	// normalized partition (partition IS the operational shed).
+	OperationalKey     string   `json:"operational_key"`
 	ShedDisplayName    string   `json:"shed_display_name"`
 	Breed              string   `json:"breed"`
 	Sex                string   `json:"sex"`
