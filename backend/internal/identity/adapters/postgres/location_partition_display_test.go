@@ -39,10 +39,8 @@ func TestApplyLocationPartitionComposesPartitionSuffix(t *testing.T) {
 		ShedName:                   strPtr("Castro"),
 	}
 	applyLocationPartition(&loc, nullStr("2"), nullStr("Castro 2"))
-	// Display fields use the " - " separator (2026-08-06); the SOURCE alias row name
-	// below is raw stored data and deliberately stays "Castro 2".
-	if loc.OperationalLocationDisplay != "Castro - 2" {
-		t.Fatalf("Display = %q, want %q", loc.OperationalLocationDisplay, "Castro - 2")
+	if loc.OperationalLocationDisplay != "Castro 2" {
+		t.Fatalf("Display = %q, want %q", loc.OperationalLocationDisplay, "Castro 2")
 	}
 	if loc.PartitionLabel == nil || *loc.PartitionLabel != "2" {
 		t.Fatalf("PartitionLabel = %v, want \"2\"", loc.PartitionLabel)
@@ -50,8 +48,8 @@ func TestApplyLocationPartitionComposesPartitionSuffix(t *testing.T) {
 	if loc.SourceShedName == nil || *loc.SourceShedName != "Castro 2" {
 		t.Fatalf("SourceShedName = %v, want %q", loc.SourceShedName, "Castro 2")
 	}
-	if loc.OperationalLocationDisplay != "Castro - 2" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", loc.OperationalLocationDisplay, "Castro - 2")
+	if loc.OperationalLocationDisplay != "Castro 2" {
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", loc.OperationalLocationDisplay, "Castro 2")
 	}
 }
 

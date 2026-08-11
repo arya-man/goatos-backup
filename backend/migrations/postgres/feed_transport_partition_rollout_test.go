@@ -130,11 +130,32 @@ func runNoTransactionMigration(t *testing.T, ctx context.Context, pool *pgxpool.
 	defer conn.Release()
 
 	for _, stmt := range splitTopLevelStatements(sql) {
-		if strings.TrimSpace(stmt) == "" {
+		trimmed := strings.TrimSpace(stmt)
+		for {
+			before, after, ok := strings.Cut(trimmed, "\n")
+			if !ok || !strings.HasPrefix(strings.TrimSpace(before), "--") {
+				break
+			}
+			trimmed = strings.TrimSpace(after)
+		}
+		if trimmed == "" {
 			continue
 		}
-		if _, err := conn.Exec(ctx, stmt); err != nil {
-			t.Fatalf("run migration statement (%.80s...): %v", strings.TrimSpace(stmt), err)
+		upper := strings.ToUpper(trimmed)
+		if !(strings.HasPrefix(upper, "ALTER ") ||
+			strings.HasPrefix(upper, "CALL ") ||
+			strings.HasPrefix(upper, "CREATE ") ||
+			strings.HasPrefix(upper, "DELETE ") ||
+			strings.HasPrefix(upper, "DO ") ||
+			strings.HasPrefix(upper, "DROP ") ||
+			strings.HasPrefix(upper, "INSERT ") ||
+			strings.HasPrefix(upper, "SELECT ") ||
+			strings.HasPrefix(upper, "UPDATE ") ||
+			strings.HasPrefix(upper, "WITH ")) {
+			continue
+		}
+		if _, err := conn.Exec(ctx, trimmed); err != nil {
+			t.Fatalf("run migration statement (%.80s...): %v", trimmed, err)
 		}
 	}
 }

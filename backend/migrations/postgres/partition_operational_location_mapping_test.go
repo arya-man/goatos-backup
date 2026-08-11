@@ -31,6 +31,15 @@ func TestPartitionOperationalLocationMappingMovesOnlyPartitionedLiveGoats(t *tes
 		bareGoat          = "f1480000-0000-4000-8000-000000000011"
 		castroGroup       = "f1480000-0000-4000-8000-000000000012"
 		castroPartGoat    = "f1480000-0000-4000-8000-000000000013"
+		scheduledObl      = "f1480000-0000-4000-8000-000000000014"
+		waivedObl         = "f1480000-0000-4000-8000-000000000015"
+		supersededObl     = "f1480000-0000-4000-8000-000000000016"
+		scheduledBatch    = "f1480000-0000-4000-8000-000000000017"
+		waivedBatch       = "f1480000-0000-4000-8000-000000000018"
+		supersededBatch   = "f1480000-0000-4000-8000-000000000019"
+		protocolVersion   = "f1480000-0000-4000-8000-000000000020"
+		ruleID            = "f1480000-0000-4000-8000-000000000021"
+		protocolID        = "f1480000-0000-4000-8000-000000000022"
 	)
 
 	exec := func(sql string, args ...any) {
@@ -80,6 +89,29 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Castro 1')`,
 		tenant, castroPartGoat, castroGroup)
+	exec(`INSERT INTO protocol_definitions (tenant_id, protocol_id, code, name, category, status)
+VALUES ($1::uuid, $2::uuid, 'partition.obligation.test', 'Partition Obligation Test', 'vaccination', 'active')`,
+		tenant, protocolID)
+	exec(`INSERT INTO protocol_versions (tenant_id, protocol_version_id, protocol_id, version, version_label, status, effective_from)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'draft', '2026-01-01')`,
+		tenant, protocolVersion, protocolID)
+	exec(`INSERT INTO protocol_rules (tenant_id, rule_id, protocol_version_id, dose_code, trigger_type)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'partition-test-dose', 'manual_campaign')`,
+		tenant, ruleID, protocolVersion)
+	exec(`INSERT INTO obligation_batches (tenant_id, batch_id, protocol_version_id, scope_type, scope_id, status, session)
+VALUES
+  ($1::uuid, $2::uuid, $5::uuid, 'shed', $6::uuid, 'planned', 'scheduled'),
+  ($1::uuid, $3::uuid, $5::uuid, 'shed', $6::uuid, 'planned', 'waived'),
+  ($1::uuid, $4::uuid, $5::uuid, 'shed', $6::uuid, 'superseded', 'superseded')`,
+		tenant, scheduledBatch, waivedBatch, supersededBatch, protocolVersion, godelOne)
+	exec(`INSERT INTO obligation_instances (
+	  tenant_id, obligation_id, protocol_version_id, rule_id, batch_id,
+	  target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence
+	) VALUES
+	  ($1::uuid, $2::uuid, $8::uuid, $9::uuid, $5::uuid, 'goat', $10::uuid, 'shed', $11::uuid, '2026-01-01 09:00:00+00', 'scheduled', 'partition-obligation-scheduled', 1),
+	  ($1::uuid, $3::uuid, $8::uuid, $9::uuid, $6::uuid, 'goat', $10::uuid, 'shed', $11::uuid, '2026-01-02 09:00:00+00', 'waived', 'partition-obligation-waived', 2),
+	  ($1::uuid, $4::uuid, $8::uuid, $9::uuid, $7::uuid, 'goat', $10::uuid, 'shed', $11::uuid, '2026-01-03 09:00:00+00', 'superseded', 'partition-obligation-superseded', 3)`,
+		tenant, scheduledObl, waivedObl, supersededObl, scheduledBatch, waivedBatch, supersededBatch, protocolVersion, ruleID, partitionedGoat, godelOne)
 
 	raw, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
 	if err != nil {
@@ -142,6 +174,24 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	}
 	if penName != "Godel 1 - Part 1" {
 		t.Fatalf("partitioned goat mapped to shed name %q, want %q", penName, "Godel 1 - Part 1")
+	}
+
+	var scheduledScope, waivedScope, supersededScope string
+	if err := pool.QueryRow(ctx, `
+SELECT
+  max(scope_id::text) FILTER (WHERE obligation_id=$2::uuid),
+  max(scope_id::text) FILTER (WHERE obligation_id=$3::uuid),
+  max(scope_id::text) FILTER (WHERE obligation_id=$4::uuid)
+FROM obligation_instances
+WHERE tenant_id=$1::uuid`, tenant, scheduledObl, waivedObl, supersededObl).
+		Scan(&scheduledScope, &waivedScope, &supersededScope); err != nil {
+		t.Fatalf("query obligation scopes after exact shed backfill: %v", err)
+	}
+	if scheduledScope != currentLocationID {
+		t.Fatalf("scheduled obligation scope=%s, want exact shed %s", scheduledScope, currentLocationID)
+	}
+	if waivedScope != godelOne || supersededScope != godelOne {
+		t.Fatalf("terminal obligation scopes waived=%s superseded=%s, want both preserved on parent %s", waivedScope, supersededScope, godelOne)
 	}
 
 	if err := pool.QueryRow(ctx, `

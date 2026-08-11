@@ -38,7 +38,7 @@ func (r *Repository) emitAcceptedIntakeGoatCreated(ctx context.Context, tx pgx.T
 		"origin_type":                 "procured",
 		"entry_date":                  biztime.BusinessDate(in.EntryDate),
 		"park_id":                     in.ParkLocationID,
-		"shed_id":                     in.ShedLocationID,
+		"shed_id":                     handoff.ShedLocationID,
 		"trusted_vaccination_history": json.RawMessage(handoff.TrustedVaccinationHistory),
 		"intake_health_signal":        handoff.IntakeHealthSignal,
 		"generation_status":           "queued",
@@ -101,7 +101,7 @@ RETURNING recorded_at`,
 		ResourceType: "goat",
 		ResourceID:   handoff.GoatID,
 		ScopeType:    "shed",
-		ScopeID:      in.ShedLocationID,
+		ScopeID:      handoff.ShedLocationID,
 		AfterState:   auditAfter,
 		Metadata:     auditMetadata,
 	}); err != nil {
@@ -183,7 +183,7 @@ func procurementGoatCreatedEnvelope(in ports.AcceptIntake, handoff domain.PCHand
 		"visibility_scope": map[string]any{
 			"tenant_id": in.TenantID,
 			"park_id":   in.ParkLocationID,
-			"shed_id":   in.ShedLocationID,
+			"shed_id":   handoff.ShedLocationID,
 		},
 		"evidence_refs": []map[string]string{{
 			"evidence_type": "source_record",

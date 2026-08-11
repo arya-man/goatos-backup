@@ -1704,7 +1704,7 @@ RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
           COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.shed_location_id), shed_location_id::text),
           entry_date,
           trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at`,
-		in.TenantID, in.LoadID, in.AcceptedAt, in.ParkLocationID, in.ShedLocationID,
+		in.TenantID, in.LoadID, in.AcceptedAt, in.ParkLocationID, intakeLocationID,
 		in.EntryDate, jsonArrayArg(in.TrustedVaccinationHistory), stringPtrValue(in.IntakeHealthSignal),
 		in.IdempotencyKey, goatIDs)
 	if err != nil {

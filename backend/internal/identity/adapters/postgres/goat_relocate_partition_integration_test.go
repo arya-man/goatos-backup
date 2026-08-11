@@ -41,6 +41,12 @@ type relocatePartitionFixture struct {
 // own StartPostgres clone, so there is no cross-test id collision to avoid) and returns the ids.
 func seedRelocatePartitionFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) relocatePartitionFixture {
 	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, status)
+VALUES ($1::uuid, 'k2', 'K2', 'active')
+ON CONFLICT (tenant_id, stage_code) DO UPDATE SET status='active'`, rpTenant); err != nil {
+		t.Fatalf("seed animal stage lookup: %v", err)
+	}
 	insertShed := func(name, status string) string {
 		var id string
 		if err := pool.QueryRow(ctx, `
@@ -223,7 +229,8 @@ func TestRelocateGoatsToShedInTxCrossShedPartitionMove(t *testing.T) {
 		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
 		ToParkID: rpPark, ToShedID: f.gandhiShed,
 		DestinationPartitionLabel: strp("3"), DestinationShedName: "Gandhi",
-		OccurredAt: time.Now(), OutboxIdempotencyPrefix: "test-cross-shed-partition-move",
+		DestinationTag: "k2",
+		OccurredAt:     time.Now(), OutboxIdempotencyPrefix: "test-cross-shed-partition-move",
 	})
 
 	shedID, partition, ok := readGoatShedAndPartition(t, ctx, pool, goatID)
@@ -241,6 +248,41 @@ func TestRelocateGoatsToShedInTxCrossShedPartitionMove(t *testing.T) {
 	}
 	if current := readGoatCurrentLocation(t, ctx, pool, goatID); current != f.gandhiPart3Pen {
 		t.Fatalf("current_location_id = %s, want exact partition shed %s", current, f.gandhiPart3Pen)
+	}
+	var locationEventShedID, stageIdentityShedID, stageOutboxScopeShedID, stageOutboxPayloadShedID string
+	if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'to_shed_id'
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND aggregate_id=$2::uuid AND event_type='goat.location.changed'
+ORDER BY created_at DESC
+LIMIT 1`, rpTenant, goatID).Scan(&locationEventShedID); err != nil {
+		t.Fatalf("read goat.location.changed outbox: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT payload->>'current_shed_id'
+FROM goat_identity_events
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND event_type='goat.stage_changed'
+ORDER BY recorded_at DESC
+LIMIT 1`, rpTenant, goatID).Scan(&stageIdentityShedID); err != nil {
+		t.Fatalf("read goat.stage_changed identity event: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT payload->'visibility_scope'->>'shed_id', payload->'payload'->>'current_shed_id'
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND aggregate_id=$2::uuid AND event_type='goat.stage_changed'
+ORDER BY created_at DESC
+LIMIT 1`, rpTenant, goatID).Scan(&stageOutboxScopeShedID, &stageOutboxPayloadShedID); err != nil {
+		t.Fatalf("read goat.stage_changed outbox: %v", err)
+	}
+	for label, got := range map[string]string{
+		"goat.location.changed payload.to_shed_id":            locationEventShedID,
+		"goat.stage_changed identity payload.current_shed_id": stageIdentityShedID,
+		"goat.stage_changed outbox visibility_scope.shed_id":  stageOutboxScopeShedID,
+		"goat.stage_changed outbox payload.current_shed_id":   stageOutboxPayloadShedID,
+	} {
+		if got != f.gandhiPart3Pen {
+			t.Fatalf("%s=%s, want exact partition shed %s", label, got, f.gandhiPart3Pen)
+		}
 	}
 }
 

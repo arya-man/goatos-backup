@@ -1,9 +1,5 @@
 -- +goose Up
 -- +goose NO TRANSACTION
--- Move live partitioned goats to their exact partition shed in small committed
--- batches. goats is a hot table; this intentionally stays outside the
--- transactional schema migration so deploy can retry/resume instead of holding
--- one broad write transaction.
 CREATE OR REPLACE PROCEDURE public.backfill_partition_goat_exact_residence(p_batch_size integer DEFAULT 250)
 LANGUAGE plpgsql
 AS $$
@@ -158,7 +154,7 @@ WITH exact_goat_obligations AS (
    AND sp.operational_location_id = g.shed_id
   WHERE oi.target_type = 'goat'
     AND oi.scope_type = 'shed'
-    AND oi.status NOT IN ('completed','skipped','canceled')
+    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded')
     AND oi.scope_id IS DISTINCT FROM g.shed_id
 )
 UPDATE public.obligation_instances oi
@@ -177,7 +173,7 @@ WITH single_exact_batch AS (
   WHERE oi.target_type = 'goat'
     AND oi.scope_type = 'shed'
     AND oi.batch_id IS NOT NULL
-    AND oi.status NOT IN ('completed','skipped','canceled')
+    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded')
   GROUP BY oi.tenant_id, oi.batch_id
   HAVING count(DISTINCT oi.scope_id) = 1
 )

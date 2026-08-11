@@ -642,7 +642,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'created')`,
 	if err != nil {
 		return nil, err
 	}
-	eventPayload, err := adminGoatEventPayload(cmd, goatID, decision.DecisionID, "queued")
+	eventPayload, err := adminGoatEventPayload(cmd, goatID, goatShedID, decision.DecisionID, "queued")
 	if err != nil {
 		return nil, err
 	}
@@ -975,7 +975,7 @@ func adminGoatDecisionRecordPayload(cmd ports.CreateAdminGoatCommand, goatID, de
 	})
 }
 
-func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID, generationStatus string) ([]byte, error) {
+func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, shedID, decisionID, generationStatus string) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"goat_id":     goatID,
 		"decision_id": decisionID,
@@ -991,7 +991,7 @@ func adminGoatEventPayload(cmd ports.CreateAdminGoatCommand, goatID, decisionID,
 		"time_of_birth":     stringValue(cmd.TimeOfBirth),
 		"farm_id":           stringValue(cmd.FarmID),
 		"park_id":           cmd.ParkID,
-		"shed_id":           cmd.ShedID,
+		"shed_id":           shedID,
 		"partition_label":   stringValue(cmd.PartitionLabel),
 		"weight_kg":         cmd.WeightKg,
 		"source_record_id":  stringValue(cmd.SourceRecordID),

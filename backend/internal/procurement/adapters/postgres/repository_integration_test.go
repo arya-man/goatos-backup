@@ -978,13 +978,28 @@ ON CONFLICT DO NOTHING`, testTenant, testPartitionShed); err != nil {
 		}); err != nil {
 			t.Fatalf("partition RecordArrivalReview: %v", err)
 		}
-		if _, err := repo.AcceptIntake(ctx, ports.AcceptIntake{
+		partitionHandoffs, err := repo.AcceptIntake(ctx, ports.AcceptIntake{
 			TenantID: testTenant, LoadID: partitionLoad.LoadID, GoatIDs: []string{partitionGoat.GoatID},
 			ParkLocationID: testPark, ShedLocationID: testPartitionShed, PartitionLabel: "Part 1",
 			AcceptedAt: time.Date(2026, 5, 3, 17, 0, 0, 0, time.UTC),
 			EntryDate:  time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC), IdempotencyKey: "idem-intake-partition",
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("partition AcceptIntake: %v", err)
+		}
+		if len(partitionHandoffs) != 1 {
+			t.Fatalf("partition handoffs len=%d, want 1", len(partitionHandoffs))
+		}
+		var exactPartitionShedID string
+		if err := pool.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='1'`,
+			testTenant, testPartitionShed).Scan(&exactPartitionShedID); err != nil {
+			t.Fatalf("read exact partition shed id: %v", err)
+		}
+		if partitionHandoffs[0].ShedLocationID != exactPartitionShedID {
+			t.Fatalf("partition handoff shed_location_id=%s, want exact partition shed %s", partitionHandoffs[0].ShedLocationID, exactPartitionShedID)
 		}
 		var partitionLabel, sourceShedName string
 		if err := pool.QueryRow(ctx, `
@@ -995,6 +1010,49 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, testTenant, partitionGoat.Go
 		}
 		if partitionLabel != "Part 1" || sourceShedName != "Procurement Partition Test Shed - Part 1" {
 			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Partition Test Shed - Part 1", partitionLabel, sourceShedName)
+		}
+		var handoffShedID, identityPayloadShedID, outboxPayloadShedID, outboxScopeShedID, auditScopeID string
+		if err := pool.QueryRow(ctx, `
+SELECT shed_location_id::text
+FROM procurement_pc_handoffs
+WHERE tenant_id=$1::uuid AND load_id=$2::uuid AND goat_id=$3::uuid`,
+			testTenant, partitionLoad.LoadID, partitionGoat.GoatID).Scan(&handoffShedID); err != nil {
+			t.Fatalf("read partition PC handoff shed: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT payload->>'shed_id'
+FROM goat_identity_events
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND event_type='goat.created'
+ORDER BY recorded_at DESC
+LIMIT 1`, testTenant, partitionGoat.GoatID).Scan(&identityPayloadShedID); err != nil {
+			t.Fatalf("read partition goat.created identity payload: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'shed_id', payload->'visibility_scope'->>'shed_id'
+FROM outbox_messages
+WHERE tenant_id=$1::uuid AND aggregate_id=$2::uuid AND event_type='goat.created'
+ORDER BY created_at DESC
+LIMIT 1`, testTenant, partitionGoat.GoatID).Scan(&outboxPayloadShedID, &outboxScopeShedID); err != nil {
+			t.Fatalf("read partition goat.created outbox payload: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT scope_id::text
+FROM audit_log
+WHERE tenant_id=$1::uuid AND resource_type='goat' AND resource_id=$2::uuid AND action='goat.created'
+ORDER BY created_at DESC
+LIMIT 1`, testTenant, partitionGoat.GoatID).Scan(&auditScopeID); err != nil {
+			t.Fatalf("read partition goat.created audit scope: %v", err)
+		}
+		for label, got := range map[string]string{
+			"procurement_pc_handoffs.shed_location_id": handoffShedID,
+			"goat_identity_events.payload.shed_id":     identityPayloadShedID,
+			"outbox.payload.payload.shed_id":           outboxPayloadShedID,
+			"outbox.visibility_scope.shed_id":          outboxScopeShedID,
+			"audit.scope_id":                           auditScopeID,
+		} {
+			if got != exactPartitionShedID {
+				t.Fatalf("%s=%s, want exact partition shed %s", label, got, exactPartitionShedID)
+			}
 		}
 	})
 

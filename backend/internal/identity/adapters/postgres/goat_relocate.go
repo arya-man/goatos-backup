@@ -134,6 +134,11 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		return ports.RelocateGoatsResult{}, err
 	}
 
+	toLocationID, err := r.resolveDestinationOperationalLocationID(ctx, tx, cmd)
+	if err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+
 	// RECLASSIFICATION events. A goat that adopts a NEW cohort tag at the destination shed is
 	// reclassified, so it must emit goat.stage_changed alongside goat.location.changed — feed and the
 	// vaccination generator both key on management_stage, and without this a K1→K2 shift would leave
@@ -144,15 +149,10 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	// requires the goat_identity_events row to already exist.
 	var stageGoatIDs, stageEventIDs []string
 	if effectiveStage != "" {
-		stageGoatIDs, stageEventIDs, err = r.insertStageChangeIdentityEvents(ctx, tx, cmd, effectiveStage, reason, occurredAt, assignedGoatIDs)
+		stageGoatIDs, stageEventIDs, err = r.insertStageChangeIdentityEvents(ctx, tx, cmd, toLocationID, effectiveStage, reason, occurredAt, assignedGoatIDs)
 		if err != nil {
 			return ports.RelocateGoatsResult{}, err
 		}
-	}
-
-	toLocationID, err := r.resolveDestinationOperationalLocationID(ctx, tx, cmd)
-	if err != nil {
-		return ports.RelocateGoatsResult{}, err
 	}
 
 	moved, err := r.applyRelocation(ctx, tx, cmd, toLocationID, reason, occurredAt, effectiveStage, effectiveAgeBand, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
@@ -420,7 +420,7 @@ RETURNING goat_id::text, identity_event_id::text`
 // idempotency key namespaces the stage event under the SAME per-completion prefix
 // ("<prefix>:stage:<goat_id>") so it can never collide with the location event's key.
 func (r *Repository) insertStageChangeIdentityEvents(
-	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, effectiveStage, reason string, occurredAt time.Time,
+	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, exactShedID, effectiveStage, reason string, occurredAt time.Time,
 	assignedGoatIDs []string,
 ) ([]string, []string, error) {
 	const stageEventsSQL = `
@@ -472,7 +472,7 @@ RETURNING goat_id::text, identity_event_id::text`
 		cmd.ActorID,                 // $6
 		reason,                      // $7
 		cmd.ToParkID,                // $8
-		cmd.ToShedID,                // $9
+		exactShedID,                 // $9
 		cmd.OutboxIdempotencyPrefix, // $10
 	)
 	if err != nil {
@@ -671,7 +671,7 @@ events_stage AS (
                 'tenant_id', $1::text,
                 'farm_id', s.farm_id::text,
                 'park_id', $3::text,
-                'shed_id', $2::text
+                'shed_id', $22::text
             )),
             'evidence_refs', '[]'::jsonb,
             'trace_id', $15::text,
@@ -683,7 +683,7 @@ events_stage AS (
                 'management_stage', $16::text,
                 'reason', $5::text,
                 'current_park_id', $3::text,
-                'current_shed_id', $2::text,
+                'current_shed_id', $22::text,
                 'management_stage_source', 'shifting_raise_request',
                 'scope_type', 'goat',
                 'scope_id', s.goat_id::text
