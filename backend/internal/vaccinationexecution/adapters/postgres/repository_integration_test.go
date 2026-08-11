@@ -1330,6 +1330,7 @@ func TestScanRosterParkScopePinsDriveTaskToSelectedShed(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	const part1Shed = "70000000-0000-4000-8000-000000000089"
 
 	execProjectionSQL(t, ctx, pool, "park-scoped drive task", `
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
@@ -1343,6 +1344,27 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Park drive','in_progress',$5,'park',$6,
 	execProjectionSQL(t, ctx, pool, "keep goat obligation batch-owned only",
 		`UPDATE obligation_instances SET sop_task_id=NULL WHERE tenant_id=$1 AND batch_id=$2`,
 		testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "exact partition shed", `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1,$2,'shed','SHED-PROJ-P1','K1 Shed - Part 1',$3,'active')`,
+		part1Shed, testTenant, testPark)
+	execProjectionSQL(t, ctx, pool, "partition catalog maps old shed to exact shed", `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1,$2,'Part 1','1','active','manual',$3)`,
+		testTenant, testShed, part1Shed)
+	execProjectionSQL(t, ctx, pool, "goat exact partition residence", `
+UPDATE goats
+SET shed_group_id=$1, shed_id=$2, current_location_id=$2
+WHERE tenant_id=$3 AND goat_id=$4`,
+		testShed, part1Shed, testTenant, testGoat)
+	execProjectionSQL(t, ctx, pool, "goat partition evidence", `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1,$2,$3,'Part 1','K1 Shed - Part 1')`,
+		testTenant, testGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "drive assignment uses exact partition shed", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+VALUES ($1,$2,'2026-06-24',$3,$4,$5,'K1 Shed - Part 1','whole',1)`,
+		testTenant, testBatch, testOperator, testPark, part1Shed)
 	execProjectionSQL(t, ctx, pool, "primary tag", `
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
 VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','PARK-RFID-ONE','park-rfid-one','active','global','v1',now())`,
@@ -1383,7 +1405,7 @@ SET form_dsl = jsonb_build_object('fields', jsonb_build_array(
 WHERE tenant_id=$1 AND sop_version_id=$2`, testTenant, testVaccinationSOPVer)
 
 	repo := NewRepository(pool, 5*time.Second)
-	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 20})
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "Part 1", TaskID: testTask, Limit: 20})
 	if err != nil {
 		t.Fatalf("ScanRoster: %v", err)
 	}
