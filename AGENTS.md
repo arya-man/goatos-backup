@@ -1733,9 +1733,28 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
-## Operational Location and Partition Convention (maintainer lock, 2026-08-06)
+## Operational Location and Partition Convention (maintainer lock, 2026-08-06; tightened 2026-08-11)
 
-Every goat's ground location is defined as: `park + physical_shed + optional partition_label`.
+Every goat's ground location is the **real operational shed** where it lives.
+When a named shed is subdivided, **each partition is itself the real shed**:
+`Godel 1 - Part 1`, `Godel 1 - Part 2`, and `Godel 1 - Part 3` are three real
+animal residences. The parent/group name `Godel 1` is only a grouping/header for
+software and reporting. A shed with no partitions remains its own real residence.
+
+Current legacy schema shape:
+- `goats.current_location_id` = exact real residence (`Godel 1 - Part 2` for a
+  partitioned animal; `Yashoda` for an undivided shed).
+- `goats.shed_id` = legacy parent/group key when a partition exists; exact
+  shed id only when the shed is undivided.
+- `goat_shed_partitions.partition_label` / `shed_partitions.operational_location_id`
+  bridge the legacy group to the real partition location.
+
+Future schema work should make this impossible to misread at DB level by either
+renaming the grouping field (`shed_group_id` / `parent_shed_id`) or making
+`shed_id` the exact operational shed id and storing the group separately.
+Until then, any exact-residence query that widens
+`current_location_id = X OR shed_id = X` is a bug: it treats the group/header as
+if it were where the animal physically lives.
 
 **The convention is LOCKED by evidence from THREE independent sources (master registry, live BigQuery, legacy production code), with FOUR worked wrong-examples from production bugs. This section tightens the rule with those examples and a guard.**
 
@@ -1747,7 +1766,10 @@ Subdivided sheds (historically named `Godel 1`, `Mandela 2`, etc.) normalize to 
 
 Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh 1`, `Yashoda`) → stored with NULL / '' / 'whole' partition. The `1` in the shed name is NOT a partition.
 
-**NEVER seed raw partition strings as separate physical shed buildings.** The `locations` table is the single source of truth for which partitions exist.
+**NEVER lose the partition residence.** Storage may normalize a group plus
+partition for compatibility, but product/data truth is still the partition as
+the real shed. The `locations`/`shed_partitions` catalog is the source of truth
+for which partition residences exist.
 
 ### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
 
@@ -1768,7 +1790,7 @@ Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Produc
 ### Rule 3: Carry Partition in All Location-Bearing Responses
 
 `shed_id` alone is NOT the ground location when a partition exists. Every location-bearing response struct MUST include:
-- `shed_id` (UUID, the canonical key)
+- `shed_id` (legacy parent/group UUID for partitioned animals; exact shed UUID only for undivided sheds)
 - `shed_name` (display name of the physical shed)
 - `partition_label` (text or NULL)
 - `operational_location_display` (backend-composed: `DisplayName(shed_name, partition_label)`)
@@ -1867,6 +1889,12 @@ Session 2026-08-07 found ~15 live defects, ALL from ONE class: partition/locatio
 
 The product concept **"active shed"** means **active operational location** (partition if subdivided, shed if not), not "physical building holding ≥1 live animal after collapsing partitions". Using the old definition produced parent-only dropdowns that forced operators to guess.
 
+Do not use a parent/group `shed_id` as a substitute for exact residence. A
+filter like `current_location_id = $location OR shed_id = $location` reopens the
+bug: selecting `Godel 1` also returns animals physically in `Godel 1 - Part 1`.
+Use `current_location_id` for exact residence and explicit group/shed filters
+only for rollups that intentionally include every partition in the group.
+
 ### Partitions with Zero Animals Still Exist
 
 A partition holding ZERO animals still EXISTS (e.g., CBE `Yashoda 5` is real and empty). A partition catalog derived only from per-goat tables (`goat_shed_partitions`, PK `tenant_id, goat_id`) hides empty partitions and makes them unreachable as shifting destinations. Use the `locations` table as the partition catalog until a real `shed_partitions` table is built.
@@ -1899,6 +1927,9 @@ runtime/seed-value checker. It checks:
    type) — a static schema-shape check. It does **not** verify that the Go
    struct or the actual wire emission populates those fields; that is
    item 4 in the Partition Change Verification Checklist below, done by
+5. Exact-residence filters must not widen `current_location_id` with `shed_id`
+   (`parent-shed-as-residence`). When a place has partitions, `shed_id` is the
+   old group/header, not the animal's real shed.
    hand.
 5. `whole-leak`, `alias-locations`, `location-type-as-partition`, `counts-grain`,
    and `shifting-contract` — see the check list in the guard's own header

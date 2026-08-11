@@ -1,13 +1,13 @@
 # ADR: Operational Location — Storage and Display Contract
 
-Status: Accepted (2026-08-05)
+Status: Accepted (2026-08-05), tightened (2026-08-11)
 
 ## Context
 
-Shed partitions are a real operational feature: a 200-animal shed is often split
-into two working spaces with separate operators, separate vaccination batches,
-and separate live-camera proof videos. A `Castro` shed physically contains `Castro
-1` and `Castro 2` as distinct work locations.
+Shed partitions are a real operational feature: when a named shed is split,
+each partition is itself the real shed where animals live. `Godel 1` can be a
+group/header name; `Godel 1 - Part 1`, `Godel 1 - Part 2`, and
+`Godel 1 - Part 3` are the real residences.
 
 Goat OS needs to represent this cleanly across two layers: **how it is stored**
 and **how it is displayed**.
@@ -22,10 +22,10 @@ locations row "Castro 1" (id=uuid1)
 locations row "Castro 2" (id=uuid2)
 ```
 
-This multiplies schema work, breaks operator-position ownership (one position
-owns an animal's shed_id, not a partition), and makes counts lie. An operator
-who vaccinated 100 animals in `Castro 1` and 100 in `Castro 2` would appear to
-have worked in two separate sheds, each tracked independently.
+The old schema confused that real-world model by storing a parent/group as
+`goats.shed_id`. That makes humans and code read the group as the goat's
+physical residence. The compatibility bridge is allowed only if exact residence
+is carried separately and never inferred from the parent group.
 
 The other extreme — storing only `Castro` and pretending both partitions are one
 shed — loses operational truth. An operator cannot express "move the goat from
@@ -33,22 +33,32 @@ Castro 1 to Castro 2" without a partition field.
 
 ## Decision
 
-**Storage layer (canonical, one-time normalization):**
+**Storage layer (current compatibility shape):**
 
-- A physical shed is stored once: shed entity `Castro`, `Godel 1`, etc.
-- An animal's physical shed is `goats.shed_id = <shed_uuid>`.
-- A sub-location within a shed is `goat_shed_partitions.partition_label = '1'`,
-  `'2'`, `'Part 3'`, etc.
+- `goats.current_location_id` is the exact real residence. For a partitioned
+  animal it points at the partition operational location; for an undivided shed
+  it points at the shed itself.
+- `goats.shed_id` is a legacy parent/group key when partitions exist. It is the
+  exact shed id only when the shed has no partitions.
+- A compatibility partition mapping is stored as
+  `goat_shed_partitions.partition_label = '1'`, `'2'`, `'Part 3'`, etc. and
+  `shed_partitions.operational_location_id` links that label to the real
+  operational location.
 - Partition labels follow two conventions:
   - **Numeric**: `'1'`, `'2'`, `'3'` (rare, for simple splits)
   - **Prefixed**: `'Part 1'`, `'Part 3'`, `'Part W'` (common, explicit naming)
 - Not every shed has partitions. A non-partitioned shed has no
   `goat_shed_partitions` rows.
 
+Future schema work should make this obvious in the DB itself: either rename the
+grouping field to `shed_group_id` / `parent_shed_id`, or make `shed_id` the
+exact operational shed id and store the group separately. Until then, any exact
+residence filter that widens `current_location_id = X` with `OR shed_id = X` is
+a bug.
+
 **Product/display layer (operational, every surface):**
 
-An animal's ground location is `OperationalLocation = park + physical_shed +
-optional partition_label`.
+An animal's ground location is the operational location:
 
 - No partition → `"Yashoda"` (bare shed name)
 - Numeric partition → `"Castro - 2"`
@@ -63,8 +73,9 @@ vaccination detail, Action Center, CEO reporting, search results) must:
 
 1. Carry `partition_label` in the response payload when one exists.
 2. Render `OperationalLocation.Display()` instead of bare shed names.
-3. Group/key by `shed_id` (uuid) + park, never by shed name (names repeat across
-   parks).
+3. Group/key by a partition-aware identity (`current_location_id` for exact
+   residence; `shed_id + partition_label` only where the legacy group bridge is
+   intentionally being read), never by shed name.
 4. Never collapse partitions into the parent unless explicitly the aggregate.
 
 **Partition catalog must enumerate all existing partitions:**
@@ -84,10 +95,10 @@ vaccination detail, Action Center, CEO reporting, search results) must:
   through the shifting contract.
 - Counts no longer lie: "20 animals in Castro 1" reports only that partition's
   animals, not the whole-shed total.
-- CEO reports show `Castro 1` and `Castro 2` as distinct work locations when an
+- CEO reports show `Castro 1` and `Castro 2` as distinct real sheds when an
   operator was assigned to partition-specific work.
-- Backend ownership is simple: one shed, one HRMS position, clear operator
-  accountability. Partitions are a sub-location detail, not a separate entity.
+- The parent/group name can still support rollups, but it must not masquerade as
+  exact residence.
 - Machine gates enforce partition presence on all location-bearing surfaces:
   `make operational-location-guard`, part of `make guardrails` and `make
   ci-local`. Shared primitives: Go

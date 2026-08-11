@@ -2275,7 +2275,7 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 	triggerLocs := `(SELECT location_id FROM locations WHERE tenant_id = $1 AND location_type IN ('farm', 'shed')
 		AND (name ILIKE '%Trigger Gate%' OR name ILIKE '%Trigger Shed%')
 		AND NOT EXISTS (SELECT 1 FROM goats g WHERE g.farm_id = locations.location_id OR g.park_id = locations.location_id
-			OR g.shed_id = locations.location_id OR g.current_location_id = locations.location_id OR g.cohort_id = locations.location_id)
+			OR g.shed_id = locations.location_id OR g.current_location_id = locations.location_id OR g.cohort_id = locations.location_id) -- operational-location:ignore: owner=ravi issue=trigger-fixture-cleanup-safety scope=cleanup-delete-guard-must-find-any-goat-reference-not-exact-residence-filter expiry=2027-08-11
 		AND NOT EXISTS (SELECT 1 FROM workforce_members w WHERE w.primary_location_id = locations.location_id)
 		AND NOT EXISTS (SELECT 1 FROM locations c WHERE c.parent_location_id = locations.location_id)
 		AND NOT EXISTS (SELECT 1 FROM inventory_stock s WHERE s.location_id = locations.location_id))`

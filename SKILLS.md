@@ -64,11 +64,13 @@ such as shifting, counts, breeding, weighing, feed, or procurement. It is the
 default pattern for pluggable verticals: canonical facts -> grain-explicit
 operational read model -> shared surface adapters.
 
-**MANDATORY: Operational Location rule** — when a shed partition exists (a
-`Castro 1` alongside `Castro 2`), every user-facing surface must render the
-partition label (`"Castro 2"`, never just `"Castro"`), group/key by `shed_id` +
-park (never by name), and never collapse partitions into the parent unless
-explicitly the aggregate. Full contract and shared primitives:
+**MANDATORY: Operational Location rule** — when a shed partition exists, that
+partition is the real shed/residence (`"Castro 2"`, `"Godel 1 - Part 3"`). The
+parent/group name is only a grouping header. Every user-facing surface must
+render the partition label, group/key by a partition-aware key (`shed_id` +
+partition or exact operational location, never name), and never collapse
+partitions into the parent unless explicitly showing an aggregate. Full contract
+and shared primitives:
 `docs/decisions/operational-location-display-contract.md`.
 
 Discoverability/static-text guard:
@@ -78,7 +80,9 @@ Machine guard for the failure class that caused the 2026-08-10 staging loop:
 `make operational-location-guard` now also checks weighing partition alias
 resolution. Legacy partition aliases are inactive `locations` shed rows only;
 active sheds named like `Castro 1` remain whole sheds unless the partition
-catalog says otherwise. `CreateCampaign` idempotency must fingerprint/replay the
+catalog says otherwise. Exact location filters must not use
+`current_location_id OR shed_id`: for partitioned animals, legacy `shed_id` is
+the group/header, not the animal's real shed. `CreateCampaign` idempotency must fingerprint/replay the
 original client request before mutable alias/catalog hydration, then store that
 raw fingerprint. Herd Register write destinations must come from the partition
 catalog (`shed_partitions`/feed config pens API), not animal census/count

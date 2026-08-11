@@ -889,9 +889,8 @@ func isRecurringCampaignRule(rule protodomain.Rule) bool {
 }
 
 func hasPhysicalCampaignPlacement(g domain.EligibleGoat) bool {
-	// The physical shed is the indivisible scheduling boundary. Partition metadata is optional:
-	// a goat placed in a real park/shed must not disappear from the normal adult campaign merely
-	// because the source did not divide that shed into named partitions.
+	// The operational shed is the indivisible scheduling boundary. If a group is partitioned,
+	// each partition is the real shed; if it is not partitioned, the plain shed is the unit.
 	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != ""
 }
 

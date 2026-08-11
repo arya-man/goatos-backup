@@ -111,7 +111,7 @@ WHERE sp.source = 'location_alias'
   AND sp.partition_label = '0'
   AND sp.normalized_label = '0'
   AND NOT EXISTS (
-    SELECT 1 FROM goats g WHERE g.shed_id = sp.shed_id OR g.current_location_id = sp.shed_id
+    SELECT 1 FROM goats g WHERE g.shed_id = sp.shed_id OR g.current_location_id = sp.shed_id -- operational-location:ignore: owner=ravi issue=stg-catalog-repair-safety scope=repair-delete-guard-must-find-any-goat-reference-not-exact-residence-filter expiry=2027-08-11
   )
   AND NOT EXISTS (
     SELECT 1 FROM goat_shed_partitions gsp WHERE gsp.shed_id = sp.shed_id
@@ -160,7 +160,7 @@ WHERE l.status = 'active'
     OR l.name LIKE 'Godel 2 - Part %'
     OR l.name LIKE 'Mandela 2 - Part %'
   )
-  AND NOT EXISTS (SELECT 1 FROM goats g WHERE g.shed_id = l.location_id OR g.current_location_id = l.location_id)
+  AND NOT EXISTS (SELECT 1 FROM goats g WHERE g.shed_id = l.location_id OR g.current_location_id = l.location_id) -- operational-location:ignore: owner=ravi issue=stg-catalog-repair-safety scope=alias-retire-guard-must-find-any-goat-reference-not-exact-residence-filter expiry=2027-08-11
   AND NOT EXISTS (SELECT 1 FROM goat_shed_partitions gsp WHERE gsp.shed_id = l.location_id);
 
 -- ----------------------------------------------------------------------------
