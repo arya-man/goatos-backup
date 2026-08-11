@@ -75,7 +75,7 @@ const (
 // sites' own select lists for the same reason the counts do: all three read the
 // SAME bucket facts, and a fact added to only two of them is the cross-surface
 // parity defect this fragment exists to prevent.
-const readyToCloseCountsSQL = `COALESCE(cs.closure_kind, '') AS closure_kind,
+var readyToCloseCountsSQL = `COALESCE(cs.closure_kind, '') AS closure_kind,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
@@ -86,8 +86,29 @@ const readyToCloseCountsSQL = `COALESCE(cs.closure_kind, '') AS closure_kind,
 ) AS pending_verification_count,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
+  + CASE WHEN ` + shedReworkOutstandingPredicate("cs") + ` THEN 1 ELSE 0 END
 ) AS rework_count,
+COALESCE((
+  SELECT reason FROM (
+    SELECT wo.rework_reason AS reason, wo.verified_at AS decided_at
+    FROM weighing_observations wo
+    WHERE wo.tenant_id=cs.tenant_id
+      AND wo.campaign_shed_id=cs.campaign_shed_id
+      AND wo.submitted_at IS NOT NULL
+      AND wo.verification_status='rework'
+      AND NULLIF(wo.rework_reason, '') IS NOT NULL
+    UNION ALL
+    SELECT wso.rework_reason AS reason, wso.verified_at AS decided_at
+    FROM weighing_shed_observations wso
+  WHERE wso.tenant_id=cs.tenant_id
+      AND wso.campaign_shed_id=cs.campaign_shed_id
+      AND wso.verification_status='rework'
+      AND NULLIF(wso.rework_reason, '') IS NOT NULL
+      ` + shedReworkHasOpenReplacementCondition("cs") + `
+  ) rework_reasons
+  ORDER BY decided_at DESC NULLS LAST
+  LIMIT 1
+), '') AS latest_rework_reason,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'verified')
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'verified')
