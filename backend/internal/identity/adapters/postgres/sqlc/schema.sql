@@ -832,9 +832,15 @@ DECLARE
   candidate_id uuid;
   candidate_count integer;
   mapped_valid boolean;
+  display_partition_label text;
 BEGIN
   IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
+  END IF;
+
+  display_partition_label := NULLIF(NEW.partition_label, '');
+  IF display_partition_label IS NULL THEN
+    display_partition_label := NEW.normalized_label;
   END IF;
 
   SELECT *
@@ -940,8 +946,8 @@ BEGIN
     AND pen.location_type = 'pen'
     AND pen.status = 'active'
     AND (
-      lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.partition_label)
-      OR lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.normalized_label)
+      lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
+      OR lower(pen.name) = lower(operational_location_display(parent_row.name, display_partition_label))
     );
 
   IF candidate_count > 1 THEN
@@ -965,7 +971,7 @@ BEGIN
       NEW.tenant_id,
       'pen',
       NULL,
-      parent_row.name || ' - Part ' || NEW.normalized_label,
+      operational_location_display(parent_row.name, display_partition_label),
       NEW.shed_id,
       parent_row.country,
       parent_row.timezone,
@@ -1631,6 +1637,25 @@ BEGIN
   RETURN candidate;
 END;
 $$;
+
+
+--
+-- Name: operational_location_display(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.operational_location_display(p_shed_name text, p_partition_label text) RETURNS text
+    LANGUAGE sql
+    AS $_$
+  SELECT NULLIF(
+    BTRIM(
+      regexp_replace(
+        format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(COALESCE(p_partition_label, ''))),
+        ' - (whole)?\s*$', '', 'i'
+      )
+    ),
+    ''
+  );
+$_$;
 
 
 --

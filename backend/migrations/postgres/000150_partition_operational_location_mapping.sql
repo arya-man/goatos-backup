@@ -35,6 +35,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS shed_partitions_operational_location_unique
   ON public.shed_partitions (tenant_id, operational_location_id)
   WHERE operational_location_id IS NOT NULL;
 
+CREATE OR REPLACE FUNCTION public.operational_location_display(
+  p_shed_name text,
+  p_partition_label text
+) RETURNS text
+LANGUAGE sql
+AS $$
+  SELECT NULLIF(
+    BTRIM(
+      regexp_replace(
+        format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(COALESCE(p_partition_label, ''))),
+        ' - (whole)?\s*$', '', 'i'
+      )
+    ),
+    ''
+  );
+$$;
+
 DO $$
 DECLARE
   ambiguous_count integer;
@@ -55,8 +72,8 @@ BEGIN
       ON parent.tenant_id = pen.tenant_id
      AND parent.location_id = pen.parent_location_id
     WHERE (
-      lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
-      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
+      lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
+      OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -115,8 +132,8 @@ BEGIN
       ON parent.tenant_id = pen.tenant_id
      AND parent.location_id = pen.parent_location_id
     WHERE (
-      lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
-      OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
+      lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
+      OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
     )
     GROUP BY sp.tenant_id, sp.shed_id, sp.normalized_label
     HAVING count(*) > 1
@@ -144,8 +161,8 @@ WHERE sp.operational_location_id IS NULL
     OR (sp.status = 'retired' AND pen.status = 'inactive')
   )
   AND (
-    lower(pen.name) = lower(parent.name || ' - Part ' || sp.partition_label)
-    OR lower(pen.name) = lower(parent.name || ' - Part ' || sp.normalized_label)
+    lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
+    OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
   );
 
 -- Create one canonical pen row per catalog partition still missing a real
@@ -197,7 +214,7 @@ created AS (
     sp.tenant_id,
     'pen',
     NULL,
-    COALESCE(an.display_name, parent.name || ' - Part ' || sp.normalized_label),
+    COALESCE(an.display_name, operational_location_display(parent.name, sp.normalized_label)),
     sp.shed_id,
     parent.country,
     parent.timezone,
@@ -223,7 +240,10 @@ FROM created
 WHERE sp.tenant_id = created.tenant_id
   AND sp.shed_id = created.parent_location_id
   AND (
-    lower(created.name) = lower((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id) || ' - Part ' || sp.partition_label)
+    lower(created.name) = lower(
+      operational_location_display((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id),
+                                  sp.partition_label)
+    )
     OR regexp_replace(
          lower(btrim(regexp_replace(substr(created.name, length((SELECT p.name FROM public.locations p WHERE p.tenant_id = sp.tenant_id AND p.location_id = sp.shed_id)) + 1), '^[[:space:]]*-?[[:space:]]*', ''))),
          '^part[[:space:]]+',
@@ -406,9 +426,15 @@ DECLARE
   candidate_id uuid;
   candidate_count integer;
   mapped_valid boolean;
+  display_partition_label text;
 BEGIN
   IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
+  END IF;
+
+  display_partition_label := NULLIF(NEW.partition_label, '');
+  IF display_partition_label IS NULL THEN
+    display_partition_label := NEW.normalized_label;
   END IF;
 
   SELECT *
@@ -514,8 +540,8 @@ BEGIN
     AND pen.location_type = 'pen'
     AND pen.status = 'active'
     AND (
-      lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.partition_label)
-      OR lower(pen.name) = lower(parent_row.name || ' - Part ' || NEW.normalized_label)
+      lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
+      OR lower(pen.name) = lower(operational_location_display(parent_row.name, display_partition_label))
     );
 
   IF candidate_count > 1 THEN
@@ -539,7 +565,7 @@ BEGIN
       NEW.tenant_id,
       'pen',
       NULL,
-      parent_row.name || ' - Part ' || NEW.normalized_label,
+      operational_location_display(parent_row.name, display_partition_label),
       NEW.shed_id,
       parent_row.country,
       parent_row.timezone,
