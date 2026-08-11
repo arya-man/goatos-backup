@@ -120,6 +120,40 @@ DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaign_sheds_open_date_v2_id
 
 -- +goose Down
 -- +goose NO TRANSACTION
+-- +goose StatementBegin
+-- projection-review: membership=all weighing_campaign_sheds rows for campaign identity and open weighing_campaign_sheds rows for open-date identity; group_key=(tenant_id,campaign_id,location_id) and (tenant_id,park_id,start_business_date,location_id); join_cardinality=no joins, direct duplicate preflight over weighing_campaign_sheds only; pagination=none, whole-table rollback assertion; scope=all tenants, with the second check narrowed to open bucket statuses only
+DO $$
+DECLARE
+  blocked_count integer;
+BEGIN
+  SELECT COUNT(*) INTO blocked_count
+  FROM (
+    SELECT tenant_id, campaign_id, location_id, COUNT(*)
+    FROM public.weighing_campaign_sheds
+    GROUP BY tenant_id, campaign_id, location_id
+    HAVING COUNT(*) > 1
+  ) dupes;
+
+  IF blocked_count > 0 THEN
+    RAISE EXCEPTION 'cannot roll back 000141: % partitioned campaign bucket identities would violate unique (tenant_id, campaign_id, location_id); clean or collapse duplicate partition rows first', blocked_count;
+  END IF;
+
+  SELECT COUNT(*) INTO blocked_count
+  FROM (
+    SELECT tenant_id, park_id, start_business_date, location_id, COUNT(*)
+    FROM public.weighing_campaign_sheds
+    WHERE status NOT IN ('canceled', 'closed', 'completed')
+    GROUP BY tenant_id, park_id, start_business_date, location_id
+    HAVING COUNT(*) > 1
+  ) dupes;
+
+  IF blocked_count > 0 THEN
+    RAISE EXCEPTION 'cannot roll back 000141: % partitioned open bucket identities would violate unique (tenant_id, park_id, start_business_date, location_id); clean or collapse duplicate partition rows first', blocked_count;
+  END IF;
+END
+$$;
+-- +goose StatementEnd
+
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_campaign_location_uidx
   ON public.weighing_campaign_sheds (tenant_id, campaign_id, location_id);
 
