@@ -1071,6 +1071,9 @@ func TestCloseGateIsUnconditionalAndAbandonPathIsGone(t *testing.T) {
 	}
 
 	// The ONLY way past the gate is the verifier actually reviewing the evidence.
+	// A reviewed bucket is now auto-closed in the verdict path, so a later
+	// close attempt should see only immutable state and should not emit any new
+	// close event.
 	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
 		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
 		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
@@ -1081,14 +1084,15 @@ func TestCloseGateIsUnconditionalAndAbandonPathIsGone(t *testing.T) {
 	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		Reason: "every video reviewed", ClosedBy: repoVerifier, IdempotencyKey: "close:gate-after-verdict",
-	}); err != nil {
-		t.Fatalf("close after every video verified: %v", err)
+	}); !errors.Is(err, ports.ErrImmutable) {
+		t.Fatalf("close after every video verified: err=%v, want ErrImmutable", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
 
-	// The close emitted a plain close, never the retired abandon vocabulary.
-	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
-		t.Fatalf("weighing.shed.closed outbox rows=%d, want 1", got)
+	// The explicit close after auto-verdict should be a no-op and must not emit
+	// the retired abandon vocabulary.
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 0 {
+		t.Fatalf("weighing.shed.closed outbox rows=%d, want 0 from explicit close", got)
 	}
 	if got := countOutbox(t, ctx, pool, "weighing.shed.abandoned"); got != 0 {
 		t.Fatalf("weighing.shed.abandoned outbox rows=%d, want 0 — the event is retired", got)

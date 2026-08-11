@@ -1780,14 +1780,31 @@ WITH campaign AS (
   -- rejecting the proof in that window would slip through and the operator would "re-record" with
   -- the very video that was sent back. The lump-sum writer has carried this CTE for the same
   -- reason; the individual-animal writer had only the outside-the-transaction read.
+  --
+  -- We still allow reusing the proof on the SAME currently-open row that is returning to
+  -- rework (the common capture correction path): that row is intentionally kept as a single,
+  -- mutable round and must be updatable in place.
   SELECT 1
   FROM assigned_shed s
+  LEFT JOIN LATERAL (
+    SELECT observation.observation_id
+    FROM weighing_observations observation
+    WHERE observation.tenant_id=$1::uuid
+      AND observation.campaign_id=$2::uuid
+      AND observation.campaign_shed_id=s.campaign_shed_id
+      AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
+      AND (observation.submitted_at IS NULL OR observation.verification_status='rework')
+      AND observation.verification_status='rework'
+    LIMIT 1
+  ) open_rework_obs ON true
   WHERE NOT EXISTS (
     SELECT 1 FROM weighing_observations rejected
     WHERE rejected.tenant_id=$1::uuid
       AND rejected.campaign_shed_id=s.campaign_shed_id
+      AND lower(btrim(rejected.scanned_identifier))=lower(btrim($3))
       AND rejected.verification_status='rework'
       AND rejected.proof_artifact_id=$5::uuid
+      AND rejected.observation_id IS DISTINCT FROM open_rework_obs.observation_id
   )
 ), proof_ok AS (
   SELECT proof.proof_id

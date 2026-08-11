@@ -11,7 +11,7 @@ import "context"
 // all. The operator saw success, the animal stayed in rework, and the shed still could not be
 // submitted. Re-capturing means a NEW video; reusing the rejected one is the operator not
 // actually redoing the work.
-func (r *Repository) AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID string) (bool, error) {
+func (r *Repository) AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID, scannedIdentifier string) (bool, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	var exists bool
@@ -22,7 +22,8 @@ SELECT EXISTS (
     AND rejected.campaign_shed_id=$2::uuid
     AND rejected.verification_status='rework'
     AND rejected.proof_artifact_id=$3::uuid
-)`, tenantID, campaignShedID, proofArtifactID).Scan(&exists); err != nil {
+    AND lower(btrim(rejected.scanned_identifier))<>lower(btrim($4))
+)`, tenantID, campaignShedID, proofArtifactID, scannedIdentifier).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil

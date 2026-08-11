@@ -373,9 +373,10 @@ type Repository interface {
 	// apart and the service is the layer that knows.
 	ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
-	// AnimalProofWasRejected reports whether a proof is already attached to a rework observation
-	// in this bucket, so a re-capture cannot reuse the very video the verifier sent back.
-	AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID string) (bool, error)
+	// AnimalProofWasRejected reports whether a proof is already attached to a rework
+	// observation for a different tag in this bucket, so a re-capture for one
+	// animal cannot reuse the very video the verifier sent back on another animal.
+	AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID, scannedIdentifier string) (bool, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
 	// ReopenScope returns the shed-observation ids whose lump-sum submissions the

@@ -906,7 +906,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactID)
+	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactID, cmd.ScannedIdentifier)
 	if err != nil {
 		return domain.Observation{}, err
 	}
