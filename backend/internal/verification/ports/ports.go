@@ -35,7 +35,14 @@ type ListQueueParams struct {
 	Categories []string // Multiple categories for cross-category verifier queries (mutually exclusive with Category)
 	Vertical   string
 	Module     string
-	Status     string // defaults to domain.StatusPending in the app layer.
+	// NavigationModule is the verifier-drawer module key ("feed_direction", "counts", ...). It is a
+	// REQUEST filter only: the app layer expands it into that module's registered category set and
+	// leaves it out of every SQL predicate, so the queue page, the status counts, and the filter
+	// options all narrow through the one disjoint `category` predicate they already share. It is
+	// deliberately NOT `Module`, which filters the item's own `verification_items.module` column —
+	// three feed categories carry module "feed", but the drawer groups them under "feed_direction".
+	NavigationModule string
+	Status           string // defaults to domain.StatusPending in the app layer.
 	// BusinessDate is the requested Asia/Kolkata capture date (YYYY-MM-DD). MissedOnly selects
 	// pending items captured before today's business-day start; the two scopes are exclusive.
 	BusinessDate string

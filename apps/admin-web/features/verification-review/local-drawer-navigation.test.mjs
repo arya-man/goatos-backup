@@ -51,3 +51,24 @@ test("top bar hides the backend-owned as-of calendar filter", () => {
   assert.doesNotMatch(shellSource, /type="date"/);
   assert.doesNotMatch(shellSource, /date\.menu_aria/);
 });
+
+test("Actions module filter is registry-owned and cannot widen or strand the queue", () => {
+  // Vocabulary, labels and order all come from the backend registry — never from the rows on
+  // screen, which would make a module with an empty queue disappear from its own filter.
+  assert.match(pageSource, /filter_options\.modules/);
+  assert.match(pageSource, /nav_module/);
+  assert.match(pageSource, /navModule/);
+  // Selection is read from the backend's module_key, so a nav leaf that scopes with ?category=
+  // lights up the same chip the ?nav_module= route does.
+  assert.match(pageSource, /filter_options\.module_key/);
+  // Only the two backend copy keys are visible copy here; the module NAMES are registry data.
+  assert.match(pageSource, /copy\(pageContract, "filter\.all_modules"\)/);
+  assert.match(pageSource, /copy\(pageContract, "filter\.module"\)/);
+  // Each chip clears `category` — a module is wider than a page, and keeping a sibling module's
+  // category asks the backend for a contradiction it answers 400.
+  assert.match(pageSource, /nav_module: option\.key, category: null/);
+  // ...and drops the keyset cursor + its back-trail, which describe the pre-filter sequence.
+  assert.match(pageSource, /const RESET_ON_FILTER = \{ vi_row: null, vi_cursor: null, vi_trail: null/);
+  // The action-type SELECT removed on 2026-08-07 stays removed; this row replaces nothing it did.
+  assert.doesNotMatch(pageSource, /name="category"[^>]*className="vr-selbtn"/);
+});

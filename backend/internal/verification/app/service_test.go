@@ -16,11 +16,12 @@ import (
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
-	items       map[string]domain.Item
-	byIdemKey   map[string]string
-	createCalls int
-	seq         int
-	verdictErr  error
+	items           map[string]domain.Item
+	byIdemKey       map[string]string
+	createCalls     int
+	seq             int
+	verdictErr      error
+	lastQueueParams ports.ListQueueParams
 }
 
 func newFakeRepo() *fakeRepo {
@@ -98,6 +99,7 @@ func (r *fakeRepo) GetSubmissionItems(_ context.Context, tenantID, submissionID 
 }
 
 func (r *fakeRepo) ListQueue(_ context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
+	r.lastQueueParams = params
 	out := make([]domain.Item, 0, len(r.items))
 	for _, item := range r.items {
 		if item.TenantID != params.TenantID {
@@ -107,6 +109,12 @@ func (r *fakeRepo) ListQueue(_ context.Context, params ports.ListQueueParams) ([
 			continue
 		}
 		if params.Category != "" && item.Category != params.Category {
+			continue
+		}
+		// Mirrors the repository's own precedence: Categories applies only when the single Category
+		// is empty, and an EMPTY Categories list means no category filter at all — which is exactly
+		// why the service must never write an empty intersection back into it.
+		if params.Category == "" && len(params.Categories) > 0 && !containsString(params.Categories, item.Category) {
 			continue
 		}
 		if params.ParkID != "" && (item.ParkID == nil || *item.ParkID != params.ParkID) {
@@ -594,6 +602,147 @@ func TestListQueueReturnsBackendPageOptionsForSelectedModule(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.FilterOptions.ActionTypes, wantActionTypes) {
 		t.Fatalf("action types = %+v want %+v", result.FilterOptions.ActionTypes, wantActionTypes)
+	}
+}
+
+// registerModuleFixture registers a two-module, four-category registry: Feed spans three pages
+// (the reason a module filter is not the same thing as a page filter) and Counts spans one.
+func registerModuleFixture(t *testing.T, svc *Service) {
+	t.Helper()
+	for _, def := range []domain.CategoryDefinition{
+		{
+			Vertical: "feed", Module: "feed", Category: "feed_distribution",
+			NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+			PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
+		},
+		{
+			Vertical: "feed", Module: "feed", Category: "feed_packing",
+			NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+			PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
+		},
+		{
+			Vertical: "feed", Module: "feed", Category: "feed_transport",
+			NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
+			PageKey: "feed_transport", PageLabel: "Feed Transport", PageOrder: 3,
+		},
+		{
+			Vertical: "counts", Module: "counts", Category: "birth_evidence",
+			NavigationModule: "counts", NavigationModuleLabel: "Counts",
+			PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
+		},
+	} {
+		if err := svc.RegisterCategory(def); err != nil {
+			t.Fatalf("RegisterCategory(%q): %v", def.Category, err)
+		}
+	}
+}
+
+func TestListQueueModuleFilterExpandsToEveryCategoryOfThatModule(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, nil)
+	registerModuleFixture(t, svc)
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID:         testTenant,
+		NavigationModule: "feed_direction",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue() error = %v", err)
+	}
+	// The predicate the repository actually received: all three Feed categories and nothing else.
+	// Asserting the returned page alone would pass on an empty fixture no matter what was sent.
+	want := []string{"feed_distribution", "feed_packing", "feed_transport"}
+	if !reflect.DeepEqual(repo.lastQueueParams.Categories, want) {
+		t.Fatalf("categories = %v want %v", repo.lastQueueParams.Categories, want)
+	}
+	if repo.lastQueueParams.Category != "" {
+		t.Fatalf("single category must stay empty so the multi-category predicate applies, got %q", repo.lastQueueParams.Category)
+	}
+	// The module the caller picked also resolves its page chips, even though no single category
+	// identifies it.
+	if result.FilterOptions.ModuleKey != "feed_direction" || result.FilterOptions.ModuleLabel != "Feed" {
+		t.Fatalf("selected module = %q/%q", result.FilterOptions.ModuleKey, result.FilterOptions.ModuleLabel)
+	}
+	if len(result.FilterOptions.Pages) != 3 {
+		t.Fatalf("pages = %+v", result.FilterOptions.Pages)
+	}
+}
+
+func TestListQueueModuleOptionsAreOnePerModuleNotPerCategory(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, nil)
+	registerModuleFixture(t, svc)
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant})
+	if err != nil {
+		t.Fatalf("ListQueue() error = %v", err)
+	}
+	want := []domain.QueueModuleOption{
+		{Key: "counts", Label: "Counts"},
+		{Key: "feed_direction", Label: "Feed"},
+	}
+	if !reflect.DeepEqual(result.FilterOptions.Modules, want) {
+		t.Fatalf("modules = %+v want %+v", result.FilterOptions.Modules, want)
+	}
+}
+
+// A verifier arrives with her duty categories already resolved into params.Categories. The module
+// chip must INTERSECT with that, never replace it — and an intersection that comes out empty must
+// be refused, because an empty category list reads as "every category" one layer down.
+func TestListQueueModuleFilterNeverWidensAnAuthorizedCategorySet(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, nil)
+	registerModuleFixture(t, svc)
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID:         testTenant,
+		Categories:       []string{"feed_packing", "birth_evidence"},
+		NavigationModule: "feed_direction",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue() error = %v", err)
+	}
+	if want := []string{"feed_packing"}; !reflect.DeepEqual(repo.lastQueueParams.Categories, want) {
+		t.Fatalf("categories = %v want %v (the module must not add feed_distribution/feed_transport)", repo.lastQueueParams.Categories, want)
+	}
+	_ = result
+
+	_, err = svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID:         testTenant,
+		Categories:       []string{"birth_evidence"},
+		NavigationModule: "feed_direction",
+	})
+	if err == nil {
+		t.Fatal("a module the caller holds no authorized category for must be refused, not served unfiltered")
+	}
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "module_scope_forbidden" {
+		t.Fatalf("error = %v want module_scope_forbidden", err)
+	}
+}
+
+func TestListQueueRejectsUnknownModuleAndConflictingCategory(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo, nil)
+	registerModuleFixture(t, svc)
+
+	// An unknown key is a bad request, never an empty queue that reads as "nothing to verify".
+	_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID:         testTenant,
+		NavigationModule: "not_a_module",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_module" {
+		t.Fatalf("unknown module error = %v want invalid_module", err)
+	}
+
+	_, err = svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID:         testTenant,
+		Category:         "birth_evidence",
+		NavigationModule: "feed_direction",
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "module_category_conflict" {
+		t.Fatalf("conflicting category error = %v want module_category_conflict", err)
 	}
 }
 
