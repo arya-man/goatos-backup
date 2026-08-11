@@ -169,7 +169,7 @@ func TestListRowsKeepsPartitionsAsOperationalLocationGrain(t *testing.T) {
 		if row.ExpectedCount != 1 {
 			t.Fatalf("partition %s expected_count=%d, want 1", want, row.ExpectedCount)
 		}
-		if row.OperationalLocationDisplay != "Process Shed - "+want {
+		if row.OperationalLocationDisplay != "Process Shed "+want {
 			t.Fatalf("partition %s display=%q", want, row.OperationalLocationDisplay)
 		}
 		if !strings.Contains(row.RowID, ":partition:"+want+":") {
