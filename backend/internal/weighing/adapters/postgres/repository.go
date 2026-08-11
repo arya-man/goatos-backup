@@ -1087,6 +1087,26 @@ bucket_catalog AS (
    AND sp.shed_id=shed.location_id
    AND sp.status='active'
    AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
+   AND NOT EXISTS (
+     SELECT 1
+     FROM locations represented_shed
+     WHERE represented_shed.tenant_id=shed.tenant_id
+       AND represented_shed.parent_location_id=shed.parent_location_id
+       AND represented_shed.location_id <> shed.location_id
+       AND represented_shed.location_type='shed'
+       AND represented_shed.status='active'
+       AND represented_shed.retired_at IS NULL
+       AND starts_with(BTRIM(represented_shed.name), BTRIM(shed.name))
+       AND NULLIF(
+         regexp_replace(
+           BTRIM(replace(BTRIM(represented_shed.name), BTRIM(shed.name), '')),
+           '^\s*-?\s*',
+           '',
+           'g'
+         ),
+         ''
+       ) = BTRIM(sp.normalized_label)
+   )
   WHERE shed.tenant_id=$1::uuid
     AND shed.parent_location_id=$2::uuid
     AND shed.location_type='shed'
@@ -1094,27 +1114,27 @@ bucket_catalog AS (
     AND shed.retired_at IS NULL
     AND NOT EXISTS (
       SELECT 1
-      FROM locations parent_shed
-      JOIN shed_partitions parent_partition
-        ON parent_partition.tenant_id=parent_shed.tenant_id
-       AND parent_partition.shed_id=parent_shed.location_id
-       AND parent_partition.status='active'
-      WHERE parent_shed.tenant_id=shed.tenant_id
-        AND parent_shed.parent_location_id=shed.parent_location_id
-        AND parent_shed.location_id <> shed.location_id
-        AND parent_shed.location_type='shed'
-        AND parent_shed.status='active'
-        AND parent_shed.retired_at IS NULL
-        AND starts_with(BTRIM(shed.name), BTRIM(parent_shed.name))
-        AND NULLIF(
-          regexp_replace(
-            BTRIM(replace(BTRIM(shed.name), BTRIM(parent_shed.name), '')),
-            '^\s*-\s*part\s*|\s+',
-            '',
-            'gi'
-          ),
-          ''
-        ) = parent_partition.normalized_label
+      FROM shed_partitions represented_partition
+      JOIN locations represented_shed
+        ON represented_shed.tenant_id=shed.tenant_id
+       AND represented_shed.parent_location_id=shed.parent_location_id
+       AND represented_shed.location_id <> shed.location_id
+       AND represented_shed.location_type='shed'
+       AND represented_shed.status='active'
+       AND represented_shed.retired_at IS NULL
+       AND starts_with(BTRIM(represented_shed.name), BTRIM(shed.name))
+       AND NULLIF(
+         regexp_replace(
+           BTRIM(replace(BTRIM(represented_shed.name), BTRIM(shed.name), '')),
+           '^\s*-?\s*',
+           '',
+           'g'
+         ),
+         ''
+       ) = BTRIM(represented_partition.normalized_label)
+      WHERE represented_partition.tenant_id=shed.tenant_id
+        AND represented_partition.shed_id=shed.location_id
+        AND represented_partition.status='active'
     )
 )
 SELECT

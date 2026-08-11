@@ -102,34 +102,6 @@ func applyPlannerShedOperationalDisplay(shed *domain.PlannerShed) {
 	shed.OperationalLocationDisplay = display
 }
 
-func suppressPlannerAliasBuckets(sheds []domain.PlannerShed) []domain.PlannerShed {
-	if len(sheds) == 0 {
-		return sheds
-	}
-	out := sheds[:0]
-	for i := range sheds {
-		candidate := sheds[i]
-		if strings.TrimSpace(candidate.PartitionLabel) == "" && plannerBucketIsPartitionAlias(candidate, sheds) {
-			continue
-		}
-		out = append(out, candidate)
-	}
-	return out
-}
-
-func plannerBucketIsPartitionAlias(candidate domain.PlannerShed, sheds []domain.PlannerShed) bool {
-	for i := range sheds {
-		other := sheds[i]
-		if other.LocationID == candidate.LocationID || strings.TrimSpace(other.PartitionLabel) == "" {
-			continue
-		}
-		if matchesOperationalLocationDisplay(candidate.Name, other.LocationID, other.ParentShedName, other.PartitionLabel) {
-			return true
-		}
-	}
-	return false
-}
-
 func operationalLocationDisplay(shedID, shedName, partitionLabel string) string {
 	return oploc.OperationalLocation{
 		ShedID:         strings.TrimSpace(shedID),
