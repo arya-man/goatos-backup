@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 			// from the index it was supposed to add. Re-validate (and, if the
 			// migration's SQL is idempotent-safe to rerun, repair) every time we
 			// see this migration again, not just the first time it is applied.
-			if err := ensureConcurrentIndexesValid(ctx, conn, migration, log); err != nil {
+			if err := ensureConcurrentIndexesValid(ctx, conn, migration, false, log); err != nil {
 				return err
 			}
 			continue
@@ -287,7 +287,7 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 			if err := execMigrationSQL(ctx, conn, migration.SQL); err != nil {
 				return fmt.Errorf("apply migration %s: %w", migration.Version, err)
 			}
-			if err := ensureConcurrentIndexesValid(ctx, conn, migration, log); err != nil {
+			if err := ensureConcurrentIndexesValid(ctx, conn, migration, true, log); err != nil {
 				return err
 			}
 			if err := recordMigration(ctx, conn, migration); err != nil {
@@ -549,7 +549,7 @@ func extractConcurrentIndexNames(sql string) []string {
 // migration's own SQL once to rebuild it (the migrations in this repo that
 // build a CONCURRENTLY index are written to be idempotent/re-runnable), then
 // fails loudly if it is still invalid.
-func ensureConcurrentIndexesValid(ctx context.Context, conn *pgxpool.Conn, migration migrationFile, log *slog.Logger) error {
+func ensureConcurrentIndexesValid(ctx context.Context, conn *pgxpool.Conn, migration migrationFile, requireMissing bool, log *slog.Logger) error {
 	names := extractConcurrentIndexNames(migration.SQL)
 	if len(names) == 0 {
 		return nil
@@ -561,6 +561,13 @@ func ensureConcurrentIndexesValid(ctx context.Context, conn *pgxpool.Conn, migra
 			return fmt.Errorf("check index validity for %s (migration %s): %w", name, migration.Version, err)
 		}
 		if exists && valid {
+			continue
+		}
+		if !exists && !requireMissing {
+			log.Info("concurrent_index_missing_after_later_migration",
+				slog.String("version", migration.Version),
+				slog.String("filename", migration.Filename),
+				slog.String("index", name))
 			continue
 		}
 		log.Warn("concurrent_index_invalid_repairing",
