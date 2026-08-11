@@ -3294,13 +3294,14 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 				  AND g.shed_id = s.location_id
 				  AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
 				)
-			RETURNING 1
+			RETURNING s.location_id
 		),
 		active_park_children AS (
 			SELECT DISTINCT child.parent_location_id
 			FROM locations child
 			WHERE child.tenant_id = $1::uuid
 			  AND child.status = 'active'
+			  AND child.location_id NOT IN (SELECT location_id FROM retired_sheds)
 			  AND child.parent_location_id IN (SELECT location_id FROM stale_parks)
 		),
 		retired_parks AS (
