@@ -6,6 +6,7 @@ import { Pencil } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
+import { clearSavedRate, publishSavedRate, rationRateKey } from "./feed-rate-optimistic";
 
 // Inline editors for the three writable Feed Config surfaces.
 //
@@ -46,12 +47,28 @@ function FeedConfigFormShell({
   children,
   editLabel,
   openLabel,
+  onSaved,
+  onOptimistic,
+  onRejected,
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
   children: React.ReactNode;
   editLabel: string;
   openLabel: string;
+  /**
+   * Called with the submitted form ONLY after a CONFIRMED save, so a caller can show the new value
+   * before the route's re-render lands. Never called for a rejected write — the form already
+   * surfaces that error, and echoing the refused value beside it would say the opposite.
+   */
+  onSaved?: (formData: FormData) => void;
+  /**
+   * Called with the submitted form BEFORE the action is awaited, so a caller can show the value
+   * immediately. Paired with onRejected, which must undo it — at this point nothing is confirmed.
+   */
+  onOptimistic?: (formData: FormData) => void;
+  /** Called when the write was REFUSED, so an optimistic display can be rolled back. */
+  onRejected?: (formData: FormData) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<FeedConfigActionResult | null>(null);
@@ -77,9 +94,14 @@ function FeedConfigFormShell({
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    // BEFORE the await: the action's response carries the revalidated page, so a caller that waits
+    // for it cannot show anything sooner than the re-render itself.
+    onOptimistic?.(formData);
     startTransition(async () => {
       const outcome = await action(formData);
       setResult(outcome);
+      if (outcome.ok) onSaved?.(formData);
+      else onRejected?.(formData);
       setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
       // A CONFIRMED write ENDS the editing intent, so the form closes — the same rule the sibling
       // authoring screen (/health/config) already follows, and three things depend on it:
@@ -205,6 +227,16 @@ export function RationRateEditor({
       action={action}
       editLabel={copy(pageContract, gramsPerHead === undefined ? "action.add_rate" : "action.edit_rate")}
       openLabel={copy(pageContract, "label.configured_zero_note")}
+      // Shows the typed quantity in this row's cell at once, and takes it back if the write is
+      // refused — the form's own error is then the only thing on screen, which is correct: nothing
+      // was stored, so the cell must go back to the server's value.
+      onOptimistic={(formData) =>
+        publishSavedRate(
+          rationRateKey(parkId, rationGroup, shedTag, feedItem),
+          String(formData.get("grams_per_head") ?? ""),
+        )
+      }
+      onRejected={() => clearSavedRate(rationRateKey(parkId, rationGroup, shedTag, feedItem))}
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="ration_group" value={rationGroup} />
@@ -557,6 +589,59 @@ export function ExperimentShedSwitch({
       <div className="small" style={{ lineHeight: 1.5 }}>
         <b>{shedName}</b>
         <div className="muted">{copy(pageContract, outcomeKey)}</div>
+      </div>
+    </FeedConfigFormShell>
+  );
+}
+
+/**
+ * Remove ONE feed item from feeding, or put it back.
+ *
+ * The only way to remove a feed item, and deliberately a RETIRE rather than a delete. The item's
+ * authored rates, shed factors and experiment cells are kept exactly as they are, so putting it back
+ * restores them without re-entering anything — and every past feed sheet stays explainable. A delete
+ * would take the rates with it, and a restore would then return an item whose every combination is
+ * UNCONFIGURED, which on this screen means BLOCKED: those sheds would not be fed.
+ *
+ * It sits on the STATUS cell rather than in a trailing action column, because the status is the
+ * thing being changed and is what an author looks at to decide.
+ *
+ * Behind the same confirm shell as every other write here, which is not ceremony: this is
+ * TENANT-wide (the catalog is shared by both parks) and it changes what animals eat from the next
+ * issued sheet onward, so it is the widest-reaching control on the page.
+ */
+export function FeedItemStatusSwitch({
+  pageContract,
+  action,
+  feedItemId,
+  feedItemLabel,
+  targetStatus,
+}: {
+  pageContract: AdminUiPageContract;
+  action: SaveAction;
+  /** The catalog row's own id. Keyed on the id, never the label, so a rename cannot misdirect it. */
+  feedItemId: string;
+  /** The item's name, shown back to the author before they apply. */
+  feedItemLabel: string;
+  /** "retired" removes it from feeding; "active" puts it back. */
+  targetStatus: "active" | "retired";
+}) {
+  const labelKey = targetStatus === "retired" ? "action.retire_feed_item" : "action.restore_feed_item";
+  const consequenceKey = targetStatus === "retired" ? "reason.retire_feed_item" : "reason.restore_feed_item";
+  return (
+    <FeedConfigFormShell
+      pageContract={pageContract}
+      action={action}
+      editLabel={copy(pageContract, labelKey)}
+      openLabel={copy(pageContract, consequenceKey)}
+    >
+      <input type="hidden" name="feed_item_id" value={feedItemId} />
+      <input type="hidden" name="status" value={targetStatus} />
+      {/* The item is named back before the write applies. One click from here changes what every
+          park is fed, so the control states WHICH item and WHAT will happen to its rates. */}
+      <div className="small" style={{ lineHeight: 1.5 }}>
+        <b>{feedItemLabel}</b>
+        <div className="muted">{copy(pageContract, consequenceKey)}</div>
       </div>
     </FeedConfigFormShell>
   );
