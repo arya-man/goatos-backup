@@ -551,29 +551,6 @@ SELECT public.copy_shed_partition_profile(sp.tenant_id, sp.shed_id, sp.operation
 FROM public.shed_partitions sp
 WHERE sp.operational_location_id IS NOT NULL;
 
--- Move live partitioned goats to the exact partition shed location. The partition shed is
--- the real shed/residence, so goats.shed_id becomes that exact location. The
--- parent "Godel 1"/"Gandhi" style grouping key is preserved in shed_group_id.
-SET lock_timeout = '2s';
-UPDATE public.goats g
-SET current_location_id = sp.operational_location_id,
-    shed_id = sp.operational_location_id,
-    shed_group_id = gsp.shed_id,
-    updated_at = now(),
-    row_version = g.row_version + 1
-FROM public.goat_shed_partitions gsp
-JOIN public.shed_partitions sp
-  ON sp.tenant_id = gsp.tenant_id
- AND sp.shed_id = gsp.shed_id
- AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
- AND sp.status = 'active'
-WHERE g.tenant_id = gsp.tenant_id
-  AND g.goat_id = gsp.goat_id
-  AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-  AND g.merged_into_goat_id IS NULL
-	  AND g.current_location_id IS DISTINCT FROM sp.operational_location_id;
-RESET lock_timeout;
-
 -- Backfill partition-specific operational rows so the database itself says the
 -- partition location is the shed. The old parent shed remains only in
 -- goat_shed_partitions/shed_partitions as the grouping bridge.
@@ -1228,19 +1205,6 @@ DROP FUNCTION IF EXISTS public.shed_partition_lock_key(uuid, uuid, text);
 DROP FUNCTION IF EXISTS public.copy_shed_partition_profile(uuid, uuid, uuid);
 DROP FUNCTION IF EXISTS public.reject_active_location_under_inactive_parent();
 DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
-
-SET lock_timeout = '2s';
-UPDATE public.goats g
-SET current_location_id = g.shed_group_id,
-    shed_id = g.shed_group_id,
-    updated_at = now(),
-    row_version = g.row_version + 1
-FROM public.shed_partitions sp
-WHERE g.tenant_id = sp.tenant_id
-  AND g.current_location_id = sp.operational_location_id
-  AND g.shed_id = sp.operational_location_id
-	  AND g.shed_group_id = sp.shed_id;
-RESET lock_timeout;
 
 WITH exact_partition AS (
   SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
