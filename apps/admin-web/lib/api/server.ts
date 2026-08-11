@@ -651,6 +651,7 @@ export type FeedConfigShedTagPage = AppApiComponents["schemas"]["FeedConfigShedT
 export type FeedConfigWriteResult = AppApiComponents["schemas"]["FeedConfigWriteResult"];
 export type UpsertFeedConfigRationRateRequest = AppApiComponents["schemas"]["UpsertFeedConfigRationRateRequest"];
 export type CreateFeedConfigFeedItemRequest = AppApiComponents["schemas"]["CreateFeedConfigFeedItemRequest"];
+export type SetFeedConfigFeedItemStatusRequest = AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
 export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
 export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
 export type FeedConfigExperimentPage = AppApiComponents["schemas"]["FeedConfigExperimentPage"];
@@ -880,6 +881,32 @@ export async function createFeedConfigFeedItem(
   );
 }
 
+/**
+ * Retires one feed item, or restores a retired one.
+ *
+ * This is how a feed item is REMOVED, and it is a status flip rather than a delete: the item's
+ * authored rates, shed factors and experiment cells survive untouched, so a past feed sheet stays
+ * explainable and putting the item back restores it fully configured. It is not a display setting —
+ * generation reads the catalog `WHERE status = 'active'`, so a retired item leaves every feed sheet
+ * issued from that point onward.
+ */
+export async function setFeedConfigFeedItemStatus(
+  body: SetFeedConfigFeedItemStatusRequest,
+  idempotencyKey = `feed-item-status-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/feed-items/status", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 // The three Feed Config writes. Each is effective-dated server-side (an earlier day's row is CLOSED
 // and a new one opened, so history survives) and each REQUIRES an Idempotency-Key: an exact replay
 // returns the original result with `idempotent_replay: true`, and the same key with a different
@@ -924,6 +951,13 @@ export async function listFeedConfigExperiment(params: {
    */
   park_id?: string;
   shed_id?: string;
+  /**
+   * ONE PEN of that shed, by its human partition label. Absent returns every pen of the shed.
+   *
+   * Both halves travel together: this section's rows are PENS, and Castro holds three of them, so
+   * shed_id alone answers a coarser question than the list it returns.
+   */
+  partition_label?: string;
   status?: "active" | "retired";
   /** A SET, sent as a repeated query parameter. A pen survives when any of its cells matches. */
   feed_item?: string[];
@@ -1847,6 +1881,10 @@ export async function listVerificationQueue(
     category?: string;
     vertical?: string;
     module?: string;
+    // navModule is the verifier-drawer MODULE key (filter_options.modules): it filters to every
+    // category that module registers, so Feed means distribution + packing + transport. Distinct
+    // from `module`, which filters the item's own module column.
+    navModule?: string;
     // "all" is the explicit no-status-filter selection; omitting status lands on pending.
     status?: VerificationItemStatus | "all";
     businessDate?: string;
@@ -1867,6 +1905,7 @@ export async function listVerificationQueue(
         category: params.category,
         vertical: params.vertical,
         module: params.module,
+        nav_module: params.navModule,
         status: params.status,
         business_date: params.businessDate,
         missed: params.missed,

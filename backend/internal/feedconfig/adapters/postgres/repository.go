@@ -92,10 +92,22 @@ SELECT ration_rate_id::text,
        valid_from::text,
        valid_to::text,
        source_system
-FROM feed_ration_rates
+FROM feed_ration_rates r
 WHERE tenant_id = $1::uuid
   AND park_id = $2::uuid
   AND valid_to IS NULL
+  -- RETIRED feed items drop out of the grid, because they have already dropped out of the FEED.
+  -- Generation loads the catalog with status = 'active'
+  -- (feeddirection/adapters/postgres.loadFeedItems), so a retired item's rate can no longer reach a
+  -- sheet; leaving it on the authoring screen would show an in-force quantity that nothing will ever
+  -- serve. This mirrors that predicate deliberately -- the config screen and the feed sheet must not
+  -- disagree about what is fed. The rate ROW is untouched and returns the moment the item is
+  -- restored; only the reading of it is scoped.
+  AND EXISTS (
+        SELECT 1 FROM feed_item_catalog c
+        WHERE c.tenant_id = r.tenant_id
+          AND c.feed_item_key = r.feed_item_key
+          AND c.status = 'active')
   AND ($3::text IS NULL OR ration_group_key = feed_config_norm($3))
   AND ($4::text IS NULL OR shed_tag_key = feed_config_norm($4))
   -- Feed items are a SET. The stored key stays BARE on the left of the comparison so the
@@ -512,7 +524,12 @@ WITH ranked_pens AS (
     WHERE c.tenant_id = $1::uuid
       AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
       AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
-      AND ($4::text IS NULL OR c.status = $4::text)` + experimentCellPredicate + `
+      AND ($4::text IS NULL OR c.status = $4::text)
+      -- One PEN, not a whole shed. NULL means no partition filter at all; partitionKeyMatch is only
+      -- reached for a real label, so a blank can never be read as the 'whole' key of an undivided
+      -- shed. An undivided shed needs no partition anyway -- it has exactly one pen, which shed_id
+      -- alone already selects.
+      AND ($11::text IS NULL OR c.partition_key = ` + partitionKeyMatch("$11") + `)` + experimentCellPredicate + `
   ) p
 ), page_pens AS (
   SELECT *, pen_count > ($6::bigint + $5::bigint) AS has_more
@@ -542,7 +559,8 @@ LEFT JOIN locations shed
 WHERE c.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
   AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
-  AND ($4::text IS NULL OR c.status = $4::text)` + experimentCellPredicate + `
+  AND ($4::text IS NULL OR c.status = $4::text)
+  AND ($11::text IS NULL OR c.partition_key = ` + partitionKeyMatch("$11") + `)` + experimentCellPredicate + `
 ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 
 	var kgOp, kgValue *string
@@ -553,7 +571,10 @@ ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
 	}
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
 		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset,
-		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue)
+		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue,
+		// Blank binds as NULL, i.e. no partition filter — never as the 'whole' key. An undivided
+		// shed has exactly one pen and is already selected by shed_id alone.
+		nullIfEmpty(q.PartitionLabel))
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
@@ -1014,6 +1035,50 @@ RETURNING feed_item_id::text`,
 			return writeEffect{}, fmt.Errorf("feedconfig: insert feed item: %w", err)
 		}
 		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
+	})
+}
+
+// SetFeedItemStatus retires one catalog entry, or restores a retired one.
+//
+// A STATUS FLIP, NEVER A DELETE -- the same shape as the experiment pen switch below, and for the
+// same reason. The item's ration rates, shed factors and experiment cells are left exactly as they
+// are, so a withdraw-and-restore round-trips instead of having to be re-keyed from the workbook,
+// and every past feed sheet stays explainable. A DELETE would cascade the rates away and a later
+// restore would return an item whose every combination is UNCONFIGURED, which on this screen means
+// BLOCKED: those sheds would not be fed.
+//
+// The row is locked FOR UPDATE and its current status read in the same statement, so two concurrent
+// flips serialize instead of both reading 'active' and racing. An item already in the requested
+// state is OutcomeUnchanged rather than an error: the caller asked for a state and that state holds.
+func (r *Repository) SetFeedItemStatus(ctx context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindFeedItem, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		var current string
+		err := tx.QueryRow(ctx, `
+SELECT status
+FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid
+FOR UPDATE`, cmd.TenantID, cmd.FeedItemID).Scan(&current)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return writeEffect{}, ports.ErrFeedItemNotFound
+		case err != nil:
+			return writeEffect{}, fmt.Errorf("feedconfig: lock feed item: %w", err)
+		}
+
+		if current == cmd.Status {
+			return writeEffect{Outcome: domain.OutcomeUnchanged, ResultRowID: cmd.FeedItemID}, nil
+		}
+
+		if _, err := tx.Exec(ctx, `
+UPDATE feed_item_catalog
+SET status = $3, updated_at = now()
+WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid`,
+			cmd.TenantID, cmd.FeedItemID, cmd.Status); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: set feed item status: %w", err)
+		}
+		// Corrected, not superseded: feed_item_catalog is not effective-dated, so this edits the one
+		// row in place rather than closing a window and opening another.
+		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: cmd.FeedItemID}, nil
 	})
 }
 

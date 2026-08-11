@@ -65,6 +65,11 @@ var (
 	// authored quantities and collapse onto ONE row under the natural key, so keeping either one
 	// silently stores a number the author did not choose. Rejected rather than de-duplicated.
 	ErrDuplicateFeedItem = errors.New("feedconfig: feed item appears more than once in one write")
+	// ErrInvalidFeedItemStatus guards the field that decides whether a feed item is still part of
+	// the tenant's vocabulary. Kept separate from ErrInvalidExperimentStatus despite the identical
+	// wording: these two fields decide different things, and a shared error would put the experiment
+	// workflow's name on a message about the feed catalog.
+	ErrInvalidFeedItemStatus = errors.New("feedconfig: status must be 'active' or 'retired'")
 )
 
 // Workflows recognised by feed_schedule_config. Mirrors the migration's CHECK constraint; a value
@@ -115,6 +120,16 @@ const (
 const (
 	ExperimentStatusActive  = "active"
 	ExperimentStatusRetired = "retired"
+)
+
+// Statuses recognised by feed_item_catalog. Mirrors that table's own CHECK constraint.
+//
+// `retired` is what "remove this feed item" means here. It is not a soft-delete flag the screen
+// filters on for tidiness: generation loads the catalog `WHERE status = 'active'`, so the status
+// decides whether the item is packed and served at all.
+const (
+	FeedItemStatusActive  = "active"
+	FeedItemStatusRetired = "retired"
 )
 
 // ---------------------------------------------------------------------------
@@ -444,7 +459,10 @@ type ExperimentConfigQuery struct {
 	TenantID string
 	ParkID   string
 	// ShedID optionally narrows to one shed. Empty means every experiment shed in the park.
-	ShedID string
+	// PartitionLabel narrows to ONE PEN of a shed. Blank means every pen of it — the section is
+	// pen-grained, so a shed-only filter would show three Castro pens under a control naming one.
+	PartitionLabel string
+	ShedID         string
 	// Status optionally narrows to 'active' or 'retired'. Empty means BOTH, which is what the config
 	// screen wants: a withdrawn shed's authored quantities must stay visible so it can be restored
 	// without re-keying them from the workbook.
@@ -674,6 +692,27 @@ type CreateFeedItemCommand struct {
 	DryMatterFactor *string
 	WastageFactor   *string
 	DisplayOrder    *int32
+}
+
+// SetFeedItemStatusCommand retires one entry of the tenant's feed vocabulary, or restores it.
+//
+// RETIRING IS THE ONLY WAY TO REMOVE A FEED ITEM, and it is deliberately not a delete. The item's
+// authored rates, its shed factors and its experiment cells all stay exactly as they were, so every
+// past feed sheet remains explainable and a restore brings the item back fully configured. A DELETE
+// would strip the rates with it, and a restore would then hand back an item whose every combination
+// is UNCONFIGURED — which on this screen does not mean "no quantity", it means BLOCKED, and a
+// blocked shed is not fed. Retiring cannot cause that; deleting could.
+//
+// This is not a visibility toggle. Generation loads the catalog `WHERE status = 'active'`
+// (feeddirection/adapters/postgres.loadFeedItems), so retiring an item genuinely stops it being
+// packed and served from the next issued sheet onward. The screen hides its rates to match what the
+// generator will actually do — the config screen and the feed sheet must not disagree.
+type SetFeedItemStatusCommand struct {
+	WriteIdentity
+	// FeedItemID is the catalog row's own id. Keyed on the id rather than the label because the
+	// label is what a future rename would change, and this write must not become ambiguous then.
+	FeedItemID string
+	Status     string
 }
 
 // SetExperimentShedStatusCommand switches ONE PEN between the experiment workflow and the normal
@@ -985,6 +1024,19 @@ func ValidateExperimentStatus(field, raw string, required bool) (string, error) 
 	}
 	if v != ExperimentStatusActive && v != ExperimentStatusRetired {
 		return "", fieldErr(field, ErrInvalidExperimentStatus, raw)
+	}
+	return v, nil
+}
+
+// ValidateFeedItemStatus narrows the catalog status. Always required: there is no safe default —
+// one value keeps the item in every feed sheet and the other takes it out of all of them.
+func ValidateFeedItemStatus(field, raw string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	if v != FeedItemStatusActive && v != FeedItemStatusRetired {
+		return "", fieldErr(field, ErrInvalidFeedItemStatus, raw)
 	}
 	return v, nil
 }

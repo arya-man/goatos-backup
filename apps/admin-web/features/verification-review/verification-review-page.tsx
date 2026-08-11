@@ -15,6 +15,12 @@ import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
 const PATHNAME = "/actions";
 
+// Changing a filter invalidates the open row, the keyset cursor, its back-trail, and any verdict
+// feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
+// across a filter change is the worst of them — cursors are keyset positions in one filtered
+// sequence, so reusing one lands on an unrelated slice of the new queue.
+const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null };
+
 
 export async function VerificationReviewPage({
   searchParams,
@@ -27,6 +33,13 @@ export async function VerificationReviewPage({
   // "all" = every status together; anything else is a single-status tab.
   const status = verificationStatus(one(sp, "status"));
   const category = one(sp, "category")?.trim();
+  // The module filter (maintainer request 2026-08-11): the same Vaccination / Weighing / Feed /
+  // Counts / Milk grouping the phone's verifier drawer uses. It is a MODULE, not an action type --
+  // Feed alone covers distribution, packing and transport -- so it is sent as `nav_module` and the
+  // backend expands it into that module's category set. The action-type SELECT removed on
+  // 2026-08-07 is deliberately not coming back: this row shows the current selection, whereas that
+  // control had a defaultValue that never matched the URL and sat on an unrelated action type.
+  const navModule = one(sp, "nav_module")?.trim();
   const shedId = one(sp, "shed_id")?.trim();
   const scope = parseScope(sp);
   const selectedId = one(sp, "vi_row");
@@ -40,6 +53,7 @@ export async function VerificationReviewPage({
   const queue = await listVerificationQueue({
     status,
     category,
+    navModule,
     businessDate: scope.asOf,
     parkId: scope.parkId,
     shedId,
@@ -50,6 +64,15 @@ export async function VerificationReviewPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const items = queue.ok ? queue.data.items : [];
+  // `?? []` is not defensive noise: admin-web and the API deploy separately, so a browser can hit a
+  // backend one release behind that has no `modules` in its filter options. The contract declares
+  // the field required, which means the generated type asserts it is there — the renderer must
+  // still not throw on the older payload; it simply shows no module row.
+  const modules = (queue.ok ? queue.data.filter_options.modules : []) ?? [];
+  // module_key is the backend's own answer to "which module is this queue showing" — it resolves
+  // from ?nav_module AND from a single ?category, so the chip row reflects a nav-leaf selection
+  // without the frontend re-deriving which module owns that category.
+  const selectedModuleKey = (queue.ok ? queue.data.filter_options.module_key : undefined) ?? navModule ?? "";
   const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
   const statuses = queue.ok ? queue.data.filter_options.statuses : [];
   const sheds = queue.ok ? queue.data.filter_options.sheds : [];
@@ -122,6 +145,42 @@ export async function VerificationReviewPage({
         <section className="card vr-board" style={{ minWidth: 0 }}>
         <div className="bt">{copy(pageContract, "board.title")}</div>
 
+        {/* Module filter — the same grouping the phone's verifier drawer uses (Vaccination,
+            Weighing, Feed, Counts, Milk, Health). The vocabulary, the labels and the order are the
+            registry's (filter_options.modules); nothing here is derived from the rows on screen, so
+            a module with an empty queue stays selectable instead of vanishing.
+
+            Selection is read from filter_options.module_key, NOT from ?nav_module, so a nav leaf
+            that scopes the screen with ?category= lights up its own module chip too — the two ways
+            in cannot disagree about what is selected.
+
+            Each chip clears `category`: it is a WIDER selection than one page, and leaving a
+            sibling module's category behind would ask the backend for a contradiction it answers
+            400 (module_category_conflict). */}
+        {modules.length > 1 ? (
+          <div className="vr-legend" role="group" aria-label={copy(pageContract, "filter.module")}>
+            <Link
+              href={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
+              replace
+              scroll={false}
+              className={`vr-lg${selectedModuleKey ? "" : " on"}`}
+            >
+              {copy(pageContract, "filter.all_modules")}
+            </Link>
+            {modules.map((option) => (
+              <Link
+                key={option.key}
+                href={hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER })}
+                replace
+                scroll={false}
+                className={`vr-lg${selectedModuleKey === option.key ? " on" : ""}`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
+
         {/* The action-type select was REMOVED (maintainer decision 2026-08-07). The left nav
             already scopes this screen -- every leaf sets ?category= -- so the dropdown was a
             second, competing scope control for a choice the verifier had just made in the sidebar.
@@ -158,7 +217,7 @@ export async function VerificationReviewPage({
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. */}
             <Link
-              href={hrefWith(sp, { shed_id: null, status: null, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null })}
+              href={hrefWith(sp, { shed_id: null, status: null, nav_module: null, ...RESET_ON_FILTER })}
               replace
               scroll={false}
               className="lk small"

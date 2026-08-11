@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 
 export type WorklistFilterOption = { value: string; label: string };
@@ -17,6 +18,25 @@ export type WorklistFilterField =
       value: string;
       options: WorklistFilterOption[];
       allowAll?: boolean;
+      /**
+       * Other parameters this control INVALIDATES when it changes.
+       *
+       * For a dependent picker whose options only make sense inside this field's selection — a pen
+       * picker under a park, a shed picker under a park. Leaving the dependent value behind produces
+       * a filter pair that reads as valid and matches nothing, which the reader cannot explain from
+       * the screen.
+       */
+      clears?: string[];
+      /**
+       * Optional hint shown on hover, the same treatment the multi-select and compare controls give
+       * theirs.
+       *
+       * It exists because a select can silently narrow in a way its own options cannot show — Feed
+       * Config's Breed control excludes the breedless `Kid` ration group entirely, a fifth of the
+       * authored rates, and the grid just renders without them. The copy for that was authored in the
+       * page contract and had NO way to reach the screen, because this kind carried no note field.
+       */
+      note?: string;
       disabledReason?: string;
     }
   | {
@@ -67,18 +87,38 @@ export type WorklistFilterField =
       disabledReason?: string;
     };
 
-// Shared mock-shaped filter bar for backend-filtered operational worklists. Each change rewrites
-// the URL and resets the page offset; the server remains the owner of rows and totals.
+// Shared mock-shaped filter bar for backend-filtered operational worklists. Applying rewrites the
+// URL and resets the page offset; the server remains the owner of rows and totals.
 export function WorklistFilters({
   basePath,
   pageParam,
   fields,
   pageContract,
+  deferApply = false,
+  children,
 }: {
   basePath: string;
   pageParam: string;
   fields: WorklistFilterField[];
   pageContract: AdminUiPageContract;
+  /**
+   * The rows this bar filters, passed in so the bar can hold them back while an apply is in flight.
+   *
+   * They arrive already rendered by the server component — this only wraps them — so nothing about
+   * how or when they are fetched changes. Passing them is what lets ONE piece of state drive both
+   * the busy ring and the held-back rows; the alternative was a context provider threaded through a
+   * server page to say the same thing twice. Optional: a bar with no children is unchanged.
+   */
+  children?: ReactNode;
+  /**
+   * STAGE the edits and commit them on one Apply press, instead of rewriting the URL as each control
+   * changes.
+   *
+   * For a bar whose page is expensive to render or whose reader normally narrows by several things
+   * at once: applying per control ran a full server render per pick and showed intermediate result
+   * sets nobody asked for. Off by default, so a light single-filter bar keeps its immediate feel.
+   */
+  deferApply?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -87,20 +127,45 @@ export function WorklistFilters({
   const [optimisticSearch, setOptimisticSearch] = useState<{ from: string; search: string } | null>(null);
   const optimisticActive = optimisticSearch?.from === current;
   const effectiveSearch = optimisticActive ? optimisticSearch.search : current;
-  const effectiveParams = useMemo(() => new URLSearchParams(effectiveSearch), [effectiveSearch]);
+
+  // STAGED EDITS. Null means the bar is showing exactly what is applied; a string means the operator
+  // has changed something that Apply has not committed yet.
+  const [draftSearch, setDraftSearch] = useState<string | null>(null);
+  // Drop the staged edits whenever what is APPLIED changes underneath — Apply landing, back/forward,
+  // or a link that carries its own filters. Adjusted DURING RENDER rather than in an effect: the
+  // effect version renders the stale draft once and commits before correcting it, which on a filter
+  // bar is one frame of the previous selection flashing back into the control (the same reasoning as
+  // the compare control's re-sync below).
+  const [lastApplied, setLastApplied] = useState(effectiveSearch);
+  if (lastApplied !== effectiveSearch) {
+    setLastApplied(effectiveSearch);
+    setDraftSearch(null);
+  }
+  // What the CONTROLS show: the staged set while one exists, otherwise what is applied.
+  const activeSearch = draftSearch ?? effectiveSearch;
+  const activeParams = useMemo(() => new URLSearchParams(activeSearch), [activeSearch]);
+  const staged = worklistFilterIsStaged(draftSearch, effectiveSearch, pageParam);
 
   // The clear-vs-fallback rule lives in its own React-free module so it can be unit-tested; see it
-  // for the defect it prevents.
+  // for the defect it prevents. A staged draft is "pending" for its purposes too: a filter the
+  // operator has just cleared is ABSENT from the draft and must render empty rather than falling
+  // through to the stale server prop, which is the exact bug that module exists to stop.
   const shownValue = (param: string, serverValue: string, clearable: boolean) =>
-    worklistFilterShownValue(effectiveParams.get(param), serverValue, Boolean(optimisticActive), clearable);
+    worklistFilterShownValue(
+      activeParams.get(param),
+      serverValue,
+      draftSearch !== null || Boolean(optimisticActive),
+      clearable,
+    );
 
   const allLabel = copy(pageContract, "filter.all_option");
   // Resolved ONLY when a multi-select is actually on the bar. `copy` throws on a key the contract
   // does not carry, and this component is shared by pages that have no multi-valued filter and
   // therefore no reason to declare the key.
-  const applyLabel = fields.some((field) => field.kind === "multiselect" || field.kind === "compare")
-    ? copy(pageContract, "filter.apply")
-    : "";
+  const applyLabel =
+    deferApply || fields.some((field) => field.kind === "multiselect" || field.kind === "compare")
+      ? copy(pageContract, "filter.apply")
+      : "";
   const clearable = fields.filter(
     (field) =>
       (field.kind === "select" && field.allowAll !== false) ||
@@ -108,36 +173,61 @@ export function WorklistFilters({
       field.kind === "compare",
   );
   const hasAnyFilter = clearable.some((field) => {
-    if (field.kind === "multiselect") return effectiveParams.getAll(field.param).length > 0;
+    if (field.kind === "multiselect") return activeParams.getAll(field.param).length > 0;
     // A comparison counts as applied when EITHER half is set, so a half-filled one can still be
     // cleared — the backend rejects half a comparison, and a control the operator cannot reset
     // would leave the page stuck on an error.
-    if (field.kind === "compare") return effectiveParams.get(field.param) !== null || effectiveParams.get(field.valueParam) !== null;
-    return field.kind === "select" && effectiveParams.get(field.param) !== null;
+    if (field.kind === "compare") return activeParams.get(field.param) !== null || activeParams.get(field.valueParam) !== null;
+    return field.kind === "select" && activeParams.get(field.param) !== null;
   });
 
   function push(next: URLSearchParams) {
     next.delete(pageParam);
     const qs = next.toString();
+    setDraftSearch(null);
     setOptimisticSearch({ from: current, search: qs });
     startTransition(() => {
       router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
     });
   }
 
-  function applyFilter(param: string, value: string) {
-    const next = new URLSearchParams(effectiveSearch);
+  /**
+   * Where every control's change lands: the URL directly, or the staged draft when this bar defers.
+   *
+   * The page parameter is dropped on BOTH paths, so a staged edit already reflects the paging reset
+   * the apply will perform and the Apply button cannot light up over an offset alone.
+   */
+  function write(next: URLSearchParams) {
+    if (!deferApply) {
+      push(next);
+      return;
+    }
+    next.delete(pageParam);
+    setDraftSearch(next.toString());
+  }
+
+  /** Commits the staged edits. No-op when nothing is staged, so a stray press cannot re-render. */
+  function applyStaged() {
+    if (!staged || draftSearch === null) return;
+    push(new URLSearchParams(draftSearch));
+  }
+
+  function applyFilter(param: string, value: string, clears?: string[]) {
+    const next = new URLSearchParams(activeSearch);
     if (value) next.set(param, value);
     else next.delete(param);
-    push(next);
+    // Dropped on the STAGED set, so the dependent control visibly returns to All before Apply is
+    // pressed rather than resetting under the reader after the page comes back.
+    for (const dependent of clears ?? []) next.delete(dependent);
+    write(next);
   }
 
   /** Replaces every occurrence of `param` with `values`, so the URL carries the set exactly. */
   function applyMultiFilter(param: string, values: string[]) {
-    const next = new URLSearchParams(effectiveSearch);
+    const next = new URLSearchParams(activeSearch);
     next.delete(param);
     for (const value of values) if (value) next.append(param, value);
-    push(next);
+    write(next);
   }
 
   /**
@@ -148,7 +238,7 @@ export function WorklistFilters({
    * one. Clearing either half clears both, for the same reason.
    */
   function applyCompare(opParam: string, valueParam: string, op: string, value: string) {
-    const next = new URLSearchParams(effectiveSearch);
+    const next = new URLSearchParams(activeSearch);
     if (op && value) {
       next.set(opParam, op);
       next.set(valueParam, value);
@@ -156,29 +246,38 @@ export function WorklistFilters({
       next.delete(opParam);
       next.delete(valueParam);
     }
-    push(next);
+    write(next);
   }
 
   function clearAll() {
-    const next = new URLSearchParams(effectiveSearch);
+    const next = new URLSearchParams(activeSearch);
     for (const field of clearable) {
       next.delete(field.param);
       if (field.kind === "compare") next.delete(field.valueParam);
     }
-    push(next);
+    // Staged like every other edit on a deferred bar, rather than applying at once. Mixing the two
+    // is what makes a filter bar unpredictable: on this bar NOTHING reaches the server until Apply,
+    // and the reader can see the whole reset before committing it.
+    write(next);
   }
 
+  const loadingLabel = copy(pageContract, "state.loading");
+
   return (
+    <>
     <div
       className="tbar"
       style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}
       role="group"
       aria-label={copy(pageContract, "filter.bar_aria")}
+      // Announced on the BAR, which is what the reader just acted on. The held-back rows below carry
+      // it too, so a screen reader hears "busy" whichever region it is in.
+      aria-busy={isPending || undefined}
     >
       {fields.map((field) => {
         const effectiveField =
           field.kind === "multiselect"
-            ? { ...field, values: effectiveParams.getAll(field.param) }
+            ? { ...field, values: activeParams.getAll(field.param) }
             : field.kind === "compare"
               ? {
                   ...field,
@@ -201,6 +300,7 @@ export function WorklistFilters({
             field={effectiveField}
             allLabel={allLabel}
             applyLabel={applyLabel}
+            deferApply={deferApply}
             onChange={(values) => applyMultiFilter(effectiveField.param, values)}
           />
         ) : effectiveField.kind === "compare" ? (
@@ -209,10 +309,18 @@ export function WorklistFilters({
             field={effectiveField}
             allLabel={allLabel}
             applyLabel={applyLabel}
+            deferApply={deferApply}
+            onApply={applyStaged}
             onChange={(op, value) => applyCompare(effectiveField.param, effectiveField.valueParam, op, value)}
           />
         ) : (
-        <label key={effectiveField.param} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+        <label
+          key={effectiveField.param}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+          // On the whole control, label included, so the hint is reachable from the word the reader
+          // is already looking at rather than only from the box itself.
+          title={effectiveField.kind === "select" ? effectiveField.note : undefined}
+        >
           <span className="muted">{effectiveField.label}</span>
           {effectiveField.kind === "date" ? (
             <input
@@ -233,9 +341,17 @@ export function WorklistFilters({
               value={effectiveField.value}
               aria-label={effectiveField.label}
               disabled={Boolean(effectiveField.disabledReason)}
-              title={effectiveField.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
+              // Disabled reason first — it explains why the control cannot be used at all, which
+              // outranks a hint about what it does.
+              title={
+                effectiveField.disabledReason ||
+                effectiveField.note ||
+                (isPending ? copy(pageContract, "state.loading") : undefined)
+              }
               style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) => applyFilter(effectiveField.param, event.target.value)}
+              onChange={(event) =>
+                applyFilter(effectiveField.param, event.target.value, effectiveField.clears)
+              }
             >
               {effectiveField.allowAll === false ? null : <option value="">{allLabel}</option>}
               {effectiveField.options.map((option) => (
@@ -253,7 +369,43 @@ export function WorklistFilters({
           {copy(pageContract, "filter.clear_all")}
         </button>
       ) : null}
+      {/* The bar's ONE commit point when it defers. Always rendered rather than appearing with the
+          first edit, so the reader can see before touching anything that this bar waits for a press —
+          a button that materialises after the fact would leave the first pick looking like it did
+          nothing. Disabled until something is actually staged, which is also what stops a press from
+          re-running the page for an unchanged set. */}
+      {deferApply ? (
+        <button
+          type="button"
+          className="btn sm p"
+          disabled={!staged || isPending}
+          aria-disabled={!staged || isPending}
+          style={staged && !isPending ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
+          onClick={applyStaged}
+        >
+          {applyLabel}
+        </button>
+      ) : null}
+      {/* The busy affordance, at the end of the bar so it appears beside the control that was just
+          pressed rather than somewhere the reader has to go looking. The word is the contract's, and
+          it is what a screen reader gets — the ring itself is decorative. */}
+      {isPending ? (
+        <span
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+          className="muted"
+          role="status"
+        >
+          <span className="wfspin" aria-hidden="true" />
+          {loadingLabel}
+        </span>
+      ) : null}
     </div>
+    {children === undefined ? null : (
+      <div className={isPending ? "wfbusy" : undefined} aria-busy={isPending || undefined}>
+        {children}
+      </div>
+    )}
+    </>
   );
 }
 
@@ -273,11 +425,18 @@ function MultiSelectFilter({
   field,
   allLabel,
   applyLabel,
+  deferApply,
   onChange,
 }: {
   field: Extract<WorklistFilterField, { kind: "multiselect" }>;
   allLabel: string;
   applyLabel: string;
+  /**
+   * The BAR owns the commit. Each tick then goes straight into the bar's staged set — which costs
+   * nothing, because staging does not navigate — and this panel drops its own Apply button rather
+   * than showing a second one that means something different from the first.
+   */
+  deferApply: boolean;
   onChange: (values: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -327,9 +486,9 @@ function MultiSelectFilter({
         : `${field.values.length} selected`;
 
   function toggle(value: string) {
-    setDraft((current) =>
-      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
-    );
+    const next = draft.includes(value) ? draft.filter((item) => item !== value) : [...draft, value];
+    setDraft(next);
+    if (deferApply) onChange(next);
   }
 
   function apply() {
@@ -409,26 +568,38 @@ function MultiSelectFilter({
               </label>
             ))}
           </div>
-          {/* Apply sits OUTSIDE the scrolling list, so it stays reachable however long the
-              vocabulary grows. */}
-          <div
-            style={{
-              display: "flex",
-              gap: 6,
-              padding: "8px 10px 2px",
-              borderTop: "1px solid var(--line)",
-              marginTop: 6,
-            }}
-          >
-            <button type="button" className="btn sm p" onClick={apply}>
-              {applyLabel}
-            </button>
-            {draft.length > 0 ? (
-              <button type="button" className="btn sm" onClick={() => setDraft([])}>
-                {allLabel}
-              </button>
-            ) : null}
-          </div>
+          {/* Sits OUTSIDE the scrolling list, so it stays reachable however long the vocabulary
+              grows. On a deferred bar the panel carries no Apply — the bar's does the committing —
+              and this row is only the reset, shown when there is something to reset. */}
+          {deferApply && draft.length === 0 ? null : (
+            <div
+              style={{
+                display: "flex",
+                gap: 6,
+                padding: "8px 10px 2px",
+                borderTop: "1px solid var(--line)",
+                marginTop: 6,
+              }}
+            >
+              {deferApply ? null : (
+                <button type="button" className="btn sm p" onClick={apply}>
+                  {applyLabel}
+                </button>
+              )}
+              {draft.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => {
+                    setDraft([]);
+                    if (deferApply) onChange([]);
+                  }}
+                >
+                  {allLabel}
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
     </span>
@@ -454,11 +625,21 @@ function CompareFilter({
   field,
   allLabel,
   applyLabel,
+  deferApply,
+  onApply,
   onChange,
 }: {
   field: Extract<WorklistFilterField, { kind: "compare" }>;
   allLabel: string;
   applyLabel: string;
+  /**
+   * The BAR owns the commit. Both halves then go into the bar's staged set as they are typed — which
+   * navigates nothing, so the per-keystroke render this control was built to avoid cannot happen —
+   * and this control drops its own Apply button.
+   */
+  deferApply: boolean;
+  /** Enter still commits, but through the BAR, so it applies every staged filter and not just this one. */
+  onApply: () => void;
   onChange: (op: string, value: string) => void;
 }) {
   // BOTH halves are held locally while they are being assembled, and only a COMPLETE pair is
@@ -525,9 +706,11 @@ function CompareFilter({
           style={disabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
           onChange={(event) => {
             setOpDraft(event.target.value);
-            // Only "All" acts immediately — it clears. Any real operator waits for Apply, because
-            // the value half is not filled in yet.
-            if (event.target.value === "") commit("", valueDraft);
+            // On a deferred bar every change is staged at once — it costs no render, and the pair is
+            // still only written when both halves are filled. Otherwise only "All" acts immediately,
+            // because it clears and there is nothing left to assemble; any real operator waits for
+            // Apply, since the value half is not filled in yet.
+            if (deferApply || event.target.value === "") commit(event.target.value, valueDraft);
           }}
         >
           <option value="">{allLabel}</option>
@@ -549,17 +732,24 @@ function CompareFilter({
         aria-label={field.valueAriaLabel}
         disabled={disabled}
         style={{ width: 72, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
-        onChange={(event) => setValueDraft(event.target.value)}
+        onChange={(event) => {
+          setValueDraft(event.target.value);
+          if (deferApply) commit(opDraft, event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            commit(opDraft, valueDraft);
+            // Through the BAR when it defers, so Enter applies everything staged rather than
+            // committing this one filter and leaving the operator's other picks behind.
+            if (deferApply) onApply();
+            else commit(opDraft, valueDraft);
           }
         }}
       />
       {/* Shown only while there is something to apply, so a bar of these does not read as a row of
-          buttons waiting to be pressed. Enter in the value box does the same thing. */}
-      {staged && !disabled ? (
+          buttons waiting to be pressed. Enter in the value box does the same thing. Absent entirely
+          on a deferred bar, which has exactly one Apply. */}
+      {!deferApply && staged && !disabled ? (
         <button type="button" className="btn sm p" onClick={() => commit(opDraft, valueDraft)}>
           {applyLabel}
         </button>

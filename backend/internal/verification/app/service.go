@@ -102,6 +102,9 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.Module = strings.TrimSpace(params.Module)
 	params.Status = strings.TrimSpace(params.Status)
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
+	if err := s.applyNavigationModuleFilter(&params); err != nil {
+		return QueueResult{}, err
+	}
 	params.ParkID = strings.TrimSpace(params.ParkID)
 	params.ShedID = strings.TrimSpace(params.ShedID)
 	if params.ParkID != "" && !uuidutil.IsUUIDString(params.ParkID) {
@@ -173,6 +176,7 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		options.Sheds = []domain.LocationFilterOption{}
 	}
 	options.ActionTypes = s.actionTypeOptions()
+	options.Modules = s.moduleOptions()
 	// The page chips are scoped by the SELECTED category, which for a verifier does not arrive in
 	// params.Category: the handler resolves her authorization into params.Categories and blanks
 	// Category (so the repository filters on the authorized set). Reading Category alone therefore
@@ -188,6 +192,13 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		selectedCategory = params.Categories[0]
 	}
 	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(selectedCategory)
+	// A caller that picked a MODULE rather than a page has several authorized categories and so
+	// resolves no single one above — without this it would get the module's chips only by accident,
+	// when that module happens to have exactly one page. The module it explicitly asked for is a
+	// better answer than "none": Feed selected must offer Feed's three page chips.
+	if options.ModuleKey == "" && params.NavigationModule != "" {
+		options.ModuleKey, options.ModuleLabel, options.Pages = s.modulePageOptions(params.NavigationModule)
+	}
 	options.Statuses = []domain.QueueStatusOption{
 		// No "All" option. It was offered from 2026-07-30 until 2026-08-06, when the maintainer
 		// removed it: with the three status chips beside it, "All" earns nothing -- those three
@@ -242,6 +253,116 @@ func (s *Service) actionTypeOptions() []domain.QueueActionTypeOption {
 		})
 	}
 	return options
+}
+
+// applyNavigationModuleFilter expands a requested verifier-drawer module into the disjoint category
+// set the queue already filters on, so a MODULE chip and a PAGE chip narrow through one predicate.
+//
+// Three rules, each of which has a way to go wrong silently:
+//
+//  1. The expansion NEVER widens. A verifier arrives with params.Categories already narrowed to what
+//     she is on duty for; the module set is INTERSECTED with it, never substituted for it. Picking a
+//     module she holds no duty for is refused rather than served.
+//  2. An empty result is never left in params.Categories. The repository reads an empty category
+//     list as "no category filter at all" ($3 = ”), so an empty intersection written back would
+//     serve EVERY module — the exact opposite of the request. Every path that produces none returns
+//     an error instead.
+//  3. An unknown module key is a 400, not an empty queue. A typo'd or retired key must not read to
+//     the operator as "nothing to verify here".
+func (s *Service) applyNavigationModuleFilter(params *ports.ListQueueParams) error {
+	params.NavigationModule = strings.TrimSpace(params.NavigationModule)
+	if params.NavigationModule == "" {
+		return nil
+	}
+	moduleCategories := s.categoriesForNavigationModule(params.NavigationModule)
+	if len(moduleCategories) == 0 {
+		return BadRequest("invalid_module", "module is not a registered verification module")
+	}
+	if params.Category != "" {
+		// A single category is the narrower selection and stays the predicate; the module is then
+		// only a claim about which drawer that page sits in, and a claim that disagrees with the
+		// registry is a bad request rather than a filter to silently reconcile.
+		if !containsString(moduleCategories, params.Category) {
+			return BadRequest("module_category_conflict", "category does not belong to the requested module")
+		}
+		return nil
+	}
+	if len(params.Categories) == 0 {
+		params.Categories = moduleCategories
+		return nil
+	}
+	narrowed := make([]string, 0, len(moduleCategories))
+	for _, category := range moduleCategories {
+		if containsString(params.Categories, category) {
+			narrowed = append(narrowed, category)
+		}
+	}
+	if len(narrowed) == 0 {
+		return Forbidden("module_scope_forbidden", "verifier is not assigned to this module")
+	}
+	params.Categories = narrowed
+	return nil
+}
+
+// categoriesForNavigationModule returns every registered category filed under one verifier-drawer
+// module, ordered by page order so the expansion is deterministic.
+func (s *Service) categoriesForNavigationModule(moduleKey string) []string {
+	definitions := s.registry.List()
+	sort.SliceStable(definitions, func(i, j int) bool {
+		if definitions[i].PageOrder != definitions[j].PageOrder {
+			return definitions[i].PageOrder < definitions[j].PageOrder
+		}
+		return definitions[i].Category < definitions[j].Category
+	})
+	categories := make([]string, 0, len(definitions))
+	for _, def := range definitions {
+		if def.NavigationModule == moduleKey && def.Category != "" {
+			categories = append(categories, def.Category)
+		}
+	}
+	return categories
+}
+
+// moduleOptions returns the complete, ordered verifier MODULE vocabulary from the registry —
+// Vaccination, Weighing, Feed, Counts, Milk, Health — one entry per module regardless of how many
+// categories it spans, and independent of the current queue rows so an empty module never vanishes
+// from the chip row.
+func (s *Service) moduleOptions() []domain.QueueModuleOption {
+	definitions := s.registry.List()
+	sort.SliceStable(definitions, func(i, j int) bool {
+		return definitions[i].NavigationModuleLabel < definitions[j].NavigationModuleLabel
+	})
+	options := make([]domain.QueueModuleOption, 0, len(definitions))
+	seen := make(map[string]struct{}, len(definitions))
+	for _, def := range definitions {
+		if def.NavigationModule == "" || def.NavigationModuleLabel == "" {
+			continue
+		}
+		if _, exists := seen[def.NavigationModule]; exists {
+			continue
+		}
+		seen[def.NavigationModule] = struct{}{}
+		options = append(options, domain.QueueModuleOption{Key: def.NavigationModule, Label: def.NavigationModuleLabel})
+	}
+	return options
+}
+
+// modulePageOptions is pageOptions keyed by the MODULE rather than by one of its categories.
+func (s *Service) modulePageOptions(moduleKey string) (string, string, []domain.QueuePageOption) {
+	categories := s.categoriesForNavigationModule(moduleKey)
+	if len(categories) == 0 {
+		return "", "", []domain.QueuePageOption{}
+	}
+	return s.pageOptions(categories[0])
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // pageOptions derives the selected module's complete top-tab set from the category registry,
