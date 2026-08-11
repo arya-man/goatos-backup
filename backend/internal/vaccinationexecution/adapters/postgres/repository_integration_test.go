@@ -154,7 +154,8 @@ func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDat
 	t.Log("OneToMany PageBoundary ExecutionDate ParkScope StatusMatrix: completed goat proof artifacts count the animal done once even when multiple vaccine obligations share the task")
 	requiredFragments := map[string]string{
 		"goat proof lateral join":       "FROM proof_artifacts proof",
-		"goat proof task scope":         "proof.task_id = st.task_id",
+		"goat proof task scope type":    "proof.scope_type = 'task'",
+		"goat proof task scope id":      "proof.scope_id = st.task_id",
 		"goat proof subject grain":      "proof.subject_type = 'goat'",
 		"goat proof completed upload":   "proof.upload_state = 'completed'",
 		"goat proof execution as-of":    "proof.created_at <= $7::timestamptz",

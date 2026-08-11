@@ -1384,7 +1384,8 @@ raw AS (
     SELECT proof.created_at AS proofed_at
     FROM proof_artifacts proof
     WHERE proof.tenant_id = oi.tenant_id
-      AND proof.task_id = st.task_id
+      AND proof.scope_type = 'task'
+      AND proof.scope_id = st.task_id
       AND proof.subject_type = 'goat'
       AND proof.subject_id = oi.target_id
       AND proof.upload_state = 'completed'
@@ -2479,7 +2480,8 @@ LEFT JOIN LATERAL (
   SELECT proof.created_at AS proofed_at
   FROM proof_artifacts proof
   WHERE proof.tenant_id = oi.tenant_id
-    AND proof.task_id = st.task_id
+    AND proof.scope_type = 'task'
+    AND proof.scope_id = st.task_id
     AND proof.subject_type = 'goat'
     AND proof.subject_id = g.goat_id
     AND proof.upload_state = 'completed'
