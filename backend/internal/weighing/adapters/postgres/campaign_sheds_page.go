@@ -184,7 +184,7 @@ LIMIT $5`, tenantID, campaignID,
 		var partitionLabel string
 		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName,
 			&partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status,
-			&shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+			&shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.CampaignShedPage{}, err
 		}
 		applyShedPartitionDisplayWithStoredLabel(&shed, partitionLabel)
