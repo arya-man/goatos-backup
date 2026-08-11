@@ -4301,6 +4301,59 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-config/feed-items/status:
+    post:
+      tags:
+        - Feed Config
+      operationId: setFeedConfigFeedItemStatus
+      summary: Retire one feed item, or restore a retired one.
+      description: >-
+        RETIRE, NEVER DELETE. This is how a feed item is removed, and it is a status flip rather than
+        a deletion on purpose: the item's authored ration rates, shed factors and experiment cells
+        are left exactly as they are, so every past feed sheet stays explainable and a later restore
+        returns the item fully configured.
+        Deleting would take the rates with it, and a restore would then hand back an item whose every
+        combination is UNCONFIGURED -- which on this screen does not mean "no quantity", it means
+        BLOCKED, and a blocked shed is not fed.
+        THIS CHANGES WHAT ANIMALS ARE FED; it is not a display filter. Feed generation loads the
+        catalog with status = 'active', so a retired item leaves every sheet issued from that point
+        onward, and its authored rates stop being listed on the ration grid to match. Restoring puts
+        both back.
+        The status is a required closed enum with no default -- one value keeps the item in every
+        sheet and the other removes it from all of them, so there is no safe value to fall back to.
+        An item already in the requested status returns outcome "unchanged" rather than an error: the
+        caller asked for a state and that state holds. Requires an Idempotency-Key: an exact replay
+        returns the original result with idempotent_replay=true, and reusing the key with a different
+        payload is a 409.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetFeedConfigFeedItemStatusRequest"
+      responses:
+        "200":
+          description: >-
+            The flip's outcome -- "corrected" when the status changed, "unchanged" when it already
+            held.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/session-templates:
     get:
       tags:
@@ -4540,6 +4593,19 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            Narrow to ONE PEN of the selected shed, by its human partition label ("2", "Part 3").
+            Absent returns every pen of that shed. This read is pen-grained -- one shed holds many
+            pens, each with its own arm, head count and authored quantities -- so a shed-only filter
+            answers a coarser question than the rows it returns.
+            Matched on the same normalization the stored partition key uses, so case and spacing do
+            not matter. An undivided shed needs no value here: it has exactly one pen, which shed_id
+            alone already selects.
+          schema:
+            type: string
         - name: status
           in: query
           required: false
@@ -5967,6 +6033,20 @@ paths:
         - name: module
           in: query
           required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: nav_module
+          in: query
+          required: false
+          description: >-
+            Verifier-drawer module key from filter_options.modules (e.g. feed_direction, counts).
+            Filters to EVERY category registered under that module — Feed spans feed_distribution,
+            feed_packing and feed_transport — so it is a wider selection than `category` and a
+            narrower one than no filter at all. It never widens an authorized category set: a
+            verifier asking for a module she holds no duty for answers 403 module_scope_forbidden,
+            an unregistered key answers 400 invalid_module, and combining it with a `category` from
+            a different module answers 400 module_category_conflict.
           schema:
             type: string
             maxLength: 120
@@ -10339,6 +10419,26 @@ components:
             Authored ABSOLUTE kg for the whole pen of this item. An explicit 0 is accepted (an arm
             that deliberately gets none of it); a negative or over-precise value is rejected with a
             field error. An item the author cleared must be omitted from the array entirely.
+    SetFeedConfigFeedItemStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_item_id
+        - status
+      properties:
+        feed_item_id:
+          type: string
+          format: uuid
+          description: >-
+            The catalog row being retired or restored. Keyed on the id rather than the label so the
+            write cannot become ambiguous if an item is ever renamed.
+        status:
+          type: string
+          enum: [active, retired]
+          description: >-
+            "retired" removes the item from every future feed sheet and from the ration grid;
+            "active" restores it along with its untouched authored rates. Required, with no default
+            -- see the endpoint description.
     CreateFeedConfigFeedItemRequest:
       type: object
       additionalProperties: false
@@ -21536,6 +21636,7 @@ components:
       type: object
       additionalProperties: false
       required:
+        - modules
         - action_types
         - pages
         - statuses
@@ -21552,6 +21653,15 @@ components:
         module_label:
           type: string
           description: Backend-owned display label for the selected verifier module.
+        modules:
+          type: array
+          description: >-
+            Complete ordered verifier MODULE vocabulary from the registry — one entry per module
+            however many categories it spans — for a cross-module renderer's module filter. Send a
+            selected entry's key back as the `nav_module` query parameter. Independent of current
+            queue rows, so an empty module never disappears from the filter.
+          items:
+            $ref: "#/components/schemas/VerificationModuleOption"
         action_types:
           type: array
           description: Complete ordered cross-module action-type filter vocabulary from the verification registry, independent of current queue rows.
@@ -21606,6 +21716,17 @@ components:
           type: integer
         rejected:
           type: integer
+    VerificationModuleOption:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          description: Verifier-drawer module key; send it back as the `nav_module` query parameter.
+        label:
+          type: string
+          description: Backend-owned display label for the module.
     VerificationActionTypeOption:
       type: object
       additionalProperties: false

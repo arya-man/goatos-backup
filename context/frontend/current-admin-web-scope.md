@@ -374,10 +374,22 @@ UX. Exact backend filters may live in URL params and active chips for entity
 history links. These dependencies must use current GoatOS contracts, canonical
 Postgres truth, generated clients, and the mock. They must not revive old
 dashboard/admin code, old `/herd`, legacy Counting DB runtime shapes, old
-import-review, or old Operations. The Counts sidebar shows exactly three leaves in
-this slice — `Herd Register` (`/counts/herd`), `Counts Breakdown`
-(`/counts/breakdown`), and `Milk Preparation` (`/counts/milk-preparation`). Do not show disabled `Tagging & identity`, `Weights &
+import-review, or old Operations. The Counts sidebar shows exactly two leaves in
+this slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
+(`/counts/breakdown`). Do not show disabled `Tagging & identity`, `Weights &
 ADG`, or `Count reconciliation` leaves for mock fidelity.
+
+`Milk` is its own sidebar group (maintainer decision 2026-08-11), holding
+`Milk Preparation` (`/counts/milk-preparation`). It was moved out of the Counts
+group for the same reason the phone split the kid-milk tasks out of its Counts
+module (2026-07-31, `bootstrap_copy.go` "milk"): Counts owns the herd-register
+events, while the daily milk round shares neither their grain nor their read
+models. The href is deliberately unchanged — this is a nav regrouping, not a
+route change, so deep links, the page contract's route id, and the live-smoke
+route list keep working. `SUPPORTED_COUNTS_HREFS` in
+`apps/admin-web/scripts/check-ia-guard.mjs` still allows the path, since it is
+an allowlist of where Counts labels may route, not a statement about which group
+owns the leaf.
 
 `Counts Breakdown` was reopened by explicit maintainer decision (2026-07-18),
 superseding the earlier rule that Herd Register was the only Counts page. It is
@@ -392,7 +404,7 @@ quality stays visible. The allowlist that enforces this lives in
 it again is a scope decision that must be recorded here first.
 
 `Milk Preparation` was reopened by explicit maintainer decision (2026-07-29). It reuses the
-Feed Packing worklist anatomy and remains a Counts-owned current-day planning read: canonical live
+Feed Packing worklist anatomy and remains a current-day planning read: canonical live
 K1/K2/K3 head counts at physical park x shed x cohort grain multiplied by the approved session
 volume matrix. Its whole-scope milk and citric-acid totals never come from the visible page. It does
 not fabricate K0 colostrum or ICU/clinical quantities, does not reconstruct historical herd state,

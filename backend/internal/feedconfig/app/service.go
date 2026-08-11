@@ -381,9 +381,13 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 		return domain.ExperimentConfigPage{}, err
 	}
 	return s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
-		TenantID:           tenantID,
-		ParkID:             strings.TrimSpace(parkID),
-		ShedID:             strings.TrimSpace(shedID),
+		TenantID: tenantID,
+		ParkID:   strings.TrimSpace(parkID),
+		ShedID:   strings.TrimSpace(shedID),
+		// Not validated against the shed's catalog here. This is a READ: a partition that matches
+		// nothing simply returns no pens, which is the honest answer, and rejecting it would need a
+		// per-request catalog lookup on a filter the operator picked from a list we supplied.
+		PartitionLabel:     strings.TrimSpace(f.PartitionLabel),
 		Status:             normalizedStatus,
 		FeedItems:          cleanStrings(f.FeedItems),
 		ExperimentCategory: strings.TrimSpace(f.ExperimentCategory),
@@ -403,8 +407,10 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 // ABSOLUTE kg total for a pen. Calling both "grams" here is how the two get confused, and confusing
 // them is how a pen gets fed its per-head rate as a shed total.
 type ExperimentConfigFilter struct {
-	ParkID             string
-	ShedID             string
+	ParkID string
+	ShedID string
+	// PartitionLabel narrows to ONE PEN of the selected shed. Blank means every pen of it.
+	PartitionLabel     string
 	Status             string
 	FeedItems          []string
 	ExperimentCategory string
@@ -611,6 +617,46 @@ func (s *Service) CreateFeedItem(ctx context.Context, in CreateFeedItemInput) (d
 		DryMatterFactor: dryMatter,
 		WastageFactor:   wastage,
 		DisplayOrder:    displayOrder,
+	})
+}
+
+// SetFeedItemStatusInput retires one feed item, or restores a retired one.
+//
+// The one authored field is the status. Nothing else about the item is editable here on purpose:
+// this is the "remove it" action, and letting it also rewrite an item's energy or wastage would put
+// an in-place edit of measured attributes behind a control that says Retire.
+type SetFeedItemStatusInput struct {
+	TenantID   string
+	ActorRef   string
+	FeedItemID string
+	Status     string
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// SetFeedItemStatus takes a feed item out of every future feed sheet, or puts it back.
+//
+// Not a display toggle -- generation reads the catalog `WHERE status = 'active'` -- so this is
+// validated as strictly as any other authored write: an unrecognised status is rejected rather than
+// coerced, because one value keeps the item in every sheet and the other removes it from all of them.
+func (s *Service) SetFeedItemStatus(ctx context.Context, in SetFeedItemStatusInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	feedItemID, err := domain.RequireNonBlank("feed_item_id", in.FeedItemID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	status, err := domain.ValidateFeedItemStatus("status", in.Status)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	return s.repo.SetFeedItemStatus(ctx, domain.SetFeedItemStatusCommand{
+		WriteIdentity: identity,
+		FeedItemID:    feedItemID,
+		Status:        status,
 	})
 }
 

@@ -19,13 +19,14 @@ import (
 // the Postgres integration tests, against the real schema.
 
 type fakeRepo struct {
-	lastRationRate domain.UpsertRationRateCommand
-	lastShedFactor domain.UpsertShedFactorCommand
-	lastFeedItem   domain.CreateFeedItemCommand
-	lastSchedule   domain.UpsertScheduleConfigCommand
-	lastRateQuery  domain.RationRateQuery
-	lastTagQuery   domain.ShedTagQuery
-	lastSchedQuery domain.ScheduleConfigQuery
+	lastRationRate     domain.UpsertRationRateCommand
+	lastShedFactor     domain.UpsertShedFactorCommand
+	lastFeedItem       domain.CreateFeedItemCommand
+	lastFeedItemStatus domain.SetFeedItemStatusCommand
+	lastSchedule       domain.UpsertScheduleConfigCommand
+	lastRateQuery      domain.RationRateQuery
+	lastTagQuery       domain.ShedTagQuery
+	lastSchedQuery     domain.ScheduleConfigQuery
 
 	lastExperiment       domain.UpsertExperimentConfigCommand
 	lastExperimentStatus domain.SetExperimentShedStatusCommand
@@ -114,6 +115,12 @@ func (f *fakeRepo) UpsertShedFactor(_ context.Context, cmd domain.UpsertShedFact
 func (f *fakeRepo) CreateFeedItem(_ context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error) {
 	f.writeCalls++
 	f.lastFeedItem = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) SetFeedItemStatus(_ context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastFeedItemStatus = cmd
 	return f.result, f.err
 }
 

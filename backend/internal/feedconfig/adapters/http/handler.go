@@ -46,10 +46,15 @@ import (
 )
 
 const (
-	rationRatesRoute      = "/feed-config/ration-rates"
-	rationGroupsRoute     = "/feed-config/ration-groups"
-	shedTagsRoute         = "/feed-config/shed-tags"
-	feedItemsRoute        = "/feed-config/feed-items"
+	rationRatesRoute  = "/feed-config/ration-rates"
+	rationGroupsRoute = "/feed-config/ration-groups"
+	shedTagsRoute     = "/feed-config/shed-tags"
+	feedItemsRoute    = "/feed-config/feed-items"
+	// feedItemStatusRoute retires one catalog entry or restores it. Its OWN route rather than a
+	// status field on the POST above, because that one is CREATE-only by design (a duplicate label
+	// is a 409, never an in-place correction) -- folding a status edit into it would make the same
+	// endpoint both add an item and rewrite an existing one.
+	feedItemStatusRoute   = "/feed-config/feed-items/status"
 	sessionTemplatesRoute = "/feed-config/session-templates"
 	scheduleRoute         = "/feed-config/schedule"
 	shedFactorsRoute      = "/feed-config/shed-factors"
@@ -73,6 +78,7 @@ const (
 	// routes can never collide on one idempotency key.
 	upsertRationRateCommand    = "feedconfig.ration_rate.upsert"
 	createFeedItemCommand      = "feedconfig.feed_item.create"
+	setFeedItemStatusCommand   = "feedconfig.feed_item.set_status"
 	upsertShedFactorCommand    = "feedconfig.shed_factor.upsert"
 	upsertScheduleCommand      = "feedconfig.schedule_config.upsert"
 	upsertExperimentCommand    = "feedconfig.experiment_config.upsert"
@@ -102,6 +108,7 @@ type Service interface {
 	UpsertExperimentConfig(ctx context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfigBatch(ctx context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error)
 	SetExperimentShedStatus(ctx context.Context, in feedconfigapp.SetExperimentShedStatusInput) (domain.WriteResult, error)
+	SetFeedItemStatus(ctx context.Context, in feedconfigapp.SetFeedItemStatusInput) (domain.WriteResult, error)
 }
 
 type Handler struct {
@@ -129,6 +136,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 
 	mux.HandleFunc("POST "+rationRatesRoute, h.UpsertRationRate)
 	mux.HandleFunc("POST "+feedItemsRoute, h.CreateFeedItem)
+	mux.HandleFunc("POST "+feedItemStatusRoute, h.SetFeedItemStatus)
 	mux.HandleFunc("POST "+shedFactorsRoute, h.UpsertShedFactor)
 	mux.HandleFunc("POST "+scheduleRoute, h.UpsertScheduleConfig)
 	mux.HandleFunc("POST "+experimentRoute, h.UpsertExperimentConfig)
@@ -296,7 +304,10 @@ func (h *Handler) ListExperimentConfig(w http.ResponseWriter, r *http.Request) {
 	page, err := h.service.ListExperimentConfig(r.Context(), tenantID, feedconfigapp.ExperimentConfigFilter{
 		ParkID: q.Get("park_id"),
 		ShedID: q.Get("shed_id"),
-		Status: q.Get("status"),
+		// One PEN of that shed. The section is pen-grained, so a shed-only filter would return three
+		// Castro pens under a control that names one of them.
+		PartitionLabel: q.Get("partition_label"),
+		Status:         q.Get("status"),
 		// Repeatable, same as the ration grid's. q.Get would keep only the first item.
 		FeedItems:          q["feed_item"],
 		ExperimentCategory: q.Get("experiment_category"),
@@ -448,6 +459,62 @@ func (h *Handler) CreateFeedItem(w http.ResponseWriter, r *http.Request) {
 		DryMatterFactor:    numberPtr(req.DryMatterFactor),
 		WastageFactor:      numberPtr(req.WastageFactor),
 		DisplayOrder:       req.DisplayOrder,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
+}
+
+// setFeedItemStatusRequest retires one feed item, or restores a retired one.
+//
+// Keyed on feed_item_id rather than the label: the id is stable, and a status write must not become
+// ambiguous the day an item is renamed.
+//
+// The status is a REQUIRED closed enum with no default. Defaulting it either way would let a
+// malformed body silently decide whether an item stays in every feed sheet or leaves all of them.
+type setFeedItemStatusRequest struct {
+	FeedItemID string `json:"feed_item_id"`
+	Status     string `json:"status"`
+}
+
+// SetFeedItemStatus takes a feed item out of every future feed sheet, or puts it back.
+//
+// This is the only way to REMOVE a feed item, and it is deliberately a retire rather than a delete:
+// the item's authored rates, shed factors and experiment cells survive, so a past sheet stays
+// explainable and a restore returns the item fully configured rather than blocking every shed that
+// uses it.
+func (h *Handler) SetFeedItemStatus(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req setFeedItemStatusRequest
+	if !h.decode(w, r, &req, "SetFeedConfigFeedItemStatusRequest") {
+		return
+	}
+	req.FeedItemID = strings.TrimSpace(req.FeedItemID)
+	req.Status = strings.TrimSpace(req.Status)
+
+	// Fingerprinted after trimming, like every other write here, so a retry of the same flip replays
+	// while a retry that asks for the OPPOSITE status is a conflict rather than a silent second write.
+	fingerprint, err := requestFingerprint(tenantID, setFeedItemStatusCommand, feedItemStatusRoute, req)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	result, err := h.service.SetFeedItemStatus(r.Context(), feedconfigapp.SetFeedItemStatusInput{
+		TenantID:           tenantID,
+		ActorRef:           h.actor(r),
+		FeedItemID:         req.FeedItemID,
+		Status:             req.Status,
 		IdempotencyKey:     key,
 		RequestFingerprint: fingerprint,
 	})
@@ -886,6 +953,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// original.
 		h.writeError(w, r, http.StatusConflict, "feed_item_exists",
 			"a feed item with this name already exists in this tenant", nil)
+	case errors.Is(err, ports.ErrFeedItemNotFound):
+		h.writeError(w, r, http.StatusNotFound, "feed_item_not_found",
+			"feed item not found in this tenant", nil)
 	case errors.Is(err, ports.ErrParkNotFound):
 		h.writeError(w, r, http.StatusNotFound, "park_not_found", "park not found in this tenant", nil)
 	case errors.Is(err, ports.ErrShedNotFound):

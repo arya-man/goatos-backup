@@ -29,6 +29,7 @@ type fakeService struct {
 
 	experimentInput       feedconfigapp.UpsertExperimentConfigInput
 	experimentStatusInput feedconfigapp.SetExperimentShedStatusInput
+	feedItemStatusInput   feedconfigapp.SetFeedItemStatusInput
 
 	rationRateFilter feedconfigapp.RationRateFilter
 	experimentFilter feedconfigapp.ExperimentConfigFilter
@@ -78,6 +79,11 @@ func (f *fakeService) UpsertExperimentConfigBatch(_ context.Context, in feedconf
 func (f *fakeService) UpsertExperimentConfig(_ context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error) {
 	f.calls++
 	f.experimentInput = in
+	return f.result, f.err
+}
+
+func (f *fakeService) SetFeedItemStatus(_ context.Context, in feedconfigapp.SetFeedItemStatusInput) (domain.WriteResult, error) {
+	f.feedItemStatusInput = in
 	return f.result, f.err
 }
 
