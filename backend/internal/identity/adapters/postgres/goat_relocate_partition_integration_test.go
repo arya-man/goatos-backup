@@ -13,11 +13,12 @@ import (
 
 // RelocateGoatsToShedInTx partition-awareness regression suite.
 //
-// OperationalLocation = park + physical shed + optional partition (backend/internal/platform/oploc).
-// goats.shed_id/park_id must ALWAYS name the parent physical shed, never a partition-bearing alias,
-// and goat_shed_partitions carries the partition half. These tests prove that RelocateGoatsToShedInTx
-// keeps both halves in sync, atomically, across every movement shape: same-shed partition move,
-// cross-shed partition move, a genuinely non-partitioned move, and the two mixed transitions
+// OperationalLocation = real shed residence (backend/internal/platform/oploc). When a named shed
+// is partitioned, goats.shed_id names the exact partition pen and goats.shed_group_id names the
+// parent/group shed. goat_shed_partitions carries the group+partition bridge. These tests prove that
+// RelocateGoatsToShedInTx keeps the exact residence and group bridge in sync, atomically, across
+// every movement shape: same-shed partition move, cross-shed partition move, non-partitioned move,
+// and the two mixed transitions
 // (partitioned -> non-partitioned, non-partitioned -> partitioned).
 
 const (
@@ -111,9 +112,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
 
 func readGoatShedAndPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) (shedID, partitionLabel string, hasPartitionRow bool) {
 	t.Helper()
-	var currentShed string
-	if err := pool.QueryRow(ctx, `SELECT shed_id::text FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
-		rpTenant, goatID).Scan(&currentShed); err != nil {
+	var currentShed, shedGroup string
+	if err := pool.QueryRow(ctx, `SELECT shed_id::text, COALESCE(shed_group_id::text, '') FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
+		rpTenant, goatID).Scan(&currentShed, &shedGroup); err != nil {
 		t.Fatalf("read goat shed_id: %v", err)
 	}
 	var gspShed, label string
@@ -122,8 +123,15 @@ func readGoatShedAndPartition(t *testing.T, ctx context.Context, pool *pgxpool.P
 	if err != nil {
 		return currentShed, "", false
 	}
-	if gspShed != currentShed {
-		t.Fatalf("goat_shed_partitions.shed_id (%s) disagrees with goats.shed_id (%s) for goat %s -- the two must move atomically together", gspShed, currentShed, goatID)
+	if label == "whole" {
+		if shedGroup != "" {
+			t.Fatalf("goats.shed_group_id=%s for whole-shed goat %s, want empty", shedGroup, goatID)
+		}
+		if gspShed != currentShed {
+			t.Fatalf("whole goat_shed_partitions.shed_id (%s) disagrees with exact goats.shed_id (%s) for goat %s", gspShed, currentShed, goatID)
+		}
+	} else if gspShed != shedGroup {
+		t.Fatalf("goat_shed_partitions.shed_id (%s) disagrees with goats.shed_group_id (%s) for goat %s -- group bridge must move atomically", gspShed, shedGroup, goatID)
 	}
 	return currentShed, label, true
 }
@@ -182,8 +190,8 @@ func TestRelocateGoatsToShedInTxSameShedPartitionMove(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a goat_shed_partitions row after the move")
 	}
-	if shedID != f.castroShed {
-		t.Fatalf("goats.shed_id = %s, want the parent shed %s unchanged (same-shed partition move)", shedID, f.castroShed)
+	if shedID != f.castroPart2Pen {
+		t.Fatalf("goats.shed_id = %s, want exact partition pen %s (same-shed partition move)", shedID, f.castroPart2Pen)
 	}
 	if shedID == f.inactiveAliasShed {
 		t.Fatalf("goats.shed_id resolved to the inactive alias location, must never happen")
@@ -220,8 +228,8 @@ func TestRelocateGoatsToShedInTxCrossShedPartitionMove(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a goat_shed_partitions row after the move")
 	}
-	if shedID != f.gandhiShed {
-		t.Fatalf("goats.shed_id = %s, want the destination parent shed %s", shedID, f.gandhiShed)
+	if shedID != f.gandhiPart3Pen {
+		t.Fatalf("goats.shed_id = %s, want exact destination partition pen %s", shedID, f.gandhiPart3Pen)
 	}
 	if shedID == f.inactiveAliasShed {
 		t.Fatalf("goats.shed_id resolved to the inactive alias location, must never happen")
@@ -329,8 +337,8 @@ func TestRelocateGoatsToShedInTxNonPartitionedToPartitioned(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected a goat_shed_partitions row to now exist for the goat")
 	}
-	if shedID != f.castroShed {
-		t.Fatalf("goats.shed_id = %s, want the destination shed %s", shedID, f.castroShed)
+	if shedID != f.castroPart1Pen {
+		t.Fatalf("goats.shed_id = %s, want exact destination partition pen %s", shedID, f.castroPart1Pen)
 	}
 	if partition != "1" {
 		t.Fatalf("goat_shed_partitions.partition_label = %q, want \"1\"", partition)

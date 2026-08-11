@@ -448,18 +448,24 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	if err != nil {
 		return nil, err
 	}
+	goatShedID := cmd.ShedID
+	var goatShedGroupID *string
+	if partitionLabel != nil {
+		goatShedID = currentLocationID
+		goatShedGroupID = &cmd.ShedID
+	}
 
 	if _, err := tx.Exec(ctx, `
 	INSERT INTO goats (
 	  goat_id, tenant_id, species, breed, sex, approx_dob, lifecycle_status,
 	  management_stage, health_status, custodian_party_id,
-	  current_location_id, farm_id, park_id, shed_id,
+	  current_location_id, farm_id, park_id, shed_id, shed_group_id,
 	  created_by, dob, dob_estimated, origin_type, entry_date, time_of_birth
 	) VALUES (
 	  $1::uuid, $2::uuid, $3::text, nullif($4::text, ''), $5::text, $6::date, 'alive',
 		  nullif($7::text, ''), nullif($8::text, ''), $9::uuid,
-	  $10::uuid, $11::uuid, $12::uuid, $13::uuid,
-	  $14::uuid, $6::date, $15::boolean, $16::text, $17::date, nullif($18::text, '')::time
+	  $10::uuid, $11::uuid, $12::uuid, $13::uuid, $14::uuid,
+	  $15::uuid, $6::date, $16::boolean, $17::text, $18::date, nullif($19::text, '')::time
 	)`,
 		goatID,
 		cmd.TenantID,
@@ -473,7 +479,8 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 		currentLocationID,
 		uuidArg(farmUUID),
 		cmd.ParkID,
-		cmd.ShedID,
+		goatShedID,
+		goatShedGroupID,
 		cmd.ActorID,
 		cmd.DOBEstimated,
 		cmd.OriginType,

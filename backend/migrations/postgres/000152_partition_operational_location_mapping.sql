@@ -5,7 +5,10 @@
 --   * goats.current_location_id = exact operational residence
 --       - pen row for partitioned sheds
 --       - shed row for undivided/lumpsum sheds
---   * goats.shed_id = physical parent shed / rollup shed
+--   * goats.shed_id = exact real shed/partition residence
+--       - same pen row as current_location_id for partitioned sheds
+--       - same shed row as current_location_id for undivided/lumpsum sheds
+--   * goats.shed_group_id = legacy parent/group shed when a partition exists
 --   * shed_partitions.operational_location_id = durable parent+partition -> pen mapping
 --
 -- This migration intentionally updates only live goats that already have exact
@@ -14,6 +17,30 @@
 
 ALTER TABLE public.shed_partitions
   ADD COLUMN IF NOT EXISTS operational_location_id uuid;
+
+ALTER TABLE public.goats
+  ADD COLUMN IF NOT EXISTS shed_group_id uuid;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'goats_shed_group_tenant_fk'
+      AND conrelid = 'public.goats'::regclass
+  ) THEN
+    ALTER TABLE public.goats
+      ADD CONSTRAINT goats_shed_group_tenant_fk
+      FOREIGN KEY (tenant_id, shed_group_id)
+      REFERENCES public.locations (tenant_id, location_id)
+      ON DELETE RESTRICT
+      NOT VALID;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS goats_shed_group_idx
+  ON public.goats (tenant_id, shed_group_id)
+  WHERE shed_group_id IS NOT NULL;
 
 DO $$
 BEGIN
@@ -402,11 +429,14 @@ SET usable_for_counts = EXCLUDED.usable_for_counts,
     notes = EXCLUDED.notes,
     updated_at = now();
 
--- Move live partitioned goats to the exact pen location. The parent shed stays
--- in goats.shed_id for rollups and legacy filters.
+-- Move live partitioned goats to the exact pen location. The partition pen is
+-- the real shed/residence, so goats.shed_id becomes that exact location. The
+-- parent "Godel 1"/"Gandhi" style grouping key is preserved in shed_group_id.
 SET lock_timeout = '2s';
 UPDATE public.goats g
 SET current_location_id = sp.operational_location_id,
+    shed_id = sp.operational_location_id,
+    shed_group_id = gsp.shed_id,
     updated_at = now(),
     row_version = g.row_version + 1
 FROM public.goat_shed_partitions gsp
@@ -478,7 +508,8 @@ BEGIN
   WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
     AND g.merged_into_goat_id IS NULL
     AND (
-      g.shed_id IS DISTINCT FROM gsp.shed_id
+      g.shed_id IS DISTINCT FROM sp.operational_location_id
+      OR g.shed_group_id IS DISTINCT FROM gsp.shed_id
       OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
     );
 
@@ -505,12 +536,14 @@ BEGIN
     AND NOT (
       (
         cur.location_type = 'pen'
-        AND cur.parent_location_id = g.shed_id
-        AND shed.parent_location_id = g.park_id
+        AND cur.location_id = g.shed_id
+        AND g.shed_group_id = cur.parent_location_id
+        AND shed.location_id = cur.location_id
       )
       OR (
         cur.location_type = 'shed'
         AND cur.location_id = g.shed_id
+        AND g.shed_group_id IS NULL
         AND shed.parent_location_id = g.park_id
       )
     );
@@ -660,8 +693,8 @@ BEGIN
       SELECT 1
       FROM public.goats g
       WHERE g.tenant_id = NEW.tenant_id
-        AND g.shed_id = NEW.shed_id
         AND g.current_location_id = NEW.shed_id
+        AND COALESCE(g.shed_group_id, g.shed_id) = NEW.shed_id
         AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
         AND g.merged_into_goat_id IS NULL
     ) THEN
@@ -848,7 +881,8 @@ BEGIN
     AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
     UPDATE public.goats g
     SET current_location_id = NEW.operational_location_id,
-        shed_id = NEW.shed_id,
+        shed_id = NEW.operational_location_id,
+        shed_group_id = NEW.shed_id,
         updated_at = now(),
         row_version = g.row_version + 1
     FROM public.goat_shed_partitions gsp
@@ -883,13 +917,15 @@ DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
 
 SET lock_timeout = '2s';
 UPDATE public.goats g
-SET current_location_id = g.shed_id,
+SET current_location_id = g.shed_group_id,
+    shed_id = g.shed_group_id,
     updated_at = now(),
     row_version = g.row_version + 1
 FROM public.shed_partitions sp
 WHERE g.tenant_id = sp.tenant_id
   AND g.current_location_id = sp.operational_location_id
-  AND g.shed_id = sp.shed_id;
+  AND g.shed_id = sp.operational_location_id
+  AND g.shed_group_id = sp.shed_id;
 RESET lock_timeout;
 
 ALTER TABLE public.shed_partitions
@@ -913,6 +949,12 @@ WHERE pen.location_type = 'pen'
   );
 
 DROP INDEX IF EXISTS public.shed_partitions_operational_location_unique;
+DROP INDEX IF EXISTS public.goats_shed_group_idx;
+
+ALTER TABLE public.goats
+  DROP CONSTRAINT IF EXISTS goats_shed_group_tenant_fk;
+
+ALTER TABLE public.goats DROP COLUMN IF EXISTS shed_group_id;
 
 ALTER TABLE public.shed_partitions
   DROP COLUMN IF EXISTS operational_location_id;

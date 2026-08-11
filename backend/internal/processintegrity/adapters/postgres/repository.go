@@ -649,7 +649,7 @@ legacy_binding_obligations AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = g.shed_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND oi.batch_id IS NOT NULL
@@ -829,7 +829,7 @@ raw AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = g.shed_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id

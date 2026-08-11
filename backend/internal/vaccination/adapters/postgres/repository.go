@@ -2415,7 +2415,7 @@ LEFT JOIN locations shed
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = g.shed_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 -- The verifier must be told WHICH vaccine the clip is evidence for. All four joins are LEFT so a
 -- completion whose protocol chain does not resolve still yields its row (the label degrades to
 -- empty and the subject simply omits the vaccine) rather than vanishing from the submission.

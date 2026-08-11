@@ -1405,6 +1405,7 @@ type Goat struct {
 	BreedingDate       pgtype.Date
 	LastDeliveryDate   pgtype.Date
 	TimeOfBirth        pgtype.Time
+	ShedGroupID        pgtype.UUID
 }
 
 type GoatBirth struct {

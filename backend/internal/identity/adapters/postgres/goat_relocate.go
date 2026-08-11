@@ -560,7 +560,8 @@ moved AS (
     UPDATE goats g
     SET current_location_id = $22::uuid,
         park_id             = $3::uuid,
-        shed_id             = $2::uuid,
+        shed_id             = CASE WHEN nullif($21::text, '') IS NULL THEN $2::uuid ELSE $22::uuid END,
+        shed_group_id       = CASE WHEN nullif($21::text, '') IS NULL THEN NULL ELSE $2::uuid END,
         management_stage    = CASE WHEN $16::text = '' THEN g.management_stage ELSE $16::text END,
         -- Kid/adult follows the cohort tag it is a property of. Guarded on the SAME "is there a
         -- destination tag" condition ($16) as management_stage, and additionally on the band being

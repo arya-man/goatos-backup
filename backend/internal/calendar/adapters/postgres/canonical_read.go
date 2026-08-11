@@ -978,7 +978,7 @@ obligation_drive_membership AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = g.shed_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   -- Exact assignment membership is 1:0..1 per obligation. It preserves the operational
   -- partition on historical rows whose canonical goat partition has not been backfilled yet.
   LEFT JOIN vaccination_drive_assignment_members exact_member
