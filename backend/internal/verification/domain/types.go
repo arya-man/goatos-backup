@@ -294,6 +294,19 @@ type QueuePageOption struct {
 	Category string `json:"category"`
 }
 
+// QueueModuleOption is one backend-registered verification MODULE — the grain the phone's verifier
+// drawer groups by (Vaccination, Weighing, Feed, Counts, Milk, Health), each covering one or more
+// disjoint categories. It exists so a cross-module renderer can offer module chips without deriving
+// the vocabulary, the labels, or the order from the action-type list itself: the registry owns all
+// three, and Feed alone spans three categories, so a per-category chip row is not the same filter.
+//
+// Key is the NavigationModule key and is what a caller sends back as `nav_module`; the service
+// expands it into that module's category set, which stays the only queue predicate.
+type QueueModuleOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
 // QueueStatusOption is one backend-defined secondary tab.
 //
 // The single-status tabs are disjoint at verification-item grain: pending (Due), approved, and
@@ -320,6 +333,7 @@ type QueueActionTypeOption struct {
 type QueueFilterOptions struct {
 	ModuleKey            string                  `json:"module_key,omitempty"`
 	ModuleLabel          string                  `json:"module_label,omitempty"`
+	Modules              []QueueModuleOption     `json:"modules"`
 	ActionTypes          []QueueActionTypeOption `json:"action_types"`
 	Pages                []QueuePageOption       `json:"pages"`
 	Statuses             []QueueStatusOption     `json:"statuses"`

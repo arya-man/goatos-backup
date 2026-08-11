@@ -101,7 +101,7 @@ func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T
 	}
 }
 
-func TestMilkPreparationPageContractAndCountsNavigation(t *testing.T) {
+func TestMilkPreparationPageContractAndMilkNavigation(t *testing.T) {
 	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
 	page := pageByRouteID(t, bootstrap.Pages, "milk-preparation")
 	if page.Href != "/counts/milk-preparation" {
@@ -120,19 +120,29 @@ func TestMilkPreparationPageContractAndCountsNavigation(t *testing.T) {
 		}
 	}
 
+	// Milk Preparation sits under its OWN "Milk" group, never under Counts (maintainer request
+	// 2026-08-11, mirroring the phone's Counts -> Milk module split). The href is deliberately
+	// unchanged: this is a nav regrouping, not a route change.
 	found := false
 	for _, group := range bootstrap.Navigation.Groups {
-		if group.ID != "counts" {
-			continue
-		}
 		for _, leaf := range group.Leaves {
-			if leaf.ID == "counts-milk-preparation" && leaf.Href == "/counts/milk-preparation" {
-				found = true
+			if leaf.Href != "/counts/milk-preparation" {
+				continue
 			}
+			if group.ID == "counts" {
+				t.Fatalf("Milk Preparation must not appear under the Counts group (leaf %q)", leaf.ID)
+			}
+			if group.ID != "milk" {
+				t.Fatalf("Milk Preparation leaf %q is under group %q, want group \"milk\"", leaf.ID, group.ID)
+			}
+			if group.Label != "Milk" {
+				t.Fatalf("milk group label=%q, want \"Milk\"", group.Label)
+			}
+			found = true
 		}
 	}
 	if !found {
-		t.Fatal("Counts navigation is missing the Milk Preparation leaf")
+		t.Fatal("Milk navigation group is missing the Milk Preparation leaf")
 	}
 }
 

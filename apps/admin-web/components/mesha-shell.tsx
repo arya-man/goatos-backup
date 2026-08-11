@@ -18,6 +18,7 @@ import {
   HeartPulse,
   Menu,
   MapPin,
+  Milk,
   Moon,
   Stethoscope,
   Sun,
@@ -43,6 +44,9 @@ const iconByToken: Record<string, ElementType> = {
   "clipboard-check": ClipboardCheck,
   "edit-3": Edit3,
   "heart-pulse": HeartPulse,
+  // Milk is its own vertical in the backend nav contract; without this token the group would
+  // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
+  milk: Milk,
   // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
   // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
   // Vaccination module under Preventive Care.

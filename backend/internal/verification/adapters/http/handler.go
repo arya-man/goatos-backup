@@ -313,6 +313,7 @@ func (h *Handler) listQueue(
 		Categories:           categories,
 		Vertical:             q.Get("vertical"),
 		Module:               q.Get("module"),
+		NavigationModule:     q.Get("nav_module"),
 		Status:               status,
 		BusinessDate:         q.Get("business_date"),
 		MissedOnly:           missedOnly,
