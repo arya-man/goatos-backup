@@ -161,6 +161,52 @@ func TestShedCompletionSummaryParkScopedTaskUsesObligationShedAndRuleDSLVaccine(
 	}
 }
 
+func TestShedCompletionSummaryResolvesLegacyPartitionRequestToExactShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	const (
+		groupShed = "32000000-0000-4000-8000-0000000001a0"
+		exactShed = "32000000-0000-4000-8000-0000000001a1"
+		goatID    = "33000000-0000-4000-8000-0000000001a1"
+	)
+	seedShedOperational(t, ctx, pool, groupShed, "Godel 1", true, false, false)
+	seedShedOperational(t, ctx, pool, exactShed, "Godel 1 - Part 1", true, false, false)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1, $2, 'Part 1', '1', 'active', 'test', $3)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET status='active', operational_location_id=EXCLUDED.operational_location_id`, impTenant, groupShed, exactShed); err != nil {
+		t.Fatalf("seed partition mapping: %v", err)
+	}
+	taskID, batchID := scsSeedDrive(t, ctx, pool, versionID, exactShed, "exact-partition", nil)
+	seedGoatAtShed(t, ctx, pool, goatID, exactShed)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET shed_group_id=$3::uuid
+WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID, groupShed); err != nil {
+		t.Fatalf("set shed group: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1, $2, $3, 'Part 1', 'Godel 1 - Part 1')`, impTenant, goatID, groupShed); err != nil {
+		t.Fatalf("seed goat partition evidence: %v", err)
+	}
+	scsSeedObligation(t, ctx, pool, versionID, ruleID, batchID, goatID, "scheduled", 1)
+
+	vacc := NewRepository(pool, 5*time.Second)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, groupShed, "Part 1")
+	if err != nil {
+		t.Fatalf("ShedCompletionSummary legacy partition request: %v", err)
+	}
+	if got.ExpectedCount != 1 || got.HandledCount != 0 {
+		t.Fatalf("summary counts = expected %d handled %d, want exact partition goat 1/0", got.ExpectedCount, got.HandledCount)
+	}
+}
+
 // scsSeedObligation inserts one obligation on the batch for a goat with an explicit status/sequence.
 func scsSeedObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, batchID, goatID, status string, seq int) {
 	t.Helper()

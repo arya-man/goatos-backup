@@ -613,7 +613,7 @@ events AS (
                 'tenant_id', $1::text,
                 'farm_id', i.farm_id::text,
                 'park_id', $3::text,
-                'shed_id', $2::text
+                'shed_id', $22::text
             )),
             'evidence_refs', '[]'::jsonb,
             'trace_id', $15::text,
@@ -626,11 +626,12 @@ events AS (
                 'from_shed_id', i.from_shed_id::text,
                 'from_partition_label', i.from_partition_label,
                 'to_park_id', $3::text,
-                'to_shed_id', $2::text,
+                'to_shed_id', $22::text,
+                'to_shed_group_id', CASE WHEN nullif($21::text, '') IS NULL THEN NULL ELSE $2::text END,
                 'to_partition_label', nullif($21::text, ''),
                 'reason', $5::text,
                 'scope_type', 'shed',
-                'scope_id', $2::text
+                'scope_id', $22::text
             )
         ),
         jsonb_build_object('actor_id', $6::text, 'trace_id', $15::text, 'source', 'counts.shifting_approval'),

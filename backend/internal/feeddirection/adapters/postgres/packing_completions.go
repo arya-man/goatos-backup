@@ -72,11 +72,12 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		}
 	}()
 
-	// The completion identity is a real operational location: parent shed plus catalog partition
-	// when the shed is subdivided. Blank means whole shed only for undivided sheds.
-	if err := requireShedPartitionInPark(ctx, tx, p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel); err != nil {
+	shedID, partitionLabel, err := canonicalizeFeedCompletionParams(ctx, tx, p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel)
+	if err != nil {
 		return ports.CompletePackingResult{}, err
 	}
+	p.ShedID = shedID
+	p.PartitionLabel = partitionLabel
 
 	// The shed's display NAME, for the verification item's subject label.
 	//

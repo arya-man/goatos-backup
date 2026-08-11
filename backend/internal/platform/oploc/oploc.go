@@ -123,6 +123,9 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
+	if strings.EqualFold(shed, label) || strings.HasSuffix(strings.ToLower(shed), " - "+strings.ToLower(label)) {
+		return shed
+	}
 	return shed + " - " + label
 }
 

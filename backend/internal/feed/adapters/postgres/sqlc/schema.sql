@@ -773,16 +773,7 @@ CREATE FUNCTION public.copy_shed_partition_profile(p_tenant_id uuid, p_group_she
   FROM public.shed_profiles parent_profile
   WHERE parent_profile.tenant_id = p_tenant_id
     AND parent_profile.location_id = p_group_shed_id
-  ON CONFLICT (location_id) DO UPDATE
-  SET animal_stage_id = EXCLUDED.animal_stage_id,
-      shed_lifecycle_status_id = EXCLUDED.shed_lifecycle_status_id,
-      sex = EXCLUDED.sex,
-      capacity = EXCLUDED.capacity,
-      has_icu = EXCLUDED.has_icu,
-      notes = EXCLUDED.notes,
-      context = EXCLUDED.context,
-      updated_at = now(),
-      row_version = public.shed_profiles.row_version + 1;
+  ON CONFLICT (location_id) DO NOTHING;
 $$;
 
 
@@ -994,17 +985,7 @@ BEGIN
       FROM public.location_operational_attributes parent_loa
       WHERE parent_loa.tenant_id = NEW.tenant_id
         AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO UPDATE
-      SET usable_for_counts = EXCLUDED.usable_for_counts,
-          usable_for_feed = EXCLUDED.usable_for_feed,
-          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-          usable_for_sop = EXCLUDED.usable_for_sop,
-          is_holding = EXCLUDED.is_holding,
-          is_quarantine = EXCLUDED.is_quarantine,
-          is_icu = EXCLUDED.is_icu,
-          display_order = EXCLUDED.display_order,
-	          notes = EXCLUDED.notes,
-	          updated_at = now();
+      ON CONFLICT (location_id) DO NOTHING;
 
       PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
@@ -1108,17 +1089,7 @@ BEGIN
       FROM public.location_operational_attributes parent_loa
       WHERE parent_loa.tenant_id = NEW.tenant_id
         AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO UPDATE
-      SET usable_for_counts = EXCLUDED.usable_for_counts,
-          usable_for_feed = EXCLUDED.usable_for_feed,
-          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-          usable_for_sop = EXCLUDED.usable_for_sop,
-          is_holding = EXCLUDED.is_holding,
-          is_quarantine = EXCLUDED.is_quarantine,
-          is_icu = EXCLUDED.is_icu,
-          display_order = EXCLUDED.display_order,
-	          notes = EXCLUDED.notes,
-	          updated_at = now();
+      ON CONFLICT (location_id) DO NOTHING;
 
       PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
@@ -1207,38 +1178,29 @@ BEGIN
   FROM public.location_operational_attributes parent_loa
   WHERE parent_loa.tenant_id = NEW.tenant_id
     AND parent_loa.location_id = NEW.shed_id
-  ON CONFLICT (location_id) DO UPDATE
-  SET usable_for_counts = EXCLUDED.usable_for_counts,
-      usable_for_feed = EXCLUDED.usable_for_feed,
-      usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-      usable_for_sop = EXCLUDED.usable_for_sop,
-      is_holding = EXCLUDED.is_holding,
-      is_quarantine = EXCLUDED.is_quarantine,
-      is_icu = EXCLUDED.is_icu,
-      display_order = EXCLUDED.display_order,
-	      notes = EXCLUDED.notes,
-	      updated_at = now();
+  ON CONFLICT (location_id) DO NOTHING;
 
   PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
   IF TG_OP = 'UPDATE'
     AND OLD.operational_location_id IS NOT NULL
     AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
-    UPDATE public.goats g
-    SET current_location_id = NEW.operational_location_id,
-        shed_id = NEW.operational_location_id,
-        shed_group_id = NEW.shed_id,
-        updated_at = now(),
-        row_version = g.row_version + 1
-    FROM public.goat_shed_partitions gsp
-    WHERE g.tenant_id = NEW.tenant_id
-      AND g.current_location_id = OLD.operational_location_id
-      AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-      AND g.merged_into_goat_id IS NULL
-      AND gsp.tenant_id = g.tenant_id
-      AND gsp.goat_id = g.goat_id
-      AND gsp.shed_id = NEW.shed_id
-      AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
+    IF EXISTS (
+      SELECT 1
+      FROM public.goats g
+      JOIN public.goat_shed_partitions gsp
+        ON gsp.tenant_id = g.tenant_id
+       AND gsp.goat_id = g.goat_id
+      WHERE g.tenant_id = NEW.tenant_id
+        AND g.current_location_id = OLD.operational_location_id
+        AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+        AND g.merged_into_goat_id IS NULL
+        AND gsp.shed_id = NEW.shed_id
+        AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label
+    ) THEN
+      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+    END IF;
   END IF;
 
   RETURN NEW;

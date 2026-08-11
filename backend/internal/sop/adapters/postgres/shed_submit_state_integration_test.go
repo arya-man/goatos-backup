@@ -439,6 +439,71 @@ func TestCompletedTaskProofRefsDoesNotRecoverParkScopedShedProofWithoutShedID(t 
 	}
 }
 
+func TestCompletedTaskProofRefsResolvesLegacyPartitionRequestToExactShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		sopID      = "77410000-0000-4000-8000-000000000001"
+		sopVersion = "77410000-0000-4000-8000-000000000002"
+		taskID     = "77410000-0000-4000-8000-000000000003"
+		parkID     = "77410000-0000-4000-8000-000000000004"
+		groupShed  = "77410000-0000-4000-8000-000000000005"
+		exactShed  = "77410000-0000-4000-8000-000000000006"
+		proofID    = "77410000-0000-4000-8000-000000000007"
+	)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'park', 'PART-PROOF-PARK', 'Partition Proof Park', 'active')`,
+		parkID, tenantID)
+	execShedSubmitState(t, ctx, pool, "group shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'GODEL-1-GROUP', 'Godel 1', $3::uuid, 'active')`,
+		groupShed, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "exact shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'GODEL-1-PART-1', 'Godel 1 - Part 1', $3::uuid, 'active')`,
+		exactShed, tenantID, parkID)
+	execShedSubmitState(t, ctx, pool, "partition mapping",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+		 VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'test', $3::uuid)
+		 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+		 SET status='active', operational_location_id=EXCLUDED.operational_location_id`,
+		tenantID, groupShed, exactShed)
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.partition_proof_refs_regression', 'Partition proof refs regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"shed","types":["video"],"minimum_count":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Partition proof refs task', 'in_progress', 'shed', $5::uuid, 1)`,
+		taskID, tenantID, sopID, sopVersion, exactShed)
+	execShedSubmitState(t, ctx, pool, "exact shed proof",
+		`INSERT INTO proof_artifacts (proof_id, tenant_id, storage_provider, object_key, mime_type, upload_state, scope_type, scope_id, subject_type, subject_id, proof_type)
+		 VALUES ($1::uuid, $2::uuid, 'gcs', 'partition-proof/godel-1-part-1.mp4', 'video/mp4', 'completed', 'shed', $3::uuid, 'shed', $3::uuid, 'video')`,
+		proofID, tenantID, exactShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	refs, err := repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "shed", groupShed, "Part 1")
+	if err != nil {
+		t.Fatalf("CompletedTaskProofRefs legacy partition request: %v", err)
+	}
+	if len(refs) != 1 || refs[0].ProofID != proofID {
+		t.Fatalf("proof refs = %#v, want exact partition shed proof %s", refs, proofID)
+	}
+}
+
 // TestReopenTaskForReworkUnblocksResubmitAfterVerifierRejection is the regression test for the
 // P0 "rework cannot be resubmitted" incident: a task accepted terminally could never take another
 // submission (TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted above proves that guard is

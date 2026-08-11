@@ -411,10 +411,11 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	    park_id=$4::uuid,
 	    shed_label=$5,
 	    weighing_category=$6,
+	    shed_location_id=$7::uuid,
 	    updated_at=now()
 	WHERE tenant_id=$1::uuid
 	  AND campaign_shed_id=$2::uuid
-	  AND work_state IN ('scheduled','delayed')`, cmd.TenantID, campaignShedID, operatorID, cmd.ParkID, shed.DisplayName, shed.WeighingCategory); err != nil {
+	  AND work_state IN ('scheduled','delayed')`, cmd.TenantID, campaignShedID, operatorID, cmd.ParkID, shed.DisplayName, shed.WeighingCategory, shed.LocationID); err != nil {
 			return domain.Campaign{}, err
 		}
 	}
