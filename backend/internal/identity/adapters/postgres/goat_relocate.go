@@ -84,7 +84,10 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	if err := r.assertGoatsInPark(ctx, tx, cmd); err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
-	if err := r.ensureShedUnderPark(ctx, cmd.TenantID, cmd.ToShedID, cmd.ToParkID); err != nil {
+	if err := lockShedPartitionCatalog(ctx, tx, cmd.TenantID, cmd.ToShedID); err != nil {
+		return ports.RelocateGoatsResult{}, fmt.Errorf("identity: relocate goats: lock shed partition catalog: %w", err)
+	}
+	if err := r.ensureShedUnderPark(ctx, tx, cmd.TenantID, cmd.ToShedID, cmd.ToParkID); err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
 

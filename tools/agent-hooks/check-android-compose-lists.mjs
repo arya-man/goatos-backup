@@ -132,8 +132,6 @@ const MULTI_ROW_PER_ENTITY_CONTEXT = /obligation|vaccine|vaccination|proof|roste
 const DERIVED_KEY_DRIFT_FIELDS = /\b(sopVersionId|taskRowVersion|sopTaskRowVersion|rowVersion|assignmentVersion)\b/;
 const PARENT_LOCATION_KEY =
   /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:(?:["']?[\w-]*\$\{)?(?:it|row|item|entry|[a-z]\w*)\.(shedId|parentShedId|sourceShedId|destinationShedId|parentLocationId)(?:\.(?:orEmpty|trim|toString|hashCode)\(\)|!!|\s*\?:[\s\S]*)?(?:\}["']?)?)\s*$/;
-const AMBIGUOUS_LOCATION_KEY =
-  /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:it|row|item|entry|[a-z]\w*)\.locationId\s*$/;
 
 const hasPartitionRenderSignal = (body) =>
   /\b(partitionLabel|partitionName|partitionDisplay|partitionKey|operationalLocationDisplay|penName|penLabel|PartitionRow|PartitionCard|PartitionItem|PartitionChip|PartitionLine|OperationalLocationRow)\b/.test(body) ||

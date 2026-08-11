@@ -104,7 +104,10 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 		return nil, err
 	}
 
-	if err := r.ensureShedUnderPark(ctx, cmd.TenantID, cmd.ToShedID, cmd.ToParkID); err != nil {
+	if err := lockShedPartitionCatalog(ctx, tx, cmd.TenantID, cmd.ToShedID); err != nil {
+		return nil, fmt.Errorf("identity: move goat: lock shed partition catalog: %w", err)
+	}
+	if err := r.ensureShedUnderPark(ctx, tx, cmd.TenantID, cmd.ToShedID, cmd.ToParkID); err != nil {
 		return nil, err
 	}
 	state, err := lockGoatForLifecycleMutation(ctx, tx, cmd.TenantID, cmd.GoatID)

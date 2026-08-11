@@ -105,6 +105,9 @@ func (r *Repository) UpdateLocation(ctx context.Context, cmd ports.UpdateLocatio
 	if err := rejectMappedPenShapeChange(ctx, tx, cmd); err != nil {
 		return nil, err
 	}
+	if err := rejectOccupiedParentShapeChange(ctx, tx, cmd); err != nil {
+		return nil, err
+	}
 	if _, err := updateLocationRow(ctx, tx, cmd); err != nil {
 		return nil, mapWriteErr(err)
 	}
@@ -168,6 +171,86 @@ SELECT EXISTS (
 		(nextType != "" && !strings.EqualFold(nextType, "pen")) ||
 		(nextStatus != "" && !strings.EqualFold(nextStatus, "active")) {
 		return ports.ErrWriteConflict
+	}
+	return nil
+}
+
+func rejectOccupiedParentShapeChange(ctx context.Context, tx pgx.Tx, cmd ports.UpdateLocationCommand) error {
+	if cmd.LocationType == nil && cmd.Status == nil && cmd.ParentLocationID == nil && !cmd.ClearParent && cmd.Name == nil {
+		return nil
+	}
+	nextStatus := ""
+	if cmd.Status != nil {
+		nextStatus = strings.TrimSpace(*cmd.Status)
+	}
+	if cmd.Name != nil || cmd.ClearParent || cmd.ParentLocationID != nil || cmd.LocationType != nil ||
+		(nextStatus != "" && !strings.EqualFold(nextStatus, "active")) {
+		var blocked bool
+		if err := tx.QueryRow(ctx, `
+WITH target AS (
+  SELECT tenant_id, location_id, location_type
+  FROM locations
+  WHERE tenant_id = $1::uuid
+    AND location_id = $2::uuid
+    AND status = 'active'
+  FOR UPDATE
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM target t
+  WHERE (
+    t.location_type = 'shed'
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM goats g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.shed_id = t.location_id
+          AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+          AND g.merged_into_goat_id IS NULL
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM shed_partitions sp
+        WHERE sp.tenant_id = t.tenant_id
+          AND sp.shed_id = t.location_id
+          AND sp.status = 'active'
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM locations child
+        WHERE child.tenant_id = t.tenant_id
+          AND child.parent_location_id = t.location_id
+          AND child.status = 'active'
+      )
+    )
+  )
+  OR (
+    t.location_type = 'park'
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM goats g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.park_id = t.location_id
+          AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+          AND g.merged_into_goat_id IS NULL
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM locations child
+        WHERE child.tenant_id = t.tenant_id
+          AND child.parent_location_id = t.location_id
+          AND child.status = 'active'
+      )
+    )
+  )
+)`, cmd.TenantID, cmd.LocationID).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return ports.ErrBlockingUsage
+		}
 	}
 	return nil
 }

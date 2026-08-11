@@ -1530,6 +1530,27 @@ WHERE tenant_id = $1::uuid
 	if updateGoatTag.RowsAffected() != int64(len(goatIDs)) {
 		return nil, fmt.Errorf("%w: not all goats were eligible for accepted intake", ports.ErrInvalidTransition)
 	}
+	if _, err := tx.Exec(ctx, `
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':whole', 150))`,
+		in.TenantID, in.ShedLocationID); err != nil {
+		return nil, fmt.Errorf("procurement: lock intake shed partition catalog: %w", err)
+	}
+	var shedUnderPark bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM locations shed
+  WHERE shed.tenant_id = $1::uuid
+    AND shed.location_id = $2::uuid
+    AND shed.location_type = 'shed'
+    AND shed.status = 'active'
+    AND shed.parent_location_id = $3::uuid
+)`, in.TenantID, in.ShedLocationID, in.ParkLocationID).Scan(&shedUnderPark); err != nil {
+		return nil, fmt.Errorf("procurement: verify intake shed under park: %w", err)
+	}
+	if !shedUnderPark {
+		return nil, ports.ErrInvalidTransition
+	}
 	if err := validateProcurementIntakePartition(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel); err != nil {
 		return nil, err
 	}

@@ -849,7 +849,8 @@ BEGIN
   WHERE tenant_id = NEW.tenant_id
     AND location_id = NEW.shed_id
     AND location_type = 'shed'
-    AND (NEW.status <> 'active' OR status = 'active');
+    AND (NEW.status <> 'active' OR status = 'active')
+  FOR SHARE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
@@ -860,10 +861,8 @@ BEGIN
       RETURN NEW;
     END IF;
 
-    PERFORM pg_advisory_xact_lock(hashtextextended(
-      NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
-      149
-    ));
+    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
+    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
     IF TG_OP = 'UPDATE'
       AND OLD.status = 'active'
@@ -951,10 +950,8 @@ BEGIN
       NEW.tenant_id, NEW.shed_id, NEW.partition_label;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(hashtextextended(
-    NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
-    149
-  ));
+  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
+  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
   IF NEW.operational_location_id IS NOT NULL THEN
     SELECT EXISTS (
@@ -1098,7 +1095,36 @@ BEGIN
   FROM public.location_operational_attributes parent_loa
   WHERE parent_loa.tenant_id = NEW.tenant_id
     AND parent_loa.location_id = NEW.shed_id
-  ON CONFLICT (location_id) DO NOTHING;
+  ON CONFLICT (location_id) DO UPDATE
+  SET usable_for_counts = EXCLUDED.usable_for_counts,
+      usable_for_feed = EXCLUDED.usable_for_feed,
+      usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+      usable_for_sop = EXCLUDED.usable_for_sop,
+      is_holding = EXCLUDED.is_holding,
+      is_quarantine = EXCLUDED.is_quarantine,
+      is_icu = EXCLUDED.is_icu,
+      display_order = EXCLUDED.display_order,
+      notes = EXCLUDED.notes,
+      updated_at = now();
+
+  IF TG_OP = 'UPDATE'
+    AND OLD.operational_location_id IS NOT NULL
+    AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
+    UPDATE public.goats g
+    SET current_location_id = NEW.operational_location_id,
+        shed_id = NEW.shed_id,
+        updated_at = now(),
+        row_version = g.row_version + 1
+    FROM public.goat_shed_partitions gsp
+    WHERE g.tenant_id = NEW.tenant_id
+      AND g.current_location_id = OLD.operational_location_id
+      AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+      AND g.merged_into_goat_id IS NULL
+      AND gsp.tenant_id = g.tenant_id
+      AND gsp.goat_id = g.goat_id
+      AND gsp.shed_id = NEW.shed_id
+      AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
+  END IF;
 
   RETURN NEW;
 END;
@@ -1820,6 +1846,36 @@ $$;
 
 
 --
+-- Name: reject_active_location_under_inactive_parent(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_active_location_under_inactive_parent() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  bad_parent boolean;
+BEGIN
+  IF NEW.status = 'active' AND NEW.parent_location_id IS NOT NULL THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.locations parent
+      WHERE parent.tenant_id = NEW.tenant_id
+        AND parent.location_id = NEW.parent_location_id
+        AND parent.status <> 'active'
+    )
+    INTO bad_parent;
+
+    IF bad_parent THEN
+      RAISE EXCEPTION 'active_location_parent_inactive: tenant %, location %, parent %',
+        NEW.tenant_id, NEW.location_id, NEW.parent_location_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: reject_overlapping_location_capacity(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1840,6 +1896,18 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: shed_partition_lock_key(uuid, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.shed_partition_lock_key(p_tenant_id uuid, p_shed_id uuid, p_partition_label text) RETURNS text
+    LANGUAGE sql
+    AS $$
+  SELECT p_tenant_id::text || ':' || p_shed_id::text || ':' ||
+         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
 $$;
 
 
@@ -14821,6 +14889,13 @@ CREATE TRIGGER location_aliases_seeded_scope_guard_update_trg BEFORE UPDATE OF a
 --
 
 CREATE TRIGGER location_capacity_records_no_overlap_trg BEFORE INSERT OR UPDATE OF tenant_id, location_id, capacity_kind, effective_from, effective_to ON public.location_capacity_records FOR EACH ROW EXECUTE FUNCTION public.reject_overlapping_location_capacity();
+
+
+--
+-- Name: locations locations_active_parent_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER locations_active_parent_trg BEFORE INSERT OR UPDATE OF status, parent_location_id ON public.locations FOR EACH ROW EXECUTE FUNCTION public.reject_active_location_under_inactive_parent();
 
 
 --

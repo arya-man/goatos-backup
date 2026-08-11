@@ -5,6 +5,8 @@ PROJECT_ID="${PROJECT_ID:-goatos-stg}"
 PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 INSTANCE_ID="${INSTANCE_ID:-goatos-stg-core-db}"
 DESCRIPTION="${DESCRIPTION:-pre-deploy-$(git rev-parse --short=12 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
+COMMIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+BACKUP_MARKER="${GOATOS_STG_BACKUP_MARKER:-.openai/stg-cloudsql-backup-${COMMIT_SHA}.ok}"
 
 die() {
   echo "ERROR: $*" >&2
@@ -24,6 +26,9 @@ active_project="$(gcloud config get-value project 2>/dev/null)"
 actual_project_number="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 [[ "$actual_project_number" == "$PROJECT_NUMBER" ]] \
   || die "project number mismatch for $PROJECT_ID: expected $PROJECT_NUMBER got $actual_project_number"
+project_parent="$(gcloud projects describe "$PROJECT_ID" --format='value(parent.type,parent.id)')"
+[[ "$project_parent" == "organization 848015369910" ]] \
+  || die "project parent mismatch for $PROJECT_ID: expected organization 848015369910 got $project_parent"
 
 echo "Creating Goat OS STG Cloud SQL backup"
 echo "account=$active_account"
@@ -35,6 +40,16 @@ gcloud sql backups create \
   --project="$PROJECT_ID" \
   --instance="$INSTANCE_ID" \
   --description="$DESCRIPTION"
+
+mkdir -p "$(dirname "$BACKUP_MARKER")"
+{
+  echo "project=$PROJECT_ID"
+  echo "project_number=$PROJECT_NUMBER"
+  echo "instance=$INSTANCE_ID"
+  echo "commit=$COMMIT_SHA"
+  echo "description=$DESCRIPTION"
+  date -u '+created_at=%Y-%m-%dT%H:%M:%SZ'
+} > "$BACKUP_MARKER"
 
 echo
 echo "Latest backups for $INSTANCE_ID:"
