@@ -145,8 +145,33 @@ SELECT
      WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL
        AND verification_status <> 'verified')
   + (SELECT count(*) FROM weighing_shed_observations
+<<<<<<< HEAD
      WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL
        AND verification_status <> 'verified')`,
+=======
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+       AND verification_status <> 'verified'
+       AND verification_status <> 'rework'
+       AND withdrawn_at IS NULL)
+  + CASE WHEN (
+    EXISTS (
+      SELECT 1 FROM weighing_observations wo
+      WHERE wo.tenant_id=$1::uuid AND wo.campaign_shed_id=$2::uuid
+        AND wo.submitted_at IS NOT NULL AND wo.verification_status='rework'
+    )
+    OR EXISTS (
+      SELECT 1 FROM weighing_shed_observations so
+      WHERE so.tenant_id=$1::uuid AND so.campaign_shed_id=$2::uuid
+        AND so.verification_status='rework'
+        AND NOT EXISTS (
+          SELECT 1 FROM weighing_shed_observations open_wso
+          WHERE open_wso.tenant_id=$1::uuid
+            AND open_wso.campaign_shed_id=$2::uuid
+            AND open_wso.withdrawn_at IS NULL
+        )
+    )
+  ) THEN 1 ELSE 0 END)`,
+>>>>>>> 05d385449 (fix(weighing): align close gates with shared rework outstanding predicate)
 		tenantID, campaignShedID).Scan(&submitted, &pending); err != nil {
 		return 0, 0, err
 	}
@@ -377,9 +402,11 @@ WHERE cs.tenant_id=$1::uuid
     OR EXISTS (
       SELECT 1 FROM weighing_shed_observations so
       WHERE so.tenant_id=cs.tenant_id AND so.campaign_shed_id=cs.campaign_shed_id
-        AND so.withdrawn_at IS NULL
         AND so.verification_status <> 'verified'
+        AND so.verification_status <> 'rework'
+        AND so.withdrawn_at IS NULL
     )
+    OR ` + shedReworkOutstandingPredicate("cs") + `
   )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
 		return domain.CloseResult{}, err
 	}
