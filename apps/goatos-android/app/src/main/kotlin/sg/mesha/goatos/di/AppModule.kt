@@ -133,6 +133,7 @@ import sg.mesha.goatos.capture.DelegatingProofCaptureSource
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
+import sg.mesha.goatos.core.network.RequestMetadata
 import sg.mesha.goatos.core.network.TelemetryInterceptor
 import sg.mesha.goatos.rfid.BtHidScanSource
 import sg.mesha.goatos.rfid.DefaultRfidInputTransform
@@ -299,7 +300,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppApi(sessionStore: SessionStore, networkTelemetryReporter: NetworkTelemetryReporter): AppApi =
+    fun provideAppApi(
+        sessionStore: SessionStore,
+        deviceStore: DeviceStore,
+        networkTelemetryReporter: NetworkTelemetryReporter,
+    ): AppApi =
         NetworkFactory.appApi(
             baseUrl = BuildConfig.API_BASE_URL,
             tokenProvider = {
@@ -317,6 +322,22 @@ object AppModule {
             },
             tenantIdProvider = { BuildConfig.TENANT_ID },
             localeProvider = { sessionStore.cachedLanguage() },
+            requestMetadataProvider = {
+                RequestMetadata(
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersionCode = BuildConfig.VERSION_CODE.toString(),
+                    buildType = BuildConfig.FLAVOR + if (BuildConfig.DEBUG) "Debug" else "Release",
+                    deviceId = deviceStore.appInstallIdSync(),
+                    platform = "android",
+                    osVersion = "Android ${Build.VERSION.RELEASE.orEmpty()}",
+                    sdkVersion = Build.VERSION.SDK_INT.toString(),
+                    deviceModel = listOf(Build.MANUFACTURER, Build.MODEL)
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString(" "),
+                )
+            },
             // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
             // Always ENABLED. The comment here previously described exactly this intent — "a
             // flavor without a confirmed Firebase project still gets traceparent propagation

@@ -1451,11 +1451,13 @@ class BearerAuthInterceptor(
     private val tokenProvider: () -> String?,
     private val tenantIdProvider: () -> String? = { null },
     private val localeProvider: () -> String? = { null },
+    private val requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = tokenProvider()
         val tenantId = tenantIdProvider()
         val localeTag = normalizedLocaleTag(localeProvider())
+        val requestMetadata = requestMetadataProvider()
         val builder = chain.request().newBuilder()
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer $token")
@@ -1465,7 +1467,36 @@ class BearerAuthInterceptor(
         }
         builder.header(ACCEPT_LANGUAGE_HEADER, acceptLanguageValue(localeTag))
         builder.header(LOCALE_CONTEXT_HEADER, localeTag)
+        requestMetadata.headers().forEach { (name, value) -> builder.header(name, value) }
         return chain.proceed(builder.build())
+    }
+}
+
+data class RequestMetadata(
+    val appVersion: String = "",
+    val appVersionCode: String = "",
+    val buildType: String = "",
+    val deviceId: String = "",
+    val platform: String = "",
+    val osVersion: String = "",
+    val sdkVersion: String = "",
+    val deviceModel: String = "",
+) {
+    fun headers(): List<Pair<String, String>> = listOfNotNull(
+        header("X-GoatOS-App-Version", appVersion),
+        header("X-GoatOS-App-Version-Code", appVersionCode),
+        header("X-GoatOS-Build-Type", buildType),
+        header("X-GoatOS-Device-Id", deviceId),
+        header("X-Device-Id", deviceId),
+        header("X-GoatOS-Platform", platform),
+        header("X-GoatOS-OS-Version", osVersion),
+        header("X-GoatOS-SDK-Version", sdkVersion),
+        header("X-GoatOS-Device-Model", deviceModel),
+    )
+
+    private fun header(name: String, rawValue: String): Pair<String, String>? {
+        val value = rawValue.trim().filterNot { it.code < 0x20 || it.code == 0x7f }.take(128)
+        return value.takeIf { it.isNotBlank() }?.let { name to it }
     }
 }
 
@@ -1481,13 +1512,14 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
         // Optional: traceparent stamping + method/route/status/duration reporting
         // (docs/observability/OBSERVABILITY_DESIGN.md §2.5). Null keeps the client identical to
         // before this was wired — every existing caller is unaffected until it opts in.
         telemetryInterceptor: okhttp3.Interceptor? = null,
     ): OkHttpClient =
         OkHttpClient.Builder()
-            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider))
+            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider))
             .apply { telemetryInterceptor?.let { addInterceptor(it) } }
             // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
             // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
@@ -1530,10 +1562,11 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        requestMetadataProvider: () -> RequestMetadata = { RequestMetadata() },
         telemetryInterceptor: okhttp3.Interceptor? = null,
     ): AppApi =
         RetrofitAppApi(
-            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, telemetryInterceptor)).create(),
+            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
         )
 }

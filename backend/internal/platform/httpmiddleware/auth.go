@@ -214,7 +214,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 			return r.Context(), "", "", false
 		}
-		ctx := WithDeviceID(WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject), strings.TrimSpace(r.Header.Get(DeviceContextHeader)))
+		ctx := WithClientInfo(WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject), ClientInfoFromRequest(r))
 		if shouldLogAuthSuccess(r.Method, r.URL.Path) {
 			a.log.InfoContext(ctx, "auth_succeeded",
 				slog.String("request_id", RequestIDFromContext(ctx)),
@@ -236,7 +236,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_dev_auth_headers", "local development auth headers are required")
 			return r.Context(), "", "", false
 		}
-		ctx := WithDeviceID(WithActorID(WithTenantID(r.Context(), tenantID), actorID), strings.TrimSpace(r.Header.Get(DeviceContextHeader)))
+		ctx := WithClientInfo(WithActorID(WithTenantID(r.Context(), tenantID), actorID), ClientInfoFromRequest(r))
 		return ctx, actorID, tenantID, true
 	default:
 		a.logAuthFailure(r, http.StatusUnauthorized, "invalid_auth_mode")

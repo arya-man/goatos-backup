@@ -35,7 +35,15 @@ const (
 	// request, so the same operator signed in on multiple phones can be told
 	// apart in logs/audit rows. Optional: older clients that omit it simply
 	// get an empty device_id, never an error.
-	DeviceContextHeader = "X-Device-Id"
+	DeviceContextHeader       = "X-Device-Id"
+	GoatOSDeviceContextHeader = "X-GoatOS-Device-Id"
+	AppVersionHeader          = "X-GoatOS-App-Version"
+	AppVersionCodeHeader      = "X-GoatOS-App-Version-Code"
+	BuildTypeHeader           = "X-GoatOS-Build-Type"
+	PlatformHeader            = "X-GoatOS-Platform"
+	OSVersionHeader           = "X-GoatOS-OS-Version"
+	SDKVersionHeader          = "X-GoatOS-SDK-Version"
+	DeviceModelHeader         = "X-GoatOS-Device-Model"
 )
 
 // LocaleTagFromRequest resolves the normalized locale from request context or headers.
@@ -69,11 +77,13 @@ func RequestContext(log *slog.Logger) func(http.Handler) http.Handler {
 			tenantID := strings.TrimSpace(r.Header.Get(headerTenantID))
 			actorID := strings.TrimSpace(r.Header.Get(headerActorID))
 			localeTag := localization.FromHeaders(r.Header.Get(LocaleContextHeader), r.Header.Get(AcceptLanguageHeader))
+			clientInfo := ClientInfoFromRequest(r)
 
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, requestIDKey, requestID)
 			ctx = context.WithValue(ctx, traceIDKey, traceID)
 			ctx = WithLocaleTag(ctx, localeTag)
+			ctx = WithClientInfo(ctx, clientInfo)
 			if tenantID != "" {
 				ctx = WithTenantID(ctx, tenantID)
 			}
@@ -142,6 +152,7 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func logHTTPRequest(log *slog.Logger, ctx context.Context, requestID, traceID, method, path string, status int, duration time.Duration) {
+	clientInfo := ClientInfoFromContext(ctx)
 	log.InfoContext(ctx, "http_request",
 		slog.String("request_id", requestID),
 		slog.String("trace_id", traceID),
@@ -149,7 +160,32 @@ func logHTTPRequest(log *slog.Logger, ctx context.Context, requestID, traceID, m
 		slog.String("path", path),
 		slog.Int("status", status),
 		slog.Duration("duration", duration),
+		slog.String("app_version", clientInfo.AppVersion),
+		slog.String("app_version_code", clientInfo.AppVersionCode),
+		slog.String("build_type", clientInfo.BuildType),
+		slog.String("device_id", clientInfo.DeviceID),
+		slog.String("platform", clientInfo.Platform),
+		slog.String("os_version", clientInfo.OSVersion),
+		slog.String("sdk_version", clientInfo.SDKVersion),
+		slog.String("device_model", clientInfo.DeviceModel),
 	)
+}
+
+func ClientInfoFromRequest(r *http.Request) ClientInfo {
+	deviceID := strings.TrimSpace(r.Header.Get(GoatOSDeviceContextHeader))
+	if deviceID == "" {
+		deviceID = strings.TrimSpace(r.Header.Get(DeviceContextHeader))
+	}
+	return ClientInfo{
+		AppVersion:     r.Header.Get(AppVersionHeader),
+		AppVersionCode: r.Header.Get(AppVersionCodeHeader),
+		BuildType:      r.Header.Get(BuildTypeHeader),
+		DeviceID:       deviceID,
+		Platform:       r.Header.Get(PlatformHeader),
+		OSVersion:      r.Header.Get(OSVersionHeader),
+		SDKVersion:     r.Header.Get(SDKVersionHeader),
+		DeviceModel:    r.Header.Get(DeviceModelHeader),
+	}
 }
 
 func generateID() string {

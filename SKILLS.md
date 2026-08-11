@@ -97,6 +97,20 @@ contagious-disease isolation, high-risk movement, vaccination defer/reopen,
 weighing availability, or sale/allocation blockers. Interim availability guard:
 `make critical-animal-action-availability-guard`.
 
+Who-did-what / old-APK provenance:
+
+```text
+apps/goatos-android/docs/TELEMETRY.md
+docs/observability/README.md
+```
+
+Load these whenever a bug report asks which operator/device/app version caused a
+submission, bad video/audio proof, RFID scan, weighing action, vaccination
+action, or any "who did what" audit question. Android stamps `X-GoatOS-*`
+client headers on every API request; backend request logs carry the same fields,
+and `audit_log.metadata->'client'` is the durable source for app version, version
+code, build type, install id, Android OS, SDK, and device model.
+
 Android row-action scope guardrail:
 
 ```text
