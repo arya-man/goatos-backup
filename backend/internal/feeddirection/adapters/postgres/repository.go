@@ -78,6 +78,14 @@ WHERE l.tenant_id = $1::uuid
   AND l.location_type = 'shed'
   AND l.status = 'active'
   AND ($3 = '' OR l.location_id = NULLIF($3, '')::uuid)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM shed_partitions sp
+    WHERE sp.tenant_id = l.tenant_id
+      AND sp.shed_id = l.location_id
+      AND sp.status = 'active'
+      AND sp.operational_location_id IS NOT NULL
+  )
 ORDER BY l.display_order, l.name, l.location_id
 LIMIT $4`
 

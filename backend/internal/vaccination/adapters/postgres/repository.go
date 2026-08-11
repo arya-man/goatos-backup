@@ -1837,6 +1837,17 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 	if len(partitionLabels) > 0 {
 		partitionLabel = strings.TrimSpace(partitionLabels[0])
 	}
+	if shedID != "" && partitionLabel != "" {
+		resolvedShedID, err := r.resolveExactShedForPartition(ctx, tenantID, shedID, partitionLabel)
+		if err != nil {
+			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: resolve exact shed: %w", err)
+		}
+		shedID = resolvedShedID
+		shed, err = pgconv.UUID(shedID)
+		if err != nil {
+			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: resolved shed id: %w", err)
+		}
+	}
 
 	var (
 		shedName      string
@@ -2146,6 +2157,23 @@ ORDER BY oi.obligation_id`, tenant, task, hasShed, shed, partitionLabel)
 		return nil, fmt.Errorf("vaccination: shed completion round facts rows: %w", err)
 	}
 	return out, nil
+}
+
+func (r *Repository) resolveExactShedForPartition(ctx context.Context, tenantID, shedID, partitionLabel string) (string, error) {
+	var resolved string
+	err := r.pool.QueryRow(ctx, `
+SELECT COALESCE((
+  SELECT sp.operational_location_id::text
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.shed_id = $2::uuid
+    AND sp.status = 'active'
+    AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '')
+      = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ORDER BY sp.updated_at DESC, sp.partition_label DESC
+  LIMIT 1
+), $2::text)`, tenantID, shedID, partitionLabel).Scan(&resolved)
+	return resolved, err
 }
 
 // shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in

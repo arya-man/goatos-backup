@@ -131,7 +131,7 @@ const ROW_DISCRIMINATOR = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:vaccineLabel|vac
 const MULTI_ROW_PER_ENTITY_CONTEXT = /obligation|vaccine|vaccination|proof|roster|scan/i;
 const DERIVED_KEY_DRIFT_FIELDS = /\b(sopVersionId|taskRowVersion|sopTaskRowVersion|rowVersion|assignmentVersion)\b/;
 const PARENT_LOCATION_KEY =
-  /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:(?:["']?[\w-]*\$\{)?(?:it|row|item|entry|[a-z]\w*)\.(shedId|parentShedId|sourceShedId|destinationShedId|parentLocationId)(?:\.(?:orEmpty|trim|toString|hashCode)\(\)|!!|\s*\?:[\s\S]*)?(?:\}["']?)?)\s*$/;
+  /^\s*(?:(?:_,\s*)?(?:it|row|item|entry|[a-z]\w*)\s*->\s*)?(?:(?:["']?[\w-]*\$\{)?(?:it|row|item|entry|[a-z]\w*)\.(shedGroupId|parentShedId|sourceShedId|destinationShedId|parentLocationId)(?:\.(?:orEmpty|trim|toString|hashCode)\(\)|!!|\s*\?:[\s\S]*)?(?:\}["']?)?)\s*$/;
 
 const hasPartitionRenderSignal = (body) =>
   /\b(partitionLabel|partitionName|partitionDisplay|partitionKey|operationalLocationDisplay|penName|penLabel|PartitionRow|PartitionCard|PartitionItem|PartitionChip|PartitionLine|OperationalLocationRow)\b/.test(body) ||
@@ -142,7 +142,7 @@ const hasPartitionRenderSignal = (body) =>
   /\bitemContent\s*\(/.test(body);
 
 const hasParentLocationRenderSignal = (body) =>
-  /\b(parentShedId|sourceShedId|destinationShedId|shedId|parentLocationId)\b/.test(body);
+  /\b(shedGroupId|parentShedId|sourceShedId|destinationShedId|parentLocationId)\b/.test(body);
 
 const lineOf = (source, index) => source.slice(0, index).split("\n").length;
 
@@ -583,19 +583,19 @@ function selfTest() {
     ["items(proofRows, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
     ['items(proofRows, key = { row -> "proof-${row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag}" }) { }', "lazy-list-entity-id-key"],
     ["items(vaccinationRows, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
-    ["items(rows, key = { it.shedId }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
-    ['items(rows, key = { "shed-${it.shedId}" }) { Text(it.partitionLabel.orEmpty()) }', "lazy-list-parent-location-key"],
-    ["items(rows, key = { it.shedId.hashCode() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedGroupId }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
+    ['items(rows, key = { "shed-${it.shedGroupId}" }) { Text(it.partitionLabel.orEmpty()) }', "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedGroupId.hashCode() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId.toString() }) { Text(it.partitionLabel.orEmpty()) }", "lazy-list-parent-location-key"],
-    ["items(rows, key = { it.shedId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
-    ["items(rows, key = { it.shedId.orEmpty() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
-    ["items(rows, key = { it.shedId.trim() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedGroupId.trim() }) { PartitionLocationCard(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedGroupId.orEmpty() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { it.shedGroupId.trim() }) { OperationalLocationRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionRow(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentLocationId }) { PartitionLocationItem(it) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { it.parentShedId }) { Text(it.operationalLocationDisplay) }", "lazy-list-parent-location-key"],
     ["items(rows, key = { item -> item.parentLocationId }) { item -> itemContent(item) }", "lazy-list-parent-location-key"],
-    ["items(rows, key = { row -> row.shedId }) { row -> OperationalLocationRow(row) }", "lazy-list-parent-location-key"],
-    ["items(rows, key = { row -> row.shedId }) { row -> CustomPartitionLocationRow(row) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { row -> row.shedGroupId }) { row -> OperationalLocationRow(row) }", "lazy-list-parent-location-key"],
+    ["items(rows, key = { row -> row.shedGroupId }) { row -> CustomPartitionLocationRow(row) }", "lazy-list-parent-location-key"],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));

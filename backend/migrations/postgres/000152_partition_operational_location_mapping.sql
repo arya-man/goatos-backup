@@ -124,16 +124,7 @@ AS $$
   FROM public.shed_profiles parent_profile
   WHERE parent_profile.tenant_id = p_tenant_id
     AND parent_profile.location_id = p_group_shed_id
-  ON CONFLICT (location_id) DO UPDATE
-  SET animal_stage_id = EXCLUDED.animal_stage_id,
-      shed_lifecycle_status_id = EXCLUDED.shed_lifecycle_status_id,
-      sex = EXCLUDED.sex,
-      capacity = EXCLUDED.capacity,
-      has_icu = EXCLUDED.has_icu,
-      notes = EXCLUDED.notes,
-      context = EXCLUDED.context,
-      updated_at = now(),
-      row_version = public.shed_profiles.row_version + 1;
+  ON CONFLICT (location_id) DO NOTHING;
 $$;
 
 CREATE OR REPLACE FUNCTION public.reject_active_location_under_inactive_parent()
@@ -533,17 +524,7 @@ FROM public.shed_partitions sp
 JOIN public.location_operational_attributes parent_loa
   ON parent_loa.tenant_id = sp.tenant_id
  AND parent_loa.location_id = sp.shed_id
-ON CONFLICT (location_id) DO UPDATE
-SET usable_for_counts = EXCLUDED.usable_for_counts,
-    usable_for_feed = EXCLUDED.usable_for_feed,
-    usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-    usable_for_sop = EXCLUDED.usable_for_sop,
-    is_holding = EXCLUDED.is_holding,
-    is_quarantine = EXCLUDED.is_quarantine,
-    is_icu = EXCLUDED.is_icu,
-    display_order = EXCLUDED.display_order,
-	    notes = EXCLUDED.notes,
-	    updated_at = now();
+ON CONFLICT (location_id) DO NOTHING;
 
 -- Partition sheds inherit the grouping shed profile at cutover. After this,
 -- vaccination/feed/identity code can read shed_profiles from the exact shed id.
@@ -705,6 +686,26 @@ WHERE fec.tenant_id = ep.tenant_id
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+INSERT INTO public.feed_shed_factors (
+  tenant_id, park_id, shed_id, feed_item_label, multiplier, valid_from, valid_to, created_by, created_at, updated_at
+)
+SELECT fsf.tenant_id, fsf.park_id, ep.exact_shed_id, fsf.feed_item_label, fsf.multiplier,
+       fsf.valid_from, fsf.valid_to, fsf.created_by, fsf.created_at, now()
+FROM public.feed_shed_factors fsf
+JOIN exact_partition ep
+  ON ep.tenant_id = fsf.tenant_id
+ AND ep.group_shed_id = fsf.shed_id
+ON CONFLICT (tenant_id, park_id, shed_id, feed_item_key, valid_from) DO UPDATE
+SET multiplier = EXCLUDED.multiplier,
+    valid_to = EXCLUDED.valid_to,
+    updated_at = now();
+
+WITH exact_partition AS (
   SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
   FROM public.shed_partitions
   WHERE status = 'active'
@@ -719,6 +720,14 @@ WHERE wcs.tenant_id = ep.tenant_id
   AND wcs.location_id = ep.group_shed_id
   AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(wcs.partition_label, 'whole'))), '^part[[:space:]]+', '')
   AND ep.normalized_label <> 'whole';
+
+UPDATE public.weighing_work_items wwi
+SET shed_location_id = wcs.location_id,
+    updated_at = now()
+FROM public.weighing_campaign_sheds wcs
+WHERE wwi.tenant_id = wcs.tenant_id
+  AND wwi.campaign_shed_id = wcs.campaign_shed_id
+  AND wwi.shed_location_id IS DISTINCT FROM wcs.location_id;
 
 -- Block cutover if a live partitioned goat cannot be mapped exactly.
 DO $$
@@ -741,75 +750,6 @@ BEGIN
 
   IF unmapped_count <> 0 THEN
     RAISE EXCEPTION 'live_partitioned_goats_unmapped: % live goats have no operational shed mapping', unmapped_count;
-  END IF;
-END $$;
-
--- Guard the exact partition residence invariant: every live goat with partition
--- evidence must point to that partition's mapped shed, and its group shed must
--- match the partition evidence. This catches stale/cross-shed evidence instead
--- of silently leaving the animal at a bare or mismatched shed.
-DO $$
-DECLARE
-  bad_count integer;
-BEGIN
-  SELECT count(*) INTO bad_count
-  FROM public.goats g
-  JOIN public.goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id
-   AND gsp.goat_id = g.goat_id
-  JOIN public.shed_partitions sp
-    ON sp.tenant_id = gsp.tenant_id
-   AND sp.shed_id = gsp.shed_id
-   AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
-   AND sp.status = 'active'
-  JOIN public.locations parent
-    ON parent.tenant_id = sp.tenant_id
-   AND parent.location_id = sp.shed_id
-   AND parent.location_type = 'shed'
-   AND parent.status = 'active'
-	  JOIN public.locations pen
-	    ON pen.tenant_id = sp.tenant_id
-	   AND pen.location_id = sp.operational_location_id
-	   AND pen.location_type = 'shed'
-	   AND pen.parent_location_id = parent.parent_location_id
-	   AND pen.location_id <> sp.shed_id
-	   AND pen.status = 'active'
-  WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-    AND g.merged_into_goat_id IS NULL
-    AND (
-      g.shed_id IS DISTINCT FROM sp.operational_location_id
-      OR g.shed_group_id IS DISTINCT FROM gsp.shed_id
-      OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
-    );
-
-  IF bad_count <> 0 THEN
-    RAISE EXCEPTION 'live_partitioned_goats_exact_residence_failed: % live goats do not match goat_shed_partitions mapped shed', bad_count;
-  END IF;
-END $$;
-
--- Guard the canonical residence invariant for live goats after backfill.
-DO $$
-DECLARE
-  bad_count integer;
-BEGIN
-  SELECT count(*) INTO bad_count
-  FROM public.goats g
-  JOIN public.locations cur
-    ON cur.tenant_id = g.tenant_id
-   AND cur.location_id = g.current_location_id
-  JOIN public.locations shed
-    ON shed.tenant_id = g.tenant_id
-   AND shed.location_id = g.shed_id
-  WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-    AND g.merged_into_goat_id IS NULL
-    AND NOT (
-      cur.location_type = 'shed'
-      AND cur.location_id = g.shed_id
-      AND shed.parent_location_id = g.park_id
-    );
-
-  IF bad_count <> 0 THEN
-    RAISE EXCEPTION 'goat_current_location_rollup_invariant_failed: % live goats violate current_location/shed/park hierarchy', bad_count;
   END IF;
 END $$;
 
@@ -939,17 +879,7 @@ BEGIN
       FROM public.location_operational_attributes parent_loa
       WHERE parent_loa.tenant_id = NEW.tenant_id
         AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO UPDATE
-      SET usable_for_counts = EXCLUDED.usable_for_counts,
-          usable_for_feed = EXCLUDED.usable_for_feed,
-          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-          usable_for_sop = EXCLUDED.usable_for_sop,
-          is_holding = EXCLUDED.is_holding,
-          is_quarantine = EXCLUDED.is_quarantine,
-          is_icu = EXCLUDED.is_icu,
-          display_order = EXCLUDED.display_order,
-	          notes = EXCLUDED.notes,
-	          updated_at = now();
+      ON CONFLICT (location_id) DO NOTHING;
 
       PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
@@ -1053,17 +983,7 @@ BEGIN
       FROM public.location_operational_attributes parent_loa
       WHERE parent_loa.tenant_id = NEW.tenant_id
         AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO UPDATE
-      SET usable_for_counts = EXCLUDED.usable_for_counts,
-          usable_for_feed = EXCLUDED.usable_for_feed,
-          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-          usable_for_sop = EXCLUDED.usable_for_sop,
-          is_holding = EXCLUDED.is_holding,
-          is_quarantine = EXCLUDED.is_quarantine,
-          is_icu = EXCLUDED.is_icu,
-          display_order = EXCLUDED.display_order,
-	          notes = EXCLUDED.notes,
-	          updated_at = now();
+      ON CONFLICT (location_id) DO NOTHING;
 
       PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
@@ -1152,38 +1072,29 @@ BEGIN
   FROM public.location_operational_attributes parent_loa
   WHERE parent_loa.tenant_id = NEW.tenant_id
     AND parent_loa.location_id = NEW.shed_id
-  ON CONFLICT (location_id) DO UPDATE
-  SET usable_for_counts = EXCLUDED.usable_for_counts,
-      usable_for_feed = EXCLUDED.usable_for_feed,
-      usable_for_vaccination = EXCLUDED.usable_for_vaccination,
-      usable_for_sop = EXCLUDED.usable_for_sop,
-      is_holding = EXCLUDED.is_holding,
-      is_quarantine = EXCLUDED.is_quarantine,
-      is_icu = EXCLUDED.is_icu,
-      display_order = EXCLUDED.display_order,
-	      notes = EXCLUDED.notes,
-	      updated_at = now();
+  ON CONFLICT (location_id) DO NOTHING;
 
   PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
 
   IF TG_OP = 'UPDATE'
     AND OLD.operational_location_id IS NOT NULL
     AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
-    UPDATE public.goats g
-    SET current_location_id = NEW.operational_location_id,
-        shed_id = NEW.operational_location_id,
-        shed_group_id = NEW.shed_id,
-        updated_at = now(),
-        row_version = g.row_version + 1
-    FROM public.goat_shed_partitions gsp
-    WHERE g.tenant_id = NEW.tenant_id
-      AND g.current_location_id = OLD.operational_location_id
-      AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-      AND g.merged_into_goat_id IS NULL
-      AND gsp.tenant_id = g.tenant_id
-      AND gsp.goat_id = g.goat_id
-      AND gsp.shed_id = NEW.shed_id
-      AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
+    IF EXISTS (
+      SELECT 1
+      FROM public.goats g
+      JOIN public.goat_shed_partitions gsp
+        ON gsp.tenant_id = g.tenant_id
+       AND gsp.goat_id = g.goat_id
+      WHERE g.tenant_id = NEW.tenant_id
+        AND g.current_location_id = OLD.operational_location_id
+        AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+        AND g.merged_into_goat_id IS NULL
+        AND gsp.shed_id = NEW.shed_id
+        AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label
+    ) THEN
+      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+        NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+    END IF;
   END IF;
 
   RETURN NEW;

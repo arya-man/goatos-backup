@@ -1575,15 +1575,15 @@ WHERE lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
 	if err := validateProcurementIntakePartition(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel); err != nil {
 		return nil, err
 	}
-	intakeLocationID, err := resolveProcurementIntakeOperationalLocation(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel)
+	intakeLocation, err := resolveProcurementIntakeOperationalLocation(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel)
 	if err != nil {
 		return nil, err
 	}
-	goatShedID := in.ShedLocationID
+	intakeLocationID := intakeLocation.ExactShedID
+	goatShedID := intakeLocation.ExactShedID
 	var goatShedGroupID *string
-	if oploc.IsPartitioned(oploc.NormalizePartition(in.PartitionLabel)) {
-		goatShedID = intakeLocationID
-		goatShedGroupID = &in.ShedLocationID
+	if strings.TrimSpace(intakeLocation.GroupShedID) != "" {
+		goatShedGroupID = &intakeLocation.GroupShedID
 	}
 
 	// Batch update goats table for all accepted goats
@@ -1630,20 +1630,20 @@ WHERE goats.tenant_id = $1::uuid
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
 	}
-	if oploc.IsPartitioned(oploc.NormalizePartition(in.PartitionLabel)) {
-		partitionLabel := strings.TrimSpace(in.PartitionLabel)
+	if strings.TrimSpace(intakeLocation.GroupShedID) != "" {
+		partitionLabel := strings.TrimSpace(intakeLocation.PartitionLabel)
 		var shedName string
 		if err := tx.QueryRow(ctx, `
 SELECT name
 FROM locations
 WHERE tenant_id = $1::uuid
   AND location_id = $2::uuid
-  AND location_type = 'shed'`, in.TenantID, in.ShedLocationID).Scan(&shedName); err != nil {
+  AND location_type = 'shed'`, in.TenantID, intakeLocation.GroupShedID).Scan(&shedName); err != nil {
 			return nil, fmt.Errorf("procurement: resolve partition source shed: %w", err)
 		}
-		sourceShedName := oploc.OperationalLocation{ShedID: in.ShedLocationID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+		sourceShedName := oploc.OperationalLocation{ShedID: intakeLocation.GroupShedID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if strings.TrimSpace(sourceShedName) == "" {
-			sourceShedName = in.ShedLocationID
+			sourceShedName = intakeLocation.ExactShedID
 		}
 		_, err = tx.Exec(ctx, `
 	INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
@@ -1654,7 +1654,7 @@ WHERE tenant_id = $1::uuid
 	    partition_label = EXCLUDED.partition_label,
 	    source_shed_name = EXCLUDED.source_shed_name,
 	    updated_at = now()`,
-			in.TenantID, in.ShedLocationID, partitionLabel, sourceShedName, goatIDs)
+			in.TenantID, intakeLocation.GroupShedID, partitionLabel, sourceShedName, goatIDs)
 	} else {
 		_, err = tx.Exec(ctx, `
 DELETE FROM goat_shed_partitions
@@ -2224,13 +2224,43 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
-func resolveProcurementIntakeOperationalLocation(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) (string, error) {
+type procurementIntakeLocation struct {
+	ExactShedID    string
+	GroupShedID    string
+	PartitionLabel string
+}
+
+func resolveProcurementIntakeOperationalLocation(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) (procurementIntakeLocation, error) {
 	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
-		return shedID, nil
+		var out procurementIntakeLocation
+		err := tx.QueryRow(ctx, `
+SELECT sp.operational_location_id::text,
+       sp.shed_id::text,
+       sp.partition_label
+FROM shed_partitions sp
+JOIN locations exact
+  ON exact.tenant_id = sp.tenant_id
+ AND exact.location_id = sp.operational_location_id
+ AND exact.location_type = 'shed'
+ AND exact.status = 'active'
+WHERE sp.tenant_id = $1::uuid
+  AND sp.operational_location_id = $2::uuid
+  AND sp.status = 'active'
+LIMIT 1
+FOR SHARE OF sp`, tenantID, shedID).Scan(&out.ExactShedID, &out.GroupShedID, &out.PartitionLabel)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return procurementIntakeLocation{ExactShedID: shedID}, nil
+		}
+		if err != nil {
+			return procurementIntakeLocation{}, fmt.Errorf("procurement: resolve exact intake operational location: %w", err)
+		}
+		return out, nil
 	}
-	var locationID string
+	var out procurementIntakeLocation
 	err := tx.QueryRow(ctx, `
-SELECT sp.operational_location_id::text
+SELECT sp.operational_location_id::text,
+       sp.shed_id::text,
+       sp.partition_label
 FROM shed_partitions sp
 JOIN locations pen
   ON pen.tenant_id = sp.tenant_id
@@ -2244,14 +2274,14 @@ WHERE sp.tenant_id = $1::uuid
       regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
 ORDER BY sp.partition_label
 LIMIT 1
-FOR SHARE OF sp`, tenantID, shedID, partitionLabel).Scan(&locationID)
+FOR SHARE OF sp`, tenantID, shedID, partitionLabel).Scan(&out.ExactShedID, &out.GroupShedID, &out.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ports.ErrInvalidTransition
+		return procurementIntakeLocation{}, ports.ErrInvalidTransition
 	}
 	if err != nil {
-		return "", fmt.Errorf("procurement: resolve intake operational location: %w", err)
+		return procurementIntakeLocation{}, fmt.Errorf("procurement: resolve intake operational location: %w", err)
 	}
-	return locationID, nil
+	return out, nil
 }
 
 func scanWorkRow(row scanner) (domain.WorkRow, error) {

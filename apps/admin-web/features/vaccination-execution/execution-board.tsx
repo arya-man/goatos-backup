@@ -78,7 +78,7 @@ function groupByPark(rows: VaccinationExecutionRow[]): ParkGroup[] {
 }
 
 function physicalShedName(row: VaccinationExecutionRow): string {
-  return (row.physicalShed || row.shedName || "").trim() || row.shedName;
+  return (row.operational_location_display || row.shedName || row.physicalShed || "").trim() || row.shedName;
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
@@ -89,8 +89,6 @@ function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup
   const byKey = new Map<string, PhysicalShedGroup>();
   for (const row of rows) {
     const physicalShed = physicalShedName(row);
-    // Key by shed_id only (no partition), so partitions group under one physical shed.
-    // Display = parent shed name; individual partitions shown per-row via partitionLabel().
     const key = `${row.parkId}|${row.shedId}`;
     let group = byKey.get(key);
     if (!group) {
@@ -448,22 +446,19 @@ export async function VaccinationExecutionBoard({
                         <Tag tone={optionTone(pageContract, "severity_chips", shedGroup.severity) as Tone}>{optionLabel(pageContract, "severity_chips", shedGroup.severity)}</Tag>
                       </div>
                       <span className="small muted">
-                        {shedGroup.rows.length} partitions · {shedGroup.animals} animals
+                        {shedGroup.rows.length} drives · {shedGroup.animals} animals
                         {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
                       </span>
                     </div>
-                    {shedGroup.rows.map((row, idx) => {
-                      const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`;
-                      return (
-                        <ExecutionRow
-                          key={partitionAwareKey}
-                          row={row}
-                          drawerHref={hrefWith({ shed_event: shedEventId(row) })}
-                          pageContract={pageContract}
-                          labels={labels}
-                        />
-                      );
-                    })}
+	                    {shedGroup.rows.map((row, idx) => (
+	                      <ExecutionRow
+	                        key={`${row.parkId}|${row.shedId}|${row.driveId ?? idx}`}
+	                        row={row}
+	                        drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+	                        pageContract={pageContract}
+	                        labels={labels}
+	                      />
+	                    ))}
                   </div>
                 ))}
               </div>

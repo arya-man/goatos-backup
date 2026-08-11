@@ -1166,7 +1166,18 @@ WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND g.exited_at IS NULL
   AND (
-        (nullif($3::text, '') IS NOT NULL AND g.shed_id IS DISTINCT FROM nullif($3::text, '')::uuid)
+        (nullif($3::text, '') IS NOT NULL AND g.shed_id IS DISTINCT FROM COALESCE((
+          SELECT sp.operational_location_id
+          FROM shed_partitions sp
+          WHERE sp.tenant_id = g.tenant_id
+            AND sp.shed_id = nullif($3::text, '')::uuid
+            AND sp.status = 'active'
+            AND nullif($5::text, '') IS NOT NULL
+            AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '')
+              = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+          ORDER BY sp.updated_at DESC, sp.partition_label
+          LIMIT 1
+        ), nullif($3::text, '')::uuid))
      OR (nullif($4::text, '') IS NOT NULL AND g.park_id IS DISTINCT FROM nullif($4::text, '')::uuid)
      OR (
           nullif($5::text, '') IS NOT NULL

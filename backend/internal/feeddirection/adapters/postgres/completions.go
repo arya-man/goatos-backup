@@ -59,11 +59,13 @@ func (r *Repository) CompleteSession(ctx context.Context, p ports.CompleteSessio
 		}
 	}()
 
-	// Shed must be an active shed of the addressed park. Fail closed rather than record a completion
-	// against a shed that does not belong to the park being fed.
-	if err := requireShedInPark(ctx, tx, p.TenantID, p.ParkID, p.ShedID); err != nil {
+	// Canonicalize to the real operational shed before idempotency and writes. Partition catalog
+	// rows are still keyed by the old group shed, but completion identity must be the exact shed.
+	canonical, err := resolveFeedShedPartitionInPark(ctx, tx, p.TenantID, p.ParkID, p.ShedID, "")
+	if err != nil {
 		return ports.CompleteSessionResult{}, err
 	}
+	p.ShedID = canonical.ShedID
 
 	fingerprint := requestFingerprint(
 		p.ParkID,
@@ -182,52 +184,92 @@ WHERE tenant_id = $1::uuid AND location_id = $2::uuid
 	return nil
 }
 
+type feedShedPartition struct {
+	ShedID         string
+	PartitionLabel string
+}
+
 // requireShedPartitionInPark asserts the physical shed belongs to the park and that the requested
 // partition identity matches the catalog. Partitioned sheds fail closed on blank labels; undivided
 // sheds fail closed on fabricated labels.
 func requireShedPartitionInPark(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) error {
+	_, err := resolveFeedShedPartitionInPark(ctx, tx, tenantID, parkID, shedID, partitionLabel)
+	return err
+}
+
+func resolveFeedShedPartitionInPark(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) (feedShedPartition, error) {
 	if err := requireShedInPark(ctx, tx, tenantID, parkID, shedID); err != nil {
-		return err
+		return feedShedPartition{}, err
 	}
 	normalizedRequested := domain.PartitionMatchKey(partitionLabel)
-	rows, err := tx.Query(ctx, `
+	if normalizedRequested != "whole" {
+		var out feedShedPartition
+		err := tx.QueryRow(ctx, `
+SELECT sp.operational_location_id::text,
+       COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole')
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND (shed_id = $2::uuid OR operational_location_id = $2::uuid)
+  AND status = 'active'
+  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+ORDER BY CASE WHEN operational_location_id = $2::uuid THEN 0 ELSE 1 END, updated_at DESC, partition_label
+LIMIT 1
+FOR SHARE`, tenantID, shedID, partitionLabel).Scan(&out.ShedID, &out.PartitionLabel)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return feedShedPartition{}, ports.ErrInvalidPartition
+		}
+		if err != nil {
+			return feedShedPartition{}, fmt.Errorf("feeddirection: resolve partition shed: %w", err)
+		}
+		return out, nil
+	}
+
+	var exactLabel string
+	err := tx.QueryRow(ctx, `
 SELECT COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole')
 FROM shed_partitions
 WHERE tenant_id = $1::uuid
-  AND shed_id = $2::uuid
+  AND operational_location_id = $2::uuid
   AND status = 'active'
-  AND COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole') <> 'whole'`,
-		tenantID, shedID)
-	if err != nil {
-		return fmt.Errorf("feeddirection: resolve shed partitions: %w", err)
+ORDER BY updated_at DESC, partition_label
+LIMIT 1
+FOR SHARE`, tenantID, shedID).Scan(&exactLabel)
+	switch {
+	case err == nil:
+		return feedShedPartition{ShedID: shedID, PartitionLabel: exactLabel}, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return feedShedPartition{}, fmt.Errorf("feeddirection: resolve exact partition shed: %w", err)
 	}
-	defer rows.Close()
 
-	hasPartitions := false
-	matches := false
-	for rows.Next() {
-		hasPartitions = true
-		var catalogLabel string
-		if err := rows.Scan(&catalogLabel); err != nil {
-			return fmt.Errorf("feeddirection: scan shed partition: %w", err)
-		}
-		if domain.PartitionMatchKey(catalogLabel) == normalizedRequested {
-			matches = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("feeddirection: iterate shed partitions: %w", err)
+	var hasPartitions bool
+	err = tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shed_partitions
+  WHERE tenant_id = $1::uuid
+    AND shed_id = $2::uuid
+    AND status = 'active'
+    AND COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole') <> 'whole'
+)`, tenantID, shedID).Scan(&hasPartitions)
+	if err != nil {
+		return feedShedPartition{}, fmt.Errorf("feeddirection: resolve shed partitions: %w", err)
 	}
 	if hasPartitions {
-		if normalizedRequested == "whole" || !matches {
-			return ports.ErrInvalidPartition
-		}
-		return nil
+		return feedShedPartition{}, ports.ErrInvalidPartition
 	}
-	if normalizedRequested != "whole" {
-		return ports.ErrInvalidPartition
+	return feedShedPartition{ShedID: shedID}, nil
+}
+
+func canonicalizeFeedCompletionParams(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) (string, string, error) {
+	canonical, err := resolveFeedShedPartitionInPark(ctx, tx, tenantID, parkID, shedID, partitionLabel)
+	if err != nil {
+		return "", "", err
 	}
-	return nil
+	if domain.PartitionMatchKey(canonical.PartitionLabel) == "whole" {
+		canonical.PartitionLabel = ""
+	}
+	return canonical.ShedID, canonical.PartitionLabel, nil
 }
 
 func writeCompletionAudit(ctx context.Context, tx pgx.Tx, p ports.CompleteSessionParams, completionID string) error {

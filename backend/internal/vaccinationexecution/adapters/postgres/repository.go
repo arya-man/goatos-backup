@@ -605,11 +605,10 @@ LEFT JOIN LATERAL (
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
    AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
-   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   WHERE oi.tenant_id = $1::uuid
     AND oi.batch_id = effective.batch_id
     AND oi.target_type = 'goat'
-    AND COALESCE(g.shed_group_id, g.shed_id) = effective.shed_id
+    AND g.shed_id = effective.shed_id
     AND (
       effective.partition_label = 'whole'
       OR regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')
@@ -1288,7 +1287,6 @@ raw AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
    AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id

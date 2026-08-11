@@ -1094,6 +1094,13 @@ func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, task
 	if err := r.validateShedPartition(ctx, nil, tenantID, shedID, partitionLabel); err != nil {
 		return ports.ShedCompletionReadiness{}, err
 	}
+	if strings.TrimSpace(shedID) != "" && strings.TrimSpace(partitionLabel) != "" {
+		resolvedShedID, err := r.resolveExactShedForPartition(ctx, tenantID, shedID, partitionLabel)
+		if err != nil {
+			return ports.ShedCompletionReadiness{}, fmt.Errorf("sop: resolve exact shed: %w", err)
+		}
+		shedID = resolvedShedID
+	}
 	var expected, handled, proofReady int64
 	err := r.pool.QueryRow(ctx, `
 WITH batch AS (
@@ -1244,11 +1251,35 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 	return ports.ShedCompletionReadiness{Enabled: true}, nil
 }
 
+func (r *Repository) resolveExactShedForPartition(ctx context.Context, tenantID, shedID, partitionLabel string) (string, error) {
+	var resolved string
+	err := r.pool.QueryRow(ctx, `
+SELECT COALESCE((
+  SELECT sp.operational_location_id::text
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.shed_id = $2::uuid
+    AND sp.status = 'active'
+    AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '')
+      = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ORDER BY sp.updated_at DESC, sp.partition_label DESC
+  LIMIT 1
+), $2::text)`, tenantID, shedID, partitionLabel).Scan(&resolved)
+	return resolved, err
+}
+
 func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string) ([]domain.ProofReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
 		proofSubject = "goat"
+	}
+	if strings.TrimSpace(shedID) != "" && strings.TrimSpace(partitionLabel) != "" {
+		resolvedShedID, err := r.resolveExactShedForPartition(ctx, tenantID, shedID, partitionLabel)
+		if err != nil {
+			return nil, fmt.Errorf("sop: resolve proof exact shed: %w", err)
+		}
+		shedID = resolvedShedID
 	}
 	rows, err := r.pool.Query(ctx, `
 WITH task_scope AS (
@@ -2160,7 +2191,7 @@ SELECT
   ) AS matching_partitions
 FROM shed_partitions
 WHERE tenant_id = $1::uuid
-  AND shed_id = $2::uuid`
+  AND (shed_id = $2::uuid OR operational_location_id = $2::uuid)`
 	var active, matching int
 	var err error
 	if tx != nil {
