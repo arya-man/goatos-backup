@@ -2705,12 +2705,13 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
             // bucket has no open work for the operator to execute. The leadership/oversight surface
             // (WEIGHING_SCOPE_OPERATORS) needs the OPPOSITE: closed buckets must reach it so history
             // is visible and LeadershipWeighingScreen's tap-to-reopen (row.isClosed) has rows to act
-            // on -- excluding them here made reopen permanently unreachable dead code (A23).
-            // Canceled buckets stay excluded everywhere; they were never real work.
-            val closedAllowed = scope == WEIGHING_SCOPE_OPERATORS || scope == WEIGHING_SCOPE_ALL
+            // on -- excluding them here made reopen permanently unreachable dead code (A23). Plain
+            // completed/submitted buckets are verifier history, not operator My work.
+            val historyAllowed = scope == WEIGHING_SCOPE_OPERATORS || scope == WEIGHING_SCOPE_ALL
+            val shedStatus = shed.status.lowercase()
             status in setOf("published", "in_progress", "delayed", "completed", "closed") &&
-                shed.status.lowercase() !in setOf("canceled", "cancelled") &&
-                (closedAllowed || shed.status.lowercase() != "closed")
+                shedStatus !in setOf("canceled", "cancelled") &&
+                (historyAllowed || shedStatus !in setOf("closed", "completed"))
         }
         .map { shed ->
             WeighingAssignment(
