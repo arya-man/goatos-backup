@@ -424,8 +424,17 @@ WHERE tenant_id=$1::uuid
 	if !ok {
 		t.Fatal("missing placement pid")
 	}
-	retirePid, ok := <-retirementPID
-	if !ok {
+	retireSetupDeadline := time.Now().Add(5 * time.Second)
+	var retirePid int
+	select {
+	case err := <-retireErrCh:
+		if err == nil {
+			t.Fatal("retirement finished before placement lock was held")
+		}
+		t.Fatalf("retirement setup failed: %v", err)
+	case retirePid = <-retirementPID:
+		// expected path: retired transaction now blocked on placement lock
+	case <-time.After(time.Until(retireSetupDeadline)):
 		t.Fatal("retirement did not start")
 	}
 
@@ -434,9 +443,8 @@ WHERE tenant_id=$1::uuid
 	for time.Now().Before(deadline) {
 		var isBlocked bool
 		if err := pool.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT $2::int = ANY(pg_blocking_pids($1::int))
-)`, retirePid, placePid).Scan(&isBlocked); err != nil {
+SELECT $2::int = ANY(pg_blocking_pids($1::int))
+`, retirePid, placePid).Scan(&isBlocked); err != nil {
 			t.Fatalf("query blocking pids: %v", err)
 		}
 		if isBlocked {

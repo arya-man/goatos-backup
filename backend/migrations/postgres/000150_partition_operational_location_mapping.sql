@@ -214,7 +214,7 @@ created AS (
     sp.tenant_id,
     'pen',
     NULL,
-    COALESCE(an.display_name, operational_location_display(parent.name, sp.normalized_label)),
+    COALESCE(an.display_name, operational_location_display(parent.name, COALESCE(NULLIF(BTRIM(sp.partition_label), ''), sp.normalized_label))),
     sp.shed_id,
     parent.country,
     parent.timezone,
@@ -622,6 +622,7 @@ FOR EACH ROW
 EXECUTE FUNCTION public.ensure_shed_partition_operational_location();
 
 -- +goose Down
+DROP FUNCTION IF EXISTS public.operational_location_display(text, text);
 DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON public.shed_partitions;
 DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
 

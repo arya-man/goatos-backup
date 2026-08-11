@@ -39,16 +39,24 @@ func TestRetireNonSourceLocationsSkipsParkWithActiveChildSheds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retire non-source: %v", err)
 	}
-	if retired != 1 {
-		t.Fatalf("retired = %d, want 1 (child shed retired, park skipped)", retired)
+	if retired != 2 {
+		t.Fatalf("retired = %d, want 2 (child shed and parent park retired in single run)", retired)
+	}
+
+	retired, err = retireActiveNonSourceLocations(ctx, tx, tenantID, []string{"OTHER"}, nil)
+	if err != nil {
+		t.Fatalf("second retire non-source: %v", err)
+	}
+	if retired != 0 {
+		t.Fatalf("second retire count = %d, want 0", retired)
 	}
 
 	var parkStatus string
 	if err := tx.QueryRow(ctx, `SELECT status FROM locations WHERE tenant_id=$1 AND location_id=$2`, tenantID, parkID).Scan(&parkStatus); err != nil {
 		t.Fatalf("query park status: %v", err)
 	}
-	if parkStatus != "active" {
-		t.Fatalf("park status = %q, want active", parkStatus)
+	if parkStatus != "inactive" {
+		t.Fatalf("park status = %q, want inactive", parkStatus)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
