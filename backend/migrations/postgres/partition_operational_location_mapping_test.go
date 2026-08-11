@@ -88,6 +88,11 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Castro 1')`,
 	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
 		t.Fatalf("replay 000152: %v", err)
 	}
+	goatBackfillRaw, err := os.ReadFile("000154_partition_goat_residence_backfill.sql")
+	if err != nil {
+		t.Fatalf("read goat residence backfill migration: %v", err)
+	}
+	runNoTransactionMigration(t, ctx, pool, migrationUp(string(goatBackfillRaw)))
 
 	var currentLocationID, shedID, shedGroupID, currentType, parentID string
 	if err := pool.QueryRow(ctx, `
@@ -223,6 +228,7 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='3'`
 	}
 
 	exec(`UPDATE goats SET lifecycle_status='sold' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat)
+	runNoTransactionMigration(t, ctx, pool, migrationDown(string(goatBackfillRaw)))
 	if _, err := pool.Exec(ctx, migrationDown(string(raw))); err != nil {
 		t.Fatalf("rollback 000152: %v", err)
 	}
@@ -325,6 +331,40 @@ VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, shed)
 	}
 	if spShedID != partitionShedID {
 		t.Fatalf("partition mapped to %s, expected %s", spShedID, partitionShedID)
+	}
+}
+
+func TestPartitionGoatResidenceBackfillIsSeparatedFromTransactionalSchemaMigration(t *testing.T) {
+	raw152, err := os.ReadFile("000152_partition_operational_location_mapping.sql")
+	if err != nil {
+		t.Fatalf("read 000152: %v", err)
+	}
+	up152 := migrationUp(string(raw152))
+	down152 := migrationDown(string(raw152))
+	for _, forbidden := range []string{
+		"SET lock_timeout = '2s';\nUPDATE public.goats g\nSET current_location_id = sp.operational_location_id",
+		"SET lock_timeout = '2s';\nUPDATE public.goats g\nSET current_location_id = g.shed_group_id",
+	} {
+		if strings.Contains(up152, forbidden) || strings.Contains(down152, forbidden) {
+			t.Fatal("000152 must not run the one-time hot goats-table rewrite; use the chunked no-transaction data migration")
+		}
+	}
+
+	raw154, err := os.ReadFile("000154_partition_goat_residence_backfill.sql")
+	if err != nil {
+		t.Fatalf("read 000154: %v", err)
+	}
+	migration154 := string(raw154)
+	for _, required := range []string{
+		"-- +goose NO TRANSACTION",
+		"FOR UPDATE OF g SKIP LOCKED",
+		"LIMIT GREATEST(p_batch_size, 1)",
+		"GET DIAGNOSTICS moved_count = ROW_COUNT",
+		"COMMIT",
+	} {
+		if !strings.Contains(migration154, required) {
+			t.Fatalf("000154 chunked goat residence backfill missing %q", required)
+		}
 	}
 }
 
