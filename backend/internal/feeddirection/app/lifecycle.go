@@ -364,8 +364,19 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// No session filter: a packing line is a whole pen-day and every session belongs to it. The
-	// worklist has no shed filter either, so the frozen scope is served as loaded.
+	// Narrow the frozen scope to the requested SESSION before paging and summarizing, so the page and
+	// its summary describe the same set of bags. Zero means every session.
+	//
+	// The shed argument is deliberately empty: the packing worklist has no shed filter, only the
+	// direction preview does.
+	//
+	// This line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain removed the session
+	// from the query entirely) and restoring the query parameter without restoring this filter is a
+	// contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and because the
+	// session is part of the client's cache key those two bags were then cached AS session 1. The
+	// generated/draft paths never showed it, because there the session narrows generation itself --
+	// only this frozen path, the one a packer actually reads, ignored it.
+	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
 
 	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
 	// its summary describe the same status set and pagination stays correct.
