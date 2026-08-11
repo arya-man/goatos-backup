@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +104,13 @@ func seedScan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, bucketID, t
 	if bucketID == gdBucketW2G || bucketID == gdBucketW2Q {
 		campaign = gdCampaignW2
 	}
+	seedScanInCampaign(t, ctx, pool, campaign, bucketID, tag, weightKg, at, verification)
+}
+
+// seedScanInCampaign is seedScan with an EXPLICIT campaign id, for fixtures
+// that seed buckets seedScan's bucketID heuristic does not know about.
+func seedScanInCampaign(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaign, bucketID, tag string, weightKg float64, at time.Time, verification string) {
+	t.Helper()
 	execGD(t, ctx, pool, `
 INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at, verification_status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz, $10)`,
@@ -423,8 +431,7 @@ func TestGrowthDirectorOperationalLocationGrain(t *testing.T) {
 	seedGrowthDirectorFixture(t, ctx, pool)
 
 	const (
-		gdFarmRoot = "00000000-0000-4000-8000-000000000001"
-		gdPark2    = "22222222-0000-4000-8000-000000003002"
+		gdPark2 = "22222222-0000-4000-8000-000000003002"
 
 		gdShedCastroA = "22222222-0000-4000-8000-000000000111" // "Castro 1" in gdPark
 		gdShedCastroB = "22222222-0000-4000-8000-000000000112" // "Castro 1" in gdPark2 -- same name, different park
@@ -446,8 +453,8 @@ func TestGrowthDirectorOperationalLocationGrain(t *testing.T) {
 
 	execGD(t, ctx, pool, `
 INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status, display_order)
-VALUES ($1::uuid, $2::uuid, 'park', 'CPT', $3::uuid, 'active', 501)
-ON CONFLICT (location_id) DO NOTHING`, gdPark2, gdTenant, gdFarmRoot)
+VALUES ($1::uuid, $2::uuid, 'park', 'CPT', NULL, 'active', 501)
+ON CONFLICT (location_id) DO NOTHING`, gdPark2, gdTenant)
 
 	for _, loc := range [][3]string{
 		{gdShedCastroA, "Castro 1", gdPark},
@@ -471,16 +478,19 @@ VALUES
 		gdCampaignW1B, gdCampaignW2B, gdTenant, gdPark2, gdOperator)
 
 	// Two "Castro 1" buckets, one per park (no partition — the ambiguity is
-	// purely the shared shed name across parks).
+	// purely the shared shed name across parks). Castro-A rides the ORIGINAL
+	// fixture's park-A campaigns; Castro-B rides its own park-B campaigns —
+	// each shed's buckets stay inside their own park's campaigns.
 	execGD(t, ctx, pool, `
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
 VALUES
-  ($1::uuid, $5::uuid, $7::uuid, $9::uuid,  'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
-  ($2::uuid, $6::uuid, $7::uuid, $9::uuid,  'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
-  ($3::uuid, $5::uuid, $7::uuid, $10::uuid, 'shed', 'Castro 1', 'individual_animal', $11::uuid, 0),
-  ($4::uuid, $6::uuid, $7::uuid, $10::uuid, 'shed', 'Castro 1', 'individual_animal', $11::uuid, 0)`,
+  ($1::uuid, $5::uuid, $9::uuid,  $11::uuid, 'shed', 'Castro 1', 'individual_animal', $12::uuid, 0),
+  ($2::uuid, $6::uuid, $9::uuid,  $11::uuid, 'shed', 'Castro 1', 'individual_animal', $12::uuid, 0),
+  ($3::uuid, $7::uuid, $9::uuid,  $10::uuid, 'shed', 'Castro 1', 'individual_animal', $12::uuid, 0),
+  ($4::uuid, $8::uuid, $9::uuid,  $10::uuid, 'shed', 'Castro 1', 'individual_animal', $12::uuid, 0)`,
 		gdBucketW1CA, gdBucketW2CA, gdBucketW1CB, gdBucketW2CB,
-		gdCampaignW1, gdCampaignW2B, gdTenant, gdPark, gdShedCastroA, gdShedCastroB, gdOperator)
+		gdCampaignW1, gdCampaignW2, gdCampaignW1B, gdCampaignW2B,
+		gdTenant, gdShedCastroB, gdShedCastroA, gdOperator)
 
 	// One physical shed, two OPERATIONAL locations (partitions), both inside
 	// the ORIGINAL fixture's park/campaigns.
@@ -494,22 +504,22 @@ VALUES
 		gdBucketW1P1, gdBucketW2P1, gdBucketW1P2, gdBucketW2P2,
 		gdCampaignW1, gdTenant, gdShedPart, gdOperator, gdCampaignW2)
 
-	seedTrio := func(prefix string, w1Bucket, w2Bucket string, w1Kg, w2Kg float64) {
-		for i, tag := range []string{prefix + "1", prefix + "2", prefix + "3"} {
-			goatID := fmt.Sprintf("22222222-0000-4000-8000-0000000%s%02d", prefix, i)
-			seedGoatWithTag(t, ctx, pool, goatID, prefix+fmt.Sprint(i), tag, "Sojat", "male")
-			seedScan(t, ctx, pool, w1Bucket, tag, w1Kg, day(8, 6), "pending")
-			seedScan(t, ctx, pool, w2Bucket, tag, w2Kg, day(15, 6), "pending")
+	seedTrio := func(groupCode int, tagPrefix string, w1Campaign, w1Bucket, w2Campaign, w2Bucket string, w1Kg, w2Kg float64) {
+		for i, tag := range []string{tagPrefix + "1", tagPrefix + "2", tagPrefix + "3"} {
+			goatID := fmt.Sprintf("22222222-0000-4000-8000-%012d", groupCode*100+i)
+			seedGoatWithTag(t, ctx, pool, goatID, fmt.Sprintf("%02d%02d", groupCode, i), tag, "Sojat", "male")
+			seedScanInCampaign(t, ctx, pool, w1Campaign, w1Bucket, tag, w1Kg, day(8, 6), "pending")
+			seedScanInCampaign(t, ctx, pool, w2Campaign, w2Bucket, tag, w2Kg, day(15, 6), "pending")
 		}
 	}
 	// Castro-A gains 200 g/day, Castro-B gains 100 g/day: a fair fight cohort
 	// with two distinctly-parked sheds sharing one name.
-	seedTrio("CA", gdBucketW1CA, gdBucketW2CA, 14.0, 15.4)
-	seedTrio("CB", gdBucketW1CB, gdBucketW2CB, 14.0, 14.7)
+	seedTrio(1, "CA-", gdCampaignW1, gdBucketW1CA, gdCampaignW2, gdBucketW2CA, 14.0, 15.4)
+	seedTrio(2, "CB-", gdCampaignW1B, gdBucketW1CB, gdCampaignW2B, gdBucketW2CB, 14.0, 14.7)
 	// Godel 9 Part 1 gains 200 g/day, Part 2 gains 100 g/day: same physical
 	// shed, two operational locations.
-	seedTrio("P1", gdBucketW1P1, gdBucketW2P1, 14.0, 15.4)
-	seedTrio("P2", gdBucketW1P2, gdBucketW2P2, 14.0, 14.7)
+	seedTrio(3, "P1-", gdCampaignW1, gdBucketW1P1, gdCampaignW2, gdBucketW2P1, 14.0, 15.4)
+	seedTrio(4, "P2-", gdCampaignW1, gdBucketW1P2, gdCampaignW2, gdBucketW2P2, 14.0, 14.7)
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
