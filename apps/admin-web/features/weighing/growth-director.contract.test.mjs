@@ -33,14 +33,32 @@ test("growth director result is auth-gated with the other reads", () => {
 
 test("growth director section renders after the existing widgets", () => {
   const renderAt = weightsSource.indexOf("<GrowthDirectorSection");
-  const losingAt = weightsSource.indexOf('"losing_kids.title"');
+  const losingAt = weightsSource.indexOf('"section.losing.title"');
   assert.ok(renderAt > 0, "weights.tsx must render <GrowthDirectorSection>");
-  if (losingAt > 0) {
-    assert.ok(
-      renderAt > losingAt,
-      "the Growth Director block must come after the existing losing-kids card, never above the live dashboard",
-    );
-  }
+  assert.ok(losingAt > 0, "the losing-kids card must still exist (key section.losing.title)");
+  assert.ok(
+    renderAt > losingAt,
+    "the Growth Director block must come after the existing losing-kids card, never above the live dashboard",
+  );
+});
+
+test("growth director copy keys match the backend-owned vocabulary", () => {
+  // The growth_director.* namespace is authored in backend/internal/adminui/app/service.go.
+  // Every key the component uses must exist there — a key that only lives in
+  // COPY_FALLBACKS is frontend-invented copy that silently diverges from the
+  // contract the backend serves.
+  const serviceSource = readFileSync(
+    join(here, "..", "..", "..", "..", "backend", "internal", "adminui", "app", "service.go"),
+    "utf8",
+  );
+  const backendKeys = new Set(
+    [...serviceSource.matchAll(/"(growth_director\.[^"]+)":/g)].map((m) => m[1]),
+  );
+  const staticUsed = [...sectionSource.matchAll(/gd\(pageContract, "([^"$]+)"\)/g)].map(
+    (m) => `growth_director.${m[1]}`,
+  );
+  const missing = staticUsed.filter((key) => !backendKeys.has(key));
+  assert.deepEqual(missing, [], "component uses growth_director keys the backend does not author");
 });
 
 test("growth director component has no literal visible copy", () => {
