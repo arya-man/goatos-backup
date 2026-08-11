@@ -125,6 +125,7 @@ export function WorklistFilters({
   const routerSearchParams = useSearchParams();
   const current = routerSearchParams?.toString() ?? "";
   const [optimisticSearch, setOptimisticSearch] = useState<{ from: string; search: string } | null>(null);
+  const [pendingSearch, setPendingSearch] = useState<string | null>(null);
   const optimisticActive = optimisticSearch?.from === current;
   const effectiveSearch = optimisticActive ? optimisticSearch.search : current;
 
@@ -180,12 +181,26 @@ export function WorklistFilters({
     if (field.kind === "compare") return activeParams.get(field.param) !== null || activeParams.get(field.valueParam) !== null;
     return field.kind === "select" && activeParams.get(field.param) !== null;
   });
+  if (pendingSearch !== null && current === pendingSearch) {
+    setPendingSearch(null);
+  }
+  const activePendingSearch = pendingSearch !== null && current !== pendingSearch ? pendingSearch : null;
+  const busy = isPending && activePendingSearch !== null;
+
+  useEffect(() => {
+    if (activePendingSearch === null) return undefined;
+    const timeout = window.setTimeout(() => {
+      setPendingSearch(null);
+    }, 10000);
+    return () => window.clearTimeout(timeout);
+  }, [activePendingSearch]);
 
   function push(next: URLSearchParams) {
     next.delete(pageParam);
     const qs = next.toString();
     setDraftSearch(null);
     setOptimisticSearch({ from: current, search: qs });
+    setPendingSearch(qs);
     startTransition(() => {
       router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
     });
@@ -272,7 +287,7 @@ export function WorklistFilters({
       aria-label={copy(pageContract, "filter.bar_aria")}
       // Announced on the BAR, which is what the reader just acted on. The held-back rows below carry
       // it too, so a screen reader hears "busy" whichever region it is in.
-      aria-busy={isPending || undefined}
+      aria-busy={busy || undefined}
     >
       {fields.map((field) => {
         const effectiveField =
@@ -331,7 +346,7 @@ export function WorklistFilters({
               max={effectiveField.max}
               aria-label={effectiveField.label}
               disabled={Boolean(effectiveField.disabledReason)}
-              title={effectiveField.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
+              title={effectiveField.disabledReason || (busy ? copy(pageContract, "state.loading") : undefined)}
               style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
               onChange={(event) => applyFilter(effectiveField.param, event.target.value)}
             />
@@ -346,7 +361,7 @@ export function WorklistFilters({
               title={
                 effectiveField.disabledReason ||
                 effectiveField.note ||
-                (isPending ? copy(pageContract, "state.loading") : undefined)
+                (busy ? copy(pageContract, "state.loading") : undefined)
               }
               style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
               onChange={(event) =>
@@ -378,9 +393,9 @@ export function WorklistFilters({
         <button
           type="button"
           className="btn sm p"
-          disabled={!staged || isPending}
-          aria-disabled={!staged || isPending}
-          style={staged && !isPending ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
+          disabled={!staged || busy}
+          aria-disabled={!staged || busy}
+          style={staged && !busy ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
           onClick={applyStaged}
         >
           {applyLabel}
@@ -389,7 +404,7 @@ export function WorklistFilters({
       {/* The busy affordance, at the end of the bar so it appears beside the control that was just
           pressed rather than somewhere the reader has to go looking. The word is the contract's, and
           it is what a screen reader gets — the ring itself is decorative. */}
-      {isPending ? (
+      {busy ? (
         <span
           style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
           className="muted"
@@ -401,7 +416,7 @@ export function WorklistFilters({
       ) : null}
     </div>
     {children === undefined ? null : (
-      <div className={isPending ? "wfbusy" : undefined} aria-busy={isPending || undefined}>
+      <div className={busy ? "wfbusy" : undefined} aria-busy={busy || undefined}>
         {children}
       </div>
     )}
