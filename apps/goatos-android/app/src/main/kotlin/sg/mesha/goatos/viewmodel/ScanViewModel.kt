@@ -715,7 +715,10 @@ class ScanViewModel @Inject constructor(
                 fieldKey = ROSTER_SCAN_FIELD_KEY,
                 tag = capturedTag,
                 goatId = row.goatId,
-                obligationId = row.obligationId,
+                // One animal proof/video satisfies every vaccine obligation due for that animal
+                // in this task. Binding the capture to one obligation made BT+SP behave like two
+                // separate scans/videos for the same goat.
+                obligationId = null,
                 obligationRowVersion = row.obligationRowVersion,
                 capturedAtMs = capturedAtMs,
                 partitionLabel = partitionLabel,
@@ -854,7 +857,8 @@ class ScanViewModel @Inject constructor(
                 obligation to scan.capturedAtMs
             }
             .toMap()
-        val rosterRows = rows.map {
+        val animalRows = rows.collapseByGoat()
+        val rosterRows = animalRows.map {
             it.toRosterRow(
                 localDone = localDone,
                 goatProofsBySubject = goatProofsBySubject,
@@ -883,6 +887,28 @@ class ScanViewModel @Inject constructor(
             captureAccessRequired = operatorAllowed && total > 0,
             hasMore = hasMore,
         )
+    }
+
+    private fun List<ScanRosterRowEntity>.collapseByGoat(): List<ScanRosterRowEntity> =
+        groupBy { it.goatId.ifBlank { it.id } }
+            .values
+            .map { sameGoat ->
+                val best = sameGoat.sortedWith(
+                    compareBy<ScanRosterRowEntity> { statusPriority(it.status) }
+                        .thenBy { it.seq }
+                ).first()
+                val labels = sameGoat
+                    .map { it.vaccineLabel.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                best.copy(vaccineLabel = labels.joinToString(" + ").ifBlank { best.vaccineLabel })
+            }
+            .sortedBy { it.seq }
+
+    private fun statusPriority(raw: String): Int = when (statusOf(raw)) {
+        ScanStatus.PENDING -> 0
+        ScanStatus.DONE -> 1
+        ScanStatus.SKIPPED -> 2
     }
 
     /** Maps one SSOT row to a [RosterRow], overlaying the session's local (unsynced) DONE edits and

@@ -150,8 +150,8 @@ interface ScanRosterRowDao {
     @Query("SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey ORDER BY seq ASC, id ASC LIMIT :limit")
     fun observeRowsWindow(scopeKey: String, limit: Int): Flow<List<ScanRosterRowEntity>>
 
-    /** Full-roster row count for this scope — drives `hasMore` (window < total) without loading rows. */
-    @Query("SELECT COUNT(*) FROM scan_roster_row WHERE scopeKey = :scopeKey")
+    /** Full-roster animal count for this scope — one animal may carry several vaccine obligations. */
+    @Query("SELECT COUNT(DISTINCT goatId) FROM scan_roster_row WHERE scopeKey = :scopeKey")
     fun observeScopeTotal(scopeKey: String): Flow<Int>
 
     /** Distinct goat ids of every DONE/completed animal in the FULL roster (backend-persisted status).
@@ -184,13 +184,19 @@ interface ScanRosterRowDao {
 
     /** Count rows by status for a shed. Used to derive total/done/pending counts without reloading
      *  the entire JSON blob. (R50-008: aggregates independent of loaded page size). */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    @Query(
+        "SELECT status, COUNT(DISTINCT goatId) as count FROM scan_roster_row " +
+            "WHERE scopeKey = :scopeKey GROUP BY status"
+    )
     suspend fun countByStatus(scopeKey: String): List<StatusCount>
 
     /** R50-008: Observable status aggregates for a shed — a bounded GROUP BY (max a handful of
      *  status rows), re-emitted whenever the roster rows change, so ring/tile counters stay
      *  page-independent. */
-    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE scopeKey = :scopeKey GROUP BY status")
+    @Query(
+        "SELECT status, COUNT(DISTINCT goatId) as count FROM scan_roster_row " +
+            "WHERE scopeKey = :scopeKey GROUP BY status"
+    )
     fun observeCountsByStatus(scopeKey: String): Flow<List<StatusCount>>
 
     /** R50-008: Status aggregates for a bounded id set (the session's local unsynced DONE overlay,

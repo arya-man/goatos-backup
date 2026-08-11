@@ -158,6 +158,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
 		var sourceShedName, obligationID, sopTaskID, sopVersionID, completionID pgtype.Text
+		var vaccineLabels []string
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
@@ -176,6 +177,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&batchID,
 			&p.ProtocolName,
 			&p.DoseCode,
+			&vaccineLabels,
 			&dueAt,
 			&obligationCount,
 			&scheduledCount,
@@ -214,6 +216,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
 		}
 		p.BatchID = textPtr(batchID)
+		p.VaccineLabels = vaccineLabels
 		p.SourceShedName = textPtr(sourceShedName)
 		p.DueAt = timePtr(dueAt)
 		p.ObligationCount = int(obligationCount)
@@ -1247,6 +1250,7 @@ raw AS (
     c.effective_status AS completion_status,
     c.completion_id,
     sc.capture_id IS NOT NULL AS scanned,
+    goat_proof.proofed_at IS NOT NULL AS proofed,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -1376,6 +1380,19 @@ raw AS (
     ORDER BY scan.captured_at DESC, scan.capture_id DESC
     LIMIT 1
   ) sc ON st.task_id IS NOT NULL
+  LEFT JOIN LATERAL (
+    SELECT proof.created_at AS proofed_at
+    FROM proof_artifacts proof
+    WHERE proof.tenant_id = oi.tenant_id
+      AND proof.task_id = st.task_id
+      AND proof.subject_type = 'goat'
+      AND proof.subject_id = oi.target_id
+      AND proof.upload_state = 'completed'
+      AND proof.proof_type = 'video'
+      AND proof.created_at <= $7::timestamptz
+    ORDER BY proof.created_at DESC, proof.proof_id DESC
+    LIMIT 1
+  ) goat_proof ON st.task_id IS NOT NULL AND oi.target_type = 'goat'
   LEFT JOIN asof_terminal te
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
@@ -1451,8 +1468,8 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'rejected') AS has_rejected_completion,
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
-    BOOL_OR(located.scanned) AS has_scan,
-    BOOL_OR(located.shed_proof_submitted) AS has_shed_proof
+    BOOL_OR(located.scanned OR located.proofed) AS has_scan,
+    BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
   FROM located
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
@@ -1496,6 +1513,7 @@ grouped AS (
     (ARRAY_AGG(located.rule_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.rule_id DESC))[1] AS rule_id,
     (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
     (ARRAY_AGG(located.dose_code ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.dose_code ASC))[1] AS dose_code,
+    ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code) FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_labels,
     MIN(located.execution_due_at) AS due_at,
     MAX(animal_counts.obligation_count) AS obligation_count,
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
@@ -1752,6 +1770,7 @@ SELECT
   grouped.batch_id::text AS batch_id,
   grouped.protocol_name,
   grouped.dose_code,
+  COALESCE(grouped.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
   grouped.due_at,
   grouped.obligation_count,
   grouped.scheduled_count,
@@ -2369,7 +2388,7 @@ SELECT
     -- read reported every animal as 'due' -- the four that were accepted looked identical to the
     -- one that was sent back.
     WHEN vc.completion_status = 'recorded' THEN 'done'
-    WHEN sc.capture_id IS NOT NULL THEN 'done'
+    WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'
     WHEN oi.status = 'due' OR (COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
     WHEN oi.status = 'completed' THEN 'completed'
@@ -2378,7 +2397,7 @@ SELECT
   END AS status,
   -- NULL for a sent-back animal: it must present as not-yet-scanned so the row carries no
   -- "Proof synced" tick and the client's own done/pending split puts it back in pending.
-  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, vcm.administered_at) END AS scanned_at,
+  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at) END AS scanned_at,
   oi.obligation_id::text,
   oi.row_version
 FROM obligation_instances oi
@@ -2456,6 +2475,18 @@ LEFT JOIN LATERAL (
   ORDER BY c.captured_at DESC, c.capture_id DESC
   LIMIT 1
 ) sc ON $3 <> ''
+LEFT JOIN LATERAL (
+  SELECT proof.created_at AS proofed_at
+  FROM proof_artifacts proof
+  WHERE proof.tenant_id = oi.tenant_id
+    AND proof.task_id = st.task_id
+    AND proof.subject_type = 'goat'
+    AND proof.subject_id = g.goat_id
+    AND proof.upload_state = 'completed'
+    AND proof.proof_type = 'video'
+  ORDER BY proof.created_at DESC, proof.proof_id DESC
+  LIMIT 1
+) goat_proof ON st.task_id IS NOT NULL
 -- This animal's own latest verdict, keyed on its obligation so one goat's rejection can never
 -- be read onto another's row. Collapsed through LIMIT 1 exactly like the scan-capture lateral
 -- above, so a re-capture cannot duplicate the roster row.

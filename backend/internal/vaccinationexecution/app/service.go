@@ -440,6 +440,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		ReviewCount:        p.CompletionRecorded,
 		DriveID:            p.BatchID,
 		DriveName:          driveName(p),
+		VaccineLabels:      vaccineLabels(p),
 		DueDate:            dueDate(p),
 		WorkState:          workState,
 		Severity:           severity(workState),
@@ -637,6 +638,28 @@ func driveName(p domain.ExecutionProjection) *string {
 		return nil
 	}
 	return &name
+}
+
+func vaccineLabels(p domain.ExecutionProjection) []string {
+	seen := make(map[string]struct{}, len(p.VaccineLabels)+1)
+	labels := make([]string, 0, len(p.VaccineLabels)+1)
+	for _, code := range p.VaccineLabels {
+		label := domain.VaccinationDoseDisplayLabel(p.ProtocolName, code)
+		if label == "" {
+			continue
+		}
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		labels = append(labels, label)
+	}
+	if len(labels) == 0 {
+		if label := driveName(p); label != nil {
+			labels = append(labels, *label)
+		}
+	}
+	return labels
 }
 
 func dueDate(p domain.ExecutionProjection) *string {

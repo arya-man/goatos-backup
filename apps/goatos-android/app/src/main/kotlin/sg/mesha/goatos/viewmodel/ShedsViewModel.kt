@@ -429,19 +429,24 @@ class ShedsViewModel @Inject constructor(
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusForRows(group)
-            val counts = executionCounts(group)
-            val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
-                .filterKeys { it.isNotBlank() }
+            val counts = executionCardCounts(group)
+            val vaccineGroups = group.flatMap { row ->
+                row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
+                    .map { humanizeVaccineLabel(it) }
+                    .filter { it.isNotBlank() }
+                    .map { label -> label to row }
+            }
+                .groupBy({ it.first }, { it.second })
                 .map { (label, driveRows) ->
-                    val driveCounts = executionCounts(driveRows)
-                    val driveDone = effectiveDoneCount(driveRows)
+                    val driveCounts = executionCardCounts(driveRows)
+                    val driveDone = effectiveCardDoneCount(driveRows)
                     VaccineGroup(
                         label = label,
                         countLabel = "$driveDone/${driveCounts.target}",
                         full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
                     )
                 }
-            val effectiveDone = effectiveDoneCount(group)
+            val effectiveDone = effectiveCardDoneCount(group)
             ShedRow(
                 id = cardId,
                 // The shed CARD TITLE. It must carry the backend-composed operational location,
@@ -470,7 +475,7 @@ class ShedsViewModel @Inject constructor(
                 done = effectiveDone.toString(),
                 // Verifier-side count, kept separate from `done` (see effectiveDoneCount's
                 // doc) so a card never reads "5 DONE" while only 2 have actually cleared review.
-                accepted = group.sumOf { it.acceptedAnimalCount() }.toString(),
+                accepted = group.maxOfOrNull { it.acceptedAnimalCount() }?.coerceAtLeast(0).orZero().toString(),
                 progressLabel = percentLabel(effectiveDone, counts.target),
                 progressFraction = redoAwareFraction(
                     effectiveDone,
@@ -690,6 +695,9 @@ internal fun VaccinationExecutionRowDto.needsRedo(): Boolean {
 internal fun effectiveDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
     rows.sumOf { row -> row.doneCount.coerceAtLeast(0) }
 
+private fun effectiveCardDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
+    rows.maxOfOrNull { row -> row.doneCount.coerceAtLeast(0) }.orZero()
+
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
 internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
@@ -698,6 +706,15 @@ internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionC
         open = rows.sumOf { it.openCount.coerceAtLeast(0) },
         done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
     )
+
+private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
+    ExecutionCounts(
+        target = rows.maxOfOrNull { it.targetCount.coerceAtLeast(0) }.orZero(),
+        open = rows.maxOfOrNull { it.openCount.coerceAtLeast(0) }.orZero(),
+        done = rows.maxOfOrNull { it.doneCount.coerceAtLeast(0) }.orZero(),
+    )
+
+private fun Int?.orZero(): Int = this ?: 0
 
 internal fun adherenceWindowRows(
     rows: List<VaccinationExecutionRowDto>,
