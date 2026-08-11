@@ -734,10 +734,9 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 						SELECT sp.operational_location_id
 						FROM shed_partitions sp
 						JOIN locations pen ON pen.tenant_id = sp.tenant_id
-						 AND pen.location_id = sp.operational_location_id
-						 AND pen.location_type = 'pen'
-						 AND pen.parent_location_id = sp.shed_id
-						 AND pen.status = 'active'
+							 AND pen.location_id = sp.operational_location_id
+							 AND pen.location_type = 'shed'
+							 AND pen.status = 'active'
 						WHERE sp.tenant_id=$2
 						  AND sp.shed_id=$12
 						  AND sp.status='active'
@@ -753,10 +752,9 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 						SELECT sp.operational_location_id
 						FROM shed_partitions sp
 						JOIN locations pen ON pen.tenant_id = sp.tenant_id
-						 AND pen.location_id = sp.operational_location_id
-						 AND pen.location_type = 'pen'
-						 AND pen.parent_location_id = sp.shed_id
-						 AND pen.status = 'active'
+							 AND pen.location_id = sp.operational_location_id
+							 AND pen.location_type = 'shed'
+							 AND pen.status = 'active'
 						WHERE sp.tenant_id=$2
 						  AND sp.shed_id=$12
 						  AND sp.status='active'
@@ -2778,9 +2776,10 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN shed_partitions sp
   ON sp.tenant_id = g.tenant_id
- AND sp.shed_id = g.shed_id
+ AND sp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
  AND sp.status = 'active'
  AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
 WHERE g.tenant_id = $1::uuid
@@ -2801,9 +2800,9 @@ WHERE g.tenant_id = $1::uuid
     OR (
       sp.operational_location_id IS NOT NULL
       AND NOT (
-        current_loc.location_type = 'pen'
+        current_loc.location_type = 'shed'
         AND current_loc.status = 'active'
-        AND current_loc.parent_location_id = g.shed_id
+        AND current_loc.location_id = g.shed_id
       )
     )
     OR park.location_type <> 'park'
@@ -3316,7 +3315,7 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 					FROM locations child
 					WHERE child.tenant_id = s.tenant_id
 					  AND child.parent_location_id = s.location_id
-					  AND child.location_type = 'pen'
+						  AND child.location_type = 'shed'
 					  AND child.status = 'active'
 				)
 				AND NOT EXISTS (

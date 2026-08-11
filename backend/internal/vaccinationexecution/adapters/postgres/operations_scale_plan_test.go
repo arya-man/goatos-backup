@@ -53,10 +53,10 @@ func TestVaccinationOperationsAggregateQueryPlanUsesIndexesAtScale(t *testing.T)
 	dueBefore := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 
 	// $1 tenant, $2 asOf, $3 dueBefore, $4 park, $5 shed, $6 cursorPark, $7 cursorShed, $8 cursorStage,
-	// $9 limit, $10 cursorParkName, $11 cursorShedName. No SET enable_seqscan = off: at ~500k rows a
+	// $9 limit, $10 cursorParkName, $11 cursorShedName, $12 cursorPartitionLabel. No SET enable_seqscan = off: at ~500k rows a
 	// genuinely index-bound aggregate must be the planner's own choice, not a forced one.
 	res := explainAnalyzeJSON(t, ctx, tx, vaccinationOperationsSQL,
-		testTenant, asOf, dueBefore, "", "", "", "", "", 21, "", "")
+		testTenant, asOf, dueBefore, "", "", "", "", "", 21, "", "", "")
 
 	// obligationRowCeiling: the driving obligation_instances scan must touch only the bounded due window
 	// (~1.4k rows here), NEVER the whole ~500k table; 50k is a huge margin over the window yet an order of

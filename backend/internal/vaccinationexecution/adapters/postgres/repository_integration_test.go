@@ -822,6 +822,12 @@ func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutio
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "clear seed completion for execution override",
+		`DELETE FROM vaccination_completions WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "reset seed obligation to scheduled for execution override",
+		`UPDATE obligation_instances SET status='scheduled' WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		testTenant, testObl)
 
 	execProjectionSQL(t, ctx, pool, "ettt dimensions for execution override",
 		`INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code)
@@ -839,7 +845,7 @@ func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutio
 		t.Helper()
 		rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 			TenantID:  testTenant,
-			AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			AsOf:      time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC),
 			DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			Limit:     10,
 		})
@@ -866,14 +872,14 @@ func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutio
 
 	assertExecutionBusinessDate("no override keeps raw assignment date", "2026-06-24")
 	execProjectionSQL(t, ctx, pool, "unrelated vaccine override ignored",
-		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
 		testTenant, testPark, testOperator)
 	assertExecutionBusinessDate("different vaccine override ignored", "2026-06-24")
 
 	execProjectionSQL(t, ctx, pool, "matching vaccine override moves execution date",
-		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', 'move ET_TT execution', $3)`,
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', DATE '2026-06-30', 'move ET_TT execution', $3)`,
 		testTenant, testPark, testOperator)
 	assertExecutionBusinessDate("active matching override moves execution date", "2026-06-30")
 
@@ -1160,6 +1166,8 @@ func TestScanRosterOperatorScopeRespectsShedPartitions(t *testing.T) {
 	const (
 		secondGoat = "70000000-0000-4000-8000-000000000191"
 		secondObl  = "70000000-0000-4000-8000-000000000192"
+		part1Shed  = "70000000-0000-4000-8000-000000000194"
+		part2Shed  = "70000000-0000-4000-8000-000000000195"
 	)
 	otherOperator := "70000000-0000-4000-8000-000000000193"
 	execProjectionSQL(t, ctx, pool, "partition roster task", `
@@ -1172,10 +1180,27 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
 	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-roster-partition-second")
 	execProjectionSQL(t, ctx, pool, "link second partition roster obligation", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, secondObl)
+	execProjectionSQL(t, ctx, pool, "exact partition sheds",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'K1-PART-1', 'K1 Shed - Part 1', $4::uuid, 'active'),
+		        ($3::uuid, $2::uuid, 'shed', 'K1-PART-2', 'K1 Shed - Part 2', $4::uuid, 'active')`,
+		part1Shed, testTenant, part2Shed, testPark)
+	execProjectionSQL(t, ctx, pool, "place roster goats in exact partition sheds",
+		`UPDATE goats
+		    SET shed_group_id = $3::uuid,
+		        shed_id = CASE goat_id WHEN $1::uuid THEN $4::uuid ELSE $5::uuid END,
+		        current_location_id = CASE goat_id WHEN $1::uuid THEN $4::uuid ELSE $5::uuid END
+		  WHERE tenant_id = $2::uuid AND goat_id IN ($1::uuid, $6::uuid)`,
+		testGoat, testTenant, testShed, part1Shed, part2Shed, secondGoat)
+	execProjectionSQL(t, ctx, pool, "move roster obligations to exact partition sheds",
+		`UPDATE obligation_instances
+		    SET scope_id = CASE obligation_id WHEN $1::uuid THEN $4::uuid ELSE $5::uuid END
+		  WHERE tenant_id = $2::uuid AND obligation_id IN ($1::uuid, $3::uuid)`,
+		testObl, testTenant, secondObl, part1Shed, part2Shed)
 	execProjectionSQL(t, ctx, pool, "other roster partition operator",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'OP-ROSTER-PART-B', 'Operator B', 'active', 'operator', $3)`,
-		otherOperator, testTenant, testShed)
+		otherOperator, testTenant, part2Shed)
 	execProjectionSQL(t, ctx, pool, "first roster goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 		 VALUES ($1, $2, $3, 'Part 1', 'K1 Shed - Part 1')`,
@@ -1185,22 +1210,23 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed - Part 2')`,
 		testTenant, secondGoat, testShed)
 	execProjectionSQL(t, ctx, pool, "partition roster catalog",
-		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-		 VALUES ($1, $2, 'Part 1', '1', 'active', 'manual'), ($1, $2, 'Part 2', '2', 'active', 'manual')
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+		 VALUES ($1, $2, 'Part 1', '1', 'active', 'manual', $3::uuid),
+		        ($1, $2, 'Part 2', '2', 'active', 'manual', $4::uuid)
 		 ON CONFLICT DO NOTHING`,
-		testTenant, testShed)
+		testTenant, testShed, part1Shed, part2Shed)
 	execProjectionSQL(t, ctx, pool, "operator a roster partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 1', 1)`,
-		testTenant, testBatch, testOperator, testPark, testShed)
+		testTenant, testBatch, testOperator, testPark, part1Shed)
 	execProjectionSQL(t, ctx, pool, "operator b roster partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
-		testTenant, testBatch, otherOperator, testPark, testShed)
+		testTenant, testBatch, otherOperator, testPark, part2Shed)
 	execProjectionSQL(t, ctx, pool, "operator a second roster partition assignment",
 		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
 		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
-		testTenant, testBatch, testOperator, testPark, testShed)
+		testTenant, testBatch, testOperator, testPark, part2Shed)
 
 	repo := NewRepository(pool, 5*time.Second)
 	operatorA, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
@@ -1210,8 +1236,14 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 	if len(operatorA.Rows) != 0 {
 		t.Fatalf("operator A blank partition rows=%#v, want none", operatorA.Rows)
 	}
+	execProjectionSQL(t, ctx, pool, "scope roster task to exact part 2 shed",
+		`UPDATE sop_tasks SET scope_id=$1::uuid WHERE tenant_id=$2::uuid AND task_id=$3::uuid`,
+		part2Shed, testTenant, testTask)
+	execProjectionSQL(t, ctx, pool, "scope roster batch to exact part 2 shed",
+		`UPDATE obligation_batches SET scope_id=$1::uuid WHERE tenant_id=$2::uuid AND batch_id=$3::uuid`,
+		part2Shed, testTenant, testBatch)
 
-	operatorAPart2, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "2", TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
+	operatorAPart2, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: part2Shed, TaskID: testTask, OperatorScopeActorID: testOperator, Limit: 20})
 	if err != nil {
 		t.Fatalf("ScanRoster(operator A, Part 2): %v", err)
 	}
@@ -1219,7 +1251,7 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 		t.Fatalf("operator A Part 2 roster rows=%#v, want only Part 2 goat", operatorAPart2.Rows)
 	}
 
-	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, PartitionLabel: "Part 2", TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
+	operatorB, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: part2Shed, TaskID: testTask, OperatorScopeActorID: otherOperator, Limit: 20})
 	if err != nil {
 		t.Fatalf("ScanRoster(operator B, Part 2): %v", err)
 	}
@@ -2089,6 +2121,7 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		501,
 		"", // cursor park name
 		"", // cursor shed name
+		"", // cursor partition label
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination operations query: %v", err)

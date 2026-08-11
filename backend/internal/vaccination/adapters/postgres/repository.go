@@ -2411,7 +2411,6 @@ JOIN goats g
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
- AND shed.location_type = 'shed'
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
@@ -2978,6 +2977,7 @@ LEFT JOIN animal_stage_lookup asl
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
@@ -3296,7 +3296,6 @@ LEFT JOIN animal_stage_lookup asl
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
- AND shed.location_type = 'shed'
 LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
@@ -3304,6 +3303,7 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($3::text = '' OR lower(COALESCE(asl.stage_code, g.management_stage, '')) = lower($3::text))
@@ -3534,10 +3534,9 @@ func (r *Repository) HasTrustedCompletionEvidenceBatch(ctx context.Context, tena
 	  LEFT JOIN locations current_loc
 	    ON current_loc.tenant_id = g.tenant_id
 	   AND current_loc.location_id = COALESCE(g.current_location_id, g.shed_id, g.park_id)
-	  LEFT JOIN locations shed
-	    ON shed.tenant_id = g.tenant_id
-	   AND shed.location_id = g.shed_id
-	   AND shed.location_type = 'shed'
+		  LEFT JOIN locations shed
+		    ON shed.tenant_id = g.tenant_id
+		   AND shed.location_id = g.shed_id
 	  LEFT JOIN locations park
 	    ON park.tenant_id = g.tenant_id
 	   AND park.location_id = g.park_id

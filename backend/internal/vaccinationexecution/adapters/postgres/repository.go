@@ -604,11 +604,12 @@ LEFT JOIN LATERAL (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = effective.shed_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   WHERE oi.tenant_id = $1::uuid
     AND oi.batch_id = effective.batch_id
     AND oi.target_type = 'goat'
-    AND g.shed_id = effective.shed_id
+    AND COALESCE(g.shed_group_id, g.shed_id) = effective.shed_id
     AND (
       effective.partition_label = 'whole'
       OR regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')
@@ -1056,10 +1057,9 @@ JOIN locations park
   ON park.tenant_id = $1::uuid
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
-LEFT JOIN locations shed
-  ON shed.tenant_id = $1::uuid
- AND shed.location_id = g.shed_id
- AND shed.location_type = 'shed'
+	LEFT JOIN locations shed
+	  ON shed.tenant_id = $1::uuid
+	 AND shed.location_id = g.shed_id
 LEFT JOIN goat_identifiers aid1
   ON aid1.tenant_id = g.tenant_id
  AND aid1.goat_id = g.goat_id
@@ -1288,6 +1288,7 @@ raw AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
    AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
@@ -2069,12 +2070,13 @@ raw AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
   LEFT JOIN drive_assignment_dates vda
     ON vda.batch_id = oi.batch_id
-   AND vda.shed_id = g.shed_id
+       AND vda.shed_id = g.shed_id
    AND (
      vda.partition_key = 'whole'
      OR vda.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -4531,7 +4533,7 @@ FROM per_animal pa
 JOIN goats g ON g.goat_id = pa.target_id AND g.tenant_id = $1::uuid
 LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
 LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 -- The animal's REAL identity is its physical tag(s), and an animal may carry two. Same
 -- canonical source and types the shed roster and calendar drawer read, so one animal reads
 -- identically on every surface.
@@ -5362,7 +5364,7 @@ JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 LEFT JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE oi.tenant_id = $1::uuid
   AND oi.scope_type = 'shed'
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')

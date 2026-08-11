@@ -40,7 +40,7 @@ Castro 1 to Castro 2" without a partition field.
   animal it points at the partition operational location; for an undivided shed
   it points at the shed itself.
 - `goats.shed_id` is also the exact real shed/partition residence. For a
-  partitioned animal this is the partition pen id; for an undivided shed this is
+  partitioned animal this is the partition shed id; for an undivided shed this is
   the shed id.
 - `goats.shed_group_id` is the parent/group shed id when partitions exist and
   NULL for undivided sheds.

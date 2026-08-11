@@ -406,7 +406,6 @@ LEFT JOIN animal_stage_lookup asl
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
- AND shed.location_type = 'shed'
 LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
@@ -414,6 +413,7 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
 `
 
@@ -582,7 +582,6 @@ LEFT JOIN animal_stage_lookup asl
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
- AND shed.location_type = 'shed'
 LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
@@ -590,6 +589,7 @@ LEFT JOIN locations park
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)
