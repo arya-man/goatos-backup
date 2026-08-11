@@ -214,23 +214,12 @@ data class FeedDirectionPreviewPageDto(
 // READ — GET /feed-packing/worklist
 // ---------------------------------------------------------------------------
 
-/** One session's share of a pen's packing day — a breakdown line, never a work item of its own. */
-@Serializable
-data class FeedPackingSessionDto(
-    @SerialName("session_no") val sessionNo: Int = 0,
-    @SerialName("session_label") val sessionLabel: String = "",
-    @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
-    @SerialName("total_kg") val totalKg: String = "",
-    @SerialName("status") val status: String = "",
-    @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
-)
-
 /**
- * One PEN-DAY packing line — the bag a packer fills and films.
+ * One PEN-SESSION packing line — the bag a packer fills and films.
  *
- * The session left this row's identity on 2026-08-10 (maintainer decision): a packer packs a pen's
- * whole day in one go, so showing the pen twice asked for the same video twice. The sessions are now
- * the [sessions] breakdown inside one card, backed by ONE video.
+ * The session is part of this row's identity (maintainer decision 2026-08-11, reverting the
+ * 2026-08-10 pen-day card). A pen's morning and evening shares are two separate bags: two cards, two
+ * videos, two verification items. One clip cannot prove two bags.
  */
 @Serializable
 data class FeedPackingRowDto(
@@ -244,12 +233,15 @@ data class FeedPackingRowDto(
     @SerialName("partition_label") val partitionLabel: String? = null,
     // Backend-composed shed+pen label; render verbatim rather than re-joining the two halves.
     @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("session_no") val sessionNo: Int = 0,
+    @SerialName("session_label") val sessionLabel: String = "",
     @SerialName("workflow") val workflow: String = "",
     @SerialName("experiment_arm") val experimentArm: String = "",
-    // The pen's animals, counted ONCE for the day — never multiplied by the number of sessions.
+    // The pen's animals — the DENOMINATOR this session's ration was computed from, not a quantity.
+    // The same figure repeats on the pen's other session; never sum it across them.
     @SerialName("head_count") val headCount: Long = 0,
-    @SerialName("sessions") val sessions: List<FeedPackingSessionDto> = emptyList(),
-    // The whole DAY's total, summed from the already-rounded session totals.
+    @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
+    // This session's total.
     @SerialName("total_kg") val totalKg: String = "",
     @SerialName("status") val status: String = "",
     // Orthogonal to [status]: a completed line was still ready/blocked/empty underneath. Backend-owned.
@@ -257,21 +249,23 @@ data class FeedPackingRowDto(
     // Verification-lifecycle bucket: pending | pending_verification | completed. Orthogonal to [status]
     // (the ration state). Backend-owned; empty defaults to pending.
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
-    // Why this pen came back to the packer, present only while it is in rework — which surfaces as
+    // Why this line came back to the packer, present only while it is in rework — which surfaces as
     // lifecycleStatus "pending", so the STATUS ALONE CANNOT SAY WHY. Two different things land there:
     // a verifier rejected the video, or the afternoon feed correction changed how many animals the
-    // pen feeds and the recorded video no longer proves the right quantity. Backend-composed farm
-    // copy; render verbatim and never compose a local sentence from the status.
+    // pen feeds and the recorded video no longer proves the right quantity. A correction reopens BOTH
+    // of a pen's sessions, so expect it on each of the pen's cards. Backend-composed farm copy;
+    // render verbatim and never compose a local sentence from the status.
     @SerialName("rework_reason") val reworkReason: String = "",
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String
-        // The PEN-DAY identity, matching the completion's natural key. sessionNo left this key with
-        // the merge; the PARTITION did not and must not. The key was once shedId|workflow|sessionNo,
-        // so every partition of a shed collapsed into a single bag line -- one bag per OPERATIONAL
-        // LOCATION is the whole point, since Castro 1 and Castro 2 are packed separately and can
-        // carry very different quantities.
-        get() = listOf(shedId, partitionLabel.orEmpty(), workflow).joinToString("|")
+        // The PEN-SESSION identity, matching the completion's natural key. Both the PARTITION and the
+        // SESSION are load-bearing and were each lost once: the key was shedId|workflow|sessionNo, so
+        // every partition of a shed collapsed into one bag line (Castro 1 and Castro 2 are packed
+        // separately and can carry very different quantities), and it was
+        // shedId|partition|workflow between 2026-08-10 and 2026-08-11, which collapsed a pen's
+        // morning and evening into one card.
+        get() = listOf(shedId, partitionLabel.orEmpty(), workflow, sessionNo.toString()).joinToString("|")
 
     companion object {
         const val STATUS_READY = "ready"
@@ -453,8 +447,10 @@ data class FeedPackingCompleteRequestDto(
     /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
      *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
     @SerialName("partition_label") val partitionLabel: String? = null,
-    /** No `session_no`: ONE video covers the pen's whole day (maintainer decision 2026-08-10), and
-     *  the route rejects the field outright rather than accepting and ignoring it. */
+    /** The feeding session packed and filmed. REQUIRED and part of the completion's IDENTITY
+     *  (maintainer decision 2026-08-11): one video proves one session's bag, and the route rejects a
+     *  missing or zero value rather than guessing which bag it covers. */
+    @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
     @SerialName("packing_proof_ref") val packingProofRef: String,

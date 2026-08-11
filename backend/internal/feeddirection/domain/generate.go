@@ -408,44 +408,33 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 	//
 	// partitionKey, not the raw label, so an authoring variant ("Part 3" vs "part 3") cannot split
 	// one pen into two bags -- the same normalization the experiment config and the projection use.
-	// The PEN-DAY is the line; the session is a breakdown INSIDE it (maintainer decision 2026-08-10).
-	// sessionNo was part of this key until then, which is what put a pen on the worklist twice and
-	// asked a packer for the same video twice.
+	//
+	// sessionNo is BACK in this key (maintainer decision 2026-08-11, reverting 2026-08-10). It was
+	// briefly removed to show a pen's whole day as one card; a pen's morning and evening shares are
+	// two separate bags, each packed and each filmed on its own, so they are two lines.
 	type lineKey struct {
 		shedID       string
 		partitionKey string
-	}
-	// sessionBucket accumulates ONE session's share of a pen. Kept separate per session so the
-	// authored split and its own rounding survive into the breakdown: folding the sessions together
-	// here and re-splitting later would round twice and disagree with the direction sheet.
-	type sessionBucket struct {
-		order   int
-		no      int32
-		label   string
-		grams   map[string]int64
-		blocked map[string]*BlockedReason
+		sessionNo    int32
 	}
 	type line struct {
-		order    int
-		row      PackingRow
-		sessions map[int32]*sessionBucket
-		// labels is pen-wide: a feed item authored in either session must appear in the catalog-order
-		// pass for BOTH, so an item present only in the evening is not dropped from the morning's
-		// ordering pass and silently re-emitted out of order in the extras tail.
-		labels map[string]string
-		// Head count is per PEN, counted once per ration grain. Tracked pen-wide rather than
-		// per-session: the same animals are fed morning and evening, so accumulating per session
-		// would report double the pen's population on a two-session park.
+		order   int
+		row     PackingRow
+		grams   map[string]int64
+		blocked map[string]*BlockedReason
+		labels  map[string]string
+		// Sheds counted once per grain would double-count head count across feed items; the head
+		// count is accumulated per ration grain instead, tracked by this set.
 		countedGrains map[string]bool
 	}
 
 	lines := map[lineKey]*line{}
 	order := 0
-	sessionOrder := 0
 	for _, row := range rows {
 		key := lineKey{
 			shedID:       row.ShedID,
 			partitionKey: PartitionMatchKey(row.PartitionLabel),
+			sessionNo:    row.SessionNo,
 		}
 		l, ok := lines[key]
 		if !ok {
@@ -457,35 +446,27 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 					ShedID:         row.ShedID,
 					ShedLabel:      row.ShedLabel,
 					PartitionLabel: row.PartitionLabel,
+					// Backend-composed so every surface renders the pen identically; admin-web fell
+					// through to a bare "Castro" for all three of Castro's pens while this was absent.
 					OperationalLocationDisplay: oploc.OperationalLocation{
 						ShedName:       row.ShedLabel,
 						PartitionLabel: row.PartitionLabel,
 					}.Display(),
-					Workflow: row.Workflow,
+					SessionNo:    row.SessionNo,
+					SessionLabel: row.SessionLabel,
+					Workflow:     row.Workflow,
 					// Safe to take from the first contributing row: the planner is selected per
 					// SHED, so every row of a line shares one workflow and therefore one arm
 					// (empty for normal).
 					ExperimentArm: row.ExperimentArm,
 				},
-				sessions:      map[int32]*sessionBucket{},
+				grams:         map[string]int64{},
+				blocked:       map[string]*BlockedReason{},
 				labels:        map[string]string{},
 				countedGrains: map[string]bool{},
 			}
 			lines[key] = l
 			order++
-		}
-
-		bucket, ok := l.sessions[row.SessionNo]
-		if !ok {
-			bucket = &sessionBucket{
-				order:   sessionOrder,
-				no:      row.SessionNo,
-				label:   row.SessionLabel,
-				grams:   map[string]int64{},
-				blocked: map[string]*BlockedReason{},
-			}
-			l.sessions[row.SessionNo] = bucket
-			sessionOrder++
 		}
 
 		grainKey := row.ShedTag + "\x1f" + row.Breed + "\x1f" + row.RationGroup
@@ -500,7 +481,7 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 			itemKey := NormalizeConfigKey(item.FeedItem)
 			l.labels[itemKey] = item.FeedItem
 			if item.Status == QuantityBlocked || item.QuantityKg == nil {
-				if _, exists := bucket.blocked[itemKey]; !exists {
+				if _, exists := l.blocked[itemKey]; !exists {
 					// P3-BLOCK: a blocked item with a nil BlockedReason is a PROGRAMMER ERROR, not a
 					// legitimate "no reason given" state -- every blocking call site in this package
 					// (normalItem, blockedRow, blockedSessionItemsRow, ...) sets one. Silently
@@ -514,12 +495,12 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 							item.FeedItem, row.ShedID, row.SessionNo))
 					}
 					reason := *item.BlockedReason
-					bucket.blocked[itemKey] = &reason
+					l.blocked[itemKey] = &reason
 				}
 				continue
 			}
 			if grams, ok := kgStringToGrams(*item.QuantityKg); ok {
-				bucket.grams[itemKey] += grams
+				l.grams[itemKey] += grams
 			}
 		}
 	}
@@ -530,19 +511,37 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 	}
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].order < ordered[j].order })
 
-	// The pen's feed-item ORDER is computed once, pen-wide, and reused for every session, so the
-	// morning and evening breakdowns list their items in the same order and the packer reads one
-	// column down the card. Catalog display order first, then any item the catalog does not carry,
-	// sorted for determinism.
-	orderedItemKeys := make([]string, 0)
-	orderedItemLabels := make([]string, 0)
-
 	out := make([]PackingRow, 0, len(ordered))
 	for _, l := range ordered {
 		row := l.row
+		var total int64
+		reasons := []BlockedReason{}
+		seenReason := map[string]bool{}
 
-		orderedItemKeys = orderedItemKeys[:0]
-		orderedItemLabels = orderedItemLabels[:0]
+		emit := func(itemKey, label string) {
+			if reason, blocked := l.blocked[itemKey]; blocked {
+				r := *reason
+				row.Items = append(row.Items, ItemQuantity{
+					FeedItem:      label,
+					Status:        QuantityBlocked,
+					BlockedReason: &r,
+				})
+				if !seenReason[r.Code+r.Detail] {
+					seenReason[r.Code+r.Detail] = true
+					reasons = append(reasons, r)
+				}
+				return
+			}
+			grams := l.grams[itemKey]
+			total += grams
+			kg := GramsToKgString(grams)
+			row.Items = append(row.Items, ItemQuantity{
+				FeedItem:   label,
+				Status:     QuantityResolved,
+				QuantityKg: &kg,
+			})
+		}
+
 		seen := map[string]bool{}
 		for _, item := range items {
 			key := NormalizeConfigKey(item.Label)
@@ -550,8 +549,7 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 				continue
 			}
 			seen[key] = true
-			orderedItemKeys = append(orderedItemKeys, key)
-			orderedItemLabels = append(orderedItemLabels, item.Label)
+			emit(key, item.Label)
 		}
 		extra := make([]string, 0)
 		for key := range l.labels {
@@ -561,92 +559,15 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 		}
 		sort.Strings(extra)
 		for _, key := range extra {
-			orderedItemKeys = append(orderedItemKeys, key)
-			orderedItemLabels = append(orderedItemLabels, l.labels[key])
+			emit(key, l.labels[key])
 		}
 
-		buckets := make([]*sessionBucket, 0, len(l.sessions))
-		for _, b := range l.sessions {
-			buckets = append(buckets, b)
-		}
-		// Authored session order -- session_no, which the generator already iterates in display
-		// order. Deliberately NOT first-seen order: the direction rows arrive grain by grain, so a
-		// pen whose evening grain happened to generate first would print Evening above Morning.
-		sort.Slice(buckets, func(i, j int) bool { return buckets[i].no < buckets[j].no })
-
-		var dayTotal int64
-		dayReasons := []BlockedReason{}
-		seenDayReason := map[string]bool{}
-		anyBlocked := false
-		allEmpty := true
-
-		for _, b := range buckets {
-			session := PackingSession{SessionNo: b.no, SessionLabel: b.label}
-			var sessionTotal int64
-			sessionReasons := []BlockedReason{}
-			seenSessionReason := map[string]bool{}
-
-			for i, itemKey := range orderedItemKeys {
-				label := orderedItemLabels[i]
-				if reason, blocked := b.blocked[itemKey]; blocked {
-					r := *reason
-					session.Items = append(session.Items, ItemQuantity{
-						FeedItem:      label,
-						Status:        QuantityBlocked,
-						BlockedReason: &r,
-					})
-					if !seenSessionReason[r.Code+r.Detail] {
-						seenSessionReason[r.Code+r.Detail] = true
-						sessionReasons = append(sessionReasons, r)
-					}
-					if !seenDayReason[r.Code+r.Detail] {
-						seenDayReason[r.Code+r.Detail] = true
-						dayReasons = append(dayReasons, r)
-					}
-					continue
-				}
-				// An item authored in the OTHER session only is absent from this bucket. It emits as
-				// a resolved zero rather than being skipped, so both sessions list the same items in
-				// the same order and "0.000" reads as "none of this, this session" -- which is a
-				// different statement from a blocked cell and must not be confused with one.
-				grams := b.grams[itemKey]
-				sessionTotal += grams
-				kg := GramsToKgString(grams)
-				session.Items = append(session.Items, ItemQuantity{
-					FeedItem:   label,
-					Status:     QuantityResolved,
-					QuantityKg: &kg,
-				})
-			}
-
-			session.TotalKg = GramsToKgString(sessionTotal)
-			switch {
-			case len(sessionReasons) > 0:
-				session.Status = PackingStatusBlocked
-				session.BlockedReasons = sessionReasons
-				anyBlocked = true
-				allEmpty = false
-			case row.HeadCount == 0 && sessionTotal == 0:
-				session.Status = PackingStatusEmpty
-			default:
-				session.Status = PackingStatusReady
-				allEmpty = false
-			}
-
-			dayTotal += sessionTotal
-			row.Sessions = append(row.Sessions, session)
-		}
-
-		// Summed from the already-rounded SESSION totals, which is what the sessions above print --
-		// re-rounding the day would disagree with the breakdown on the same card.
-		row.TotalKg = GramsToKgString(dayTotal)
+		row.TotalKg = GramsToKgString(total)
 		switch {
-		case anyBlocked:
-			// Blocked wins over empty: a real configuration gap must not be hidden because a sibling
-			// session happens to have nothing to feed.
+		case len(reasons) > 0:
 			row.Status = PackingStatusBlocked
-			row.BlockedReasons = dayReasons
-		case allEmpty:
+			row.BlockedReasons = reasons
+		case row.HeadCount == 0 && total == 0:
 			// Nothing to feed is NOT a configuration gap, and conflating the two would send an
 			// operator hunting for a missing rate that does not exist.
 			row.Status = PackingStatusEmpty
@@ -664,7 +585,7 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 // draw it reports is by construction the sum of the lines a packer works through. Re-deriving it
 // from the grains would be a second computation that could disagree with the printed worklist.
 //
-// projection-review: membership=every PackingRow the caller built for the filtered scope, which the service guarantees by building the worklist over the full shed scope before paging; group_key=NormalizeConfigKey(feed item label), the same normalization BuildPackingRows used to merge grains into each session's bag, so a session's cell and its contribution to the total share one bucket; join_cardinality=no joins -- a pure in-memory fold, and because BuildPackingRows already collapsed grains to one cell per (shed, partition, session, item) there is no fan-out for a pen's multiple grains to double-count; the fold ranges over row x session (the day's store draw is the sum of BOTH sessions, so iterating the row alone would under-report the draw by one session's worth); pagination=INVARIANT to limit/offset, the fold runs over the whole filtered scope and the page is sliced afterwards; scope=tenant + park + target_date, identical to the predicates that selected the lines
+// projection-review: membership=every PackingRow the caller built for the filtered scope, which the service guarantees by building the worklist over the full shed scope before paging; group_key=NormalizeConfigKey(feed item label), the same normalization BuildPackingRows used to merge grains into each line's bag, so a line's cell and its contribution to the total share one bucket; join_cardinality=no joins -- a pure in-memory fold, and because BuildPackingRows already collapsed grains to one cell per (shed, partition, session, item) there is no fan-out for a pen's multiple grains to double-count; the fold ranges over lines, and a pen's morning and evening are two SEPARATE lines, so the day's store draw is the sum of both without the fold having to descend into a nested breakdown; pagination=INVARIANT to limit/offset, the fold runs over the whole filtered scope and the page is sliced afterwards; scope=tenant + park + target_date, identical to the predicates that selected the lines
 func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 	summary := PackingSummary{
 		Scope:     SummaryScopeFiltered,
@@ -682,26 +603,24 @@ func SummarizePacking(lines []PackingRow, items []FeedItem) PackingSummary {
 		if line.Status == PackingStatusBlocked {
 			summary.BlockedLineCount++
 		}
-		// Over the day's SESSIONS, not the row: the store draw is what the packer physically carries
-		// out, which is the morning bag PLUS the evening bag. Folding a row-level day-sum instead
-		// would be a second computation of the same figure and could drift from the printed card.
-		// BlockedCount likewise stays a CELL count, so a feed item blocked in both sessions counts
-		// twice -- two cells a packer cannot fill, which is what the number means.
-		for _, session := range line.Sessions {
-			for _, item := range session.Items {
-				key := NormalizeConfigKey(item.FeedItem)
-				labels[key] = item.FeedItem
-				// Blocked stays unrepresentable as a number here, exactly as it is on the row: it is
-				// counted as a gap, never added as zero.
-				if item.Status == QuantityBlocked || item.QuantityKg == nil {
-					summary.BlockedCount++
-					blockedCells[key]++
-					blockedSheds[line.ShedID] = struct{}{}
-					continue
-				}
-				if grams, ok := kgStringToGrams(*item.QuantityKg); ok {
-					totals[key] += grams
-				}
+		// A pen's morning and evening are two separate LINES, so folding the lines already sums the
+		// day's store draw -- what the packer physically carries out is the morning bag PLUS the
+		// evening bag, and both are in this loop. BlockedCount is a CELL count, so a feed item
+		// blocked in both sessions counts twice: two cells a packer cannot fill, which is what the
+		// number means.
+		for _, item := range line.Items {
+			key := NormalizeConfigKey(item.FeedItem)
+			labels[key] = item.FeedItem
+			// Blocked stays unrepresentable as a number here, exactly as it is on the row: it is
+			// counted as a gap, never added as zero.
+			if item.Status == QuantityBlocked || item.QuantityKg == nil {
+				summary.BlockedCount++
+				blockedCells[key]++
+				blockedSheds[line.ShedID] = struct{}{}
+				continue
+			}
+			if grams, ok := kgStringToGrams(*item.QuantityKg); ok {
+				totals[key] += grams
 			}
 		}
 	}

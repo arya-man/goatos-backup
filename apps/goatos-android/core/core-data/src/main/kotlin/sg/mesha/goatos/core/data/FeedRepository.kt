@@ -71,35 +71,38 @@ data class FeedDirectionQuery(
     )
 }
 
-/**
- * Filter scope for the Feed Packing worklist.
- *
- * There is no `session` here (maintainer decision 2026-08-10). A packing line is a whole pen-DAY
- * carrying every session as a breakdown, so narrowing to one session could only hide half of a bag
- * the packer must still carry out. The endpoint no longer accepts the parameter either.
- */
+/** Filter scope for the Feed Packing worklist. */
 data class FeedPackingQuery(
     val parkId: String,
     val targetDate: String,
+    val session: Int? = null,
     val workflow: String? = null,
     val status: String? = null,
 ) {
     /**
      * The cache namespace for this scope.
      *
-     * [PACKING_CACHE_SHAPE] is part of the key so rows cached by an EARLIER app version -- which
-     * stored one JSON row per shed-SESSION, with `items` where the pen-day row now has `sessions` --
-     * can never be read back into the current DTO. They would deserialize without error into a card
-     * with no feed lines at all, because kotlinx-serialization fills the missing `sessions` with its
-     * default empty list. Bumping the namespace orphans them instead, and the existing
-     * newest-queries eviction reclaims the space.
+     * [PACKING_CACHE_SHAPE] is part of the key so rows cached by an EARLIER app version can never be
+     * read back into the current DTO. This has now mattered twice in opposite directions: the pen-day
+     * build stored `sessions` where this one stores `items`, and vice versa. Either way the stale JSON
+     * deserializes WITHOUT ERROR into a card with no feed lines at all, because
+     * kotlinx-serialization fills the missing field with its default empty list -- a packer would
+     * open the app to a pen with nothing to pack. Bumping the namespace orphans those rows instead,
+     * and the existing newest-queries eviction reclaims the space.
      */
     fun roomKey(): String =
-        cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate, workflow, status, FEED_PAGE_SIZE.toString())
+        cacheKey(PACKING_CACHE_SHAPE, parkId, targetDate, session?.toString(), workflow, status, FEED_PAGE_SIZE.toString())
 }
 
-/** Bump whenever the cached packing row JSON changes shape incompatibly. */
-private const val PACKING_CACHE_SHAPE = "pen-day-v2"
+/**
+ * Bump whenever the cached packing row JSON changes shape incompatibly.
+ *
+ * v3 = back to one row per shed-SESSION with a flat `items` list (maintainer decision 2026-08-11).
+ * Never REUSE an old value when reverting to an old shape: `session-v1` rows may still be sitting in
+ * a phone's cache from before the pen-day build, and they are not guaranteed to match today's DTO in
+ * every other field.
+ */
+private const val PACKING_CACHE_SHAPE = "session-v3"
 
 /**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
@@ -361,6 +364,7 @@ private class FeedPackingRemoteMediator(
             val response = api.getFeedPackingWorklist(
                 parkId = query.parkId,
                 targetDate = query.targetDate,
+                session = query.session,
                 workflow = query.workflow,
                 status = query.status,
                 limit = FEED_PAGE_SIZE,

@@ -987,9 +987,8 @@ interface AppApi {
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
-        // No session filter, unlike the preview: a packing line is a whole pen-DAY carrying every
-        // session as a breakdown, so narrowing to one could only hide half a bag the packer must
-        // still carry out. The route no longer accepts the parameter either.
+        // Optional session filter (session_no; null = every session). Mirrors the preview.
+        session: Int? = null,
         workflow: String? = null,
         // Optional verification-lifecycle filter, same contract as the preview.
         status: String? = null,
@@ -1676,6 +1675,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,

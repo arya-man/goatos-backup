@@ -35,9 +35,10 @@ type LifecycleReport struct {
 	Workflow        string
 	Outcome         string
 	AffectedShedIDs []string
-	// ReopenedPackingCompletionIDs names the packing pen-days the correction sent back to the
-	// operator because their animal count moved. Empty on issue/lock and on the ordinary correction
-	// that lands before anyone has packed.
+	// ReopenedPackingCompletionIDs names the packing LINES the correction sent back to the operator
+	// because their pen's animal count moved. A reopened pen contributes ALL of its sessions, so a
+	// two-session park yields two ids per pen. Empty on issue/lock and on the ordinary correction that
+	// lands before anyone has packed.
 	ReopenedPackingCompletionIDs []string
 }
 
@@ -123,8 +124,15 @@ const packingReopenedReason = "Animals moved in or out of this pen, so the feed 
 //     Castro - 2 gained animals. Making an operator refilm is expensive, so it is spent only where
 //     the number of mouths actually moved.
 //
-// A pen nobody has packed yet reopens nothing: the store finds no submitted row and the operator
-// simply sees the corrected numbers on a card that was still pending.
+// BOTH OF A PEN'S SESSIONS COME BACK. Head count scales the morning and the evening ration alike, so
+// a pen that gained animals has two videos that now prove the wrong quantity, not one. The pens named
+// here carry no session and the store applies no session predicate; see
+// ports.ReopenPackingForFeedChange.
+//
+// A session nobody has packed yet reopens nothing: the store finds no submitted row and the operator
+// simply sees the corrected numbers on a card that was still pending. A pen with the morning packed
+// and the evening not yet touched therefore reopens exactly one row, which is correct -- there is
+// only one video to take back.
 func (s *Service) reopenPackingForCorrection(
 	ctx context.Context,
 	tenantID, parkID string,
@@ -362,10 +370,8 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
 	// its summary describe the same status set and pagination stays correct.
 	//
-	// Keyed with packingCompletedKey, NOT the direction stamper: the packing status map is keyed at
-	// the pen-DAY grain, so stamping direction rows with the session-bearing key would miss on every
-	// single row. Every row would read `pending`, a `completed` filter would return an empty
-	// worklist, and a submitted pen would offer itself for filming again.
+	// The PACKING stamper, not the direction one: they key identically (shed, pen, session, workflow)
+	// but the packing status map's value carries the rework reason as well as the bucket.
 	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -508,9 +514,8 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		tenantID:   q.TenantID,
 		parkID:     q.ParkID,
 		targetDate: q.TargetDate,
-		// sessionNo 0 = generate EVERY session. A packing line carries the whole pen-day, so
-		// generating one session would build a card missing half its bags.
-		limit: MaxShedPageLimit,
+		sessionNo:  q.SessionNo,
+		limit:      MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -525,7 +530,7 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 	}
 
 	// Filter DirectionRows by packing status before the shed paging, then stamp the built rows. The
-	// pen-day-keyed stamper, for the reason given in servePacking.
+	// packing-keyed stamper, for the reason given in servePacking.
 	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
 	if err != nil {
 		return domain.PackingPage{}, err
