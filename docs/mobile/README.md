@@ -24,6 +24,7 @@ this is the pre-implementation design set the maintainer asked for.
 | [prd-operator-mobile.md](prd-operator-mobile.md) | Product requirements: who, what, scope, non-goals, success metrics, constraints |
 | [trd-operator-mobile.md](trd-operator-mobile.md) | Technical requirements: stack, Gradle modules, Clean Architecture layers, offline sync engine, hardware (RFID/camera), auth/RBAC, Firebase integration, security, testing, CI |
 | [system-design.md](system-design.md) | Runtime architecture, data flow, sync state machine, threading model, push/notification flow, analytics taxonomy, boot/bootstrap contract |
+| [proof-video-processing-pipeline.md](proof-video-processing-pipeline.md) | Shared phone-camera video pipeline: WhatsApp-style adaptive compression, burned audit overlay, Room queue, upload fallback, and Firebase telemetry |
 | [design-system.md](design-system.md) | Design tokens, Compose theme, component inventory (ported from the mock), motion, dark/light, accessibility, i18n |
 | [screens.md](screens.md) | Screen-by-screen spec: every mock view/overlay → Compose destination, state, backend contract, role visibility |
 | [transitions-and-motion.md](transitions-and-motion.md) | Screen-motion contract (Claude + Codex): M3 pattern → Goat OS surface map (drill = shared axis X, top-level tabs = fade through, sheets = `ModalBottomSheet`), motion tokens, reversibility, and the current-code transition audit |
