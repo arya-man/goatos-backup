@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
@@ -324,8 +325,9 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::
 		t.Fatalf("query partition pen: %v", err)
 	}
 
-	placementLocked := make(chan struct{}, 1)
-	placementDone := make(chan struct{})
+	placementReady := make(chan struct{})
+	placementReadyToContinue := make(chan struct{})
+	retirementStarted := make(chan struct{}, 1)
 	retireErrCh := make(chan error, 1)
 	placeErrCh := make(chan error, 1)
 
@@ -336,7 +338,6 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			placeErrCh <- err
-			placementLocked <- struct{}{}
 			return
 		}
 		var lockedPenID string
@@ -348,11 +349,10 @@ FOR SHARE OF sp`,
 			tenant, shed, normalized).Scan(&lockedPenID); err != nil {
 			_ = tx.Rollback(ctx)
 			placeErrCh <- err
-			placementLocked <- struct{}{}
 			return
 		}
-		placementLocked <- struct{}{}
-		<-placementDone
+		close(placementReady)
+		<-placementReadyToContinue
 		if _, err := tx.Exec(ctx, `UPDATE goats
 SET current_location_id = $1::uuid
 WHERE tenant_id=$2::uuid AND goat_id=$3::uuid`,
@@ -371,7 +371,8 @@ WHERE tenant_id=$2::uuid AND goat_id=$3::uuid`,
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		<-placementLocked
+		<-placementReady
+		retirementStarted <- struct{}{}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			retireErrCh <- err
@@ -393,8 +394,19 @@ WHERE tenant_id=$1::uuid
 		retireErrCh <- err
 	}()
 
-	<-placementLocked
-	close(placementDone)
+	select {
+	case <-placementReady:
+	case err := <-placeErrCh:
+		t.Fatalf("placement setup failed: %v", err)
+	}
+
+	select {
+	case <-retirementStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("retirement did not start while placement lock was held")
+	}
+
+	close(placementReadyToContinue)
 	wg.Wait()
 	close(retireErrCh)
 	close(placeErrCh)
