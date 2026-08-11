@@ -801,6 +801,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
@@ -813,6 +815,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 android-runtime-permission-sdk-gates-guard:

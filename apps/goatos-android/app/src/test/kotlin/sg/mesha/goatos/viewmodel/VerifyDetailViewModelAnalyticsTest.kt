@@ -19,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsVerification
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
@@ -92,6 +93,44 @@ class VerifyDetailViewModelAnalyticsTest {
 
         assertEquals(Triple("approved", "2026-07-29", false), repo.lastObservedScope)
         assertEquals(Triple("approved", "2026-07-29", false), repo.lastRefreshedScope)
+    }
+
+    @Test
+    fun `detail keeps opened weighing video when refresh page omits the group`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertProofUrls(vm, "/proof-1.mp4", "/proof-2.mp4")
+
+        repo.emitQueueItems(
+            VerificationQueueItem(
+                itemId = "other-item",
+                category = "weighing",
+                status = VerificationStatus.PENDING,
+                rowVersion = 8,
+                evidenceAvailable = true,
+                media = listOf(
+                    VerificationMediaItem(
+                        proofId = "other-proof",
+                        label = "Other weighing",
+                        downloadUrl = "/other-proof.mp4",
+                        mimeType = "video/mp4",
+                    ),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertProofUrls(vm, "/proof-1.mp4", "/proof-2.mp4")
+        assertTrue(vm.state.value.media.isNotEmpty())
     }
 
     @Test
@@ -292,6 +331,11 @@ class VerifyDetailViewModelAnalyticsTest {
     }
 }
 
+private fun assertProofUrls(vm: VerifyDetailViewModel, vararg suffixes: String) {
+    val apiBase = BuildConfig.API_BASE_URL.removeSuffix("/")
+    assertEquals(suffixes.toList(), vm.state.value.media.map { it.signedUrl.substringAfterLast(apiBase) })
+}
+
 private class RecordingAnalytics : AnalyticsPort {
     val events = mutableListOf<Pair<String, Map<String, String>>>()
 
@@ -338,11 +382,16 @@ private class FakeVerifyDetailRepository : VerificationRepository {
         ),
     )
     private val response = VerificationQueueResponseDto(items = listOf(item))
+    private val queueFlow = MutableStateFlow(Resource(data = response))
+
+    fun emitQueueItems(vararg items: VerificationQueueItem) {
+        queueFlow.value = Resource(data = VerificationQueueResponseDto(items = items.toList()))
+    }
 
     override suspend fun queue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = response
     override fun observeQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> {
         lastObservedScope = Triple(status, businessDate, missed)
-        return flowOf(Resource(data = response))
+        return queueFlow
     }
 
     override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
@@ -351,7 +400,7 @@ private class FakeVerifyDetailRepository : VerificationRepository {
     }
     override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
-        flowOf(Resource(data = response))
+        queueFlow
 
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit
