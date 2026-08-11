@@ -1754,6 +1754,10 @@ class WeighingViewModel @Inject constructor(
         submitPendingCallback = null
         actionInFlight.value = true
         analytics.track(
+            AnalyticsEvents.WEIGHING_SUBMIT_ATTEMPT,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+        )
+        analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED,
             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
         )
@@ -1768,6 +1772,10 @@ class WeighingViewModel @Inject constructor(
                 ) {
                     is AppResult.Ok -> {
                         analytics.track(
+                            AnalyticsEvents.WEIGHING_SUBMIT_SUCCESS,
+                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                        )
+                        analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                         )
@@ -1780,6 +1788,11 @@ class WeighingViewModel @Inject constructor(
                         // and leaves the shed stuck with no on-screen explanation.
                         message.value = submitted.message.takeIf { it.isNotBlank() }
                             ?: "Couldn't submit this shed. Try again."
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_SUBMIT_FAILURE,
+                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                                (AnalyticsEvents.Params.REASON to submitted.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
@@ -1813,7 +1826,10 @@ class WeighingViewModel @Inject constructor(
             ?: return
         if (useGlobalBusyGate && actionInFlight.value) return
         if (row.animalId in updatingWeightAnimalIds.value) return
-        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY))
+        val proof = proofForAnimal(row.animalId)
+        val weightProps = weighingAnimalProps(row, weightKg, proof)
+        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weightProps)
+        analytics.track(AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_ATTEMPT, weightProps)
         if (useGlobalBusyGate) actionInFlight.value = true
         updatingWeightAnimalIds.value = updatingWeightAnimalIds.value + row.animalId
         viewModelScope.launch {
@@ -1845,7 +1861,6 @@ class WeighingViewModel @Inject constructor(
                         // Clear any previous conflict for this animal (re-capture after failure)
                         conflictedAnimalIds.value = conflictedAnimalIds.value - row.animalId
 
-                        val proof = proofForAnimal(row.animalId)
                         if (proof != null) {
                             repository.attachIndividualProof(key, row.animalId, proof.id, proof.serverProofId)
                         } else {
@@ -1871,7 +1886,11 @@ class WeighingViewModel @Inject constructor(
                         }
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
-                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                            weightProps,
+                        )
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_SUCCESS,
+                            weightProps,
                         )
                         scanCaptureRepository.markLocalScanSynced(
                             taskId = key,
@@ -1886,6 +1905,11 @@ class WeighingViewModel @Inject constructor(
                     is AppResult.Err -> {
                         updatingWeightAnimalIds.value = updatingWeightAnimalIds.value - row.animalId
                         message.value = recorded.message
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
+                            weightProps +
+                                (AnalyticsEvents.Params.REASON to recorded.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
                         reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, recorded.message)
                     }
                 }
@@ -1921,7 +1945,16 @@ class WeighingViewModel @Inject constructor(
             message.value = "Shed / partition assignment is missing location details."
             return
         }
-        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, weighingCaptureProps(PER_SHED_PARTITION_CATEGORY))
+        val lumpSumProps = weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+            mapOf(
+                AnalyticsEvents.Params.WEIGHT_KG to weightKg.toString(),
+                AnalyticsEvents.Params.ANIMAL_COUNT to animalCount.toString(),
+                AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                AnalyticsEvents.Params.PROOF_UPLOADED to "true",
+                AnalyticsEvents.Params.PROOF_ID to syncedProof.id,
+            )
+        analytics.track(AnalyticsEvents.WEIGHING_CAPTURE_ATTEMPT, lumpSumProps)
+        analytics.track(AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_ATTEMPT, lumpSumProps)
         actionInFlight.value = true
         viewModelScope.launch {
             try {
@@ -1951,13 +1984,22 @@ class WeighingViewModel @Inject constructor(
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
-                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY),
+                            lumpSumProps,
+                        )
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_SUCCESS,
+                            lumpSumProps,
                         )
                         onSubmitted()
                         recorded.value
                     }
                     is AppResult.Err -> {
                         message.value = recorded.message
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
+                            lumpSumProps +
+                                (AnalyticsEvents.Params.REASON to recorded.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
                         reportCaptureFailure(PER_SHED_PARTITION_CATEGORY, recorded.message)
                     }
                 }
@@ -2092,6 +2134,16 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         val shedVideoAction = if (replacingProofId == null) SHED_VIDEO_ACTION_CAPTURE else SHED_VIDEO_ACTION_REPLACE
         analytics.track(
+            AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT,
+            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+                mapOf(
+                    AnalyticsEvents.Params.OUTCOME to "attempt",
+                    AnalyticsEvents.Params.PROOF_ID to replacingProofId.orEmpty(),
+                    AnalyticsEvents.Params.PROOF_CAPTURED to "false",
+                    AnalyticsEvents.Params.PROOF_UPLOADED to "false",
+                ),
+        )
+        analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
             shedVideoActionProps(shedVideoAction, replacingProofId),
         )
@@ -2105,7 +2157,17 @@ class WeighingViewModel @Inject constructor(
                         secondaryTag = null,
                         workLabel = "Group video $slotNumber of 5",
                     ),
-                ) ?: return@launch
+                ) ?: run {
+                    analytics.track(
+                        AnalyticsEvents.WEIGHING_PROOF_CAPTURE_CANCELLED,
+                        weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+                            mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "cancelled",
+                                AnalyticsEvents.Params.REASON to "camera_cancelled",
+                            ),
+                    )
+                    return@launch
+                }
                 val principalId = currentPrincipalId
                     ?: runCatching {
                         // exception:exempt cached profile fetch; best-effort, null triggers early return
@@ -2163,12 +2225,30 @@ class WeighingViewModel @Inject constructor(
                             "Group video replaced."
                         }
                         analytics.track(
+                            AnalyticsEvents.WEIGHING_PROOF_CAPTURE_SUCCESS,
+                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to "success",
+                                    AnalyticsEvents.Params.PROOF_ID to proof.value.id,
+                                    AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                    AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+                                ),
+                        )
+                        analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
                             shedVideoActionProps(shedVideoAction, replacingProofId ?: proof.value.id),
                         )
                     }
                     is AppResult.Err -> {
                         message.value = proof.message
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
+                            weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to "failure",
+                                    AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                ),
+                        )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
                             shedVideoActionProps(shedVideoAction, replacingProofId) +
@@ -2253,8 +2333,60 @@ class WeighingViewModel @Inject constructor(
         buildMap {
             put(AnalyticsEvents.Params.CATEGORY, captureCategory)
             put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
+            put(AnalyticsEvents.Params.CAMPAIGN_ID, campaignId)
+            put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, campaignShedId)
             put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+            expectedLocationId.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.PARTITION_ID, it) }
+            expectedLocationLabel.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.PARTITION_LABEL, it) }
         }
+
+    private fun weighingAnimalProps(
+        row: WeighingRosterRowEntity,
+        weightKg: Double,
+        proof: ProofCaptureRow?,
+    ): Map<String, String> =
+        weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+            mapOf(
+                AnalyticsEvents.Params.RFID to row.primaryTag.ifBlank { row.animalId },
+                AnalyticsEvents.Params.GOAT_ID to row.animalId,
+                AnalyticsEvents.Params.WEIGHT_KG to weightKg.toString(),
+                AnalyticsEvents.Params.PROOF_CAPTURED to (proof != null).toString(),
+                AnalyticsEvents.Params.PROOF_UPLOADED to (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+            ) +
+            (proof?.id?.let { mapOf(AnalyticsEvents.Params.PROOF_ID to it) } ?: emptyMap())
+
+    private fun weighingProofProps(row: WeighingRosterRowEntity, proof: ProofCaptureRow?): Map<String, String> =
+        weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+            mapOf(
+                AnalyticsEvents.Params.RFID to row.primaryTag.ifBlank { row.animalId },
+                AnalyticsEvents.Params.GOAT_ID to row.animalId,
+                AnalyticsEvents.Params.PROOF_CAPTURED to (proof != null).toString(),
+                AnalyticsEvents.Params.PROOF_UPLOADED to (proof?.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+            ) +
+            (proof?.id?.let { mapOf(AnalyticsEvents.Params.PROOF_ID to it) } ?: emptyMap())
+
+    private fun trackWeighingScan(
+        rfid: String,
+        row: WeighingRosterRowEntity?,
+        outcome: String,
+        reason: String,
+    ) {
+        analytics.track(
+            AnalyticsEvents.WEIGHING_SCAN,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                buildMap {
+                    put(AnalyticsEvents.Params.RFID, rfid)
+                    row?.animalId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.GOAT_ID, it) }
+                    put(AnalyticsEvents.Params.OUTCOME, outcome)
+                    put(AnalyticsEvents.Params.REASON, reason)
+                    put(AnalyticsEvents.Params.PROOF_CAPTURED, (row?.let { proofForAnimal(it.animalId) } != null).toString())
+                    put(
+                        AnalyticsEvents.Params.PROOF_UPLOADED,
+                        (row?.let { proofForAnimal(it.animalId)?.syncStatus } == CaptureSyncStatus.SYNCED).toString(),
+                    )
+                },
+        )
+    }
 
     private fun shedVideoActionProps(action: String, proofId: String?): Map<String, String> =
         buildMap {
@@ -2310,6 +2442,7 @@ class WeighingViewModel @Inject constructor(
                     normalizeFreeFlowTag(it.displayAnimalId) == normalizedTag
             }
             if (existingRow != null && proofReplacementAnimalId.value == existingRow.animalId) {
+                trackWeighingScan(normalizedTag, existingRow, "accepted", "proof_replace_requested")
                 proofReplacementAnimalId.value = null
                 message.value = null
                 captureVideoForRow(key, existingRow)
@@ -2330,6 +2463,7 @@ class WeighingViewModel @Inject constructor(
                 ?.serverProofId
                 ?.takeIf { it.isNotBlank() }
             if (existingRow != null && serverProofForTag == null && proofForAnimal(existingRow.animalId) == null) {
+                trackWeighingScan(normalizedTag, existingRow, "accepted", "proof_rescan")
                 message.value = null
                 captureVideoForRow(key, existingRow)
                 return@launch
@@ -2354,6 +2488,7 @@ class WeighingViewModel @Inject constructor(
                 if (!fromTypedEntry) scanInput.value = normalizedTag
                 message.value = null
                 val reworkRow = unknownWeighingRow(key, normalizedTag)
+                trackWeighingScan(normalizedTag, reworkRow, "accepted", "rework_rescan")
                 selectedRow.value = reworkRow
                 captureVideoForRow(key, reworkRow)
                 return@launch
@@ -2367,6 +2502,7 @@ class WeighingViewModel @Inject constructor(
                 // write and would wipe whatever the operator has since typed for the NEXT animal.
                 if (!fromTypedEntry) scanInput.value = normalizedTag
                 message.value = "Already scanned · $normalizedTag"
+                trackWeighingScan(normalizedTag, existingRow, "duplicate", "already_scanned")
                 return@launch
             }
             val inserted = scanCaptureRepository.recordLocalScanIfAbsent(
@@ -2381,11 +2517,13 @@ class WeighingViewModel @Inject constructor(
             if (!fromTypedEntry) scanInput.value = normalizedTag
             if (!inserted) {
                 message.value = "Already scanned · $normalizedTag"
+                trackWeighingScan(normalizedTag, null, "duplicate", "local_scan_exists")
                 return@launch
             }
             val row = unknownWeighingRow(key, normalizedTag)
             selectedRow.value = row
             message.value = "RFID captured. Record video, then enter weight."
+            trackWeighingScan(normalizedTag, row, "accepted", "accepted")
             captureVideoForRow(key, row)
         }
     }
@@ -2460,6 +2598,11 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         proofCaptureAnimalId = row.animalId
         proofCaptureVideoCaptured = false
+        analytics.track(
+            AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT,
+            weighingProofProps(row, null) +
+                (AnalyticsEvents.Params.OUTCOME to "attempt"),
+        )
         // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
         // compares job identity, and a body that completed before the assignment would compare
         // against the previous job and skip its own cleanup.
@@ -2470,9 +2613,26 @@ class WeighingViewModel @Inject constructor(
                         sessionProofIds.value = sessionProofIds.value + proof.value.id
                         autoProofs.value = autoProofs.value + (row.animalId to proof.value)
                         message.value = "Video saved for ${row.displayAnimalId}. Enter weight."
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_PROOF_CAPTURE_SUCCESS,
+                            weighingProofProps(row, proof.value) +
+                                (AnalyticsEvents.Params.OUTCOME to "success"),
+                        )
                     }
                     is AppResult.Err -> {
                         message.value = "RFID captured. Video proof is still required."
+                        analytics.track(
+                            if (proof.message == "missing_video") {
+                                AnalyticsEvents.WEIGHING_PROOF_CAPTURE_CANCELLED
+                            } else {
+                                AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE
+                            },
+                            weighingProofProps(row, null) +
+                                mapOf(
+                                    AnalyticsEvents.Params.OUTCOME to if (proof.message == "missing_video") "cancelled" else "failure",
+                                    AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                                ),
+                        )
                         reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, proof.message)
                     }
                 }

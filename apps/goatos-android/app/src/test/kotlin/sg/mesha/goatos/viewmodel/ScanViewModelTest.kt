@@ -84,6 +84,7 @@ class ScanViewModelTest {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
                 firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
@@ -95,7 +96,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -108,6 +109,10 @@ class ScanViewModelTest {
         assertEquals(1L, scanCaptures.rowsForTask("task-1").single().capturedAtMs)
         assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        val scanEvent = analytics.events.single { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.VACCINATION_SCAN }
+        assertEquals("TAG-100", scanEvent.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID])
+        assertEquals("goat-1", scanEvent.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.GOAT_ID])
+        assertEquals("accepted", scanEvent.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME])
 
         val submitSync = CapturingSubmitSyncRepository()
         val proofRepo = FakeProofCaptureRepository()
