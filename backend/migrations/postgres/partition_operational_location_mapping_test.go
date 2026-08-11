@@ -99,6 +99,18 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	if currentType != "pen" || parentID != godelOne {
 		t.Fatalf("partitioned goat current location type/parent = %s/%s, want pen/%s", currentType, parentID, godelOne)
 	}
+	var penName string
+	if err := pool.QueryRow(ctx, `
+SELECT l.name
+FROM goats g
+JOIN locations l ON l.tenant_id=g.tenant_id AND l.location_id=g.current_location_id
+WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
+		Scan(&penName); err != nil {
+		t.Fatalf("query partitioned goat location name: %v", err)
+	}
+	if penName != "Godel 1 - Part 1" {
+		t.Fatalf("partitioned goat mapped to pen name %q, want %q", penName, "Godel 1 - Part 1")
+	}
 
 	if err := pool.QueryRow(ctx, `
 SELECT current_location_id::text, shed_id::text
@@ -170,6 +182,14 @@ WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenant, partitionedGoat).Scan(&c
 	}
 	if currentLocationID != godelOne {
 		t.Fatalf("terminal goat current_location_id after rollback=%s, want parent shed %s", currentLocationID, godelOne)
+	}
+	var helperExists bool
+	if err := pool.QueryRow(ctx, `
+SELECT to_regprocedure('public.operational_location_display(text,text)') IS NOT NULL`).Scan(&helperExists); err != nil {
+		t.Fatalf("query helper function existence after rollback: %v", err)
+	}
+	if helperExists {
+		t.Fatalf("helper function public.operational_location_display(text,text) still exists after rollback")
 	}
 }
 
