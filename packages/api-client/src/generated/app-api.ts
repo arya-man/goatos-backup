@@ -499,6 +499,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/growth-director/weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Growth Director widgets for the admin-web Weights screen.
+         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         *
+         *     Served by its OWN read-only reporting module, not by weighing: weighing is isolated from the herd, while these widgets resolve scanned tags to breed and sex through the herd register and read the feed-direction sheet. This read gates nothing — a tag that resolves to no animal is counted and reported, never rejected.
+         *
+         *     There is NO expected-animal roster; every denominator here is an actual-scan/identity count. `period.resolution` discloses that weighing data snaps to overlapping campaign weeks while feed uses the exact day range.
+         */
+        get: operations["adminGetGrowthDirectorWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -6885,6 +6909,154 @@ export interface components {
             parks: components["schemas"]["WeighingPark"][];
             trace_id?: string;
         };
+        /** @description The Growth Director section of the Weights screen: six widgets over weighing, herd-register and feed-direction data. Every widget carries its own denominators — there is no expected-animal roster, so every count is an actual-scan/identity count, never "of expected". */
+        GrowthDirectorWeightsResponse: {
+            period: components["schemas"]["GrowthDirectorPeriod"];
+            /** @description Park filter vocabulary, limited to the caller's authorized scope. */
+            parks: components["schemas"]["WeighingPark"][];
+            road_to_sale: components["schemas"]["GrowthDirectorRoadToSale"];
+            fair_fight: components["schemas"]["GrowthDirectorFairFight"];
+            slow_growth: components["schemas"]["GrowthDirectorSlowGrowth"];
+            feed_vs_growth: components["schemas"]["GrowthDirectorFeedVsGrowth"];
+            feed_problems: components["schemas"]["GrowthDirectorFeedProblems"];
+            trust: components["schemas"]["GrowthDirectorTrust"];
+        };
+        /** @description The resolved reporting window. Weighing data is selected by CAMPAIGN-WEEK OVERLAP (campaigns are week-grain, so the window pulls in every overlapping week in full); feed rows use the exact day range. `resolution` discloses this. */
+        GrowthDirectorPeriod: {
+            /** Format: date */
+            start: string;
+            /** Format: date */
+            end: string;
+            /** @description Currently always `campaign_week`. */
+            resolution: string;
+        };
+        /** @description Where every kid sits on the way to sale weight, counted from each tag identity's latest weigh. Unmatched identities stay in the bands — a scale reading is a scale reading — but are counted separately. Rework-status captures are excluded. */
+        GrowthDirectorRoadToSale: {
+            /** @description Distinct tag identities weighed in the period. The denominator for the bands. */
+            total_identities: number;
+            /** @description Identities whose tag resolves in the herd register. */
+            matched_identities: number;
+            unmatched_identities: number;
+            /** @description Always all six bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending. */
+            bands: components["schemas"]["GrowthDirectorWeightBand"][];
+            movement: components["schemas"]["GrowthDirectorBandMovement"];
+        };
+        GrowthDirectorWeightBand: {
+            /** @enum {string} */
+            band: "<15" | "15-20" | "20-25" | "25-30" | "30-35" | "35+";
+            identity_count: number;
+        };
+        /** @description Band movement between an identity's previous and latest campaign rounds. `pair_identities` is the honest denominator: a kid has to be weighed in two rounds before it can move a band. */
+        GrowthDirectorBandMovement: {
+            pair_identities: number;
+            moved_up: number;
+            held: number;
+            moved_down: number;
+        };
+        /** @description Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes. A cohort renders only when at least two sheds each field at least three pair-identities. Breed and sex come from the herd register only, never from shed names or feed-sheet strings. */
+        GrowthDirectorFairFight: {
+            cohorts: components["schemas"]["GrowthDirectorFairFightCohort"][];
+        };
+        GrowthDirectorFairFightCohort: {
+            breed: string;
+            sex: string;
+            /** @description Strongest median first. */
+            sheds: components["schemas"]["GrowthDirectorFairFightShed"][];
+        };
+        GrowthDirectorFairFightShed: {
+            /** Format: uuid */
+            location_id: string;
+            shed_display_name: string;
+            /** @description The n behind the median. */
+            pair_identities: number;
+            /** Format: double */
+            median_adg_g_per_day: number;
+        };
+        /** @description Every (shed, breed, sex) group with at least three plausible pair-identities, slowest first, judged against the disclosed target. Changes within 3% of body weight are scored as flat (gut fill); losses over 0.30 kg/day are treated as bad scans and excluded. */
+        GrowthDirectorSlowGrowth: {
+            /**
+             * Format: double
+             * @description The ops rule-of-thumb daily gain target (200), disclosed rather than buried.
+             */
+            target_g_per_day: number;
+            groups: components["schemas"]["GrowthDirectorSlowGrowthGroup"][];
+        };
+        GrowthDirectorSlowGrowthGroup: {
+            /** Format: uuid */
+            location_id: string;
+            shed_display_name: string;
+            breed: string;
+            sex: string;
+            pair_identities: number;
+            /** Format: double */
+            median_adg_g_per_day: number;
+            /**
+             * Format: double
+             * @description This week's median consecutive-round gain minus last week's, for this group. Null until the group has pairs in two distinct campaign weeks — two weeks of weighing are needed before a trend exists.
+             */
+            week_over_week_delta_g: number | null;
+            /**
+             * @description Judged on the noise-adjusted median, so one noisy scale never brands a shed as shrinking.
+             * @enum {string}
+             */
+            status: "on_track" | "below_target" | "losing";
+        };
+        /** @description Feed DIRECTED against growth measured, per shed. `estimate` is always true: the feed figure is what the sheet told the team to give, not what the kids finished — leftovers are not measured yet. */
+        GrowthDirectorFeedVsGrowth: {
+            sheds: components["schemas"]["GrowthDirectorFeedVsGrowthShed"][];
+            estimate: boolean;
+        };
+        /** @description Null never means zero on this row: it means "not computable", with the reason readable from the other fields. Blocked feed cells (quantity NULL) stay out of the feed sum; authored zeros stay in. Experiment / informational-headcount kg is never divided by heads. */
+        GrowthDirectorFeedVsGrowthShed: {
+            /** Format: uuid */
+            location_id: string;
+            shed_display_name: string;
+            /** Format: double */
+            feed_g_per_head_per_day: number | null;
+            /** Format: double */
+            adg_g_per_day: number | null;
+            /**
+             * Format: double
+             * @description Null when either side is missing or gain is non-positive — never 0, never infinity.
+             */
+            kg_feed_per_kg_gain: number | null;
+            /**
+             * @description per_animal = median of per-kid gains (at least three pairs); whole_shed = the shed's average movement over thinner data.
+             * @enum {string}
+             */
+            basis: "per_animal" | "whole_shed";
+            is_experiment: boolean;
+            pair_identities: number;
+        };
+        /** @description Feed-sheet cells that could not be filled in. Blocked is structural (quantity NULL iff a reason code exists); an authored zero is a real instruction, counted separately and never listed as a problem. */
+        GrowthDirectorFeedProblems: {
+            blocked_rows_latest_day: number;
+            blocked_rows_history: number;
+            authored_zero_latest_day: number;
+            authored_zero_history: number;
+            /** @description Most recently blocked first. */
+            items: components["schemas"]["GrowthDirectorFeedProblemItem"][];
+        };
+        GrowthDirectorFeedProblemItem: {
+            shed_label: string;
+            feed_item_label: string;
+            blocked_days: number;
+            latest_reason_code: string;
+        };
+        /** @description The honest-denominator panel behind every other widget. Unlike the growth widgets it INCLUDES rework captures — trust reports the raw stream — and breaks out the rework count so the two views reconcile. */
+        GrowthDirectorTrust: {
+            scans_total: number;
+            scans_matched: number;
+            scans_unmatched: number;
+            identities_total: number;
+            /** @description Identities weighed in at least two campaign rounds — the only ones a gain exists for. */
+            identities_with_pair: number;
+            identities_once_only: number;
+            /** @description Live lump-sum weighings in the period (withdrawn rows excluded). */
+            whole_shed_observations: number;
+            scans_pending_verification: number;
+            scans_rework: number;
+        };
         /** @description One park the caller may filter weighing by. Identity only -- anything date-scoped or count-bearing belongs on the planner catalog, which is a different grain and a different gate. */
         WeighingPark: {
             /** Format: uuid */
@@ -10038,6 +10210,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingWeightDemographicsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetGrowthDirectorWeights: {
+        parameters: {
+            query?: {
+                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The six Growth Director widgets plus the period/park envelope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthDirectorWeightsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
