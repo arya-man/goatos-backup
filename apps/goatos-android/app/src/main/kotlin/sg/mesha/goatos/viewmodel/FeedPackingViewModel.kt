@@ -32,7 +32,6 @@ import sg.mesha.goatos.feature.feed.FeedItemQtyUi
 import sg.mesha.goatos.feature.feed.FeedItemTotalUi
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingRowUi
-import sg.mesha.goatos.feature.feed.FeedPackingSessionUi
 import sg.mesha.goatos.feature.feed.FeedPackingSummaryUi
 import sg.mesha.goatos.feature.feed.FeedPackingUiState
 import java.time.LocalDate
@@ -147,6 +146,7 @@ class FeedPackingViewModel @Inject constructor(
             FeedPackingEvent.Refresh -> refresh()
             is FeedPackingEvent.SelectPark -> selectPark(event.parkId)
             is FeedPackingEvent.SelectWorkflow -> selectWorkflow(event.workflow)
+            is FeedPackingEvent.SelectSession -> selectSession(event.sessionNo)
             is FeedPackingEvent.SelectStatus -> selectStatus(event.status)
             is FeedPackingEvent.SelectDate -> selectDate(event.date)
             is FeedPackingEvent.OpenRow -> analytics.track(
@@ -154,6 +154,7 @@ class FeedPackingViewModel @Inject constructor(
                 mapOf(
                     AnalyticsEvents.Params.KIND to KIND_PACKING,
                     AnalyticsEvents.Params.SHED_ID to event.shedId,
+                    AnalyticsEvents.Params.SESSION_NO to event.sessionNo.toString(),
                 ),
             )
             FeedPackingEvent.ClearFilters -> clearFilters()
@@ -180,6 +181,13 @@ class FeedPackingViewModel @Inject constructor(
         trackFilter(DIMENSION_WORKFLOW, workflow)
     }
 
+    private fun selectSession(sessionNo: Int) {
+        val current = _filters.value
+        if (current.session == sessionNo) return
+        _filters.value = current.copy(session = sessionNo)
+        trackFilter(DIMENSION_SESSION, if (sessionNo == 0) "" else sessionNo.toString())
+    }
+
     private fun selectStatus(status: String) {
         val current = _filters.value
         if (current.status == status) return
@@ -189,8 +197,8 @@ class FeedPackingViewModel @Inject constructor(
 
     private fun clearFilters() {
         val current = _filters.value
-        if (current.workflow.isBlank() && current.status.isBlank()) return
-        _filters.value = current.copy(workflow = "", status = "")
+        if (current.workflow.isBlank() && current.session == 0 && current.status.isBlank()) return
+        _filters.value = current.copy(workflow = "", session = 0, status = "")
         trackFilter(DIMENSION_ALL, value = "")
     }
 
@@ -233,15 +241,16 @@ class FeedPackingViewModel @Inject constructor(
 
     private fun FeedFilterOptionsDto.toFilterUi(selection: FeedPackingSelection): FeedFilterUi {
         val parkOptions = parks.map { FeedDropdownOption(it.parkId, it.label) }
+        val sessionOptions = sessions.map { FeedDropdownOption(it.sessionNo.toString(), it.label) }
         val activeParkId = selection.parkId.ifBlank { servedParkId }
-        // No session options: the packing screen has no session filter. The backend still serves the
-        // park's session vocabulary because feed DIRECTION shares this contract and still filters by
-        // it; packing simply does not read it.
         return FeedFilterUi(
             parks = parkOptions,
             selectedParkId = activeParkId,
             selectedParkLabel = parkOptions.firstOrNull { it.key == activeParkId }?.label,
             workflow = selection.workflow,
+            sessions = sessionOptions,
+            selectedSessionNo = selection.session,
+            selectedSessionLabel = sessionOptions.firstOrNull { it.key == selection.session.toString() }?.label,
             status = selection.status,
         )
     }
@@ -259,29 +268,21 @@ class FeedPackingViewModel @Inject constructor(
         grainKey = grainKey,
         parkId = parkId,
         shedId = shedId,
+        sessionNo = sessionNo,
         // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
         // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
         // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
         // display and falls back to composing it only when an older server omits the field.
         shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
         partitionLabel = partitionLabel.orEmpty(),
+        sessionLabel = sessionLabel,
         workflow = workflow,
         experimentArm = experimentArm,
         headCount = headCount,
-        sessions = sessions.map { session ->
-            FeedPackingSessionUi(
-                sessionNo = session.sessionNo,
-                sessionLabel = session.sessionLabel,
-                items = session.items.map {
-                    FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty())
-                },
-                totalKg = session.totalKg,
-                status = session.status,
-            )
-        },
+        items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
         totalKg = totalKg,
         status = status,
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, 0, workflow)),
+        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
         lifecycleStatus = lifecycleStatus,
         reworkReason = reworkReason,
     )
@@ -289,8 +290,8 @@ class FeedPackingViewModel @Inject constructor(
     private data class FeedPackingSelection(
         val parkId: String = "",
         val workflow: String = "",
-        // No session: a packing line is a whole pen-DAY carrying every session as a breakdown, so
-        // there is nothing to narrow to. The endpoint no longer accepts the parameter either.
+        // 0 = every session (unfiltered); a positive value is a backend session_no.
+        val session: Int = 0,
         // "" = every status; else a backend verification-lifecycle bucket
         // (pending | pending_verification | completed).
         val status: String = "",
@@ -305,6 +306,7 @@ class FeedPackingViewModel @Inject constructor(
             // built from this query's targetDate, so it partitions by feed day automatically.
             targetDate = runCatching { LocalDate.parse(targetDate).plusDays(1).toString() }
                 .getOrDefault(targetDate),
+            session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
         )

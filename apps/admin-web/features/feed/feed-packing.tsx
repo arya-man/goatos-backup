@@ -23,11 +23,10 @@ import { feedHref, feedLimit, feedOffset, resolveFeedPackingScope } from "./feed
 // actually works from: one group per pen per session, with the pen's ration grains already summed,
 // because a packer fills one bag per feed item per pen rather than one per grain.
 //
-// THE BACKEND NOW SERVES ONE ROW PER PEN-DAY with its sessions NESTED (maintainer decision
-// 2026-08-10) so the phone can show one card and ask for one video. This table is unchanged by that
-// on purpose and flattens them straight back out into per-session groups: the web packing sheet is a
-// printed worklist a packer reads down, not the phone's capture card, and the session is still the
-// line they physically fill a bag for. See `sessionLines` below.
+// ONE ROW PER PEN PER SESSION, which is what the backend serves again (maintainer decision
+// 2026-08-11, reverting the 2026-08-10 pen-day row). Between those dates the backend nested the
+// sessions inside a pen-day row and this table flattened them straight back out; the flattening is
+// gone because a row IS a session line once more.
 //
 // READ-ONLY, and deliberately so. Nothing on this screen is recorded: there is no proof capture, no
 // video, and no stored packing state. `status` is DERIVED from the generation result, not stored.
@@ -99,14 +98,16 @@ export async function FeedPackingPage({
   const rows = worklist?.items ?? [];
   const summary = worklist?.summary;
   const lifecycle = worklist?.lifecycle;
-  // The worklist takes no shed/session filter, so an empty result is never a filter exclusion — an
-  // empty page here is always the lifecycle's own "nothing was issued" state.
+  // This page sends only park and day, so an empty result is never a filter exclusion — an empty
+  // page here is always the lifecycle's own "nothing was issued" state.
   const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) : false;
 
   const cols = tableLabels(pageContract, "packing-worklist");
 
-  // The worklist endpoint takes only park and day — it has no shed or session parameter — so those
-  // filters are not rendered. A control that cannot narrow the backend result would be decoration.
+  // Only park and day are rendered. The endpoint has no shed parameter at all, and while it does
+  // accept `session`, this sheet deliberately does not offer it: the web packing worklist is printed
+  // and read down in one pass, and hiding half the day's bags from it would understate what the crew
+  // must carry out. The phone, which captures one bag at a time, is where the session matters.
   const filterFields: FeedFilterField[] = [
     {
       kind: "date",
@@ -128,25 +129,11 @@ export async function FeedPackingPage({
     },
   ];
 
-  // Over the day's SESSIONS, not the row: the backend now serves one row per pen-DAY carrying every
-  // session, so folding the row alone would count no cells at all.
+  // A row is ONE pen-session, so its own items are the cells. A pen's morning and evening arrive as
+  // two rows and are both counted here, which is what a packer's cell count means.
   const blockedCellsOnPage = rows.reduce(
-    (total, row) =>
-      total +
-      row.sessions.reduce(
-        (rowTotal, session) => rowTotal + session.items.filter((item) => isBlockedItem(item)).length,
-        0,
-      ),
+    (total, row) => total + row.items.filter((item) => isBlockedItem(item)).length,
     0,
-  );
-
-  // The backend serves ONE row per pen-DAY with its sessions nested (maintainer decision
-  // 2026-08-10, so the phone can show one card and ask for one video). This table keeps its existing
-  // shape -- one group per shed-session -- so it is flattened straight back out here. Deliberate:
-  // the web packing sheet is a printed worklist a packer reads down, not the phone's capture card,
-  // and the session is still the line they physically fill a bag for.
-  const sessionLines = rows.flatMap((row) =>
-    row.sessions.map((session) => ({ row, session })),
   );
 
   return (
@@ -278,7 +265,7 @@ export async function FeedPackingPage({
               </tr>
             </thead>
             <tbody>
-              {sessionLines.length === 0 ? (
+              {rows.length === 0 ? (
                 <tr>
                   <td colSpan={cols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
@@ -289,12 +276,14 @@ export async function FeedPackingPage({
                   </td>
                 </tr>
               ) : (
-                sessionLines.flatMap(({ row, session }) => {
+                rows.flatMap((row) => {
                   // Configured zeros drop out here. Blocked items are NOT touched by this filter.
-                  const visibleItems = visibleOperationalFeedItems(session.items);
-                  const nothingToFeed = isNothingToFeed(session.items);
+                  const visibleItems = visibleOperationalFeedItems(row.items);
+                  const nothingToFeed = isNothingToFeed(row.items);
                   const span = itemLineCount(visibleItems);
-                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${session.session_no}`;
+                  // Full line identity: the pen AND its session. Keying on the pen alone would give
+                  // a pen's morning and evening the same React key.
+                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
@@ -317,7 +306,7 @@ export async function FeedPackingPage({
                             </div>
                           </td>
                           <td className="muted" rowSpan={span}>
-                            {session.session_label}
+                            {row.session_label}
                           </td>
                         </>
                       ) : null}
@@ -347,19 +336,18 @@ export async function FeedPackingPage({
                       {index === 0 ? (
                         <td rowSpan={span}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            {/* The SESSION's own status and total, because this group IS one
-                                session. The pen-day rolls up to blocked when any session is, so
-                                using the day's figures here would mark a perfectly packable morning
-                                blocked because the evening is short, and would print the day total
-                                against every session's row. */}
+                            {/* This line's own status and total. A row IS one pen-session, so a
+                                perfectly packable morning stays OK even when the same pen's evening
+                                is short, and each row prints its own bag's weight rather than the
+                                day's. */}
                             <span
-                              className={statusTone(session.status)}
+                              className={statusTone(row.status)}
                               title={copy(
                                 pageContract,
-                                session.status === "blocked" ? "label.blocked_note" : "label.ok_note",
+                                row.status === "blocked" ? "label.blocked_note" : "label.ok_note",
                               )}
                             >
-                              {session.status === "blocked"
+                              {row.status === "blocked"
                                 ? copy(pageContract, "label.blocked")
                                 : copy(pageContract, "label.ok")}
                             </span>
@@ -368,7 +356,7 @@ export async function FeedPackingPage({
                               style={{ fontSize: 11, fontVariantNumeric: "tabular-nums" }}
                               title={copy(pageContract, "label.expected_kg_note")}
                             >
-                              {session.total_kg} {copy(pageContract, "label.kg_noun")}
+                              {row.total_kg} {copy(pageContract, "label.kg_noun")}
                             </span>
                           </div>
                         </td>

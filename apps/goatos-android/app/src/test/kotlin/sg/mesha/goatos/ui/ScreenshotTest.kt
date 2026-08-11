@@ -94,7 +94,6 @@ import sg.mesha.goatos.feature.feed.FeedFilterUi
 import sg.mesha.goatos.feature.feed.FeedItemQtyUi
 import sg.mesha.goatos.feature.feed.FeedPackingRowUi
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
-import sg.mesha.goatos.feature.feed.FeedPackingSessionUi
 import sg.mesha.goatos.feature.feed.FeedPackingUiState
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
@@ -963,18 +962,6 @@ class ScreenshotTest {
         FeedItemQtyUi(feedItem = "Mineral mix", quantityKg = "0.6", blocked = false, blockedReason = ""),
     )
 
-    /** A pen's day, split across the park's two authored sessions at the usual 50/50. */
-    private fun feedPackingSessions() = listOf(
-        FeedPackingSessionUi(
-            sessionNo = 1, sessionLabel = "Morning",
-            items = feedItems(), totalKg = "17.8", status = "ready",
-        ),
-        FeedPackingSessionUi(
-            sessionNo = 2, sessionLabel = "Evening",
-            items = feedItems(), totalKg = "17.8", status = "ready",
-        ),
-    )
-
     private fun feedFilters() = FeedFilterUi(
         parks = listOf(
             FeedDropdownOption("park-1", "Channapatna"),
@@ -1034,9 +1021,9 @@ class ScreenshotTest {
     /**
      * The packing worklist: bags to make up today for tomorrow's feed.
      *
-     * ONE CARD PER PEN-DAY, with the day's sessions as a breakdown inside it (maintainer decision
-     * 2026-08-10). The fixture carries BOTH sessions on both pens, because the whole point of the
-     * golden is that a pen appears once with "Morning … Evening …" rather than twice.
+     * ONE CARD PER PEN PER SESSION (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day
+     * card). Castro - 2 therefore appears TWICE, Morning and Evening, and that repetition is the
+     * shape the golden exists to hold: two bags, two cards, two videos.
      *
      * The session labels are the farm's real authored names. A fixture that asserts a shape the farm
      * does not have is a defect even when it passes -- it teaches every later reader that the shape
@@ -1047,43 +1034,53 @@ class ScreenshotTest {
         val rows = flowOf(
             PagingData.from(
                 listOf(
-                    // A pen the afternoon feed correction sent BACK (maintainer decision 2026-08-10):
-                    // animals shifted in after this bag was packed and filmed, so the quantities on
-                    // the card are no longer the ones the operator packed to.
+                    // Castro - 2's TWO bags, both sent BACK by the afternoon feed correction
+                    // (maintainer decision 2026-08-10): animals shifted in after they were packed and
+                    // filmed, so the quantities on both cards are no longer the ones the operator
+                    // packed to. BOTH sessions are here because head count scales the morning and the
+                    // evening ration alike -- reopening only one would leave a bag packed for a head
+                    // count the farm no longer has.
                     //
-                    // FIRST in the list deliberately: it must be ABOVE THE FOLD, or the golden
-                    // renders an image that would be byte-identical with the reopen copy deleted and
-                    // proves nothing. Its lifecycleStatus is "pending" -- IDENTICAL to Gandhi 1
-                    // below, which nobody has packed at all -- so the chip cannot tell the two apart
-                    // and this golden is what proves an operator can.
+                    // FIRST in the list deliberately: the reopen copy must be ABOVE THE FOLD, or the
+                    // golden renders an image that would be byte-identical with that copy deleted and
+                    // proves nothing. lifecycleStatus is "pending" -- IDENTICAL to Gandhi 1 below,
+                    // which nobody has packed at all -- so the chip cannot tell the two apart and this
+                    // golden is what proves an operator can.
                     FeedPackingRowUi(
-                        grainKey = "pack-3", parkId = "park-1", shedId = "shed-3",
+                        grainKey = "pack-3", parkId = "park-1", shedId = "shed-3", sessionNo = 1,
                         shedLabel = "Castro - 2",
-                        partitionLabel = "2",
+                        partitionLabel = "2", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 52,
-                        sessions = feedPackingSessions(),
-                        totalKg = "46.9",
+                        items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
                         reworkReason = "Animals moved in or out of this pen, so the feed " +
                             "quantities changed. Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
-                        grainKey = "pack-1", parkId = "park-1", shedId = "shed-1",
+                        grainKey = "pack-4", parkId = "park-1", shedId = "shed-3", sessionNo = 2,
+                        shedLabel = "Castro - 2",
+                        partitionLabel = "2", sessionLabel = "Evening",
+                        workflow = "normal", experimentArm = "", headCount = 52,
+                        items = feedItems(), totalKg = "17.8",
+                        status = "ready", completed = false, lifecycleStatus = "pending",
+                        reworkReason = "Animals moved in or out of this pen, so the feed " +
+                            "quantities changed. Pack the new amounts and record a new video.",
+                    ),
+                    FeedPackingRowUi(
+                        grainKey = "pack-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
                         shedLabel = "Gandhi 1",
-                        partitionLabel = "",
+                        partitionLabel = "", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 40,
-                        sessions = feedPackingSessions(),
-                        totalKg = "35.6",
+                        items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
                     ),
                     // A PARTITIONED pen, so the golden also shows shed and pen rendering together.
                     FeedPackingRowUi(
-                        grainKey = "pack-2", parkId = "park-1", shedId = "shed-2",
+                        grainKey = "pack-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
                         shedLabel = "Godel 1 - Part 3",
-                        partitionLabel = "Part 3",
+                        partitionLabel = "Part 3", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 18,
-                        sessions = feedPackingSessions(),
-                        totalKg = "16.2",
+                        items = feedItems(), totalKg = "8.1",
                         status = "ready", completed = false,
                         lifecycleStatus = "pending_verification",
                     ),

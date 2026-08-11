@@ -205,16 +205,17 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	}
 }
 
-func TestPackingOverlaysCompletedPenDays(t *testing.T) {
+func TestPackingOverlaysCompletedShedSessions(t *testing.T) {
 	t.Parallel()
 	// The PACKING overlay reads the PACKING verification-gated table (maintainer decision
 	// 2026-07-26): a pen-day is Completed only after a verifier approves, i.e. status='completed' in
 	// feed_packing_completions. The overlay reads ListPackingCompletionStatuses (which also surfaces
 	// pending_verification/rework for the status filter).
 	//
-	// The overlay key is the PEN-DAY since 2026-08-10: shed + pen + workflow, no session. This test
-	// stamps ONE pen and asserts nothing else moves, which is what fails if the key ever loses the
-	// pen -- the 2026-08-08 defect where one Castro - 1 clip marked Castro - 2 and Castro - 3 too.
+	// The overlay key is the shed-SESSION: shed + pen + session + workflow. This test stamps ONE line
+	// and asserts nothing else moves, which is what fails if the key ever loses the pen (the
+	// 2026-08-08 defect where one Castro - 1 clip marked Castro - 2 and Castro - 3 too) or the
+	// session (the 2026-08-10 grain, where the morning's completion marked the evening packed).
 	store := &fakePackingStore{}
 	service, _, _ := newTestService()
 	service.WithPackingStore(store)
@@ -231,6 +232,7 @@ func TestPackingOverlaysCompletedPenDays(t *testing.T) {
 	store.statuses = []ports.PackingCompletionStatus{{
 		ShedID:         target.ShedID,
 		PartitionLabel: target.PartitionLabel,
+		SessionNo:      target.SessionNo,
 		Workflow:       target.Workflow,
 		Status:         domain.SessionStatusCompleted,
 	}}
@@ -242,17 +244,18 @@ func TestPackingOverlaysCompletedPenDays(t *testing.T) {
 	for _, r := range page2.Items {
 		want := r.ShedID == target.ShedID &&
 			domain.PartitionMatchKey(r.PartitionLabel) == domain.PartitionMatchKey(target.PartitionLabel) &&
+			r.SessionNo == target.SessionNo &&
 			r.Workflow == target.Workflow
 		if r.Completed != want {
-			t.Fatalf("packing line (%s pen %q %s) completed=%v, want %v",
-				r.ShedID, r.PartitionLabel, r.Workflow, r.Completed, want)
+			t.Fatalf("packing line (%s pen %q session %d %s) completed=%v, want %v",
+				r.ShedID, r.PartitionLabel, r.SessionNo, r.Workflow, r.Completed, want)
 		}
 		if want {
 			matched = true
 		}
 	}
 	if !matched {
-		t.Fatal("the completed pen-day was not present in the re-served page -- the overlay key missed every row")
+		t.Fatal("the completed shed-session was not present in the re-served page -- the overlay key missed every row")
 	}
 }
 
@@ -501,18 +504,20 @@ func TestPackingReworkReasonIsCarriedOnlyWhileThePenIsActuallyInRework(t *testin
 		for _, r := range page.Items {
 			if r.ShedID == target.ShedID &&
 				domain.PartitionMatchKey(r.PartitionLabel) == domain.PartitionMatchKey(target.PartitionLabel) &&
+				r.SessionNo == target.SessionNo &&
 				r.Workflow == target.Workflow {
 				return r
 			}
 		}
-		t.Fatal("the overlaid pen was not present in the re-served page -- the overlay key missed every row")
+		t.Fatal("the overlaid line was not present in the re-served page -- the overlay key missed every row")
 		return domain.PackingRow{}
 	}
 
 	// In rework: the sentence reaches the card, and the card still reads as the operator's to act on.
 	store.statuses = []ports.PackingCompletionStatus{{
-		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, Workflow: target.Workflow,
-		Status: domain.PackingStatusRework, ReworkReason: reason,
+		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, SessionNo: target.SessionNo,
+		Workflow: target.Workflow,
+		Status:   domain.PackingStatusRework, ReworkReason: reason,
 	}}
 	reworked, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {
@@ -529,8 +534,9 @@ func TestPackingReworkReasonIsCarriedOnlyWhileThePenIsActuallyInRework(t *testin
 	// Re-submitted: the row is awaiting a verdict again. The reason must be gone even if a stale one
 	// were still stored, or the packer is told to repack what they just repacked.
 	store.statuses = []ports.PackingCompletionStatus{{
-		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, Workflow: target.Workflow,
-		Status: domain.SessionStatusAwaitingVerification, ReworkReason: reason,
+		ShedID: target.ShedID, PartitionLabel: target.PartitionLabel, SessionNo: target.SessionNo,
+		Workflow: target.Workflow,
+		Status:   domain.SessionStatusAwaitingVerification, ReworkReason: reason,
 	}}
 	resubmitted, err := service.PackingWorklist(context.Background(), q)
 	if err != nil {

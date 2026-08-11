@@ -1026,16 +1026,6 @@
       "owningDoc": "docs/architecture/operational-read-model-contract.md",
       "requiredInCI": true,
       "ciStep": "operational-location-guard"
-    },
-    {
-      "id": "feed-packing-rollout",
-      "script": "tools/agent-hooks/check-feed-packing-rollout.mjs",
-      "makeTarget": "feed-packing-rollout-guard",
-      "realCheck": "node tools/agent-hooks/check-feed-packing-rollout.mjs",
-      "selfTest": "node tools/agent-hooks/check-feed-packing-rollout.mjs --self-test",
-      "owningDoc": "docs/decisions/feed-distribution-verification.md",
-      "requiredInCI": true,
-      "ciStep": "feed-packing-rollout-guard"
     }
   ]
 }

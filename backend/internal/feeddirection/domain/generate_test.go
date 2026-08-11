@@ -1089,7 +1089,7 @@ func TestPackingRowsSumGrainsPerShedAndPropagateBlocked(t *testing.T) {
 	if len(brokenPacking[0].BlockedReasons) == 0 {
 		t.Fatal("blocked packing line carries no reasons")
 	}
-	if brokenPacking[0].Sessions[0].Items[0].QuantityKg != nil {
+	if brokenPacking[0].Items[0].QuantityKg != nil {
 		t.Fatal("blocked packing item carried a quantity")
 	}
 }
@@ -1244,13 +1244,11 @@ func TestUndeclaredCatalogItemIsAbsentNotBlocked(t *testing.T) {
 		}
 	}
 
-	// ...and not a bag on the packing worklist, in ANY session of it.
+	// ...and not a bag on the packing worklist.
 	for _, line := range BuildPackingRows(rows, cfg.PlannedFeedItems()) {
-		for _, session := range line.Sessions {
-			for _, item := range session.Items {
-				if item.FeedItem == "Dry Maize" {
-					t.Fatalf("undeclared item reached the packing worklist: %+v", item)
-				}
+		for _, item := range line.Items {
+			if item.FeedItem == "Dry Maize" {
+				t.Fatalf("undeclared item reached the packing worklist: %+v", item)
 			}
 		}
 	}
@@ -1592,20 +1590,19 @@ func TestPackingLinesAreOnePerPartitionNotPerShed(t *testing.T) {
 	}
 }
 
-// ONE BAG PER PEN PER DAY, WITH THE DAY SPLIT INTO SESSIONS (maintainer decision 2026-08-10).
+// ONE BAG PER PEN PER SESSION (maintainer decision 2026-08-11, REVERTING the 2026-08-10 pen-day
+// bag).
 //
-// The packer was being shown the same pen twice -- Morning and Evening -- and asked to film the same
-// work twice. This is the property that fixes it, and the three things it pins are the three ways a
-// naive merge goes wrong:
+// A pen's morning and evening shares are two separate bags: each is weighed out on its own and
+// filmed on its own, so each is its own line. Three things are pinned, and each is a way the pen-day
+// merge got it wrong:
 //
-//  1. ONE line, not two, for a pen that has both sessions.
-//  2. The sessions survive INTACT as a breakdown. Folding them into a single day figure would lose
-//     the numbers the packer actually works from, and would leave a verifier unable to tell a crew
-//     that packed the morning share twice from one that packed both correctly.
-//  3. Head count is the PEN's, counted ONCE. It is the same animals morning and evening, so
-//     accumulating per session reports double the population -- and the head count is the
-//     denominator the whole ration was computed from.
-func TestPackingBagIsOnePerPenPerDayAndKeepsTheSessionBreakdown(t *testing.T) {
+//  1. TWO lines for a pen that has both sessions, not one.
+//  2. Each line carries its OWN session's quantities and its own total -- not the day's, which would
+//     show a packer twice what belongs in the bag in front of them.
+//  3. Head count is the PEN's and repeats on both lines. It is the same animals morning and evening
+//     and it is a DENOMINATOR, so summing it across a pen's lines reports double the population.
+func TestPackingBagIsOnePerPenPerSession(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.FeedItems = []FeedItem{{Label: "Concentrate", Key: "concentrate"}}
@@ -1617,45 +1614,51 @@ func TestPackingBagIsOnePerPenPerDayAndKeepsTheSessionBreakdown(t *testing.T) {
 	rows := append(generate(cfg, in, 1), generate(cfg, in, 2)...)
 
 	lines := BuildPackingRows(rows, cfg.FeedItems)
-	if len(lines) != 1 {
-		t.Fatalf("packing lines = %d, want 1 -- the pen must appear ONCE for the day, not once per session", len(lines))
-	}
-	line := lines[0]
-
-	if len(line.Sessions) != 2 {
-		t.Fatalf("sessions on the bag = %d, want 2 (Morning + Evening kept as a breakdown)", len(line.Sessions))
-	}
-	// Authored order, never first-seen order: the direction rows arrive grain by grain, so a pen
-	// whose evening grain generated first would otherwise print Evening above Morning.
-	if line.Sessions[0].SessionNo != 1 || line.Sessions[1].SessionNo != 2 {
-		t.Fatalf("session order = %d,%d, want 1,2", line.Sessions[0].SessionNo, line.Sessions[1].SessionNo)
-	}
-	if line.Sessions[0].SessionLabel != "Morning" || line.Sessions[1].SessionLabel != "Evening" {
-		t.Fatalf("session labels = %q,%q, want Morning,Evening -- the authored label is what the packer reads",
-			line.Sessions[0].SessionLabel, line.Sessions[1].SessionLabel)
+	if len(lines) != 2 {
+		t.Fatalf("packing lines = %d, want 2 -- the pen must appear ONCE PER SESSION, not once for the day", len(lines))
 	}
 
-	// 10 head x 200 g x 0.5 = 1000 g per session.
-	for _, sessionNo := range []int32{1, 2} {
-		if got := packingSessionItemKg(t, line, sessionNo, "Concentrate"); got != "1.000" {
-			t.Errorf("session %d Concentrate = %q, want \"1.000\"", sessionNo, got)
+	bySession := map[int32]PackingRow{}
+	for _, l := range lines {
+		if _, clash := bySession[l.SessionNo]; clash {
+			t.Fatalf("two bags for session %d", l.SessionNo)
 		}
+		bySession[l.SessionNo] = l
 	}
-	// The DAY total is the sum of the already-rounded session totals, so it agrees with the two
-	// figures printed above it rather than differing by a rounding step.
-	if line.TotalKg != "2.000" {
-		t.Errorf("day total = %q, want \"2.000\" (1.000 morning + 1.000 evening)", line.TotalKg)
-	}
-	if line.HeadCount != 10 {
-		t.Errorf("head_count = %d, want 10 -- the pen's animals counted ONCE, not once per session", line.HeadCount)
+
+	for _, tc := range []struct {
+		sessionNo int32
+		label     string
+	}{{1, "Morning"}, {2, "Evening"}} {
+		line, ok := bySession[tc.sessionNo]
+		if !ok {
+			t.Fatalf("no bag for session %d -- one of the pen's two bags vanished", tc.sessionNo)
+		}
+		// The authored label is what the packer reads; a positional "Session 1" says nothing about
+		// which share of the day the bag is for.
+		if line.SessionLabel != tc.label {
+			t.Errorf("session %d label = %q, want %q", tc.sessionNo, line.SessionLabel, tc.label)
+		}
+		// 10 head x 200 g x 0.5 = 1000 g per session. The DAY figure (2.000) must never appear on a
+		// line: it is twice what goes in this bag.
+		if got := packingItemKg(t, line, "Concentrate"); got != "1.000" {
+			t.Errorf("session %d Concentrate = %q, want \"1.000\"", tc.sessionNo, got)
+		}
+		if line.TotalKg != "1.000" {
+			t.Errorf("session %d total = %q, want \"1.000\"", tc.sessionNo, line.TotalKg)
+		}
+		if line.HeadCount != 10 {
+			t.Errorf("session %d head_count = %d, want 10 -- the pen's animals, the same on both lines",
+				tc.sessionNo, line.HeadCount)
+		}
 	}
 }
 
-// The session merge must NOT be read as licence to merge pens. Castro 1 and Castro 2 are different
-// animals on different rations; 000137 exists because one Castro - 1 clip was closing out all three
-// pens. This is that guarantee re-asserted at the new grain: two pens, two bags, each carrying both
-// of its own sessions and its own quantities.
-func TestPenDayMergeStillKeepsPartitionsApart(t *testing.T) {
+// Splitting by session must NOT be read as licence to merge pens, and merging pens must never be
+// read as licence to merge sessions. Castro 1 and Castro 2 are different animals on different
+// rations; 000137 exists because one Castro - 1 clip was closing out all three pens. Two pens x two
+// sessions = FOUR bags, each with its own quantity.
+func TestPackingLinesKeepPartitionsAndSessionsApart(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.FeedItems = []FeedItem{{Label: "Concentrate", Key: "concentrate"}}
@@ -1681,52 +1684,55 @@ func TestPenDayMergeStillKeepsPartitionsApart(t *testing.T) {
 	}
 
 	lines := BuildPackingRows(rows, cfg.FeedItems)
-	if len(lines) != 2 {
-		t.Fatalf("packing lines = %d, want 2 -- one bag per PEN per day, and merging the sessions must not merge the pens", len(lines))
+	if len(lines) != 4 {
+		t.Fatalf("packing lines = %d, want 4 -- two pens x two sessions, with neither dimension collapsed", len(lines))
 	}
 
-	byPen := map[string]PackingRow{}
+	type penSession struct {
+		pen       string
+		sessionNo int32
+	}
+	byKey := map[penSession]PackingRow{}
 	for _, l := range lines {
-		if _, clash := byPen[l.PartitionLabel]; clash {
-			t.Fatalf("two bags for pen %q", l.PartitionLabel)
+		key := penSession{l.PartitionLabel, l.SessionNo}
+		if _, clash := byKey[key]; clash {
+			t.Fatalf("two bags for pen %q session %d", key.pen, key.sessionNo)
 		}
-		byPen[l.PartitionLabel] = l
+		byKey[key] = l
 	}
 
 	// 10 head x 1000 g x 0.5 = 5.000 kg per session; 4 head -> 2.000 kg per session. A bag that had
-	// swallowed the other pen would read 7.000 and the second pen would have vanished entirely.
-	for _, tc := range []struct{ pen, perSession, day string }{
-		{"1", "5.000", "10.000"},
-		{"2", "2.000", "4.000"},
-	} {
-		line, ok := byPen[tc.pen]
-		if !ok {
-			t.Fatalf("no bag for Castro %s -- the pen vanished from the worklist", tc.pen)
-		}
-		if len(line.Sessions) != 2 {
-			t.Fatalf("Castro %s has %d sessions, want 2", tc.pen, len(line.Sessions))
-		}
+	// swallowed the other pen would read 7.000 and the second pen would have vanished entirely; one
+	// that had swallowed the other session would read double.
+	for _, tc := range []struct {
+		pen        string
+		perSession string
+	}{{"1", "5.000"}, {"2", "2.000"}} {
 		for _, sessionNo := range []int32{1, 2} {
-			if got := packingSessionItemKg(t, line, sessionNo, "Concentrate"); got != tc.perSession {
-				t.Errorf("Castro %s session %d = %q, want %q (this pen only, never the shed total)",
+			line, ok := byKey[penSession{tc.pen, sessionNo}]
+			if !ok {
+				t.Fatalf("no bag for Castro %s session %d -- it vanished from the worklist", tc.pen, sessionNo)
+			}
+			if got := packingItemKg(t, line, "Concentrate"); got != tc.perSession {
+				t.Errorf("Castro %s session %d = %q, want %q (this pen and this session only)",
 					tc.pen, sessionNo, got, tc.perSession)
 			}
-		}
-		if line.TotalKg != tc.day {
-			t.Errorf("Castro %s day total = %q, want %q", tc.pen, line.TotalKg, tc.day)
-		}
-		if line.OperationalLocationDisplay != "Castro - "+tc.pen {
-			t.Errorf("Castro %s display = %q, want %q -- shed and pen must always render together",
-				tc.pen, line.OperationalLocationDisplay, "Castro - "+tc.pen)
+			if line.TotalKg != tc.perSession {
+				t.Errorf("Castro %s session %d total = %q, want %q", tc.pen, sessionNo, line.TotalKg, tc.perSession)
+			}
+			if line.OperationalLocationDisplay != "Castro - "+tc.pen {
+				t.Errorf("Castro %s display = %q, want %q -- shed and pen must always render together",
+					tc.pen, line.OperationalLocationDisplay, "Castro - "+tc.pen)
+			}
 		}
 	}
 }
 
 // A pen can be fine in the morning and short in the evening when the two sessions draw on different
-// feed items. The day must then read BLOCKED -- a real gap must not be hidden because the other half
-// of the day happens to be fine -- while each session still reports its own state, so the packer is
-// told WHICH share is short rather than being handed one flag over the whole day.
-func TestPenDayIsBlockedWhenAnySessionIsBlocked(t *testing.T) {
+// feed items. Each session is its OWN line, so the morning line stays packable and only the evening
+// line reads blocked -- the packer is told which bag is short rather than being handed one flag over
+// the whole day.
+func TestOneBlockedSessionDoesNotBlockThePensOtherSession(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.FeedItems = []FeedItem{{Label: "Concentrate", Key: "concentrate"}, {Label: "Hybrid", Key: "hybrid"}}
@@ -1741,59 +1747,48 @@ func TestPenDayIsBlockedWhenAnySessionIsBlocked(t *testing.T) {
 	rows := append(generate(cfg, in, 1), generate(cfg, in, 2)...)
 
 	lines := BuildPackingRows(rows, cfg.FeedItems)
-	if len(lines) != 1 {
-		t.Fatalf("packing lines = %d, want 1", len(lines))
+	if len(lines) != 2 {
+		t.Fatalf("packing lines = %d, want 2", len(lines))
 	}
-	line := lines[0]
 
-	if line.Status != PackingStatusBlocked {
-		t.Fatalf("day status = %q, want %q -- one blocked session blocks the day", line.Status, PackingStatusBlocked)
+	bySession := map[int32]PackingRow{}
+	for _, l := range lines {
+		bySession[l.SessionNo] = l
 	}
-	if len(line.BlockedReasons) == 0 {
-		t.Fatal("blocked pen-day carries no reasons")
+
+	morning := bySession[1]
+	if morning.Status != PackingStatusReady {
+		t.Errorf("morning status = %q, want %q -- a resolved bag must stay packable when its sibling is short",
+			morning.Status, PackingStatusReady)
 	}
-	if line.Sessions[0].Status != PackingStatusReady {
-		t.Errorf("morning status = %q, want %q -- the resolved half must still read ready",
-			line.Sessions[0].Status, PackingStatusReady)
+	if len(morning.BlockedReasons) != 0 {
+		t.Errorf("morning carries %d blocked reasons, want 0", len(morning.BlockedReasons))
 	}
-	if line.Sessions[1].Status != PackingStatusBlocked {
-		t.Errorf("evening status = %q, want %q", line.Sessions[1].Status, PackingStatusBlocked)
+
+	evening := bySession[2]
+	if evening.Status != PackingStatusBlocked {
+		t.Fatalf("evening status = %q, want %q", evening.Status, PackingStatusBlocked)
 	}
-	if len(line.Sessions[1].BlockedReasons) == 0 {
-		t.Error("the blocked session carries no reasons of its own")
+	if len(evening.BlockedReasons) == 0 {
+		t.Error("the blocked bag carries no reasons of its own")
+	}
+	// A blocked cell carries no quantity -- it is a gap, never a packable zero.
+	if evening.Items[0].QuantityKg != nil {
+		t.Error("blocked packing item carried a quantity")
 	}
 }
 
-// packingItemKg reads one feed item's quantity off a SINGLE-SESSION packing line. It asserts the
-// single session rather than silently reading Sessions[0], so a caller that grows a second session
-// is told to say which one it means instead of quietly reading the morning and calling it the day.
+// packingItemKg reads one feed item's quantity off a packing line.
 func packingItemKg(t *testing.T, line PackingRow, item string) string {
 	t.Helper()
-	if len(line.Sessions) != 1 {
-		t.Fatalf("bag %q has %d sessions; use packingSessionItemKg and name the session",
-			line.PartitionLabel, len(line.Sessions))
-	}
-	return packingSessionItemKg(t, line, line.Sessions[0].SessionNo, item)
-}
-
-// packingSessionItemKg reads one feed item's quantity out of ONE named session of a packing line.
-func packingSessionItemKg(t *testing.T, line PackingRow, sessionNo int32, item string) string {
-	t.Helper()
-	for _, session := range line.Sessions {
-		if session.SessionNo != sessionNo {
-			continue
-		}
-		for _, it := range session.Items {
-			if it.FeedItem != item {
-				continue
-			}
+	for _, it := range line.Items {
+		if it.FeedItem == item {
 			if it.QuantityKg == nil {
-				t.Fatalf("%s is blocked in session %d of the %q bag", item, sessionNo, line.PartitionLabel)
+				t.Fatalf("%s is blocked on the %q bag", item, line.PartitionLabel)
 			}
 			return *it.QuantityKg
 		}
-		t.Fatalf("no %s in session %d of the %q bag", item, sessionNo, line.PartitionLabel)
 	}
-	t.Fatalf("no session %d on the %q bag", sessionNo, line.PartitionLabel)
+	t.Fatalf("no %s on the %q bag", item, line.PartitionLabel)
 	return ""
 }

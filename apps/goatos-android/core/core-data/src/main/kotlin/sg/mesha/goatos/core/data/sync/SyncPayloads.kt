@@ -326,13 +326,14 @@ data class FeedPackingCompletePayload(
      *  build still decodes — it simply predates per-pen completions. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     /**
-     * LEGACY, read-only, never sent.
+     * The feeding session this bag was packed for, and part of the completion's identity again
+     * (maintainer decision 2026-08-11).
      *
-     * The completion is per PEN-DAY since 2026-08-10, so the session is no longer part of it and is
-     * not put on the wire. The field survives here ONLY so a row an EARLIER build already queued
-     * still decodes: the outbox is durable, and dropping the property outright would make an
-     * operator's recorded-but-unsynced video fail to parse and die terminally. A legacy row simply
-     * loses its session, which is exactly right -- its pen-day row absorbs it.
+     * DEFAULTED TO 0 ON PURPOSE, and 0 means "queued by the pen-day build". The outbox is durable, so
+     * a phone upgrading across this change can still hold a recorded-but-unsynced packing row whose
+     * JSON carries no session at all. A non-defaulted property would fail to decode it and kill an
+     * operator's video terminally. [SyncEngine] maps a 0 to session 1 on dispatch, the same choice
+     * migration 000150 makes for the rows already on the server.
      */
     @SerialName("session_no") val sessionNo: Int = 0,
     @SerialName("target_date") val targetDate: String,

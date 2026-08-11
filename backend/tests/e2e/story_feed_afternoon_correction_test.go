@@ -19,27 +19,29 @@ import (
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
-// TestKernelStory_FeedAfternoonCorrection is the end-to-end proof for the two 2026-08-10 feed
-// decisions, driven entirely through the production path:
+// TestKernelStory_FeedAfternoonCorrection is the end-to-end proof for two feed decisions, driven
+// entirely through the production path:
 //
-//	PEN-DAY PACKING GRAIN     a packer packs a pen's whole day in one go and films it ONCE, so the
-//	                          worklist serves ONE card per pen carrying Morning and Evening as a
-//	                          breakdown, backed by ONE completion and ONE verification item.
+//	SHED-SESSION PACKING GRAIN a pen's morning and evening shares are two separate bags, so the
+//	                           worklist serves ONE card per pen PER SESSION, each backed by its own
+//	                           completion, its own video and its own verification item (maintainer
+//	                           decision 2026-08-11, REVERTING the 2026-08-10 pen-day card).
 //
-//	AFTERNOON FEED CORRECTION a movement RAISED but not yet approved counts toward the feed sheet,
-//	                          and the 14:00 correction reopens any pen already packed against the
-//	                          old head count.
+//	AFTERNOON FEED CORRECTION  a movement RAISED but not yet approved counts toward the feed sheet,
+//	                           and the 14:00 correction reopens EVERY SESSION of any pen already
+//	                           packed against the old head count -- head count scales both rations,
+//	                           so both videos now prove the wrong quantity.
 //
 // The chain it walks is the real one, hour by hour on one business day:
 //
 //	07:00  feeddirection.IssueDirection            freezes tomorrow's normal sheet
-//	09:00  feeddirection.CompletePacking           operator's ONE video -> pending_verification
-//	                                               -> verificationbridge.NewPacking -> a real item
-//	09:30  verification.RecordVerdict(approved)    -> outbox -> FeedPackingVerificationHandler
+//	09:00  feeddirection.CompletePacking x2        one video per bag -> pending_verification
+//	                                               -> verificationbridge.NewPacking -> two real items
+//	09:30  verification.RecordVerdict(approved) x2 -> outbox -> FeedPackingVerificationHandler
 //	                                               -> ApplyVerifiedPacking -> 'completed'
 //	10:00  counts: a LOW-PRIORITY shifting is RAISED into that pen and NOBODY APPROVES IT
 //	14:00  feeddirection.AmendDirection            recomputes including the unapproved movement,
-//	                                               reopens the pen, withdraws its verification item
+//	                                               reopens BOTH bags, withdraws both items
 //	14:01  feeddirection.PackingWorklist           serves the NEW quantities + the reason
 //	14:30  feeddirection.CompletePacking           the re-shoot -> a FRESH verification item
 //
@@ -50,14 +52,14 @@ import (
 func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-feed-afternoon-correction",
-		"Feed: one video per pen per day, and the afternoon correction that takes it back",
-		"A packer packs a pen's whole day in ONE go and films it ONCE, so the worklist serves one card "+
-			"per pen with Morning and Evening as a breakdown inside it. But a low-priority movement raised "+
-			"at 10:00 is due TOMORROW, and tomorrow's sheet was issued at 07:00 and was already packed and "+
+		"Feed: one video per bag, and the afternoon correction that takes it back",
+		"A pen's morning and evening shares are two separate bags, so the worklist serves one card per "+
+			"pen per session and each is filmed on its own. But a low-priority movement raised at 10:00 "+
+			"is due TOMORROW, and tomorrow's sheet was issued at 07:00 and was already packed and "+
 			"verified by 09:30 -- so the animals arriving tomorrow would have had no feed. The 14:00 "+
 			"correction now counts that movement BEFORE a park head approves it, recomputes the pen, takes "+
-			"the already-approved video back, withdraws the verifier's closed item, and hands the packer a "+
-			"card carrying the NEW amounts and a sentence saying why. Experiment pens, whose rations are "+
+			"BOTH already-approved videos back, withdraws the verifier's closed items, and hands the packer "+
+			"cards carrying the NEW amounts and a sentence saying why. Experiment pens, whose rations are "+
 			"authored in absolute kg, are left alone.")
 	defer story.Finish()
 	story.Certify("backend kernel")
@@ -150,71 +152,92 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		}
 		return page
 	}
-	penRow := func(page feeddirectiondomain.PackingPage, partition string) feeddirectiondomain.PackingRow {
+	penRow := func(page feeddirectiondomain.PackingPage, partition string, sessionNo int32) feeddirectiondomain.PackingRow {
 		t.Helper()
 		for _, row := range page.Items {
 			if row.ShedID == shedCastro &&
 				feeddirectiondomain.PartitionMatchKey(row.PartitionLabel) == feeddirectiondomain.PartitionMatchKey(partition) &&
+				row.SessionNo == sessionNo &&
 				row.Workflow == feeddirectiondomain.WorkflowNormal {
 				return row
 			}
 		}
-		t.Fatalf("no packing row for Castro pen %q in %d rows", partition, len(page.Items))
+		t.Fatalf("no packing row for Castro pen %q session %d in %d rows", partition, sessionNo, len(page.Items))
 		return feeddirectiondomain.PackingRow{}
 	}
 
 	before := worklist(at(8, 0))
-	pen1 := penRow(before, "1")
+	pen1Morning := penRow(before, "1", 1)
+	pen1Evening := penRow(before, "1", 2)
 
-	// PEN-DAY GRAIN. Before 2026-08-10 this pen appeared TWICE -- once for Morning, once for Evening --
-	// and the packer was asked to film the same work twice.
-	story.Assert("the pen appears ONCE, carrying both sessions as a breakdown",
-		len(pen1.Sessions) == 2 && countCastroRows(before, shedCastro, "1") == 1,
-		"rows for Castro - 1 = %d, sessions on the row = %d (%s)",
-		countCastroRows(before, shedCastro, "1"), len(pen1.Sessions), sessionSummary(pen1))
-	story.Assert("the pen's head count is counted once for the DAY, never per session",
-		pen1.HeadCount == 40, "head_count=%d, want the pen's 40 animals (not 80)", pen1.HeadCount)
+	// SHED-SESSION GRAIN (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day card).
+	// A pen's morning and evening are two separate bags, weighed out at different times, so each is
+	// its own card and each is filmed on its own.
+	story.Assert("the pen appears ONCE PER SESSION — two bags, two cards",
+		countCastroRows(before, shedCastro, "1") == 2,
+		"rows for Castro - 1 = %d, want 2 (Morning + Evening)", countCastroRows(before, shedCastro, "1"))
+	story.Assert("each card names its own session in the farm's authored words",
+		pen1Morning.SessionLabel == "Morning" && pen1Evening.SessionLabel == "Evening",
+		"session labels = %q, %q", pen1Morning.SessionLabel, pen1Evening.SessionLabel)
+	story.Assert("each card carries only its own session's quantity, never the day's",
+		pen1Morning.TotalKg == pen1Evening.TotalKg && pen1Morning.TotalKg == "4.000",
+		"morning=%s evening=%s — 40 head x 200 g x 0.5 = 4.000 kg per bag",
+		pen1Morning.TotalKg, pen1Evening.TotalKg)
+	story.Assert("head count is the PEN's and repeats across its sessions, never doubles",
+		pen1Morning.HeadCount == 40 && pen1Evening.HeadCount == 40,
+		"morning head_count=%d evening head_count=%d, want the pen's 40 animals on both",
+		pen1Morning.HeadCount, pen1Evening.HeadCount)
 	story.Assert("the sibling pen is a separate card with its own animals",
-		penRow(before, "2").HeadCount == 30, "Castro - 2 head_count=%d", penRow(before, "2").HeadCount)
+		penRow(before, "2", 1).HeadCount == 30, "Castro - 2 head_count=%d", penRow(before, "2", 1).HeadCount)
 	story.Assert("the backend composes the operational location, shed and pen together",
-		pen1.OperationalLocationDisplay == "Castro - 1",
-		"operational_location_display=%q", pen1.OperationalLocationDisplay)
+		pen1Morning.OperationalLocationDisplay == "Castro - 1",
+		"operational_location_display=%q", pen1Morning.OperationalLocationDisplay)
 
-	originalTotal := pen1.TotalKg
+	originalTotal := pen1Morning.TotalKg
 
 	// -----------------------------------------------------------------------
-	story.Step("09:00 — the operator packs Castro - 1 and films it ONCE",
-		"One mandatory video covers the pen's whole day. It becomes exactly one item in the verifier's "+
-			"queue, subjected on the PEN with no session prefix.")
+	story.Step("09:00 — the operator packs BOTH of Castro - 1's bags and films each one",
+		"One mandatory video per bag. Each becomes its own item in the verifier's queue, subjected on "+
+			"the session AND the pen, so a verifier holding two cards for Castro - 1 can tell which bag "+
+			"each clip proves.")
 
-	complete := func(partition, proof, key string, asOf time.Time) feeddirectionports.CompletePackingResult {
+	complete := func(partition string, sessionNo int32, proof, key string, asOf time.Time) feeddirectionports.CompletePackingResult {
 		t.Helper()
 		clock.Set(asOf)
 		res, err := feed.CompletePacking(ctx, feeddirectionapp.CompletePackingInput{
 			TenantID: fxTenant, ParkID: park, ShedID: shedCastro, PartitionLabel: partition,
+			SessionNo:  sessionNo,
 			TargetDate: feedDayTime(t), Workflow: feeddirectiondomain.WorkflowNormal,
 			PackingProofRef: proof, CompletedBy: operator, IdempotencyKey: key,
 			ActorID: operator, ActorType: "operator",
 		})
 		if err != nil {
-			t.Fatalf("CompletePacking(%s): %v", partition, err)
+			t.Fatalf("CompletePacking(%s session %d): %v", partition, sessionNo, err)
 		}
 		return res
 	}
 
-	first := complete("1", "proof-castro-1-morning-and-evening", "feed-pack-castro-1-first", at(9, 0))
-	story.Assert("the completion is awaiting verification, not completed",
-		first.Status == feeddirectiondomain.PackingStatusPendingVerification,
-		"status=%s completion_id=%s", first.Status, first.CompletionID)
+	first := complete("1", 1, "proof-castro-1-morning", "feed-pack-castro-1-morning", at(9, 0))
+	firstEvening := complete("1", 2, "proof-castro-1-evening", "feed-pack-castro-1-evening", at(9, 5))
+	story.Assert("each completion is awaiting verification, not completed",
+		first.Status == feeddirectiondomain.PackingStatusPendingVerification &&
+			firstEvening.Status == feeddirectiondomain.PackingStatusPendingVerification,
+		"morning status=%s evening status=%s", first.Status, firstEvening.Status)
+	story.Assert("the two bags are two SEPARATE completion rows",
+		first.CompletionID != firstEvening.CompletionID,
+		"both submissions returned completion_id=%s — one video would stand as proof for both bags",
+		first.CompletionID)
 
 	items := listPackingItems(t, ctx, fx.Pool, first.CompletionID)
-	story.Assert("exactly ONE verification item was queued for the pen-day",
-		len(items) == 1, "verification items for this completion = %d", len(items))
-	if len(items) == 1 {
-		story.Assert("the verifier's item is subjected on the PEN, with no session prefix",
-			items[0].subject == "Castro - 1",
-			"subject_label=%q — a 'Session 1 · ' prefix would name half the work the verifier is judging whole",
-			items[0].subject)
+	eveningItems := listPackingItems(t, ctx, fx.Pool, firstEvening.CompletionID)
+	story.Assert("exactly ONE verification item was queued per bag",
+		len(items) == 1 && len(eveningItems) == 1,
+		"verification items: morning=%d evening=%d", len(items), len(eveningItems))
+	if len(items) == 1 && len(eveningItems) == 1 {
+		story.Assert("the verifier's items name the SESSION and the pen, so the two cards are distinguishable",
+			items[0].subject == "Session 1 · Castro - 1" && eveningItems[0].subject == "Session 2 · Castro - 1",
+			"subject_labels = %q, %q — without the session prefix both cards read identically",
+			items[0].subject, eveningItems[0].subject)
 	}
 
 	// -----------------------------------------------------------------------
@@ -222,25 +245,31 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		"The verdict travels the real outbox -> domain-consumer -> FeedPackingVerificationHandler path, "+
 			"which is what actually flips the pen to completed and emits feed.packing.completed.")
 
-	if len(items) == 1 {
+	approve := func(itemID, key string) {
+		t.Helper()
 		// RowVersion is the optimistic-concurrency fence the real verdict route also carries: a verdict
 		// cast against a stale view of the item is refused rather than silently overwriting a newer one.
 		if _, err := verification.RecordVerdict(ctx, verificationdomain.Verdict{
-			TenantID: fxTenant, ItemID: items[0].id, Decision: verificationdomain.DecisionApproved,
+			TenantID: fxTenant, ItemID: itemID, Decision: verificationdomain.DecisionApproved,
 			VerifierID: verifier, Reason: "bags match the sheet",
-			RowVersion:     verificationItemRowVersion(t, ctx, fx.Pool, items[0].id),
-			IdempotencyKey: "fe-verdict-castro-1",
+			RowVersion:     verificationItemRowVersion(t, ctx, fx.Pool, itemID),
+			IdempotencyKey: key,
 		}); err != nil {
 			t.Fatalf("RecordVerdict(approved): %v", err)
 		}
 	}
+	if len(items) == 1 && len(eveningItems) == 1 {
+		approve(items[0].id, "fe-verdict-castro-1-morning")
+		approve(eveningItems[0].id, "fe-verdict-castro-1-evening")
+	}
 	fx.RelayOutboxEvents()
 
 	afterApproval := worklist(at(9, 45))
-	story.Assert("the pen reads completed once a verifier has approved the video",
-		penRow(afterApproval, "1").Completed,
-		"lifecycle_status=%s completed=%t",
-		penRow(afterApproval, "1").LifecycleStatus, penRow(afterApproval, "1").Completed)
+	story.Assert("both bags read completed once a verifier has approved each video",
+		penRow(afterApproval, "1", 1).Completed && penRow(afterApproval, "1", 2).Completed,
+		"morning lifecycle_status=%s completed=%t / evening lifecycle_status=%s completed=%t",
+		penRow(afterApproval, "1", 1).LifecycleStatus, penRow(afterApproval, "1", 1).Completed,
+		penRow(afterApproval, "1", 2).LifecycleStatus, penRow(afterApproval, "1", 2).Completed)
 
 	// -----------------------------------------------------------------------
 	story.Step("10:00 — a low-priority movement is RAISED, and nobody approves it",
@@ -263,47 +292,69 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AmendDirection: %v", err)
 	}
-	story.Assert("the correction reopened exactly ONE pen — the one whose animal count moved",
-		len(amended.ReopenedPackingCompletionIDs) == 1 &&
-			amended.ReopenedPackingCompletionIDs[0] == first.CompletionID,
-		"reopened=%v, want only Castro - 1 (%s); Castro - 2 did not move and its packer must not refilm",
-		amended.ReopenedPackingCompletionIDs, first.CompletionID)
+	// BOTH SESSIONS COME BACK (maintainer decision 2026-08-11). Head count scales the morning and the
+	// evening ration alike, so both of this pen's videos now prove the wrong quantity. Reopening only
+	// one would leave a bag packed for a head count the farm no longer has.
+	story.Assert("the correction reopened BOTH of the pen's bags — and nothing else",
+		len(amended.ReopenedPackingCompletionIDs) == 2 &&
+			containsID(amended.ReopenedPackingCompletionIDs, first.CompletionID) &&
+			containsID(amended.ReopenedPackingCompletionIDs, firstEvening.CompletionID),
+		"reopened=%v, want both Castro - 1 bags (%s, %s); Castro - 2 did not move and its packer must not refilm",
+		amended.ReopenedPackingCompletionIDs, first.CompletionID, firstEvening.CompletionID)
 
 	corrected := worklist(at(14, 1))
-	pen1After := penRow(corrected, "1")
 
-	story.Assert("the pen is back with the operator",
-		pen1After.LifecycleStatus == feeddirectiondomain.SessionStatusPending && !pen1After.Completed,
-		"lifecycle_status=%s completed=%t", pen1After.LifecycleStatus, pen1After.Completed)
-	story.Assert("its head count now includes the animals the unapproved movement is bringing",
-		pen1After.HeadCount == 50, "head_count=%d, want 40 + the 10 being moved in", pen1After.HeadCount)
-	story.Assert("the quantities on the card actually changed",
-		pen1After.TotalKg != originalTotal,
-		"total_kg %s -> %s", originalTotal, pen1After.TotalKg)
-	// THE POINT OF THE REASON. 'rework' has no client bucket of its own -- it normalizes to
-	// "pending", the same state as a pen nobody has packed -- so the chip cannot say why this card
-	// is back, and only this sentence can.
-	story.Assert("the packer is TOLD why the card came back, in farm language",
-		pen1After.ReworkReason != "" && !containsAny(pen1After.ReworkReason,
-			"amend", "correction", "shifting_events", "projection", "row_version", "workflow"),
-		"rework_reason=%q", pen1After.ReworkReason)
-	story.Assert("the sibling pen is untouched — same status, same quantities",
-		penRow(corrected, "2").LifecycleStatus == feeddirectiondomain.SessionStatusPending &&
-			penRow(corrected, "2").HeadCount == 30 && penRow(corrected, "2").ReworkReason == "",
-		"Castro - 2 head_count=%d reason=%q",
-		penRow(corrected, "2").HeadCount, penRow(corrected, "2").ReworkReason)
-
-	// The verifier's item must LEAVE the pending queue. Left behind, it points at a video of the old
-	// quantity; approving it would flip the pen straight back to completed behind the operator who is
-	// at that moment repacking it.
-	if len(items) == 1 {
-		story.Assert("the superseded verification item is withdrawn from the queue",
-			verificationItemStatus(t, ctx, fx.Pool, items[0].id) == "withdrawn",
-			"item status=%s", verificationItemStatus(t, ctx, fx.Pool, items[0].id))
+	for _, tc := range []struct {
+		sessionNo int32
+		label     string
+	}{{1, "Morning"}, {2, "Evening"}} {
+		row := penRow(corrected, "1", tc.sessionNo)
+		story.Assert(tc.label+" is back with the operator",
+			row.LifecycleStatus == feeddirectiondomain.SessionStatusPending && !row.Completed,
+			"%s lifecycle_status=%s completed=%t", tc.label, row.LifecycleStatus, row.Completed)
+		story.Assert(tc.label+"'s head count now includes the animals the unapproved movement is bringing",
+			row.HeadCount == 50, "%s head_count=%d, want 40 + the 10 being moved in", tc.label, row.HeadCount)
+		story.Assert("the quantities on the "+tc.label+" card actually changed",
+			row.TotalKg != originalTotal, "%s total_kg %s -> %s", tc.label, originalTotal, row.TotalKg)
+		// THE POINT OF THE REASON. 'rework' has no client bucket of its own -- it normalizes to
+		// "pending", the same state as a bag nobody has packed -- so the chip cannot say why this card
+		// is back, and only this sentence can.
+		story.Assert("the packer is TOLD why the "+tc.label+" card came back, in farm language",
+			row.ReworkReason != "" && !containsAny(row.ReworkReason,
+				"amend", "correction", "shifting_events", "projection", "row_version", "workflow"),
+			"%s rework_reason=%q", tc.label, row.ReworkReason)
 	}
-	story.Assert("the earlier approval is stripped, so no verifier is credited with the old quantity",
-		!packingRowHasVerifier(t, ctx, fx.Pool, first.CompletionID),
-		"verified_by/verified_at must be cleared on a reopened row")
+
+	story.Assert("the sibling pen is untouched — both its bags keep their status and quantities",
+		penRow(corrected, "2", 1).HeadCount == 30 && penRow(corrected, "2", 1).ReworkReason == "" &&
+			penRow(corrected, "2", 2).HeadCount == 30 && penRow(corrected, "2", 2).ReworkReason == "",
+		"Castro - 2 morning head_count=%d reason=%q / evening head_count=%d reason=%q",
+		penRow(corrected, "2", 1).HeadCount, penRow(corrected, "2", 1).ReworkReason,
+		penRow(corrected, "2", 2).HeadCount, penRow(corrected, "2", 2).ReworkReason)
+
+	// The verdicts already cast STAY as history. Both of these items were approved at 09:30, so they
+	// are closed and sit in nobody's queue -- rewriting a real verdict to 'withdrawn' would erase the
+	// fact that a verifier genuinely watched and passed that clip. What protects the operator here is
+	// the completion row: it is back in rework and its verified_by/verified_at are cleared, asserted
+	// below.
+	//
+	// The 'withdrawn' branch exists for an item still PENDING when the correction lands -- a verifier
+	// holding a card for a video of the old quantity, which approving would flip the bag back to
+	// completed behind the operator who is at that moment repacking it. That branch is not reachable
+	// from this story's timeline (both clips were already judged), so it is covered directly against
+	// Postgres by TestReopenPackingWithdrawsPendingItemsAndKeepsCastVerdicts.
+	if len(items) == 1 && len(eveningItems) == 1 {
+		story.Assert("the verdicts a verifier really cast are kept as history, not rewritten",
+			verificationItemStatus(t, ctx, fx.Pool, items[0].id) == "approved" &&
+				verificationItemStatus(t, ctx, fx.Pool, eveningItems[0].id) == "approved",
+			"item statuses = %s, %s",
+			verificationItemStatus(t, ctx, fx.Pool, items[0].id),
+			verificationItemStatus(t, ctx, fx.Pool, eveningItems[0].id))
+	}
+	story.Assert("the earlier approvals are stripped, so no verifier is credited with the old quantity",
+		!packingRowHasVerifier(t, ctx, fx.Pool, first.CompletionID) &&
+			!packingRowHasVerifier(t, ctx, fx.Pool, firstEvening.CompletionID),
+		"verified_by/verified_at must be cleared on every reopened row")
 
 	// -----------------------------------------------------------------------
 	story.Step("14:00 — the experiment pen is deliberately left alone",
@@ -324,25 +375,42 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		"The re-shoot is a fresh pending transition, so it queues a NEW verification item rather than "+
 			"colliding with the withdrawn one, and the reason is cleared so nobody is told twice.")
 
-	second := complete("1", "proof-castro-1-repacked", "feed-pack-castro-1-repack", at(14, 30))
+	second := complete("1", 1, "proof-castro-1-morning-repacked", "feed-pack-castro-1-morning-repack", at(14, 30))
 	story.Assert("the re-submission is awaiting verification again",
 		second.Status == feeddirectiondomain.PackingStatusPendingVerification && second.NewlyPending,
 		"status=%s newly_pending=%t", second.Status, second.NewlyPending)
-	story.Assert("it is the SAME pen-day row, re-opened and re-submitted, not a second row",
+	story.Assert("it is the SAME row, re-opened and re-submitted, not a second one",
 		second.CompletionID == first.CompletionID,
 		"completion_id %s -> %s", first.CompletionID, second.CompletionID)
 
 	reItems := listPackingItems(t, ctx, fx.Pool, second.CompletionID)
 	story.Assert("a FRESH verification item reaches the verifier for the new video",
-		len(reItems) == 2, "items for this pen-day = %d (one withdrawn, one pending)", len(reItems))
+		len(reItems) == 2, "items for this bag = %d (one withdrawn, one pending)", len(reItems))
 	story.Assert("exactly one of them is pending",
 		countPending(reItems) == 1, "pending items = %d", countPending(reItems))
 
 	final := worklist(at(14, 45))
-	story.Assert("the reason is gone once the pen is re-submitted",
-		penRow(final, "1").ReworkReason == "",
-		"rework_reason=%q on a re-submitted pen — a stale sentence would tell a packer to redo what they just did",
-		penRow(final, "1").ReworkReason)
+	story.Assert("the reason is gone once the bag is re-submitted",
+		penRow(final, "1", 1).ReworkReason == "",
+		"rework_reason=%q on a re-submitted bag — a stale sentence would tell a packer to redo what they just did",
+		penRow(final, "1", 1).ReworkReason)
+	// The pen's OTHER bag is still owed. Re-filming the morning must not close out the evening, which
+	// is exactly what one shared row did between 2026-08-10 and 2026-08-11.
+	story.Assert("the pen's evening bag is still in rework, awaiting its own re-shoot",
+		penRow(final, "1", 2).ReworkReason != "" && !penRow(final, "1", 2).Completed,
+		"evening rework_reason=%q completed=%t — the morning re-shoot must not close the evening out",
+		penRow(final, "1", 2).ReworkReason, penRow(final, "1", 2).Completed)
+}
+
+// containsID reports whether ids holds want. The reopen returns its ids in whatever order the set-based
+// UPDATE emitted them, so order must not be asserted.
+func containsID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -397,13 +465,20 @@ VALUES ($1::uuid, 'Beetal', 'Beetal/Sirohi')`, fxTenant)
 	exec(`INSERT INTO feed_item_catalog (tenant_id, feed_item_label, display_order, status)
 VALUES ($1::uuid, 'Concentrate', 1, 'active')`, fxTenant)
 
-	// Morning/Evening at half the day each — the split the pen-day card renders as a breakdown.
+	// Morning/Evening at half the day each — the two bags this pen is packed and filmed for.
 	exec(`INSERT INTO feed_session_templates (tenant_id, park_id, session_no, session_label, split_fraction, display_order, status)
 VALUES ($1::uuid, $2::uuid, 1, 'Morning', 0.5, 1, 'active'),
        ($1::uuid, $2::uuid, 2, 'Evening', 0.5, 2, 'active')`, fxTenant, park)
-	exec(`INSERT INTO feed_session_template_items (tenant_id, park_id, session_no, slot_no, feed_item_label, status)
-VALUES ($1::uuid, $2::uuid, 1, 1, 'Concentrate', 'active'),
-       ($1::uuid, $2::uuid, 2, 1, 'Concentrate', 'active')`, fxTenant, park)
+	// valid_from is PINNED, not defaulted. The column is `NOT NULL DEFAULT CURRENT_DATE`, and the
+	// serve path filters `valid_from <= <feed day>` -- so on any real run day after this story's
+	// pinned 2026-07-30 the slots would be invisible and EVERY line would come back `blocked` with a
+	// no_session_template reason and a nil quantity. That is a fixture that silently asserts nothing:
+	// the head counts still resolve, so the story reads plausible while every quantity is 0.000.
+	// See AGENTS.md -- a pinned-clock test must derive its time-sensitive fixture fields from the same
+	// pinned anchor, never from SQL's idea of today.
+	exec(`INSERT INTO feed_session_template_items (tenant_id, park_id, session_no, slot_no, feed_item_label, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 1, 1, 'Concentrate', 'active', DATE '2026-01-01'),
+       ($1::uuid, $2::uuid, 2, 1, 'Concentrate', 'active', DATE '2026-01-01')`, fxTenant, park)
 
 	// A PER-HEAD rate, which is exactly why a head-count change moves the quantity here and why an
 	// absolute-kg experiment pen is exempt from the reopen.
@@ -588,17 +663,6 @@ func countCastroRows(page feeddirectiondomain.PackingPage, shedID, partition str
 		}
 	}
 	return n
-}
-
-func sessionSummary(row feeddirectiondomain.PackingRow) string {
-	out := ""
-	for i, s := range row.Sessions {
-		if i > 0 {
-			out += " · "
-		}
-		out += s.SessionLabel + " " + s.TotalKg + " kg"
-	}
-	return out
 }
 
 func containsAny(s string, needles ...string) bool {

@@ -100,6 +100,10 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		p.ParkID,
 		p.ShedID,
 		domain.PartitionMatchKey(p.PartitionLabel),
+		// The SESSION is part of the fingerprint, as it is part of the natural key. Without it a
+		// same-key resend that switched session would read as an exact replay and be answered with the
+		// other session's result.
+		fmt.Sprintf("%d", p.SessionNo),
 		targetDate,
 		p.Workflow,
 		packingProof,
@@ -135,34 +139,35 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		status       = domain.PackingStatusPendingVerification
 		newlyPending bool
 	)
-	// session_no is written as the PEN-DAY sentinel 0 (migration 000148). The column is retained so
-	// the pre-merge rows stay readable as history with the session they were shot for; every row
-	// written from here on carries 0, which is what the natural key now uniques on.
+	// session_no is a REAL session again (maintainer decision 2026-08-11, reverting the 2026-08-10
+	// pen-day sentinel 0). It is back in the ON CONFLICT target, which is
+	// feed_packing_completions_natural_uq -- the index that survived the pen-day release because its
+	// contract half was never shipped.
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_packing_completions (
   tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
   packing_proof_ref, completed_by, idempotency_key
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), 0, $5::date, $6, 'pending_verification',
-  $7, nullif($8::text, '')::uuid, $9
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
+  $8, nullif($9::text, '')::uuid, $10
 )
-ON CONFLICT (tenant_id, park_id, shed_id, partition_key, target_date, workflow) DO NOTHING
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
-		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, targetDate, p.Workflow,
+		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		packingProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Natural-key conflict: a row for this PEN-DAY already exists. Its state AND its stored video
-		// decide the outcome -- the proof_ref is read because a second, DIFFERENT video is a conflict,
-		// not a replay. See ports.ErrPackingAlreadyRecorded.
+		// Natural-key conflict: a row for this SHED-SESSION already exists. Its state AND its stored
+		// video decide the outcome -- the proof_ref is read because a second, DIFFERENT video is a
+		// conflict, not a replay. See ports.ErrPackingAlreadyRecorded.
 		var existingStatus, existingProof string
 		if err := tx.QueryRow(ctx, `
 SELECT completion_id::text, status, row_version, coalesce(packing_proof_ref, '')
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND partition_key = $6 AND target_date = $4::date AND workflow = $5`,
+  AND partition_key = $6 AND session_no = $7 AND target_date = $4::date AND workflow = $5`,
 			p.TenantID, p.ParkID, p.ShedID, targetDate, p.Workflow,
-			domain.PartitionMatchKey(p.PartitionLabel)).
+			domain.PartitionMatchKey(p.PartitionLabel), p.SessionNo).
 			Scan(&completionID, &existingStatus, &rowVersion, &existingProof); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
@@ -189,7 +194,7 @@ RETURNING row_version`,
 				return ports.CompletePackingResult{}, err
 			}
 		case domain.PackingStatusPendingVerification, domain.PackingStatusCompleted:
-			// The pen-day already holds a video. Whether this is an idempotent no-op or a CONFLICT
+			// The shed-session already holds a video. Whether this is an idempotent no-op or a CONFLICT
 			// depends entirely on whether it is the SAME video.
 			//
 			// SAME proof -> a genuine re-send under a different idempotency key. Nothing to do, and
@@ -254,15 +259,15 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID
 	return status, rowVersion, nil
 }
 
-// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, workflow) for one
-// park-day in one bounded indexed read.
+// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, session,
+// workflow) for one park-day in one bounded indexed read.
 func (r *Repository) ListVerifiedPacking(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.VerifiedPacking, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded read of ONE park-day's VERIFIED packing pen-days, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
+	// scale-guard:ignore: bounded read of ONE park-day's VERIFIED packing lines, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, coalesce(partition_label, ''), workflow
+SELECT shed_id::text, coalesce(partition_label, ''), session_no, workflow
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND status = 'completed'`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
@@ -273,7 +278,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND
 	out := make([]ports.VerifiedPacking, 0)
 	for rows.Next() {
 		var d ports.VerifiedPacking
-		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.Workflow); err != nil {
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.SessionNo, &d.Workflow); err != nil {
 			return nil, fmt.Errorf("feeddirection: scan verified packing: %w", err)
 		}
 		out = append(out, d)
@@ -281,20 +286,20 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date AND
 	return out, rows.Err()
 }
 
-// ListPackingCompletionStatuses returns EVERY (shed, partition, workflow) with a
+// ListPackingCompletionStatuses returns EVERY (shed, partition, session, workflow) with a
 // feed_packing_completions row for one park-day plus its RAW status -- the packing serve path's
 // status overlay + filter source (includes pending_verification and rework, not just completed).
 //
-// One row per PEN-DAY. Legacy pre-merge rows were collapsed to one per pen-day by migration 000148,
-// and every row written since carries the session_no 0 sentinel, so this cannot return two rows for
-// one pen and leave the overlay picking whichever arrived first.
+// One row per SHED-SESSION, which is what the overlay keys on. session_no MUST be selected and
+// carried: keying the overlay on the pen alone would let the morning's completion mark the evening
+// line packed too, which is the shape of the 2026-08-08 partition defect one column over.
 func (r *Repository) ListPackingCompletionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]ports.PackingCompletionStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded read of ONE park-day's packing pen-day statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
+	// scale-guard:ignore: bounded read of ONE park-day's packing line statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's pen catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, coalesce(partition_label, ''), workflow, status, coalesce(rework_reason, '')
+SELECT shed_id::text, coalesce(partition_label, ''), session_no, workflow, status, coalesce(rework_reason, '')
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
@@ -305,7 +310,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 	out := make([]ports.PackingCompletionStatus, 0)
 	for rows.Next() {
 		var d ports.PackingCompletionStatus
-		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.Workflow, &d.Status, &d.ReworkReason); err != nil {
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.SessionNo, &d.Workflow, &d.Status, &d.ReworkReason); err != nil {
 			return nil, fmt.Errorf("feeddirection: scan packing completion status: %w", err)
 		}
 		out = append(out, d)
@@ -439,6 +444,11 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_ve
 // afternoon correction changed how many animals that pen feeds, and withdraws the verification items
 // queued for the superseded videos. See ports.ReopenPackingForFeedChange for the rule.
 //
+// ALL OF A PEN'S SESSIONS MOVE. There is deliberately NO session predicate below: head count scales
+// the morning and evening rations alike, so both videos now prove the wrong quantity. Adding
+// `AND c.session_no = ...` here would leave one bag packed to a head count the farm no longer has --
+// the failure this whole path exists to prevent, half-done.
+//
 // ONE set-based statement per step over the pens the amend diff named -- never a query per pen.
 func (r *Repository) ReopenPackingForFeedChange(ctx context.Context, p ports.ReopenPackingParams) (ports.ReopenPackingResult, error) {
 	if len(p.Pens) == 0 {
@@ -475,7 +485,7 @@ func (r *Repository) ReopenPackingForFeedChange(ctx context.Context, p ports.Reo
 	// verified_by/verified_at are cleared: the row is no longer verified, and leaving the old
 	// verifier stamped on it would credit them with approving a video for quantities they never saw.
 	//
-	// scale-guard:ignore: one set-based UPDATE over the pens named by a single park-day's amend diff (bounded by the park's pen catalog, never by herd size), covered by feed_packing_completions_natural_uq (tenant_id, park_id, shed_id, partition_key, target_date, workflow); binds carry the casts and the indexed columns stay bare.
+	// scale-guard:ignore: one set-based UPDATE over the pens named by a single park-day's amend diff (bounded by the park's pen catalog x sessions, never by herd size), covered by the leading columns of feed_packing_completions_natural_uq (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) -- session_no is left unconstrained on purpose so every session of a named pen is swept; binds carry the casts and the indexed columns stay bare.
 	rows, err := tx.Query(ctx, `
 UPDATE feed_packing_completions c
 SET status = 'rework',
@@ -501,7 +511,9 @@ RETURNING c.completion_id::text, c.shed_id::text`,
 		return ports.ReopenPackingResult{}, fmt.Errorf("feeddirection: reopen packing for feed change: %w", err)
 	}
 	type reopened struct{ completionID, shedID string }
-	moved := make([]reopened, 0, len(p.Pens))
+	// Capacity is per PEN x its sessions, not per pen: a two-session park returns two rows for each
+	// pen named. Sizing it at len(p.Pens) would reallocate on every correction.
+	moved := make([]reopened, 0, len(p.Pens)*2)
 	for rows.Next() {
 		var m reopened
 		if err := rows.Scan(&m.completionID, &m.shedID); err != nil {

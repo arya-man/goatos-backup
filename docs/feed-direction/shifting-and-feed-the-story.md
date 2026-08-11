@@ -1,6 +1,7 @@
 # When animals move, who feeds them?
 
-*The story of shifting and feed, and what we changed on 2026-08-10.*
+*The story of shifting and feed, and what we changed on 2026-08-10 — plus the piece we took back on
+2026-08-11.*
 
 This is written to be read start to finish by someone who was not in the room. It explains the
 farm situation first, then what we built, then the decisions we deliberately did **not** take and
@@ -99,7 +100,7 @@ unapproved one. Approval is not what makes feed correct; the number is.
 
 ---
 
-## 4. Two narrowings we care about
+## 4. Three narrowings we care about
 
 Making an operator re-film work is expensive and slightly insulting if it turns out to be
 unnecessary. So the reopen is spent as narrowly as we could make it.
@@ -121,6 +122,13 @@ told to re-film work that never changed.
 This is the same distinction that migration `000137` exists for. Collapsing to the shed here would
 undo it.
 
+### But every session of the pen that DID change
+
+The pen is the unit that is *named*; every one of its bags is what actually comes back. A pen is fed
+morning and evening, head count scales both rations, so both videos now prove the wrong quantity.
+Reopening only the morning would leave the evening bag packed for a head count the farm no longer has
+— the exact failure this whole change exists to prevent, half-done.
+
 ### Experiment pens are exempt entirely
 
 Experiment rations are authored as an **absolute kg total per pen** — "give this pen 12 kg" — not as
@@ -134,11 +142,11 @@ would discard a perfectly good video for a sheet that did not change by a single
 There is no new status. A reopened pen uses the existing `rework` state, which the app folds into
 the operator's ordinary **"pending"** bucket — "needs my action again".
 
-Which means the status chip on a reopened pen is **byte-for-byte identical** to the chip on a pen
+Which means the status chip on a reopened bag is **byte-for-byte identical** to the chip on a bag
 nobody has packed yet.
 
 That is fine for the work queue, and it is a real problem for the human. The packer already packed
-this pen this morning. If the card comes back looking like a fresh one, they have no way to know that
+this bag this morning. If the card comes back looking like a fresh one, they have no way to know that
 the numbers on it are different from the numbers they packed to — and no reason to suspect it.
 
 So the card carries a backend-composed sentence:
@@ -150,9 +158,10 @@ It sits above the quantities, because the first thing the packer needs is *the n
 the numbers you used*. It says the farm thing, not the system thing — it names no table, no job and
 no correction window.
 
-The screenshot fixture puts a reopened pen **first, above the fold**, specifically so that deleting
+The screenshot fixture puts a reopened bag **first, above the fold**, specifically so that deleting
 that line would change the image and fail the check. A fixture that would look the same with the
-feature removed proves nothing.
+feature removed proves nothing. It shows Castro - 2 **twice** — Morning and Evening, both carrying the
+sentence — which is also what proves the reopen covers a pen's whole day rather than half of it.
 
 ---
 
@@ -167,10 +176,9 @@ conversation, not an implementation detail.
 *carry out* the movement. All that changed is that it no longer gates whether the destination gets
 *fed*. Those are different questions and we kept them apart.
 
-**We did not touch feed distribution.** Distribution is still proved per shed-session. Packing merged
-to one video per pen per day; distribution did not. The two are now deliberately different, and the
-code keeps two separate key functions rather than one with a flag, so the wrong grain cannot be
-reused by accident.
+**We did not touch feed distribution.** It is proved per shed-session, and it always was. Packing
+briefly merged to one video per pen per day and distribution did not follow; when packing was reverted
+on 2026-08-11 the two matched again, and they now share one session-bearing key function.
 
 **We did not invent a new status.** Adding a "reopened" state would have meant every screen,
 filter and count learning about it. The sentence carries the meaning; the state machine stays as
@@ -217,7 +225,7 @@ envelope through it, and the `subject_type` is no longer a per-caller string at 
 inside the builder, because a mutation test proved one call site could drift back while a
 builder-level test kept passing.
 
-**5. Two legacy queued videos, one silently discarded.** The pen-day merge left the phone able to
+**5. Two queued videos, one silently discarded.** The pen-day merge left the phone able to
 hold two pre-upgrade packing rows for one pen — Morning and Evening, each with its own video and its
 own idempotency key. Both drain to the same pen-day row; the second returned **200 with its video
 never recorded**. This is the accepted-and-ignored failure the strict `session_no` rejection exists
@@ -240,7 +248,76 @@ to compile.**
 
 ---
 
-## 8. Where the rules actually live
+## 8. The part we took back — 2026-08-11
+
+One piece of this shipped wrong, and it is worth writing down rather than quietly editing out.
+
+Alongside the correction we also **merged a pen's morning and evening packing into one card backed by
+one video**. The reasoning at the time was that a packer packs a pen's whole day in one go, so showing
+the pen twice asked for the same work to be filmed twice.
+
+That was a misreading, and it was reverted the next day. The correction is one sentence:
+
+> **One clip cannot prove two bags.**
+
+The two shares are weighed out at different times. A single video shows at most one of them, and a
+verifier judging that clip against a day total has no way to tell a crew that packed the morning share
+twice from one that packed both correctly. The "Morning … Evening …" breakdown we put on the card was
+an attempt to give her both numbers at once — but the numbers were never the problem; the *evidence*
+was. Two bags need two clips.
+
+So packing is back to **one card, one video, one verification item per bag**, and the verifier's queue
+names the session again (`Session 1 · Castro - 2`) so two cards for one pen are distinguishable.
+
+**What could not be undone.** The merge's migration had already collapsed each pen's two rows into one
+and *deleted* the loser. Those rows are gone. The forward migration promotes each survivor to session 1
+— its video and its verdict stand as the morning packing — and the pen's evening simply reappears as
+work still owed. Nothing anyone filmed or approved was thrown away, but where a second clip once
+existed, it no longer does. A revert is not free, which is the real argument for getting a grain right
+the first time.
+
+**What the revert cost, concretely:** ~40 files across the migration, the backend grain, the HTTP
+contract, OpenAPI, the generated client, admin-web, twelve Android files, a Room cache-namespace bump,
+a re-recorded screenshot golden, and a retired CI guard that existed only to protect the merge's
+unfinished rollout.
+
+---
+
+## 9. What running the story actually found
+
+The end-to-end story in §7 was written alongside the original change and **never went green**. Running
+it on 2026-08-11 turned up two things that no unit test could see.
+
+**The fixture was asserting nothing.** Every packing line came back `blocked` with a nil quantity,
+because the session-template rows were inserted without an explicit `valid_from`. That column defaults
+to `CURRENT_DATE`, and the serve path filters `valid_from <= <feed day>` — so on any run day after the
+story's pinned feed day the authored feed items were invisible. The head counts still resolved, so the
+story *read* plausible: 40 animals, 50 after the correction, all the right statuses. Every quantity was
+`0.000`. An assertion that the quantities "changed" compared `0.000` to `0.000` and failed for a reason
+that looked like the feature and was actually the fixture.
+
+The same defect was sitting in a second test in the same package, and it was worse there: it had been
+**passing until the wall clock passed its own pinned date**, then silently started failing. Both are
+fixed by pinning `valid_from` to the same anchor the test pins everything else to. This is precisely
+the rule `AGENTS.md` already carries — *a pinned-clock test must derive its time-sensitive fixture
+fields from the same pinned anchor, never from SQL's idea of today* — and it cost two tests anyway.
+
+**One assertion was confidently wrong.** The story asserted that a correction *withdraws* the verifier's
+items. It does not, and should not: only a still-**pending** item is withdrawn, because that is the one
+sitting in someone's queue pointing at a stale clip. A verdict already **cast** is history — rewriting
+it would erase the fact that a verifier genuinely watched and passed that video. What protects the
+operator is the completion row going back to `rework` with its approval stripped, which is a different
+mechanism entirely.
+
+The assertion was plausible enough to survive being written and read. What settled it was reading the
+predicate. The story now asserts the honest behaviour, and the `withdrawn` branch — which that
+timeline cannot reach, since both clips were already judged — is covered directly against Postgres by
+its own test, mutation-tested two ways: add a session predicate to the reopen, or let it rewrite a cast
+verdict, and each turns it red.
+
+---
+
+## 10. Where the rules actually live
 
 | What | Where |
 |------|-------|
@@ -250,7 +327,9 @@ to compile.**
 | Which pens get reopened | `feeddirection/domain.CellDiff.HeadCountChangedPens` |
 | The reopen itself | `feeddirection/app.reopenPackingForCorrection` → `ports.ReopenPackingForFeedChange` |
 | The operator's lead time (shared with the work queue) | `counts/domain.ShiftingActionsDueFrom` |
+| What a packing line IS (one bag, one video) | `AGENTS.md` → "Confirmed feed-PACKING SHED-SESSION grain" |
+| What the revert could and could not undo | migration `000150_feed_packing_restore_session_grain.sql` |
 
-Each of the two narrowings in §4 is pinned by a test that was **mutation-tested** when written:
-deleting the experiment branch, or keying the reopen on the shed instead of the pen, each turns one
-red. A guard nobody has tried to break is a guard nobody knows works.
+Each narrowing in §4 is pinned by a test that was **mutation-tested** when written: deleting the
+experiment branch, keying the reopen on the shed instead of the pen, or adding a session predicate to
+it, each turns one red. A guard nobody has tried to break is a guard nobody knows works.

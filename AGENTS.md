@@ -729,53 +729,87 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
-Confirmed feed-PACKING PEN-DAY grain (maintainer decision 2026-08-10, SUPERSEDING
-the shed-SESSION grain of the packing gate below, for PACKING ONLY): a packer
-packs a pen's whole day in one go, so feed packing is shown as ONE CARD and proved
-by ONE VIDEO per operational location per feed day. The morning and evening shares
-are a BREAKDOWN inside that card ("Morning 17.8 kg … Evening 17.8 kg … Pack total
-35.6 kg"), never two cards. Completion grain is `(tenant, park, shed, partition,
-target_date, workflow)` (migration `000148`).
+Confirmed feed-PACKING SHED-SESSION grain (maintainer decision 2026-08-11,
+REVERTING the 2026-08-10 PEN-DAY grain in full and restoring the shed-SESSION grain
+of the packing gate below): a pen's morning and evening shares are TWO SEPARATE
+BAGS. Each is packed on its own, filmed on its own, and verified on its own — TWO
+CARDS, TWO VIDEOS, TWO verification items per pen per feed day. Completion grain is
+`(tenant, park, shed, partition, session_no, target_date, workflow)`, the natural
+key `feed_packing_completions_natural_uq` has always carried (migration `000150`).
 
-Three things a future change must not undo, each of which reintroduces a shipped
-defect:
+Why the pen-day merge was wrong: ONE CLIP CANNOT PROVE TWO BAGS. The two shares are
+weighed out at different times, so a single video shows at most one of them, and a
+verifier judging it against a day total cannot tell a crew that packed the morning
+share twice from one that packed both correctly.
 
-1. **The PEN did not merge.** Castro 1/2/3 are different animals on different
-   rations; `000137` exists because one Castro - 1 clip closed out all three.
-   Collapsing the session is not licence to collapse the partition.
-2. **Feed DISTRIBUTION is untouched** and is still gated per shed-SESSION. This is
-   the first place the two flows diverge, deliberately. `completedKey`
-   (session-bearing, distribution) and `packingCompletedKey` (pen-day) are separate
-   functions rather than one with a `0` argument, precisely so the wrong one cannot
-   be reused — that would mark a distribution session fed because its sibling was.
-   Removing `session_no` from the DISTRIBUTION completion was caught in development
-   on 2026-08-10 and would have collapsed its morning/evening records.
-3. **A session is not a work item.** It carries no completion, proof or
-   verification state, and none may be added — that rebuilds the two-card model one
-   field at a time.
+**Do NOT re-merge them.** The specific things that came back, each of which the
+merge had removed:
 
-`session_no` is REJECTED, not ignored, on `POST /feed-direction/packing/complete`:
-accepted-and-ignored, a stale client's evening submission would key the same
-pen-day row and come back as an already-pending no-op, so the operator would see
-his video accepted while nothing recorded it. `/feed-packing/worklist` has no
-`session` filter. `summary.line_count` halves but `total_kg_by_feed_item` does NOT
-— the crew still carries out both bags. The verifier's item is subjected on the PEN
-(no `Session N ·` prefix) and its expected-ration context names BOTH sessions and
-their quantities, because a day total alone cannot distinguish a crew that packed
-the morning share twice from one that packed both correctly. Canonical prose:
-`docs/decisions/feed-distribution-verification.md` → "Feed packing is proved ONCE
-PER PEN PER DAY".
+1. `session_no` is REQUIRED on `POST /feed-direction/packing/complete`. A missing or
+   `0` value is REJECTED (`ErrInvalidSession`): `0` is not "the whole day" — it is a
+   value no worklist line matches, so accepting it would write a row the operator's
+   bag never resolves to and leave that bag showing as still owed. The DB agrees —
+   `CHECK (session_no >= 1)`.
+2. `/feed-packing/worklist` accepts `session` again (0/absent = every session).
+   `summary.line_count` counts pen×session lines.
+3. The verifier's item is subjected `Session N · Castro - 2`. Without the prefix a
+   verifier holding a pen's two cards cannot tell which bag each clip proves.
+4. The expected-ration context on that item names THAT SESSION's quantities, not the
+   day's — one clip proves one bag, so a day total would show twice what the video
+   should contain.
+5. `packingCompletedKey` is gone; packing shares the session-bearing `completedKey`
+   with distribution again.
+
+Two things the merge did NOT touch and that stay as they are:
+
+- **The PEN is part of the key.** Castro 1/2/3 are different animals on different
+  rations; `000137` exists because one Castro - 1 clip closed out all three. This
+  survived the merge and must survive any future change.
+- **Feed DISTRIBUTION was never merged** and needs no repair.
+
+WHAT MIGRATION `000150` CAN AND CANNOT UNDO, because a future reader will ask. It
+drops `feed_packing_completions_pen_day_uq`, promotes each surviving pen-day row's
+`session_no` from the sentinel `0` to `1` (its video and verdict stand as the
+MORNING packing; the pen's evening reappears as work still owed), restores the
+`>= 1` check, and puts the `Session N · ` prefix back on in-flight verifier labels.
+It CANNOT restore the rows `000149` DELETED when it collapsed each pen-day — those
+are gone, and those pens' second bags simply reappear unpacked, which is the honest
+state. `000149` is NOT amended: it is already applied on STG, and STG records
+migration checksums.
+
+The Android outbox needs the same promotion: a packing row queued by the pen-day
+build carries no session, decodes as `0`, and `SyncEngine` maps it to session 1 —
+the same choice `000150` makes server-side, so phone and database agree on what an
+unlabelled pen-day video proves. The Room packing cache namespace is bumped
+(`session-v3`); a stale `sessions`-shaped cached row would otherwise deserialize
+WITHOUT ERROR into a card with no feed lines at all.
+
+The afternoon correction (rule above) reopens **EVERY SESSION** of a pen whose head
+count moved, never just one: head count scales the morning and evening ration alike,
+so both videos now prove the wrong quantity and a partial reopen would leave one bag
+packed for a head count the farm no longer has. `ReopenPackingForFeedChange` names
+pens WITHOUT a session and applies no session predicate. A verdict already CAST is
+kept as history (only a still-`pending` item is `withdrawn`), while the completion
+row loses `verified_by`/`verified_at` and returns to `rework`.
+
+Canonical prose: `docs/decisions/feed-distribution-verification.md` → "Feed packing
+is proved ONCE PER BAG". Pinned by `TestPackingBagIsOnePerPenPerSession`,
+`TestPackingLinesKeepPartitionsAndSessionsApart`,
+`TestReopenPackingWithdrawsPendingItemsAndKeepsCastVerdicts` (mutation-tested two
+ways: a session predicate on the reopen, and withdrawing a cast verdict — each turns
+it red) and the `TestKernelStory_FeedAfternoonCorrection` E2E.
 
 Confirmed feed-PACKING verification gate (maintainer decision 2026-07-26,
 SUPERSEDING the "FEED PACKING IS DELIBERATELY NOT GATED" rule that the
-feed-distribution lock above originally carried; its GRAIN is in turn superseded by
-the 2026-08-10 pen-day rule above): feed PACKING is now gated the
-same way as feed direction. The operator completes a packing pen-day with
+feed-distribution lock above originally carried; its GRAIN was briefly superseded by
+the 2026-08-10 pen-day rule and RESTORED by the 2026-08-11 rule above): feed PACKING
+is now gated the same way as feed direction. The operator completes a packing
+shed-session with
 ONE MANDATORY packing VIDEO (`packing_proof_ref`); a completion missing it is
 rejected 422 `proof_required`. That flips a NEW `feed_packing_completions` row to
 `pending_verification` and enqueues ONE `feed_packing` verification item carrying
 the video — NOTHING is completed yet. ONE verifier APPROVE
-(`ApplyVerifiedPacking`) flips the pen-day to `completed` (this is when
+(`ApplyVerifiedPacking`) flips the shed-session to `completed` (this is when
 `feed.packing.completed` is emitted); a REJECT (`BouncePackingForRework`) flips
 it to `rework` for a re-shoot. Applies to BOTH `normal` and `experiment`
 workflows; the serve overlay reads `ListPackingCompletionStatuses`. The gated
@@ -960,14 +994,21 @@ Three parts, and each narrowing is load-bearing:
    they are expected to walk. Anchoring on the raise day would feed a destination
    a full day before a 13:45 raise's animals move.
    Canonical rule: `counts/domain.FeedShiftingRaisedEffectiveBusinessDate`.
-2. **The 14:00 correction REOPENS an already-packed pen.** The correction
-   (`correction_time`, already 14:00 for both workflows — this rule adds no new
-   clock) recomputes the frozen sheet, and any pen whose packing was already
-   submitted goes back to `rework` with an operator-facing sentence, its
+2. **The 14:00 correction REOPENS an already-packed pen — EVERY SESSION of it.**
+   The correction (`correction_time`, already 14:00 for both workflows — this rule
+   adds no new clock) recomputes the frozen sheet, and any pen whose packing was
+   already submitted goes back to `rework` with an operator-facing sentence, its
    still-pending verification item `withdrawn`, and `verified_by`/`verified_at`
    cleared. An **already-APPROVED** video is reopened too: it proves the packer
    packed the OLD quantity, which is now the wrong quantity, so an approved clip
-   is no more usable than an unapproved one.
+   is no more usable than an unapproved one. A verdict already CAST is kept as
+   history rather than rewritten — only a still-`pending` item is `withdrawn`,
+   because that is the one sitting in a verifier's queue pointing at a stale clip.
+   **BOTH of a pen's bags come back** (2026-08-11, once packing returned to the
+   shed-SESSION grain): head count scales the morning and the evening ration alike,
+   so a partial reopen would leave one bag packed for a head count the farm no
+   longer has. `ReopenPackingForFeedChange` names pens WITHOUT a session and applies
+   no session predicate.
 3. **Two narrowings that must not be widened.** *Experiment is EXEMPT* — its
    rations are authored as absolute kg per pen, so a head-count change moves no
    quantity there and reopening one would discard a good video for a sheet that

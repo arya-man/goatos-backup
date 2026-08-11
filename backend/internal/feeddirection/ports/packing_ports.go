@@ -23,31 +23,31 @@ var (
 	// ErrPackingStoreUnavailable is returned when a packing completion is attempted but no
 	// PackingCompletionStore is wired -- a deployment/wiring error, surfaced as a 500.
 	ErrPackingStoreUnavailable = errors.New("feeddirection: packing completion store is not configured")
-	// ErrPackingAlreadyRecorded is returned when a pen-day ALREADY holds a DIFFERENT packing video --
-	// it is awaiting verification, or already verified -- and a second, different one arrives.
+	// ErrPackingAlreadyRecorded is returned when a shed-SESSION ALREADY holds a DIFFERENT packing
+	// video -- it is awaiting verification, or already verified -- and a second, different one arrives.
 	//
-	// A pen-day accepts exactly ONE video (maintainer decision 2026-08-10), so this is not a replay
-	// and must NOT be answered with success. Returning success here is silent data loss: the operator
-	// is told their recording was accepted while nothing records it and no verifier ever sees it.
+	// A packing line accepts exactly ONE video, so this is not a replay and must NOT be answered with
+	// success. Returning success here is silent data loss: the operator is told their recording was
+	// accepted while nothing records it and no verifier ever sees it.
 	//
 	// It is deliberately NOT triggered by a genuine retry. An identical request replays on its
 	// idempotency key, and a re-send of the SAME proof under a new key still matches the stored
 	// proof_ref and stays an idempotent no-op. Only a DIFFERENT video conflicts.
 	//
-	// The case that forced this: the pen-day merge left the phone able to hold TWO legacy queued
-	// packing rows for one pen -- Morning and Evening, each with its own video and its own
-	// idempotency key. Both drain to the same pen-day row, and the second used to come back 200 with
-	// its video discarded. That is the accepted-and-ignored failure the strict `session_no` rejection
-	// exists to prevent, reappearing one layer above the API.
-	ErrPackingAlreadyRecorded = errors.New("feeddirection: this pen-day already has a different packing video recorded")
+	// It is kept from the 2026-08-10 pen-day work and is NOT specific to that grain. The morning and
+	// evening submissions now key different rows again and cannot collide, but any second differing
+	// video against one line -- a re-send after a rework the server never recorded, a duplicated
+	// queue drain -- must still fail loudly rather than return 200 with the clip discarded.
+	ErrPackingAlreadyRecorded = errors.New("feeddirection: this packing session already has a different packing video recorded")
 )
 
-// CompletePackingParams is the persisted gated-completion write, at the PEN-DAY grain
-// (tenant, park, shed, partition, target_date, workflow).
+// CompletePackingParams is the persisted gated-completion write, at the shed-SESSION grain
+// (tenant, park, shed, partition, session_no, target_date, workflow).
 //
-// session_no left this key on 2026-08-10 (maintainer decision): a packer packs a pen's whole day in
-// one go and films it ONCE, so the day is the unit that is proved and verified. The pen did NOT
-// leave the key and must not -- see PartitionLabel.
+// session_no briefly left this key on 2026-08-10 and was put BACK on 2026-08-11 (maintainer
+// decision): a pen's morning and evening shares are two separate bags, each packed and each filmed
+// on its own, so each is proved and verified on its own. The pen is in the key for a separate
+// reason and must stay -- see PartitionLabel.
 type CompletePackingParams struct {
 	TenantID string
 	ParkID   string
@@ -55,8 +55,11 @@ type CompletePackingParams struct {
 	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
 	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
 	PartitionLabel string
-	TargetDate     time.Time
-	Workflow       string
+	// SessionNo is the feeding session this completion covers (1-based, as authored). Part of the
+	// completion's IDENTITY: without it one video closes out both of a pen's bags.
+	SessionNo  int32
+	TargetDate time.Time
+	Workflow   string
 	// PackingProofRef is the ONE MANDATORY packing VIDEO proof_id. It travels into the queued
 	// verification item.
 	PackingProofRef string
@@ -87,7 +90,7 @@ type CompletePackingResult struct {
 	ShedName, PartitionLabel string
 }
 
-// VerifiedPacking identifies one VERIFIED (status='completed') PEN-DAY for the packing
+// VerifiedPacking identifies one VERIFIED (status='completed') shed-SESSION for the packing
 // serving-read overlay.
 type VerifiedPacking struct {
 	ShedID string
@@ -95,15 +98,16 @@ type VerifiedPacking struct {
 	// why ListVerifiedPacking could not key the overlay and the production path uses
 	// ListPackingCompletionStatuses instead.
 	PartitionLabel string
+	SessionNo      int32
 	Workflow       string
 }
 
-// PackingCompletionStatus is one PEN-DAY's packing completion row with its RAW status
+// PackingCompletionStatus is one shed-SESSION's packing completion row with its RAW status
 // ('pending_verification' | 'rework' | 'completed'), for the serve-path status overlay + filter.
 //
-// Deliberately NOT the shared SessionCompletionStatus: distribution is still gated per shed-SESSION
-// and keeps that type. Reusing it here would leave a SessionNo field that packing must always set to
-// a meaningless zero, and the next author would key an overlay on it.
+// Deliberately NOT the shared SessionCompletionStatus even though both now carry a session: this one
+// also carries ReworkReason, which distribution has no source for. Keeping them apart also keeps the
+// two gates independently changeable -- they have diverged once already.
 type PackingCompletionStatus struct {
 	ShedID string
 	// PartitionLabel is the pen this completion covers ("2", "Part 3"), empty for an undivided
@@ -111,8 +115,11 @@ type PackingCompletionStatus struct {
 	// one status, so a video shot in Castro - 1 marked Castro - 2 and Castro - 3 "in review" too
 	// (reported on STG 2026-08-08). See migration 000137.
 	PartitionLabel string
-	Workflow       string
-	Status         string
+	// SessionNo is the feeding session this row covers. Part of the overlay key: without it the
+	// morning's completion would mark the evening line packed too.
+	SessionNo int32
+	Workflow  string
+	Status    string
 	// ReworkReason is the stored sentence explaining a 'rework' row, empty in every other state. It
 	// travels with the status because the two things that put a pen in rework -- a verifier rejecting
 	// the video, and the afternoon correction re-counting the pen -- are indistinguishable without it.
@@ -137,9 +144,15 @@ type BouncePackingParams struct {
 	TraceID      string
 }
 
-// ReopenPackingParams reopens every already-submitted packing pen-day whose ANIMAL COUNT the
-// afternoon correction moved, so the packer repacks the pen against the corrected sheet and films it
-// again (maintainer decision 2026-08-10).
+// ReopenPackingParams reopens every already-submitted packing line whose ANIMAL COUNT the afternoon
+// correction moved, so the packer repacks against the corrected sheet and films it again (maintainer
+// decision 2026-08-10).
+//
+// THE UNIT NAMED IS THE PEN; THE ROWS MOVED ARE ALL OF THAT PEN'S SESSIONS. Head count is a pen
+// fact, and it scales the morning and the evening ration alike, so both of a pen's videos now prove
+// the wrong quantity and both must come back (maintainer decision 2026-08-11). There is deliberately
+// no session in Pens and no session predicate in the write: a partial reopen would leave one bag
+// packed to a head count the farm no longer has.
 //
 // It is a SET-BASED write over the pens the amend diff named, not one call per pen: the correction
 // runs for a whole park at once and a per-pen call would be exactly the N+1 fan-out the scale rules
@@ -185,19 +198,20 @@ type ReopenPackingResult struct {
 // packing overlay reports verified sessions.
 type PackingCompletionStore interface {
 	// CompletePacking records the operator's mandatory video at 'pending_verification' (or moves a
-	// 'rework' row back to it), idempotent on both the request key and the pen-day natural key. It
-	// does NOT emit feed.packing.completed -- that fires only at verifier approval.
+	// 'rework' row back to it), idempotent on both the request key and the shed-session natural key.
+	// It does NOT emit feed.packing.completed -- that fires only at verifier approval.
 	CompletePacking(ctx context.Context, p CompletePackingParams) (CompletePackingResult, error)
 
-	// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, workflow) for
-	// one park-day in one bounded indexed read. Bounded by the park's pen catalog, never by herd size.
+	// ListVerifiedPacking returns every VERIFIED (status='completed') (shed, partition, session,
+	// workflow) for one park-day in one bounded indexed read. Bounded by the park's pen catalog x
+	// sessions, never by herd size.
 	ListVerifiedPacking(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]VerifiedPacking, error)
 
-	// ListPackingCompletionStatuses returns EVERY (shed, partition, workflow) that has a
+	// ListPackingCompletionStatuses returns EVERY (shed, partition, session, workflow) that has a
 	// feed_packing_completions row for one park-day, each with its RAW status -- the packing serve
 	// path's status overlay + filter source. Unlike ListVerifiedPacking (completed-only), this includes
-	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's pen catalog,
-	// never by herd size.
+	// 'pending_verification' and 'rework'. One bounded indexed read, bounded by the park's pen catalog
+	// x sessions, never by herd size.
 	ListPackingCompletionStatuses(ctx context.Context, tenantID, parkID string, targetDate time.Time) ([]PackingCompletionStatus, error)
 
 	// ApplyVerifiedPacking flips 'pending_verification' -> 'completed', stamps verified_by/at, and emits
@@ -209,9 +223,9 @@ type PackingCompletionStore interface {
 	// stale-guarded: a re-delivered verdict on a non-pending row is a no-op.
 	BouncePackingForRework(ctx context.Context, p BouncePackingParams) (bool, error)
 
-	// ReopenPackingForFeedChange moves every named pen's submitted packing back to 'rework' because
-	// the afternoon correction changed how many animals it feeds, and retires the verification items
-	// that were queued for the now-superseded videos.
+	// ReopenPackingForFeedChange moves ALL SESSIONS of every named pen's submitted packing back to
+	// 'rework' because the afternoon correction changed how many animals it feeds, and retires the
+	// verification items that were queued for the now-superseded videos.
 	//
 	// It reopens BOTH 'pending_verification' AND 'completed' rows (maintainer decision 2026-08-10): a
 	// video a verifier already approved proves the packer packed the OLD quantity, which is now the

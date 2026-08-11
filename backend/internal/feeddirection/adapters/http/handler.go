@@ -426,19 +426,20 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// completePackingRequest is the verifier-gated packing completion body: which PEN, on which feed day
-// and workflow, plus the ONE mandatory packing video reference. The Idempotency-Key header, not the
-// body, carries the replay key.
+// completePackingRequest is the verifier-gated packing completion body: which PEN and which feeding
+// SESSION, on which feed day and workflow, plus the ONE mandatory packing video reference. The
+// Idempotency-Key header, not the body, carries the replay key.
 //
-// session_no is GONE from this body (maintainer decision 2026-08-10): one video covers the pen's
-// whole day. It is not merely ignored -- a client still sending it must fail loudly rather than have
-// its session silently dropped and its second video collapse onto the first pen-day row, so the
-// decoder below rejects unknown fields.
+// session_no is REQUIRED again (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day
+// grain). A pen's morning and evening bags are packed and filmed separately, so a completion that
+// does not say which one it proves cannot be recorded against the right line -- the service rejects
+// a missing or zero value with ErrInvalidSession rather than guessing.
 type completePackingRequest struct {
 	ParkID string `json:"park_id"`
 	ShedID string `json:"shed_id"`
 	// PartitionLabel names the PEN the operator worked; see completeDistributionRequest.
 	PartitionLabel  string `json:"partition_label"`
+	SessionNo       int32  `json:"session_no"`
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
 	PackingProofRef string `json:"packing_proof_ref"`
@@ -447,9 +448,9 @@ type completePackingRequest struct {
 type completePackingResponse struct {
 	CompletionID string `json:"completion_id"`
 	// Status is 'pending_verification' on a fresh submit or a rework re-submit, or 'completed' when the
-	// pen-day was already verifier-approved.
+	// shed-session was already verifier-approved.
 	Status string `json:"status"`
-	// NewlyPending is true when this call flipped the pen-day into pending_verification (a verification
+	// NewlyPending is true when this call flipped the shed-session into pending_verification (a verification
 	// item was enqueued). False on an idempotent replay or an already-pending/already-completed no-op.
 	NewlyPending bool `json:"newly_pending"`
 }
@@ -482,10 +483,10 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 
 	var body completePackingRequest
 	packingDecoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	// A stale client still sending session_no is REFUSED, not quietly accepted. Without this the
-	// morning and evening submissions of one pen would both decode cleanly, both key the same pen-day
-	// row, and the second would return the first's result as an already-pending no-op -- the operator
-	// would see his evening video accepted while nothing recorded it.
+	// Unknown fields are REFUSED rather than dropped. A body carrying a field this server does not
+	// understand is a client disagreeing with the contract about what it just submitted, and on a
+	// write that consumes an operator's video the honest answer is a 400 they can see, not a 200 that
+	// silently ignores half of what they sent.
 	packingDecoder.DisallowUnknownFields()
 	if err := packingDecoder.Decode(&body); err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
@@ -523,6 +524,7 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		ParkID:          parkScope.ParkID,
 		ShedID:          strings.TrimSpace(body.ShedID),
 		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
+		SessionNo:       body.SessionNo,
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),
 		PackingProofRef: strings.TrimSpace(body.PackingProofRef),
@@ -664,13 +666,13 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	// There is NO `session` parameter on this route (maintainer decision 2026-08-10). A packing line
-	// is a whole pen-day carrying every session as a breakdown, so narrowing to one session could
-	// only mean "show the pen but hide half its bags" -- a worklist that understates what the packer
-	// must carry out. The direction preview keeps its session filter; that surface is still
-	// per-session. A stale client's `session=` is simply not read, which narrows nothing and so can
-	// only ever show MORE than it asked for, never less.
-	//
+	// Session 0 means "every session"; a present-but-invalid session is rejected, not widened --
+	// same contract as the preview.
+	sessionNo, err := boundedIntParam(query, "session", 0, 0, 99)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
 	// Same status contract as the preview: one bucket or empty for all; unknown values are rejected.
 	status := strings.TrimSpace(query.Get("status"))
 	if !domain.IsValidSessionStatusFilter(status) {
@@ -682,6 +684,7 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		TenantID:   tenantID,
 		ParkID:     parkScope.ParkID,
 		TargetDate: targetDate,
+		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),
 		Status:     status,
 		Draft:      parseDraft(query),
@@ -729,8 +732,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingAlreadyRecorded):
 		// 409 and CODED, so the client can tell it apart from a transient failure and stop retrying.
-		// A pen-day accepts exactly one video; a second, different one cannot be stored, so it must
-		// not be answered with success. Answering 200 here silently discarded an operator's recording.
+		// A packing line accepts exactly one video; a second, different one cannot be stored, so it
+		// must not be answered with success. Answering 200 here silently discarded an operator's
+		// recording.
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			codedError{Code: "packing_already_recorded", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):

@@ -126,98 +126,101 @@ touched — it remains packing's completion record):
   `verification.verdict.rework`. The existing `feed.direction.completed` producer (old instant path) is
   unchanged but is now inert.
 
-## Feed packing is proved ONCE PER PEN PER DAY — 2026-08-10
+## Feed packing is proved ONCE PER BAG — 2026-08-11
 
-**Maintainer decision, 2026-08-10.** SUPERSEDES the shed-SESSION grain of the packing gate below,
-for PACKING ONLY. Everything about the gate itself is unchanged: one mandatory video, one
-verification item, completed only at verifier approval.
+**Maintainer decision, 2026-08-11.** REVERTS the 2026-08-10 pen-day grain in full and restores the
+shed-SESSION grain of the packing gate below. Everything about the gate itself is unchanged
+throughout: one mandatory video per line, one verification item, completed only at verifier approval.
 
-A packer packs a pen's whole day in one go. The worklist showed the pen **twice** — Morning and
-Evening — and asked the crew to film the same work twice. Now:
+For one day (2026-08-10 → 2026-08-11) packing was shown as ONE card per pen per day with the morning
+and evening shares as a nested breakdown, backed by ONE video. That was wrong, and the reason is one
+sentence: **one clip cannot prove two bags.** The two shares are weighed out at different times, so a
+single video shows at most one of them, and a verifier judging it against a day total cannot tell a
+crew that packed the morning share twice from one that packed both correctly.
 
 ```
-ONE card per operational location per feed day
+ONE card per operational location PER FEEDING SESSION
   Castro - 2                                   [Pending] [Normal]
-    Morning                            17.8 kg
+    Morning
       Maize 12.4 · Soya 4.8 · Mineral mix 0.6
-    Evening                            17.8 kg
+    Pack total                         17.8 kg
+  -> ONE mandatory packing video for THIS bag
+
+  Castro - 2                                   [Pending] [Normal]
+    Evening
       Maize 12.4 · Soya 4.8 · Mineral mix 0.6
-    Pack total                         35.6 kg
-  -> ONE mandatory packing video for the whole card
+    Pack total                         17.8 kg
+  -> ONE mandatory packing video for THIS bag
 ```
 
-- **The sessions are a BREAKDOWN, not work items.** They keep their authored split and their own
-  rounding, so the two figures on the card are exactly what the direction sheet prints. They carry
-  no completion, proof or verification state, and none may be added — a per-session state would
-  rebuild the two-card model one field at a time.
-- **Completion grain is `(tenant, park, shed, partition, target_date, workflow)`**
-  (migration `000148`). `session_no` is retained as a nullable-in-practice sentinel `0` so pre-merge
-  rows stay readable as history; every new row carries `0`.
-- **The PEN did NOT merge and must not.** Castro 1 and Castro 2 hold different animals on different
-  rations. Migration `000137` exists because one Castro - 1 clip was closing out all three pens;
-  collapsing the session is not licence to collapse the partition. Pinned by
-  `TestPenDayMergeStillKeepsPartitionsApart` and `FeedPackingSessionBreakdownTest`.
-- **Feed DISTRIBUTION is untouched** and is still gated per shed-SESSION. This is the first place the
-  two flows diverge, deliberately. `completedKey` (session-bearing) stays for distribution;
-  `packingCompletedKey` is the pen-day twin. They are separate functions rather than one with a `0`
-  argument precisely so the next author cannot reuse the wrong one — doing so would mark a
-  distribution session fed because its sibling was.
-- **The verifier sees the whole day.** The item's subject is the pen (`Castro - 2`), with no
-  `Session 1 ·` prefix, and its expected-ration context reads
-  `Morning: Maize 12.5 kg · Soya 4 kg | Evening: Maize 12.5 kg · Soya 4 kg`. The per-session
-  breakdown is REQUIRED there, not decoration: handed only a day total, a verifier could not
-  distinguish a crew that packed the morning share twice from one that packed both correctly.
-- **`session_no` is REJECTED, not ignored,** on `POST /feed-direction/packing/complete`
-  (`additionalProperties: false` + `DisallowUnknownFields`). Accepted-and-ignored, a stale client's
-  morning and evening submissions would both key the same pen-day row and the second would return
-  the first's result as an already-pending no-op — the operator would see his evening video accepted
-  while nothing recorded it.
-- **There is no `session` filter** on `/feed-packing/worklist`. Narrowing a pen-day to one session
-  could only mean "show the pen but hide half its bags".
-- **`summary.line_count` halves; `total_kg_by_feed_item` does NOT.** A line is a pen-day, but the
-  crew still carries out both bags. `SummarizePacking` folds over row × session for exactly this
-  reason, and `TestPackingWorklistServesOneLinePerPenDayCarryingEverySession` pins the pair.
+- **Completion grain is `(tenant, park, shed, partition, session_no, target_date, workflow)`** —
+  exactly what `feed_packing_completions_natural_uq` has always indexed. Migration `000150` restores
+  the grain; see below for what it can and cannot undo.
+- **`session_no` is REQUIRED** on `POST /feed-direction/packing/complete`. A missing or `0` value is
+  rejected (`ErrInvalidSession`). `0` is not "the whole day": it is a value no worklist line matches,
+  so accepting it would record the operator's work against a row their bag never resolves to, and the
+  bag would still show as owed. The database agrees — `CHECK (session_no >= 1)`.
+- **The `session` filter is back** on `/feed-packing/worklist` (absent/`0` = every session), and
+  `summary.line_count` counts pen×session lines. A packer works one bag at a time, so narrowing to
+  the bag in front of them is real work rather than decoration. The web sheet at `/feed/packing`
+  deliberately does not offer the control — it is a printed worklist read down in one pass, and
+  hiding half the day's bags from it would understate what the crew must carry out.
+- **The verifier sees ONE bag.** The item's subject is `Session 1 · Castro - 2`; without the prefix a
+  verifier holding a pen's two cards cannot tell which clip proves which bag. Its expected-ration
+  context names THAT SESSION's quantities (`Maize 12.5 kg · Soya 4 kg`), never the day's — handed the
+  day total she would be checking the clip against twice what it should contain.
+- **The PEN is part of the key, for a separate reason, and survived the merge.** Castro 1 and
+  Castro 2 hold different animals on different rations. Migration `000137` exists because one
+  Castro - 1 clip was closing out all three pens. Pinned together with the session by
+  `TestPackingLinesKeepPartitionsAndSessionsApart` and `FeedPackingSessionRowTest`.
+- **Feed DISTRIBUTION was never merged** and needed no repair. Both flows are gated per shed-session
+  and share the session-bearing `completedKey` again; `packingCompletedKey` is deleted.
+- **A line accepts exactly ONE video, and a second DIFFERENT one is a 409, never a success.**
+  `ErrPackingAlreadyRecorded` → `409 packing_already_recorded`. This was introduced for the pen-day
+  upgrade and is KEPT, because it is not specific to that grain: the morning and evening submissions
+  no longer collide, but a re-send after a rework the server never recorded, or a duplicated queue
+  drain, still reaches this branch. Returning 200 there told an operator their recording was accepted
+  while nothing stored it and no verifier ever saw it. A genuine retry is unaffected — an identical
+  request replays on its idempotency key, and the same `packing_proof_ref` re-sent under a new key
+  still matches the stored proof and stays a quiet no-op. Only a *different* video conflicts, and the
+  client terminalizes the 409 rather than retrying it.
 
-Migration `000148` withdraws a superseded row's PENDING verification item **before** deleting the
-row, so nothing is left pointing at a completion that no longer exists — an orphaned pending item is
-one a verifier could approve every day with nothing ever happening. It also strips the `Session N · `
-prefix from in-flight item labels. It is deliberately NOT reversible.
+### What migration `000150` can and cannot undo
 
-**The key swap is an EXPAND/CONTRACT rollout, and the contract half is NOT in this release.**
-`000148` ADDS the pen-day unique index and deliberately KEEPS the session-bearing one. The deployed
-binary inserts with `ON CONFLICT (…, session_no, …)`, and Postgres requires a unique index matching
-that exact column list — so dropping it before every instance runs the new binary makes them fail
-EVERY packing submission with `42P10`.
+`000149` did three destructive things. `000150` reverses the reversible one and is explicit about the
+rest:
 
-**Splitting the SQL into two files does not fix that on its own, and it is worth being precise about
-why.** `backend/cmd/migrate` applies *every* pending migration sequentially in one run; there is no
-per-release gate and no staged-apply flag. A contract migration sitting next to `000148` in the same
-release would therefore run back-to-back with it, still before the new revision serves, and recreate
-the identical window. Only shipping the two halves in two **releases** fixes it, and a header comment
-saying "apply this later" cannot enforce a release boundary.
+| `000149` did | `000150` does |
+|---|---|
+| ADDED `feed_packing_completions_pen_day_uq` | DROPS it |
+| Set every surviving row's `session_no` to `0` | PROMOTES it to `1` |
+| DELETED the losing row of each collapsed pen-day | **Cannot restore it** |
 
-So the drop is simply absent from this release. It is authored in a LATER one, once every API
-instance runs the pen-day binary, and is machine-blocked until then by
-`make feed-packing-rollout-guard`, which fails on any post-`000148` migration that drops
-`feed_packing_completions_natural_uq`. Landing the contract step means retiring that guard in the
-same change — a visible, reviewable act rather than a silent one. Until then the two indexes coexist
-safely: the pen-day one is strictly stricter, and step 3 has already collapsed the rows that would
-violate it.
+A promoted row's video and verdict stand as the **morning** packing; the pen's evening carries no
+completion row and reappears on the worklist as work still owed. Nothing an operator filmed and
+nothing a verifier approved is discarded. The rows `000149` deleted are gone, and those pens' second
+bags simply reappear unpacked — the honest state, since no video for that session exists any more. If
+a `session_no = 0` row cannot be promoted (a colliding session-1 row, which should be impossible),
+the migration RAISES rather than choosing silently between destroying a video and inventing a session
+number.
 
-**A pen-day accepts exactly ONE video, and a second DIFFERENT one is a 409, never a success.**
-`ErrPackingAlreadyRecorded` → `409 packing_already_recorded`. The upgrade case forced this: the
-phone can hold TWO legacy queued packing rows for one pen (Morning and Evening, each with its own
-video and its own idempotency key), both draining to the same pen-day row. The second used to take
-the "already awaiting verification" branch and return **200 with its video discarded** — the
-accepted-and-ignored failure the strict `session_no` rejection exists to prevent, reappearing one
-layer above the API. A genuine retry is unaffected: an identical request replays on its idempotency
-key, and the same `packing_proof_ref` re-sent under a new key still matches the stored proof and
-stays a quiet no-op. Only a *different* video conflicts. The client terminalizes the 409 rather than
-retrying it.
+`000149` is **not amended**. It is already applied on STG, and STG records migration checksums, so
+editing an applied file makes every later migration fail before it runs. Forward-only, always.
 
-**admin-web is intentionally unchanged.** `/feed/packing` flattens `sessions[]` straight back into
-per-session table rows: the web packing sheet is a printed worklist a packer reads down, not the
-phone's capture card, and the session is still the line they physically fill a bag for.
+**No rollout window this time, and it is worth saying why** — `000149` needed a whole expand/contract
+dance for exactly this. The index the reverted binary's `ON CONFLICT` resolves against
+(`feed_packing_completions_natural_uq`) was deliberately KEPT by `000149`, and its contract half was
+never shipped. So the key this release needs is already in place before `000150` runs. Backend and app
+ship in one deploy, so there is no window in which an old instance submits against a key that is gone.
+`make feed-packing-rollout-guard` existed only to protect that unfinished rollout and is **retired**
+in this change — script, manifest entry, Make target and CI wiring together.
+
+The Android outbox needs the same promotion the database gets: a packing row queued by the pen-day
+build carries no session, decodes as `0`, and `SyncEngine` maps it to session 1 — matching `000150`
+server-side, so phone and database agree on what an unlabelled pen-day video proves. The Room packing
+cache namespace is bumped to `session-v3`; a stale `sessions`-shaped cached row would otherwise
+deserialize WITHOUT ERROR into a card with **no feed lines at all**, because kotlinx-serialization
+fills the missing field with its default empty list.
 
 ## The afternoon correction reopens an already-packed pen — 2026-08-10
 
@@ -274,10 +277,25 @@ backend-composed sentence rendered verbatim rather than client-side copy derived
 `feed_packing_worklist` Paparazzi golden puts the reopened pen first, above the fold, precisely so the
 image would change if that line were dropped.
 
+**EVERY SESSION of a reopened pen comes back** (2026-08-11, once packing returned to the shed-SESSION
+grain). Head count scales the morning and the evening ration alike, so both of that pen's videos now
+prove the wrong quantity; reopening one would leave the other bag packed for a head count the farm no
+longer has. `ReopenPackingForFeedChange` therefore names pens WITHOUT a session and applies no session
+predicate — the golden shows Castro - 2 twice, Morning and Evening, both carrying the sentence.
+
+A verdict already CAST is kept as history rather than rewritten: only a still-`pending` item is
+`withdrawn`, because that is the one sitting in a verifier's queue pointing at a stale clip. An
+approved item is closed and in nobody's queue, and rewriting it would erase the fact that a verifier
+genuinely watched and passed that video — what protects the operator is the completion row returning to
+`rework` with `verified_by`/`verified_at` cleared. Both halves are pinned by
+`TestReopenPackingWithdrawsPendingItemsAndKeepsCastVerdicts`, mutation-tested two ways (a session
+predicate on the reopen; withdrawing a cast verdict).
+
 ## Feed packing (also gated) — follow-up, 2026-07-26
 
-> **Grain superseded 2026-08-10** — see the section above. Everything below describes the gate
-> correctly; only "shed-session" should now read "pen-day" for packing.
+> **Grain note** — briefly superseded on 2026-08-10 by a pen-DAY grain and RESTORED on 2026-08-11;
+> see the section above. Everything below describes the gate correctly, and "shed-session" reads
+> correctly again.
 
 The same day distribution was gated, the maintainer extended the gate to feed **PACKING**, retiring the
 "feed packing is deliberately NOT gated" carve-out above. Packing is gated on the identical pattern,
