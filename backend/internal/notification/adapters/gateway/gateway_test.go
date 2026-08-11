@@ -116,6 +116,78 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 	}
 }
 
+func TestSendFCMBackfillsBlankDisplayText(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name":"projects/goatos-dev/messages/provider-blank"}`))
+	}))
+	defer server.Close()
+
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Title = " "
+	req.Body = "\t"
+	req.NotificationType = "verification_pending"
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
+		FCMBearerToken: "fcm-token",
+	}, nil)
+	if _, err := gateway.SendWithResult(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Mesha" || notification["body"] != "verification pending" {
+		t.Fatalf("notification display text = %#v", notification)
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["title"] != "Mesha" || data["body"] != "verification pending" {
+		t.Fatalf("data display fallback = %#v", data)
+	}
+}
+
+func TestSendFCMBackfillsBlankDataTextForMessageKeyPush(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name":"projects/goatos-dev/messages/provider-data"}`))
+	}))
+	defer server.Close()
+
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Title = ""
+	req.Body = ""
+	req.NotificationType = "weighing_due"
+	req.Context = []byte(`{"message_key":"weighing_due_today","category":"weighing"}`)
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
+		FCMBearerToken: "fcm-token",
+	}, nil)
+	if _, err := gateway.SendWithResult(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	if _, exists := message["notification"]; exists {
+		t.Fatalf("message_key push without recipient_locale should stay data-only: %#v", message["notification"])
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["title"] != "Mesha" || data["body"] != "weighing due" {
+		t.Fatalf("data display fallback = %#v", data)
+	}
+}
+
 func TestSendFCMWithoutRecipientFailsInsteadOfBroadcasting(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -359,7 +359,8 @@ func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
 //
 // Hybrid safety net (unchanged from before): a request with NO message_key at all (a caller that
 // has not migrated, or a genuinely English-only internal/ops notification) still gets the legacy
-// behavior -- a populated `notification.title`/`body` from request.Title/Body, unconditionally.
+// behavior -- a populated `notification.title`/`body`. Blank producer title/body is repaired at
+// the gateway boundary so the OS background auto-display path never renders an empty shell.
 //
 // FCM priority is forced to "high" for every push_fcm send (previously only when the caller's
 // context explicitly set priority=high) precisely because data-only delivery depends on it to reach
@@ -393,9 +394,10 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		// Hybrid safety net: no message_key means this caller has not migrated to the
 		// key+client-translation contract (or is a genuinely English-only internal notification).
 		// Keep the old server-rendered notification block so it is not silently dropped.
+		title, body := fcmDisplayText(request)
 		message["notification"] = map[string]string{
-			"title": request.Title,
-			"body":  request.Body,
+			"title": title,
+			"body":  body,
 		}
 	case recipientLocale != "":
 		// Forward-compatible path (see the localization-decision comment above): once dispatch
@@ -693,14 +695,36 @@ func localizedFallbackNotification(localeTag, category string) (string, string) 
 }
 
 func fcmData(request domain.Request) map[string]string {
+	title, body := fcmDisplayText(request)
 	return map[string]string{
 		"notification_request_id": request.NotificationRequestID,
 		"tenant_id":               request.TenantID,
 		"calendar_event_id":       request.CalendarEventID,
 		"notification_type":       request.NotificationType,
-		"title":                   request.Title,
-		"body":                    request.Body,
+		"title":                   title,
+		"body":                    body,
 		"trace_id":                request.TraceID,
+	}
+}
+
+func fcmDisplayText(request domain.Request) (string, string) {
+	title := strings.TrimSpace(request.Title)
+	body := strings.TrimSpace(request.Body)
+	if title == "" {
+		title = "Mesha"
+	}
+	if body == "" {
+		body = notificationTypeLabel(request.NotificationType)
+	}
+	return title, body
+}
+
+func notificationTypeLabel(notificationType string) string {
+	switch strings.TrimSpace(notificationType) {
+	case "":
+		return "New notification"
+	default:
+		return strings.ReplaceAll(notificationType, "_", " ")
 	}
 }
 
