@@ -342,6 +342,16 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 	issue(gdFeedIssue2, "2026-07-16", "normal")
 	row(gdFeedIssue2, 1, "Mineral Mix", nil, "no_ration_rate", 10, false, "normal")
 
+	// GRAIN PROOF (the STG bug this widget shipped with): TAG-F is WEIGHED in
+	// the Q bucket — a different location from the fed shed, exactly like the
+	// synthetic per-partition weighing locations on STG — but its herd-register
+	// home (goats.shed_id) is the fed shed. Its gain must land on the fed
+	// shed's row: joining the weighing bucket location to feed_direction rows
+	// would find nothing.
+	seedScan(t, ctx, pool, gdBucketW1Q, "TAG-F", 14.0, day(8, 6), "pending")
+	seedScan(t, ctx, pool, gdBucketW2Q, "TAG-F", 21.0, day(15, 6), "pending")
+	seedGoatWithTag(t, ctx, pool, "11111111-0000-4000-8000-000000000606", "0006", "TAG-F", "Sojat", "male")
+
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
 	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to)
@@ -381,11 +391,20 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 	if shed.FeedGPerHeadPerDay == nil || math.Abs(*shed.FeedGPerHeadPerDay-175) > 0.01 {
 		t.Fatalf("feed per head-day: want 175 g (3.5 kg over 20 head-days), got %+v", shed.FeedGPerHeadPerDay)
 	}
-	// No weighing pairs were seeded: growth must read "not computable", not zero.
-	if shed.ADGGPerDay != nil || shed.KgFeedPerKgGain != nil {
-		t.Fatalf("with no growth pairs ADG and the ratio must be null, got %+v / %+v", shed.ADGGPerDay, shed.KgFeedPerKgGain)
+	// TAG-F was weighed in the Q bucket but lives (and is fed) in the fed shed:
+	// its pair must be attributed to the fed shed via goats.shed_id. 14 -> 21 kg
+	// over 7 days = 1000 g/day; with a single pair the basis stays whole_shed
+	// (average movement), and the ratio is 0.175 kg feed-day per kg gained.
+	if shed.PairIdentities != 1 {
+		t.Fatalf("grain proof: the Q-bucket pair must re-grain to the fed shed via the herd register; want 1 pair, got %d", shed.PairIdentities)
 	}
-	if shed.PairIdentities != 0 || shed.Basis != domain.FeedGrowthBasisWholeShed {
-		t.Fatalf("no-pair shed: want pair 0 and whole_shed basis, got %d %s", shed.PairIdentities, shed.Basis)
+	if shed.ADGGPerDay == nil || math.Abs(*shed.ADGGPerDay-1000) > 0.01 {
+		t.Fatalf("grain proof: want 1000 g/day from the re-grained pair, got %+v", shed.ADGGPerDay)
+	}
+	if shed.KgFeedPerKgGain == nil || math.Abs(*shed.KgFeedPerKgGain-0.175) > 0.001 {
+		t.Fatalf("grain proof: want 0.175 kg feed per kg gained, got %+v", shed.KgFeedPerKgGain)
+	}
+	if shed.Basis != domain.FeedGrowthBasisWholeShed {
+		t.Fatalf("single-pair shed: basis must stay whole_shed, got %s", shed.Basis)
 	}
 }

@@ -24,9 +24,19 @@ feed_rows AS (
     AND i.state IN ('issued','amended','locked')
 )`
 
-// feedVsGrowth sets feed DIRECTED against growth measured, per shed. Feed shed_id
-// and weighing campaign_sheds.location_id are both locations.location_id, so the
-// two sides join directly.
+// feedVsGrowth sets feed DIRECTED against growth measured, per shed.
+//
+// GRAIN (STG-verified 2026-08-11): feed sheets are authored at the PHYSICAL shed
+// (18 sheds on STG), while weighing buckets are often synthetic per-partition
+// locations ("Godel 1 - Part 3" as its own locations row, parent = park) — only
+// 3 of 52 weighing locations join feed_direction_issue_rows.shed_id directly,
+// and the locations parent chain does not connect them. The reliable bridge is
+// the HERD REGISTER: goats.shed_id is the physical shed feed generation itself
+// projects from (1670/1670 goats carry it, all inside the feed-shed set; 92 of
+// 95 repeat-weighed tags reach a feed shed through it). So the growth side is
+// grouped by each matched kid's goats.shed_id, never by the weighing bucket
+// location. Kids whose tag matches no goat drop out of THIS widget only — the
+// trust panel carries them.
 //
 // BLOCKED-VS-ZERO: quantity_kg is NEVER COALESCEd. NULL means blocked (nobody
 // authored a ration) and must stay out of the sum — SUM skips NULLs natively —
@@ -74,13 +84,22 @@ adg AS (
   WHERE t_last::date > t_first::date
     AND (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) > -300
 ),
+-- Re-grain each pair from its weighing bucket to the kid's PHYSICAL shed via
+-- the herd register (see the function comment): this is the shed the feed
+-- sheet was authored against. Unmatched tags fall out here by design.
+goat_shed AS (
+  SELECT COALESCE(canon.shed_id, g.shed_id) AS shed_id,
+         a.adg_g_day, a.w_first, a.w_last, a.t_first, a.t_last
+  FROM adg a
+` + breedSexJoin + `
+),
 shed_growth AS (
   SELECT shed_id,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day) AS median_adg_g_day,
          count(*) AS pair_identities,
          (avg(w_last) - avg(w_first))::float8 AS whole_shed_avg_delta_kg,
          GREATEST(max(t_last::date) - min(t_first::date), 1) AS growth_span_days
-  FROM adg
+  FROM goat_shed
   WHERE shed_id IS NOT NULL
   GROUP BY shed_id
 )
