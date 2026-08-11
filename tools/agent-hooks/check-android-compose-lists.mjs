@@ -25,6 +25,13 @@
 //     Fix: key on the unique per-row id (obligationId) or a composite that separates the
 //     two rows: key = { "${it.goatId}|${it.vaccineLabel}" }.
 //
+//   [lazy-list-derived-key-drift]
+//     A grouped ViewModel identity carries fields that are NOT present in the rendered Compose
+//     key. Example shipped in vaccination sheds: grouping by `sopVersionId` / `taskRowVersion`
+//     produced two `ShedRow`s, while `ShedRow.id` ignored those fields, so LazyColumn saw two
+//     cards with the same key and crashed. Fix: group by the exact card key rendered by Compose,
+//     or include every grouping discriminator in the rendered key.
+//
 // Phone-scale UI rules (added per the standing "phone-scale UI" maintainer rule — this
 // anti-pattern class has shipped 3x: unbounded lazy windowing, chip pickers over unbounded
 // dimensions, and full-screen spinners discarding rendered content):
@@ -116,6 +123,7 @@ const ENTITY_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(goatId|animalId|goatUuid|a
 const ROW_UNIQUE_ID = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:id|rowId|uiKey|stableKey|uuid|key|obligationId|obligationInstanceId|taskId|recordId|eventId|proofId|captureId|completionId|assignmentId)\b/;
 const ROW_DISCRIMINATOR = /\b(?:it|row|item|entry|[a-z]\w*)\.(?:vaccineLabel|vaccineId|protocolRuleId|doseLabel|primaryTag|secondaryTag|status|tone|scannedAtLabel|obligationRowVersion)\b/;
 const MULTI_ROW_PER_ENTITY_CONTEXT = /obligation|vaccine|vaccination|proof|roster|scan/i;
+const DERIVED_KEY_DRIFT_FIELDS = /\b(sopVersionId|taskRowVersion|sopTaskRowVersion|rowVersion|assignmentVersion)\b/;
 
 const lineOf = (source, index) => source.slice(0, index).split("\n").length;
 
@@ -232,6 +240,31 @@ function blockAt(source, open) {
 export function findingsForSource(source) {
   const findings = [];
   const seen = new Set();
+
+  // App/ViewModel source rule: a data class named *Identity/*Key that stores version/row metadata
+  // but derives a `cardId`/`uiKey` without those fields is a duplicate-key trap once the backend
+  // returns multiple rows for the same visible card. This is intentionally narrow and catches the
+  // shipped vaccination-sheds shape without trying to do whole-program data-flow.
+  const identityClassRe = /\bdata\s+class\s+(\w*(?:Identity|Key))\s*\(([\s\S]*?)\)\s*\{([\s\S]*?)\n\}/g;
+  let im;
+  while ((im = identityClassRe.exec(source)) !== null) {
+    const [, className, ctor, body] = im;
+    if (!DERIVED_KEY_DRIFT_FIELDS.test(ctor)) continue;
+    const keyLine = body.split("\n").find((line) => /\b(?:cardId|uiKey|stableKey)\b/.test(line));
+    if (!keyLine) continue;
+    if (DERIVED_KEY_DRIFT_FIELDS.test(keyLine)) continue;
+    const line = lineOf(source, im.index);
+    const lineText = source.split("\n")[line - 1] || "";
+    if (/compose-guard:ignore/.test(lineText)) continue;
+    findings.push({
+      line,
+      rule: "lazy-list-derived-key-drift",
+      message:
+        `${className} groups on row/version metadata but derives a Compose card key without ` +
+        "that metadata. Group by the exact rendered key, or include every grouping discriminator " +
+        "in the rendered key, otherwise split backend rows can produce duplicate LazyColumn keys.",
+    });
+  }
 
   if (usesComposeLazy(source)) {
     const callRe = /\b(items|itemsIndexed)\s*\(/g;
@@ -500,6 +533,17 @@ function selfTest() {
     ["items(proofRows, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.primaryTag }) { }", "lazy-list-entity-id-key"],
     ['items(proofRows, key = { row -> "proof-${row.goatId}" }) { }', "lazy-list-entity-id-key"],
     ["items(vaccinationRows, key = { it.animalId }) { }", "lazy-list-entity-id-key"],
+    [
+      `data class ExecutionIdentity(
+         val shedId: String,
+         val taskId: String?,
+         val sopVersionId: String?,
+         val taskRowVersion: Int?,
+       ) {
+         val cardId: String = executionCardId(shedId, taskId)
+       }`,
+      "lazy-list-derived-key-drift",
+    ],
   ];
   for (const [inner, rule] of bad) {
     const f = findingsForSource(wrap(inner));
@@ -515,6 +559,14 @@ function selfTest() {
     "items(rows.size) { i -> Row(rows[i]) }",
     "items(rows, key = { it.id }, contentType = { it.goatId }) { }",
     "items(rows) { r -> Row(r) } // compose-guard:ignore: static",
+    `data class ExecutionIdentity(
+       val shedId: String,
+       val taskId: String?,
+       val sopVersionId: String?,
+       val taskRowVersion: Int?,
+     ) {
+       val cardId: String = executionCardId(shedId, taskId, sopVersionId, taskRowVersion)
+     }`,
   ];
   for (const inner of good) {
     const f = findingsForSource(wrap(inner));

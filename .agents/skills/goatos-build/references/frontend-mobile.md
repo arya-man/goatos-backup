@@ -47,8 +47,15 @@ evidence rows. Vaccination proof-needed rows are one row per obligation, so
 proof obligations; key by `obligationId` first and use goat/vaccine/tag only as
 a fallback composite. Use `WeighingAssignmentUiRow.uiKey` or another
 field-complete UI identity, and add a failing fixture/test before changing
-LazyColumn/LazyRow keys. Regression guards: `WeighingRouteIdentityTest`,
-`ScanProofIdentityTest`, and `make android-compose-lists-guard`.
+LazyColumn/LazyRow keys. If a ViewModel groups backend rows into rendered cards,
+the grouping key must be the exact rendered row key (or contain exactly the same
+discriminators). Never group by version/metadata fields such as
+`sopVersionId`/`taskRowVersion` and then render a `ShedRow.id`/`uiKey` that omits
+them: BT+SP / split-row schedules can then create two rendered rows with the
+same LazyColumn key. This applies equally to vaccination sheds, weighing
+assignments, feed tasks, and any future grouped mobile list. Regression guards:
+`WeighingRouteIdentityTest`, `ScanProofIdentityTest`,
+`ShedsExecutionIdentityTest`, and `make android-compose-lists-guard`.
 
 ## Current Admin-Web Build
 
