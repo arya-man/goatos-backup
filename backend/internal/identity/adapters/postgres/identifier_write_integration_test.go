@@ -57,16 +57,16 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 	t.Run("admin create requires and preserves partition grain while bare sheds remain bare", func(t *testing.T) {
 		farmID := adminCreateFarmLocation
 		parkID := cbeLocation
-		shedID := adminCreateShedLocation
+		shedID := adminMoveTargetShed
 		if _, err := pool.Exec(ctx, `
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')`, meshaTenant, adminCreateShedLocation); err != nil {
+VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')`, meshaTenant, shedID); err != nil {
 			t.Fatalf("seed partition catalog: %v", err)
 		}
 		defer func() {
 			_, _ = pool.Exec(ctx, `
 DELETE FROM shed_partitions
-WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, meshaTenant, adminCreateShedLocation)
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, meshaTenant, shedID)
 		}()
 
 		missing, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
@@ -100,13 +100,14 @@ WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, m
 		}
 
 		partitioned := adminGoatCreateCommand(t, "idem-create-goat-partition-0001", "aid1-admin-partition-0001", "admin-partition-aid2-0001")
+		partitioned.ShedID = shedID
 		partitioned.PartitionLabel = &requested
 		partitioned.RequirePartitionGrain = true
 		created, err := repo.CreateAdminGoat(ctx, partitioned)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat partitioned: %v", err)
 		}
-		if created.Goat.LocationPath.PartitionLabel == nil || *created.Goat.LocationPath.PartitionLabel != "Part 3" || created.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin create shed - Part 3" {
+		if created.Goat.LocationPath.PartitionLabel == nil || *created.Goat.LocationPath.PartitionLabel != "Part 3" || created.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin move target shed - Part 3" {
 			t.Fatalf("partitioned create location = %#v", created.Goat.LocationPath)
 		}
 		var storedPartition, sourceShedName, identityEventPartition, outboxPartition string
@@ -116,7 +117,7 @@ FROM goat_shed_partitions
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID).Scan(&storedPartition, &sourceShedName); err != nil {
 			t.Fatalf("read partition placement: %v", err)
 		}
-		if storedPartition != "Part 3" || sourceShedName != "Synthetic admin create shed - Part 3" {
+		if storedPartition != "Part 3" || sourceShedName != "Synthetic admin move target shed - Part 3" {
 			t.Fatalf("stored partition/source = %q/%q, want canonical label and human operational display", storedPartition, sourceShedName)
 		}
 		if err := pool.QueryRow(ctx, `
@@ -144,13 +145,12 @@ WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.cr
 		}
 
 		bare := adminGoatCreateCommand(t, "idem-create-goat-unpartitioned-0001", "aid1-admin-unpartitioned-0001", "admin-unpartitioned-aid2-0001")
-		bare.ShedID = adminMoveTargetShed
 		bare.RequirePartitionGrain = true
 		bareResult, err := repo.CreateAdminGoat(ctx, bare)
 		if err != nil {
 			t.Fatalf("CreateAdminGoat unpartitioned: %v", err)
 		}
-		if bareResult.Goat.LocationPath.PartitionLabel != nil || bareResult.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin move target shed" {
+		if bareResult.Goat.LocationPath.PartitionLabel != nil || bareResult.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin create shed" {
 			t.Fatalf("bare create location = %#v", bareResult.Goat.LocationPath)
 		}
 		if got := countRows(t, pool, `

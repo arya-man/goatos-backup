@@ -21,6 +21,7 @@ const (
 	testSourceLocation = "00000000-0000-4000-8000-000000003003"
 	testPark           = "00000000-0000-4000-8000-000000003001"
 	testShed           = "71000000-0000-4000-8000-000000000001"
+	testPartitionShed  = "71000000-0000-4000-8000-000000000002"
 	testOtherGoat      = "71000000-0000-4000-8000-0000000000ff"
 )
 
@@ -963,6 +964,12 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("partition dispatch: %v", err)
 		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')
+ON CONFLICT DO NOTHING`, testTenant, testPartitionShed); err != nil {
+			t.Fatalf("seed shed partition: %v", err)
+		}
 		if _, err := repo.RecordArrivalReview(ctx, ports.ArrivalReview{
 			TenantID: testTenant, LoadID: partitionLoad.LoadID, ParkLocationID: testPark,
 			ExpectedCount: 1, LoadedCount: 1, ArrivedCount: 1, MatchedCount: 1,
@@ -971,15 +978,9 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("partition RecordArrivalReview: %v", err)
 		}
-		if _, err := pool.Exec(ctx, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')
-ON CONFLICT DO NOTHING`, testTenant, testShed); err != nil {
-			t.Fatalf("seed shed partition: %v", err)
-		}
 		if _, err := repo.AcceptIntake(ctx, ports.AcceptIntake{
 			TenantID: testTenant, LoadID: partitionLoad.LoadID, GoatIDs: []string{partitionGoat.GoatID},
-			ParkLocationID: testPark, ShedLocationID: testShed, PartitionLabel: "Part 1",
+			ParkLocationID: testPark, ShedLocationID: testPartitionShed, PartitionLabel: "Part 1",
 			AcceptedAt: time.Date(2026, 5, 3, 17, 0, 0, 0, time.UTC),
 			EntryDate:  time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC), IdempotencyKey: "idem-intake-partition",
 		}); err != nil {
@@ -992,8 +993,8 @@ FROM goat_shed_partitions
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, testTenant, partitionGoat.GoatID).Scan(&partitionLabel, &sourceShedName); err != nil {
 			t.Fatalf("read goat_shed_partitions: %v", err)
 		}
-		if partitionLabel != "Part 1" || sourceShedName != "Procurement Test Shed - Part 1" {
-			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Test Shed - Part 1", partitionLabel, sourceShedName)
+		if partitionLabel != "Part 1" || sourceShedName != "Procurement Partition Test Shed - Part 1" {
+			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Partition Test Shed - Part 1", partitionLabel, sourceShedName)
 		}
 	})
 
@@ -1227,8 +1228,9 @@ func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	t.Helper()
 	_, err := pool.Exec(ctx, `
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1, $2, 'shed', 'PROC_TEST_SHED', 'Procurement Test Shed', $3, 'active')
-ON CONFLICT (tenant_id, location_code) DO NOTHING`, testShed, testTenant, testPark)
+VALUES ($1, $2, 'shed', 'PROC_TEST_SHED', 'Procurement Test Shed', $4, 'active'),
+       ($3, $2, 'shed', 'PROC_PARTITION_TEST_SHED', 'Procurement Partition Test Shed', $4, 'active')
+ON CONFLICT (tenant_id, location_code) DO NOTHING`, testShed, testTenant, testPartitionShed, testPark)
 	if err != nil {
 		t.Fatalf("seed shed: %v", err)
 	}
