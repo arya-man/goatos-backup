@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- Feed PACKING goes back to ONE VIDEO PER PEN PER FEEDING SESSION.
 --
 -- Maintainer decision 2026-08-11, REVERTING migration 000149 and the packing half of the 2026-08-10
@@ -20,6 +21,11 @@
 -- migration checksums -- editing an applied file makes every later migration fail before it runs.
 -- Forward-only, always.
 --
+-- LOCK SAFETY. This migration touches populated operational tables and drops a live unique index, so
+-- it runs with NO TRANSACTION: the retired pen-day index is dropped CONCURRENTLY, the catalog changes
+-- are short, and the data repairs fail fast instead of sitting behind a long reader while holding a
+-- deploy-wide transaction open.
+--
 -- THE ROLLOUT WINDOW IS NOT AN ISSUE HERE, and it is worth saying why, because 000149 needed a whole
 -- expand/contract dance for it. The index the reverted binary's ON CONFLICT resolves against --
 -- feed_packing_completions_natural_uq (tenant_id, park_id, shed_id, partition_key, session_no,
@@ -33,7 +39,7 @@
 -- ---------------------------------------------------------------------------
 -- Must come BEFORE the promotion below. Both of a pen's sessions are allowed to coexist again, and
 -- while this index stands they cannot: it uniques on the pen-day without the session.
-DROP INDEX IF EXISTS feed_packing_completions_pen_day_uq;
+DROP INDEX CONCURRENTLY IF EXISTS public.feed_packing_completions_pen_day_uq;
 
 -- ---------------------------------------------------------------------------
 -- 2. Promote the pen-day sentinel back to a real session
@@ -47,6 +53,8 @@ DROP INDEX IF EXISTS feed_packing_completions_pen_day_uq;
 -- and it carries 0, so the guard is expected to exclude nothing -- but a database where 000149 was
 -- interrupted mid-way, or a hand-repaired one, could hold both a 0 row and a real session-1 row, and
 -- an unguarded UPDATE would abort the whole migration on a unique violation with no explanation.
+SET lock_timeout = '5s';
+
 UPDATE feed_packing_completions c
 SET session_no = 1,
     updated_at = now()
@@ -88,12 +96,13 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Back to >= 1, the constraint 000033 shipped. 000149 relaxed it to >= 0 only to admit its sentinel;
 -- with the sentinel gone, 0 is meaningless again and the database should refuse it. This is the
--- stronger control: the service also rejects session < 1 with ErrInvalidSession, but a check
--- constraint holds for importers, repair scripts and any future writer that never reads that code.
-ALTER TABLE feed_packing_completions
+-- stronger control: the service also rejects session < 1 with ErrInvalidSession, but a NOT VALID
+-- check constraint holds for new importers, repair scripts and any future writer that never reads
+-- that code without scanning the historical table during deploy.
+ALTER TABLE public.feed_packing_completions
   DROP CONSTRAINT IF EXISTS feed_packing_completions_session_no_check;
-ALTER TABLE feed_packing_completions
-  ADD CONSTRAINT feed_packing_completions_session_no_check CHECK (session_no >= 1);
+ALTER TABLE public.feed_packing_completions
+  ADD CONSTRAINT feed_packing_completions_session_no_check CHECK (session_no >= 1) NOT VALID;
 
 -- ---------------------------------------------------------------------------
 -- 4. Put the session back on the verifier's subject label
@@ -108,9 +117,8 @@ ALTER TABLE feed_packing_completions
 -- at a row that no longer exists, and stamping "Session 1" on one would claim it proved a bag it did
 -- not.
 --
--- Bounded lock: verification_items is a hot table, so this waits a few seconds for its lock and fails
+-- Bounded lock: verification_items is a hot table, so this uses the lock_timeout set above and fails
 -- fast rather than queueing behind a long reader and stalling every writer behind it.
-SET lock_timeout = '5s';
 
 -- 4a. Labels that still carry a location get the prefix back.
 --     Guarded against double-prefixing so a re-run is a no-op.
