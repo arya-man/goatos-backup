@@ -356,10 +356,11 @@ type CampaignShed struct {
 	// 'verified'. There is NO expected-animal denominator here — only a count of
 	// evidence that actually exists and still needs a verifier look.
 	PendingVerificationCount int `json:"pending_verification_count"`
-	// ReworkCount is the subset of PendingVerificationCount that a verifier
-	// actively BOUNCED back ('rework'), i.e. work sitting with the operator
-	// again. It is a strict subset, never added to the pending count: an
-	// observation is either awaiting a first look or bounced, never both.
+	// ReworkCount is work a verifier actively BOUNCED back ('rework') and the
+	// operator still owes. Individual rework counts submitted animal rows. Shed
+	// grain rework is a bucket signal: a withdrawn rejected lump-sum proof counts
+	// as 1 until an open replacement proof exists, so this is not always a subset
+	// of PendingVerificationCount.
 	ReworkCount int `json:"rework_count"`
 	// LatestReworkReason is the most recent verifier-provided reason among this
 	// bucket's active rework observations. It is for operator clarity only; an
