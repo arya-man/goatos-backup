@@ -47,6 +47,9 @@ import (
 	feeddirectionverificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	growthdirectorhttp "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/http"
+	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
+	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
@@ -456,6 +459,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// weighing process-state read model (declared `weighing_work_item` grain).
 	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
+	// Growth Director: read-only reporting over weighing + herd + feed tables.
+	// Deliberately its OWN module, outside backend/internal/weighing, because
+	// weighing is isolated from the herd and these widgets need breed/sex and
+	// the feed sheet.
+	growthDirectorService := growthdirectorapp.NewService(growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	growthDirectorHandler := growthdirectorhttp.NewHandler(growthDirectorService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIService := adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -976,6 +985,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)
+	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)
