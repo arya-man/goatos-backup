@@ -42,6 +42,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("reviewCount") val reviewCount: Int? = null,
     @SerialName("driveId") val driveId: String? = null,
     @SerialName("driveName") val driveName: String? = null,
+    @SerialName("vaccineLabels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("dueDate") val dueDate: String? = null,
     // Enums modeled as String (see VaccinationExecutionWorkState / *Severity / *SOPStatus /
     // *ProofStatus / *VerificationStatus in app-api.yaml). Kept as String so an

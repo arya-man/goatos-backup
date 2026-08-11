@@ -378,6 +378,16 @@
       "ciStep": "goat-shed-scope-guard"
     },
     {
+      "id": "operational-partition-identity",
+      "script": "tools/agent-hooks/check-operational-partition-identity.mjs",
+      "makeTarget": "operational-partition-identity-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-partition-identity.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-partition-identity.mjs --self-test",
+      "owningDoc": "docs/decisions/partition-is-operational-shed.md",
+      "requiredInCI": true,
+      "ciStep": "operational-partition-identity-guard"
+    },
+    {
       "id": "guardrail-registration",
       "script": "tools/ci/check-guardrail-registration.mjs",
       "makeTarget": "guardrail-registration-guard",

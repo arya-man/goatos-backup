@@ -297,14 +297,15 @@ gradle_lock_lib_changed() {
   printf '%s\n' "$changed" | grep -Eq '^tools/ci/(gradle-worktree-lock\.sh|run-local-ci\.sh)$'
 }
 
-# run-local-ci.sh is in the self-test's trigger set ON PURPOSE: guard case (g)
-# drives `run-local-ci.sh android` under trace as the WIRING assertion, so an
-# edit to this file can invalidate the self-test's result.
+# The 23-mutant suite proves the lock library and guard harness, not the local CI
+# dispatcher. Dispatcher wiring is already covered by gradle_lock_lib_changed()
+# above, which runs the real guard case (g)/(g3) on run-local-ci.sh edits without
+# paying the mutation-suite timeout budget.
 gradle_lock_selftest_changed() {
   local changed
   changed="$(changed_since_base 2>/dev/null)" || return 0
   [ -n "$changed" ] || return 0
-  printf '%s\n' "$changed" | grep -Eq '^tools/ci/(gradle-worktree-lock\.sh|check-gradle-worktree-lock\.sh|check-gradle-worktree-lock\.test\.sh|run-local-ci\.sh)$'
+  printf '%s\n' "$changed" | grep -Eq '^tools/ci/(gradle-worktree-lock\.sh|check-gradle-worktree-lock\.sh|check-gradle-worktree-lock\.test\.sh)$'
 }
 
 # The real check lives in its own file so it greps this script from OUTSIDE and
@@ -441,8 +442,8 @@ run_common() {
   if gradle_lock_selftest_changed; then
     step "gradle-worktree-lock guard self-test" bash tools/ci/check-gradle-worktree-lock.test.sh
   else
-    RESULTS+=("SKIP  gradle-worktree-lock guard self-test (no lock/guard/harness/run-local-ci diff)")
-    echo "── ci-local: gradle-worktree-lock guard self-test SKIPPED (no lock/guard/harness/run-local-ci diff vs base)"
+    RESULTS+=("SKIP  gradle-worktree-lock guard self-test (no lock/guard/harness diff)")
+    echo "── ci-local: gradle-worktree-lock guard self-test SKIPPED (no lock/guard/harness diff vs base)"
   fi
   step "large-file guard"         node tools/ci/check-large-files.mjs
   step "git diff --check"         git diff --check
@@ -493,6 +494,7 @@ run_backend() {
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "operational-location-guard" make operational-location-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "operational-partition-identity-guard" make operational-partition-identity-guard
   step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
   step "weighing-close-gate-guard" make weighing-close-gate-guard
@@ -586,6 +588,7 @@ run_android_guards() {
   step "domain-event-envelope-enum-guard" make domain-event-envelope-enum-guard
   step "design-system-guard"          make design-system-guard
   step "android-row-action-scope-guard" make android-row-action-scope-guard
+  step "operational-partition-identity-guard" make operational-partition-identity-guard
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard

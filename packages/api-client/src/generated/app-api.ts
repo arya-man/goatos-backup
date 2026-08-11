@@ -5654,6 +5654,8 @@ export interface components {
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
+            /** @description Vaccine chips for this actual shed card. Counts on the card remain animal-grain: if one animal needs multiple vaccines, one proof/video satisfies all listed labels. */
+            vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
             workState: components["schemas"]["VaccinationExecutionWorkState"];

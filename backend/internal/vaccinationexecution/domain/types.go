@@ -102,6 +102,7 @@ type ExecutionRow struct {
 	ReviewCount        int                `json:"reviewCount"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`
+	VaccineLabels      []string           `json:"vaccineLabels,omitempty"`
 	DueDate            *string            `json:"dueDate,omitempty"`
 	WorkState          WorkState          `json:"workState"`
 	Severity           Severity           `json:"severity"`
@@ -451,6 +452,7 @@ type ExecutionProjection struct {
 	BatchID              *string
 	ProtocolName         string
 	DoseCode             string
+	VaccineLabels        []string
 	DueAt                *time.Time
 	ObligationCount      int
 	ScheduledCount       int

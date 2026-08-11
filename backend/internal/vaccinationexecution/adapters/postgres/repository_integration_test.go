@@ -150,6 +150,35 @@ func TestVaccinationExecutionScannedCountOneToManyPaginationDateShiftParkScopeSt
 	}
 }
 
+func TestVaccinationExecutionGoatProofArtifactsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrix(t *testing.T) {
+	t.Log("OneToMany PageBoundary ExecutionDate ParkScope StatusMatrix: completed goat proof artifacts count the animal done once even when multiple vaccine obligations share the task")
+	requiredFragments := map[string]string{
+		"goat proof lateral join":       "FROM proof_artifacts proof",
+		"goat proof task scope":         "proof.task_id = st.task_id",
+		"goat proof subject grain":      "proof.subject_type = 'goat'",
+		"goat proof completed upload":   "proof.upload_state = 'completed'",
+		"goat proof execution as-of":    "proof.created_at <= $7::timestamptz",
+		"goat proof scanned rollup":     "BOOL_OR(located.scanned OR located.proofed) AS has_scan",
+		"goat proof submitted rollup":   "BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof",
+		"vaccine chips multi-dose list": "ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code)",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(vaccinationExecutionSQL, fragment) {
+			t.Fatalf("vaccination execution SQL lost %s invariant %q", name, fragment)
+		}
+	}
+	scanRosterFragments := map[string]string{
+		"roster goat proof lateral": "FROM proof_artifacts proof",
+		"roster goat proof done":    "WHEN sc.capture_id IS NOT NULL OR goat_proof.proofed_at IS NOT NULL THEN 'done'",
+		"roster proof timestamp":    "COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at)",
+	}
+	for name, fragment := range scanRosterFragments {
+		if !strings.Contains(scanRosterSQL, fragment) {
+			t.Fatalf("scan roster SQL lost %s invariant %q", name, fragment)
+		}
+	}
+}
+
 func TestListVaccinationExecutionProjectionPartitionContractOneToManyPageBoundaryScheduledDateScopeHierarchyStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

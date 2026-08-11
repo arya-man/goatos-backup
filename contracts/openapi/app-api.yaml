@@ -15228,6 +15228,13 @@ components:
           format: uuid
         driveName:
           type: string
+        vaccineLabels:
+          type: array
+          description: >-
+            Vaccine chips for this actual shed card. Counts on the card remain animal-grain:
+            if one animal needs multiple vaccines, one proof/video satisfies all listed labels.
+          items:
+            type: string
         dueDate:
           type: string
           format: date
