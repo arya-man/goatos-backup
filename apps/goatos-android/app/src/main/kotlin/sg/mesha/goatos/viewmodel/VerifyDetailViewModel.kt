@@ -196,7 +196,17 @@ class VerifyDetailViewModel @Inject constructor(
             .onEach { resource -> if (resource.data != null) _hasLoadedOnce.value = true }
             .scan(emptyList<VerificationQueueItem>()) { previous, resource ->
                 val answered = resource.data ?: return@scan previous
-                answered.items.filter { it.verificationGroupKey() == itemId }
+                val matching = answered.items.filter { it.verificationGroupKey() == itemId }
+                if (
+                    matching.isEmpty() &&
+                    previous.isNotEmpty() &&
+                    !_flags.value.isDecisionResolving &&
+                    !_flags.value.autoCloseAfterDecision
+                ) {
+                    previous
+                } else {
+                    matching
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

@@ -42,6 +42,28 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `execution card key ignores backend row metadata splits`() {
+        val bluetongue = VaccinationExecutionRowDto(
+            shedId = "shed-84",
+            partitionLabel = "1",
+            batchId = "batch-drive",
+            driveId = "drive-aug",
+            sopTaskId = "task-bt-sp",
+            sopVersionId = "sop-v1",
+            sopTaskRowVersion = 11,
+            driveName = "Bluetongue",
+        )
+        val sheeppox = bluetongue.copy(
+            sopVersionId = "sop-v2",
+            sopTaskRowVersion = 13,
+            driveName = "Sheeppox",
+        )
+
+        assertEquals("shed:shed-84|partition:1|task:task-bt-sp", bluetongue.executionCardId())
+        assertEquals(bluetongue.executionCardId(), sheeppox.executionCardId())
+    }
+
+    @Test
     fun `shed totals use backend animal counts instead of aggregated row count`() {
         val counts = executionCounts(
             listOf(

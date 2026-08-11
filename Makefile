@@ -791,6 +791,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
@@ -803,6 +805,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 android-runtime-permission-sdk-gates-guard:
@@ -935,7 +938,9 @@ android-bounded-memory-guard-audit:
 # android-compose-lists-guard: block the Compose lazy-list key crash class — a
 # LazyColumn/LazyRow keyed by a per-ENTITY id on a per-ROW list (a goat with two
 # due vaccines => duplicate key => "Key was already used" crash, shipped in
-# 0.1.6-stg, fixed a9c35a1d), and items()/itemsIndexed() with no stable key. Also
+# 0.1.6-stg, fixed a9c35a1d), a grouped ViewModel identity that drifts from the
+# rendered card key (BT+SP / split row-version rows => duplicate ShedRow.id),
+# and items()/itemsIndexed() with no stable key. Also
 # carries the phone-scale UI rules (CD-PHONE-SCALE-UI): nested scroll (Lazy-in-Lazy
 # or a scrollable Column/Row) inside a list's items() row lambda; unbounded
 # `.forEach {}` rendering inside a scrollable Column/Row over state/domain data

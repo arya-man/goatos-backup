@@ -21,6 +21,15 @@ object AnalyticsEventsWeighing {
      */
     const val WEIGHING_SUBMIT_ATTEMPTED = "weighing_submit_attempted"
 
+    /** The operator opened the final weighing submit confirmation. */
+    const val WEIGHING_SUBMIT_CONFIRMATION_OPENED = "weighing_submit_confirmation_opened"
+
+    /** The operator dismissed the final weighing submit confirmation without submitting. */
+    const val WEIGHING_SUBMIT_CONFIRMATION_CANCELLED = "weighing_submit_confirmation_cancelled"
+
+    /** The operator confirmed the final weighing submit confirmation. */
+    const val WEIGHING_SUBMIT_CONFIRMATION_CONFIRMED = "weighing_submit_confirmation_confirmed"
+
     /** The scope-level Submit call succeeded. */
     const val WEIGHING_SUBMIT_SUCCEEDED = "weighing_submit_succeeded"
 

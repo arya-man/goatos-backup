@@ -210,3 +210,11 @@ and always pass a `key` to `items()`/`itemsIndexed()` over a collection. Rule +
 guard details live in
 [`docs/decisions/mobile-data-fetch-anti-patterns.md`](../decisions/mobile-data-fetch-anti-patterns.md)
 → "Compose lazy-list key correctness".
+
+For grouped ViewModel rows, the grouping identity and rendered key must match.
+If backend rows are grouped by fields that are not present in the rendered
+`ShedRow.id`/`uiKey`, the UI can emit duplicate LazyColumn keys even though each
+backend row is valid. Example: vaccination BT+SP or split task-row-version rows
+must render as one shed/partition/task card, or the version field must be part
+of the rendered key. Use the same rule for weighing assignments and every other
+grouped mobile list.

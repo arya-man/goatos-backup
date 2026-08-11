@@ -2628,6 +2628,9 @@ fun AppNavHost(
                                     actionMode = state.isActionQueue,
                                     parkId = state.selectedParkId,
                                     shedId = state.selectedShedId,
+                                    status = state.selectedStatus,
+                                    businessDate = state.selectedBusinessDate,
+                                    missed = state.missedOnly,
                                 ),
                             ) { launchSingleTop = true }
                         else -> vm.onEvent(event)

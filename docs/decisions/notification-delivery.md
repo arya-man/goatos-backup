@@ -72,6 +72,13 @@ notification-dispatcher stage  ──▶ notification/app.Service.RunOnce
   (`operational-kernel-system-design.md` ~line 199).
 - **Statuses** (`domain`): `queued → sending → sent | failed → exhausted`,
   plus `suppressed`, `read`.
+- **FCM display text is mandatory.** Every `push_fcm` payload carries nonblank
+  `data.title` and `data.body`, including message-key pushes that are otherwise
+  data-only for client localization. Any FCM `notification` block emitted by the
+  gateway must also have nonblank `title` and `body`. Blank producer copy is
+  repaired at the gateway boundary (`Mesha` plus a notification-type label) so
+  Android foreground handling and OS background auto-display cannot render an
+  empty notification shell.
 
 ## Attempt Semantics and Retry Isolation
 
