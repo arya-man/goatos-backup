@@ -169,6 +169,28 @@ object AnalyticsEvents {
     /** A weighing capture could not be queued or proof storage failed. */
     const val WEIGHING_CAPTURE_FAILURE = "weighing_capture_failure"
 
+    const val VACCINATION_SCAN = "vaccination_scan"
+    const val VACCINATION_SCAN_REJECTED = "vaccination_scan_rejected"
+    const val VACCINATION_PROOF_CAPTURE_ATTEMPT = "vaccination_proof_capture_attempt"
+    const val VACCINATION_PROOF_CAPTURE_SUCCESS = "vaccination_proof_capture_success"
+    const val VACCINATION_PROOF_CAPTURE_FAILURE = "vaccination_proof_capture_failure"
+    const val VACCINATION_PROOF_CAPTURE_CANCELLED = "vaccination_proof_capture_cancelled"
+    const val VACCINATION_SUBMIT_ATTEMPT = "vaccination_submit_attempt"
+    const val VACCINATION_SUBMIT_SUCCESS = "vaccination_submit_success"
+    const val VACCINATION_SUBMIT_FAILURE = "vaccination_submit_failure"
+
+    const val WEIGHING_SCAN = "weighing_scan"
+    const val WEIGHING_WEIGHT_CAPTURE_ATTEMPT = "weighing_weight_capture_attempt"
+    const val WEIGHING_WEIGHT_CAPTURE_SUCCESS = "weighing_weight_capture_success"
+    const val WEIGHING_WEIGHT_CAPTURE_FAILURE = "weighing_weight_capture_failure"
+    const val WEIGHING_PROOF_CAPTURE_ATTEMPT = "weighing_proof_capture_attempt"
+    const val WEIGHING_PROOF_CAPTURE_SUCCESS = "weighing_proof_capture_success"
+    const val WEIGHING_PROOF_CAPTURE_FAILURE = "weighing_proof_capture_failure"
+    const val WEIGHING_PROOF_CAPTURE_CANCELLED = "weighing_proof_capture_cancelled"
+    const val WEIGHING_SUBMIT_ATTEMPT = "weighing_submit_attempt"
+    const val WEIGHING_SUBMIT_SUCCESS = "weighing_submit_success"
+    const val WEIGHING_SUBMIT_FAILURE = "weighing_submit_failure"
+
     /** A weight write was rejected by the server (409 conflict), indicating the weight was
      *  silently discarded and the operator must re-capture the animal. */
     const val WEIGHING_CAPTURE_CONFLICT = "weighing_capture_conflict"
@@ -637,6 +659,17 @@ object AnalyticsEvents {
         const val CHROME = "chrome"
         const val ACTION = "action"
         const val SHED_ID = "shed_id"
+        const val RFID = "rfid"
+        const val GOAT_ID = "goat_id"
+        const val CAMPAIGN_ID = "campaign_id"
+        const val CAMPAIGN_SHED_ID = "campaign_shed_id"
+        const val PARTITION_ID = "partition_id"
+        const val PARTITION_LABEL = "partition_label"
+        const val OUTCOME = "outcome"
+        const val WEIGHT_KG = "weight_kg"
+        const val ANIMAL_COUNT = "animal_count"
+        const val PROOF_CAPTURED = "proof_captured"
+        const val PROOF_UPLOADED = "proof_uploaded"
         const val SESSION_NO = "session_no"
 
         /** Stable backend module key from the bootstrap `modules` array. */

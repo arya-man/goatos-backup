@@ -272,7 +272,8 @@ class WeighingViewModelTest {
             scopeState = WeighingScopeState(listOf(rosterRow()), listOf(original), emptyList(), 0),
             recordIndividualGate = gate,
         )
-        val vm = weighingViewModel(repository, scoped = true)
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val vm = weighingViewModel(repository, scoped = true, analytics = analytics)
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -286,6 +287,19 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         assertFalse(vm.state.value.visibleRows.single().weightUpdating)
+        val weightEvents = analytics.events.filter {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_ATTEMPT ||
+                it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_SUCCESS
+        }
+        assertEquals(
+            listOf(
+                sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_ATTEMPT,
+                sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_SUCCESS,
+            ),
+            weightEvents.map { it.name },
+        )
+        assertEquals(TEST_TAG, weightEvents.first().props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID])
+        assertEquals("13.5", weightEvents.first().props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.WEIGHT_KG])
     }
 
     @Test
@@ -527,6 +541,7 @@ class WeighingViewModelTest {
         }
         val proofSource = FakeProofCaptureSource()
         proofSource.queue(sg.mesha.goatos.capture.CapturedVideo(localUri = "file://new.mp4", startedAtMs = 10_000, endedAtMs = 12_000))
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
             scoped = true,
@@ -534,6 +549,7 @@ class WeighingViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = OperatorBootstrapRepository,
             weighingCategory = "per_shed_partition",
+            analytics = analytics,
         )
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
@@ -542,6 +558,7 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, proofs.captureCalls.size)
+        assertTrue(analytics.events.any { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT })
     }
 
     @Test
@@ -737,6 +754,7 @@ class WeighingViewModelTest {
     fun `a scan for a different animal never stops the in-flight recording, and its own finalized clip still lands under its own tag`() = runTest(dispatcher) {
         val proofs = FakeProofCaptureRepository()
         val proofSource = ChannelBackedProofCaptureSource()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(),
             scoped = true,
@@ -744,6 +762,7 @@ class WeighingViewModelTest {
             proofCaptureRepository = proofs,
             proofCaptureSource = proofSource,
             bootstrapRepository = OperatorBootstrapRepository,
+            analytics = analytics,
         )
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
@@ -782,6 +801,9 @@ class WeighingViewModelTest {
         assertEquals(2, proofs.captureCalls.size)
         assertEquals(SECOND_TAG, proofs.captureCalls[1].caption)
         assertEquals("file://animal-b.mp4", proofs.captureCalls[1].localUri)
+        val scans = analytics.events.filter { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_SCAN }
+        assertEquals(listOf(TEST_TAG, SECOND_TAG), scans.map { it.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID] })
+        assertTrue(scans.all { it.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.OUTCOME] == "accepted" })
     }
 
     /**
@@ -1270,7 +1292,7 @@ class WeighingViewModelTest {
             // actually standing on, not just the initial hydrated state.
             wizardVm.next()
             assertEquals(WeighingWizardStep.CONFIGURE, wizardVm.state.value.step)
-            wizardVm.selectDate("2026-08-10")
+            wizardVm.selectDate("2099-08-10")
             assertEquals("2026-08-03", wizardVm.state.value.selectedDate)
             assertEquals(WeighingWizardStep.CONFIGURE, wizardVm.state.value.step)
             wizardVm.selectPark("park-cbe")
@@ -1342,7 +1364,7 @@ class WeighingViewModelTest {
 
             // The blank-create downgrade this guards against: even a fully legal date pick must not
             // be able to carry the wizard forward past the loss.
-            wizardVm.selectDate("2026-08-10")
+            wizardVm.selectDate("2099-08-10")
             assertFalse(wizardVm.state.value.canContinue)
             wizardVm.next()
             assertEquals(WeighingWizardStep.DATE, wizardVm.state.value.step)
@@ -1480,7 +1502,7 @@ class WeighingViewModelTest {
         // The opening step is tracked on init, before any tap.
         assertEquals(listOf("date"), analytics.events.map { it.props["wizard_step"] }.filterNotNull())
 
-        wizardVm.selectDate("2026-08-10")
+        wizardVm.selectDate("2099-08-10")
         wizardVm.next()
         advanceUntilIdle()
         assertEquals(WeighingWizardStep.PARK, wizardVm.state.value.step)
@@ -1523,7 +1545,7 @@ class WeighingViewModelTest {
         backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
         advanceUntilIdle()
 
-        wizardVm.selectDate("2026-08-10")
+        wizardVm.selectDate("2099-08-10")
         wizardVm.next()
         advanceUntilIdle()
         assertEquals(WeighingWizardStep.PARK, wizardVm.state.value.step)

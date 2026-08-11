@@ -57,10 +57,13 @@ import sg.mesha.goatos.rfid.RfidInputTransform
 import sg.mesha.goatos.rfid.PassthroughRfidInputTransform
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.core.common.AppResult
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+
+private const val MAX_ANALYTICS_REASON_CHARS = 96
 
 /**
  * Scan (tap-to-scan) state holder — the offline-first pattern (docs/decisions/android-offline-first.md).
@@ -731,6 +734,18 @@ class ScanViewModel @Inject constructor(
         val selectedTaskId = taskId ?: return
         val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
         if (normalize(capturedTag).isEmpty()) return
+        analytics.track(
+            if (outcome == RfidScanAttemptOutcome.ACCEPTED) {
+                AnalyticsEvents.VACCINATION_SCAN
+            } else {
+                AnalyticsEvents.VACCINATION_SCAN_REJECTED
+            },
+            vaccinationActionProps(row, capturedTag) +
+                mapOf(
+                    AnalyticsEvents.Params.OUTCOME to outcome.name.lowercase(),
+                    AnalyticsEvents.Params.REASON to (reason ?: if (outcome == RfidScanAttemptOutcome.ACCEPTED) "accepted" else outcome.name.lowercase()),
+                ),
+        )
         viewModelScope.launch {
             scanAttemptRepository.recordAttempt(
                 taskId = selectedTaskId,
@@ -1157,6 +1172,11 @@ class ScanViewModel @Inject constructor(
         // against the previous job and skip its own cleanup.
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_CAPTURE_ATTEMPT,
+                    vaccinationActionProps(row, row.primaryTag) +
+                        (AnalyticsEvents.Params.OUTCOME to "attempt"),
+                )
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
                         title = "Vaccination proof",
@@ -1164,14 +1184,25 @@ class ScanViewModel @Inject constructor(
                         secondaryTag = row.secondaryTag,
                         workLabel = row.vaccineLabel,
                     ),
-                ) ?: return@launch
+                ) ?: run {
+                    analytics.track(
+                        AnalyticsEvents.VACCINATION_PROOF_CAPTURE_CANCELLED,
+                        vaccinationActionProps(row, row.primaryTag) +
+                            mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "cancelled",
+                                AnalyticsEvents.Params.REASON to "camera_cancelled",
+                            ),
+                    )
+                    return@launch
+                }
                 // Past this point a real, complete recording exists — it must never be discarded,
                 // so from here on this job's own state ownership is no longer cancellable by a
                 // later scan (see the busy-refusal branch above).
                 proofCaptureVideoCaptured = true
                 val syncingStartedAtMs = System.currentTimeMillis()
                 _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
-                proofCaptureRepository.capture(
+                when (
+                    val proof = proofCaptureRepository.capture(
                     taskId = selectedTaskId,
                     fieldKey = GOAT_PROOF_FIELD_KEY,
                     // R50-027: policy-driven default subject (falls back to GOAT via
@@ -1188,11 +1219,39 @@ class ScanViewModel @Inject constructor(
                     capturedByPrincipalId = currentPrincipalId,
                     proofPolicy = policy,
                     partitionLabel = partitionLabel,
-                )
+                    )
+                ) {
+                    is AppResult.Ok -> analytics.track(
+                        AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
+                        vaccinationActionProps(row, row.primaryTag) +
+                            mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                                AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                AnalyticsEvents.Params.PROOF_UPLOADED to (proof.value.syncStatus == CaptureSyncStatus.SYNCED).toString(),
+                                AnalyticsEvents.Params.PROOF_ID to proof.value.id,
+                            ),
+                    )
+                    is AppResult.Err -> analytics.track(
+                        AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                        vaccinationActionProps(row, row.primaryTag) +
+                            mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "failure",
+                                AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
+                            ),
+                    )
+                }
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                    vaccinationActionProps(row, row.primaryTag) +
+                        mapOf(
+                            AnalyticsEvents.Params.OUTCOME to "failure",
+                            AnalyticsEvents.Params.REASON to (error.message ?: error::class.simpleName.orEmpty()).take(MAX_ANALYTICS_REASON_CHARS),
+                        ),
+                )
                 throw error
             } finally {
                 // Only the job that still OWNS the in-flight state may clean it up. Guard on JOB
@@ -1235,6 +1294,24 @@ class ScanViewModel @Inject constructor(
         proofCaptureJob = job
         job.start()
     }
+
+    private fun vaccinationActionProps(row: RosterRow?, rfid: String): Map<String, String> =
+        buildMap {
+            put(AnalyticsEvents.Params.RFID, rfid)
+            taskId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+            shedId?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.SHED_ID, it)
+                put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, it)
+            }
+            partitionLabel?.takeIf(String::isNotBlank)?.let {
+                put(AnalyticsEvents.Params.PARTITION_ID, it)
+                put(AnalyticsEvents.Params.PARTITION_LABEL, it)
+            }
+            row?.goatId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.GOAT_ID, it) }
+            row?.vaccineLabel?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.ITEM_ID, it) }
+            put(AnalyticsEvents.Params.PROOF_CAPTURED, (row?.proofUploadStatus != ProofUploadStatus.MISSING).toString())
+            put(AnalyticsEvents.Params.PROOF_UPLOADED, (row?.proofUploadStatus == ProofUploadStatus.SYNCED).toString())
+        }
 
     private fun retryGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
