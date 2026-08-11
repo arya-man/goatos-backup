@@ -1708,6 +1708,14 @@ class WeighingViewModel @Inject constructor(
         val scannedIdentifiers = scannedRows.value
             .map { it.animalId }
             .distinct()
+        val readyVisibleRows = state.value.visibleRows
+            .filter { row ->
+                scannedIdentifiers.contains(row.animalId) &&
+                    row.weightSaved &&
+                    row.proofUploadStatus == sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
+            }
+            .map { row -> row.animalId }
+            .distinct()
         val pairedDrafts = drafts
             .filter { draft ->
                 draft.readyToSubmit &&
@@ -1723,11 +1731,12 @@ class WeighingViewModel @Inject constructor(
             } else {
                 null
             }
-        }.distinct()
+        }.plus(readyVisibleRows).distinct()
         if (
             scannedIdentifiers.isEmpty() ||
             submittedIdentifiers.size != scannedIdentifiers.size ||
-            submittedIdentifiers.size != pairedDrafts.size
+            submittedIdentifiers.size != readyVisibleRows.size ||
+            submittedIdentifiers.any { it !in scannedIdentifiers }
         ) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
             analytics.track(
@@ -1739,6 +1748,10 @@ class WeighingViewModel @Inject constructor(
         }
         // Show confirmation dialog instead of submitting directly
         showSubmitConfirmation.value = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_OPENED,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+        )
         submitPendingIdentifiers = submittedIdentifiers
         submitPendingCallback = onSubmitted
     }
@@ -1753,6 +1766,10 @@ class WeighingViewModel @Inject constructor(
         submitPendingIdentifiers = null
         submitPendingCallback = null
         actionInFlight.value = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CONFIRMED,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+        )
         analytics.track(
             AnalyticsEvents.WEIGHING_SUBMIT_ATTEMPT,
             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
@@ -1814,6 +1831,10 @@ class WeighingViewModel @Inject constructor(
         showSubmitConfirmation.value = false
         submitPendingIdentifiers = null
         submitPendingCallback = null
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CANCELLED,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+        )
     }
 
     private fun recordIndividualRow(
