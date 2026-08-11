@@ -27,6 +27,8 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
@@ -605,6 +607,38 @@ class WeighingRepositoryTest {
         val result = repository.listAssignments() as AppResult.Ok
 
         assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `completed submitted buckets stay out of operator my work but remain visible to history scopes`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-submitted", "Castro 2", "completed"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val myWork = repository.listAssignments(scope = WEIGHING_SCOPE_MINE) as AppResult.Ok
+        val operators = repository.listAssignments(scope = WEIGHING_SCOPE_OPERATORS) as AppResult.Ok
+        val all = repository.listAssignments(scope = WEIGHING_SCOPE_ALL) as AppResult.Ok
+
+        assertEquals(listOf("Castro 1"), myWork.value.items.map { it.label })
+        assertEquals(listOf("Castro 1", "Castro 2"), operators.value.items.map { it.label })
+        assertEquals(listOf("Castro 1", "Castro 2"), all.value.items.map { it.label })
     }
 
     /**
