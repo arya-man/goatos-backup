@@ -1183,7 +1183,7 @@ WHERE g.tenant_id = $1::uuid
 func (r *Repository) ensureShedUnderPark(ctx context.Context, q adminGoatPartitionQuerier, tenantID, shedID, parkID string) error {
 	var ok bool
 	err := q.QueryRow(ctx, `
-SELECT EXISTS (
+WITH locked_shed AS (
   SELECT 1
   FROM locations shed
   WHERE shed.tenant_id = $1::uuid
@@ -1191,7 +1191,9 @@ SELECT EXISTS (
     AND shed.location_type = 'shed'
     AND shed.status = 'active'
     AND shed.parent_location_id = $3::uuid
-)`, tenantID, shedID, parkID).Scan(&ok)
+  FOR SHARE
+)
+SELECT EXISTS (SELECT 1 FROM locked_shed)`, tenantID, shedID, parkID).Scan(&ok)
 	if err != nil {
 		return err
 	}

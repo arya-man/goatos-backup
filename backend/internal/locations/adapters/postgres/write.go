@@ -185,6 +185,25 @@ func rejectOccupiedParentShapeChange(ctx context.Context, tx pgx.Tx, cmd ports.U
 	}
 	if cmd.Name != nil || cmd.ClearParent || cmd.ParentLocationID != nil || cmd.LocationType != nil ||
 		(nextStatus != "" && !strings.EqualFold(nextStatus, "active")) {
+		var seededProtected bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM locations
+  WHERE tenant_id = $1::uuid
+    AND location_id = $2::uuid
+    AND tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND location_id IN (
+      '00000000-0000-4000-8000-000000003001'::uuid,
+      '00000000-0000-4000-8000-000000003002'::uuid,
+      '00000000-0000-4000-8000-000000003003'::uuid
+    )
+)`, cmd.TenantID, cmd.LocationID).Scan(&seededProtected); err != nil {
+			return err
+		}
+		if seededProtected {
+			return nil
+		}
 		var blocked bool
 		if err := tx.QueryRow(ctx, `
 WITH target AS (

@@ -1551,6 +1551,27 @@ SELECT EXISTS (
 	if !shedUnderPark {
 		return nil, ports.ErrInvalidTransition
 	}
+	var placementConflicts int
+	if err := tx.QueryRow(ctx, `
+WITH locked_goats AS (
+  SELECT goat_id, lifecycle_status, merged_into_goat_id, park_id, current_location_id
+  FROM goats
+  WHERE tenant_id = $1::uuid
+    AND goat_id = ANY($2::uuid[])
+  FOR UPDATE
+)
+SELECT count(*)
+FROM locked_goats
+WHERE lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+  AND merged_into_goat_id IS NULL
+  AND current_location_id IS NOT NULL
+  AND park_id IS DISTINCT FROM $3::uuid`,
+		in.TenantID, goatIDs, in.ParkLocationID).Scan(&placementConflicts); err != nil {
+		return nil, fmt.Errorf("procurement: lock intake goat placement: %w", err)
+	}
+	if placementConflicts > 0 {
+		return nil, ports.ErrInvalidTransition
+	}
 	if err := validateProcurementIntakePartition(ctx, tx, in.TenantID, in.ShedLocationID, in.PartitionLabel); err != nil {
 		return nil, err
 	}

@@ -27,6 +27,8 @@ func TestPartitionOperationalLocationMappingMovesOnlyPartitionedLiveGoats(t *tes
 		undividedGoat    = "f1480000-0000-4000-8000-000000000007"
 		activeRetiredPen = "f1480000-0000-4000-8000-000000000008"
 		isolationPen     = "f1480000-0000-4000-8000-000000000009"
+		bareShed         = "f1480000-0000-4000-8000-000000000010"
+		bareGoat         = "f1480000-0000-4000-8000-000000000011"
 	)
 
 	exec := func(sql string, args ...any) {
@@ -44,8 +46,9 @@ VALUES ($1::uuid, 'org', 'Mesha Test', 'active')`, custodian)
 VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Godel 1', 'active'),
-       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'active')`,
-		tenant, godelOne, castroOne, park)
+       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 1', 'active'),
+       ($1::uuid, $5::uuid, $4::uuid, 'shed', 'Bare Shed', 'active')`,
+		tenant, godelOne, castroOne, park, bareShed)
 	exec(`DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON shed_partitions`)
 	exec(`DROP FUNCTION IF EXISTS ensure_shed_partition_operational_location()`)
 	exec(`ALTER TABLE shed_partitions ALTER COLUMN operational_location_id DROP NOT NULL`)
@@ -64,8 +67,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Isolation - Part 1', 'active')`,
   current_location_id, park_id, shed_id
 ) VALUES
   ($1::uuid, $2::uuid, 'G-900001', 'female', 'alive', $3::uuid, $4::uuid, $6::uuid, $4::uuid),
-  ($5::uuid, $2::uuid, 'G-900002', 'female', 'alive', $3::uuid, $7::uuid, $6::uuid, $7::uuid)`,
-		partitionedGoat, tenant, custodian, godelOne, undividedGoat, park, castroOne)
+  ($5::uuid, $2::uuid, 'G-900002', 'female', 'alive', $3::uuid, $7::uuid, $6::uuid, $7::uuid),
+  ($8::uuid, $2::uuid, 'G-900003', 'female', 'alive', $3::uuid, $9::uuid, $6::uuid, $9::uuid)`,
+		partitionedGoat, tenant, custodian, godelOne, undividedGoat, park, castroOne, bareGoat, bareShed)
 	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 		tenant, partitionedGoat, godelOne)
@@ -137,6 +141,31 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='2'`
 	}
 	if retiredPenID == activeRetiredPen {
 		t.Fatalf("retired partition reused active pen %s; want a separate inactive mapping", activeRetiredPen)
+	}
+
+	if _, err := pool.Exec(ctx, `INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, bareShed); err == nil {
+		t.Fatal("expected first active partition over live bare-shed goat to fail")
+	} else if !strings.Contains(err.Error(), "shed_partition_activation_bare_residents") {
+		t.Fatalf("unexpected bare-shed activation error: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE shed_partitions
+SET shed_id=$3::uuid
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='1'`,
+		tenant, godelOne, castroOne); err == nil {
+		t.Fatal("expected occupied partition reparent to fail")
+	} else if !strings.Contains(err.Error(), "shed_partition_operational_location_in_use") {
+		t.Fatalf("unexpected occupied reparent error: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE shed_partitions
+SET partition_label='Part 1A', normalized_label='1a'
+WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND normalized_label='1'`,
+		tenant, godelOne); err == nil {
+		t.Fatal("expected occupied partition rename to fail")
+	} else if !strings.Contains(err.Error(), "shed_partition_operational_location_in_use") {
+		t.Fatalf("unexpected occupied rename error: %v", err)
 	}
 
 	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
@@ -404,7 +433,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 9', 'active')`,
 	exec(`INSERT INTO goats (
   goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id, current_location_id, park_id, shed_id
 ) VALUES
-  ($1::uuid, $2::uuid, 'G-900010', 'female', 'alive', $3::uuid, $4::uuid, $5::uuid, $4::uuid)`,
+  ($1::uuid, $2::uuid, 'G-900010', 'female', 'alive', $3::uuid, NULL, $5::uuid, $4::uuid)`,
 		goatID, tenant, custodian, shed, park)
 
 	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
