@@ -5,6 +5,13 @@ This applies to weighing individual videos, weighing shed videos, vaccination
 proof, feed proof, shifting proof, and future operator camera workflows that
 upload video from the phone.
 
+Implementation status for this PR branch: Android now has the durable
+Room/schema fields, state vocabulary, operator permission gate, screenshot
+coverage, telemetry names, and CI guardrails needed by this contract. The media
+worker that replaces the existing direct original-file upload path must be wired
+in the next Android implementation slice; until then, the legacy path still
+uploads the captured original file.
+
 This doc extends:
 
 - `docs/mobile/proof-capture-sync-and-e2e.md`
@@ -201,8 +208,48 @@ Failure states:
 PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED
 REGISTER_FAILED_RETRYING
 UPLOAD_FAILED_RETRYING
+UPLOAD_ORIGINAL_FAILED_RETRYING
 DEAD_LETTER
 ```
+
+Persist every transition, not only the current enum. A support/debugger flow
+must be able to answer "what happened to this clip?" from the phone database,
+Firebase logs, backend audit, and upload object metadata without reproducing
+the bug.
+
+Minimum Room fields per proof row:
+
+| Field | Purpose |
+|---|---|
+| `proof_id` | Local stable id for UI/support and idempotency correlation |
+| `module` | `weighing`, `vaccination`, `feed`, `shifting`, etc. |
+| `feature_surface` | Exact caller: `weighing_individual`, `weighing_lumpsum`, `vaccination_scan`, `vaccination_shed`, etc. |
+| `proof_mode` | `per_animal`, `per_shed`, `step_video`, `optional_video` |
+| `subject_type` / `subject_id` | Animal, shed, task, workflow action, feed batch, transport leg |
+| `slot_index` / `slot_required` | Required for multi-video UI: e.g. vaccination/weighing shed Video 1 mandatory, Video 2-5 optional |
+| `state` | Current state from the state machine above |
+| `state_attempt` | Incremented by WorkManager attempt, not by UI recomposition |
+| `processing_attempted` | True after the first compression/overlay attempt starts |
+| `upload_original` | True when processing failed and original must be uploaded |
+| `original_file_uri` / `processed_file_uri` | App-private files only |
+| `original_bytes` / `processed_bytes` | Size comparison and support diagnosis |
+| `input_width` / `input_height` / `duration_ms` | Bucket selection and malformed-media diagnosis |
+| `target_video_bitrate` / `target_audio_bitrate` | Stored as numbers; log only buckets to Firebase |
+| `location_status` / `gps_accuracy_m` / `geocoder_status` | Location proof and address fallback diagnosis |
+| `last_error_stage` / `last_error_class` / `last_error_retryable` | Immediate failure lookup |
+| `last_error_message_hash` | Debug correlation without storing raw exception text if sensitive |
+| `backend_proof_id` / `upload_session_id` / `object_generation` | Server/GCS correlation |
+| `created_at` / `updated_at` / `uploaded_at` / `attached_at` | Timing and SLA |
+
+Also persist append-only transition history:
+
+```text
+proof_state_events(proof_id, from_state, to_state, stage, attempt, occurred_at,
+                   duration_ms, bytes_in, bytes_out, error_class, retryable)
+```
+
+Room is the phone source of truth for operator UI. The backend remains the
+canonical source after upload/attach is confirmed.
 
 If compression, overlay rendering, metadata extraction, codec selection, muxing,
 or file write fails, record the exception and enqueue the original file for
@@ -212,8 +259,20 @@ upload:
 compression_error -> Crashlytics non-fatal + analytics event
                   -> processed_file = original_file
                   -> upload_original = true
+                  -> processing_attempted = true
                   -> continue upload
 ```
+
+Processing is attempted at most once per captured clip. If processing fails,
+persist `upload_original=true` on the Room row. Any later retry for that same
+clip must skip compression/overlay and retry the original-file upload directly.
+Do not loop through compression again for a clip that already entered
+`PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED`.
+
+If upload fails after successful compression, retry the processed file. If upload
+fails after processing fallback, retry the original file. The operator action is
+still just Retry/Record again; the app decides which file to upload from durable
+state.
 
 Only dead-letter when both processed/original upload paths are exhausted or the
 backend rejects the proof in a non-retryable way.
@@ -226,8 +285,10 @@ must render the same business statuses:
 - `Preparing proof...`
 - `Compressing proof...`
 - `Uploading proof...`
+- `Uploading original proof...`
 - `Proof uploaded`
 - `Upload failed. Retrying`
+- `Retrying original proof upload...`
 - `Record again`
 
 Do not show internal implementation labels such as Room, outbox, encoder,
@@ -236,6 +297,27 @@ Media3, GCS, signed URL, idempotency, payload, or API.
 The operator can continue scanning or working while queued proofs process. A
 submit/finalize action may remain disabled when the module requires uploaded
 proof before submit.
+
+Known operator camera-proof surfaces:
+
+| Feature surface | UI shape | Proof slots |
+|---|---|---|
+| `vaccination_scan` | Vaccination RFID scan screen | one per scanned animal |
+| `vaccination_shed` | Shed proof video list | 5 max; Video 1 mandatory, Videos 2-5 optional |
+| `weighing_individual` | Weighing captured-animal card list | one per scanned animal |
+| `weighing_lumpsum` | Total weight / animal count form with video list | 5 max; Video 1 mandatory, Videos 2-5 optional |
+| `birth_death_workflow` | Workflow action/evidence rows | per required action |
+| `shifting_execute` | Movement/high-priority action rows | per required movement/feed proof |
+| `feed_distribution` | Feed/water completion surface | required/optional per server policy |
+| `feed_complete_optional` | Legacy feed completion surface | optional video |
+| `feed_packing` | Packing completion surface | mandatory packing video |
+| `feed_transport` | Transport handoff surface | required transport video |
+| `milk_preparation` | Preparation step checklist | per step requiring proof |
+| `milk_feeding` | Feeding attempt/checklist | per feeding proof requirement |
+
+Every surface must bind to the same Room queue and state vocabulary. The UI may
+look different per feature, but the status source and retry/fallback behavior
+must be common.
 
 ## Firebase And Logs
 
@@ -259,6 +341,27 @@ proof_upload_failed{module, error_class, retryable}
 proof_dead_lettered{module, stage, error_class}
 ```
 
+Required event parameters on every proof event:
+
+```text
+proof_id
+module
+feature_surface
+proof_mode
+subject_type
+slot_required
+state
+attempt
+app_version
+build_flavor
+device_model_bucket
+network_type
+upload_original
+```
+
+Never send raw address, lat/lng, local file path, signed URL, animal PII, or
+free-form exception text to Firebase Analytics. Use buckets/hashes.
+
 Performance traces:
 
 ```text
@@ -279,6 +382,18 @@ Crashlytics:
 
 Backend audit metadata must receive the same client identity headers already
 documented in `apps/goatos-android/docs/TELEMETRY.md`.
+
+Debug lookup matrix:
+
+| User-visible issue | First place to look | Expected breadcrumb |
+|---|---|---|
+| "Stuck on Compressing proof..." | Room `proof_video_queue` + `proof_state_events` | state `PROCESSING_MEDIA`, attempt, started timestamp |
+| Processing failed but upload continued | Crashlytics + `proof_processing_failed` + Room row | `upload_original=true`, `PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED` |
+| "Uploading original proof..." for too long | WorkManager run + Firebase `proof_upload_started` | original bytes bucket, attempt, network type |
+| Retry button appears | Room state + backend upload session | `UPLOAD_FAILED_RETRYING` or `UPLOAD_ORIGINAL_FAILED_RETRYING` |
+| Video missing after submit | backend audit + `proof_upload_completed` | `backend_proof_id`, `object_generation`, `ATTACHED_TO_SUBMISSION` |
+| Overlay missing in verifier playback | visual frame extraction test + processing event | `proof_processing_completed`, processed file URI exists |
+| Address missing | Room location/geocoder fields | precise GPS present, `geocoder_status=failed|empty`, lat/lng fallback used |
 
 ## Size Buckets And Benchmarks
 
@@ -308,6 +423,25 @@ Before enabling this for a module:
 - device smoke test on one low/mid-range phone with actual camera video
 - visual frame extraction test proving the overlay is burned into the video file
   and is not just a player view
+- Paparazzi/Showkase coverage for every touched feature surface and every
+  operator-visible state
+- screenshots for all simulated states, not only happy paths: preparing,
+  compressing, uploading, uploaded, processing-failed-original-upload,
+  upload-failed-retrying, retrying-original-upload, and record-again/dead-letter
+- physical-device E2E with actual camera capture for the implemented shared
+  pipeline: capture -> location -> burned overlay -> compression -> upload ->
+  attach, plus processing-exception fallback to original upload
+- product-shaped UI fixtures: screenshots must resemble the actual feature
+  screens, not generic cards, unless the actual feature screen itself is a card
+  list
+- CI/static guard that feature code cannot call Firebase SDKs directly; it must
+  use `AnalyticsPort`, `PerformanceTracer`, and `CrashReporter`
+- CI/static guard that feature screens do not create their own compression or
+  upload implementations; they must call the shared proof-video pipeline
+- CI/static guard that production UI strings do not expose internal terms such
+  as Room, outbox, codec, Media3, GCS, signed URL, idempotency, or bitrate
+- skill/reference docs updated in `.agents/skills/goatos-build/references/`
+  whenever the pipeline contract changes
 
 For UI proof, use product copy only. Screenshots containing internal words fail
 review.

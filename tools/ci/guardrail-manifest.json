@@ -576,6 +576,28 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-proof-video-pipeline",
+      "script": "tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-processing-pipeline.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Feature screens may request proof capture and render state, but compression, burned overlay, upload orchestration, WorkManager, and Firebase telemetry must stay in the shared proof-video pipeline."
+    },
+    {
+      "id": "android-proof-video-screenshots",
+      "script": "tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-processing-pipeline.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Every operator camera-proof surface needs feature-shaped screenshots for processing, upload, fallback, retry, success, and record-again states."
+    },
+    {
       "id": "android-ui-copy-layout",
       "script": "tools/agent-hooks/check-android-ui-copy-layout.mjs",
       "makeTarget": "mobile-guard",

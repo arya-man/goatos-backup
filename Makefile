@@ -788,6 +788,10 @@ mobile-guard:
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-operational-partition-identity.mjs --self-test
@@ -806,6 +810,8 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-operational-partition-identity.mjs --all
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs

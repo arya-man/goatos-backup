@@ -1077,14 +1077,14 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
             MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
-            MIGRATION_36_37,
+            MIGRATION_36_37, MIGRATION_37_38,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —
-         *  i.e. everything except MIGRATION_25_26 onwards, the last ELEVEN entries of
+         *  i.e. everything except MIGRATION_25_26 onwards, the last THIRTEEN entries of
          *  ALL_TEST_MIGRATIONS. Keep this drop count in lockstep with the array above: adding a
          *  migration without bumping it silently writes a wrong-version file. */
-        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(11)
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(13)
     }
 }
 

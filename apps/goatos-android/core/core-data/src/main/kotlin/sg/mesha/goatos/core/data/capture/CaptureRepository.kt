@@ -634,6 +634,9 @@ class DefaultProofCaptureRepository(
             // R50-027 SSOT: persist capture_source with the durable row so the startup-recovery
             // re-registration path re-sends the ORIGINAL source, not a Default fallback.
             captureSource = proofPolicy.captureSource,
+            originalUri = localUri,
+            durationMs = (capturedEndMs - capturedStartMs).coerceAtLeast(0),
+            updatedAtMs = clock(),
         )
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
@@ -994,4 +997,16 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     serverProofId = serverProofId,
     lastError = lastError,
     partitionKey = partitionKey,
+    featureSurface = featureSurface,
+    proofMode = proofMode,
+    slotIndex = slotIndex,
+    slotRequired = slotRequired,
+    processingState = processingState,
+    processingAttempted = processingAttempted,
+    stateAttempt = stateAttempt,
+    uploadOriginal = uploadOriginal,
+    originalBytes = originalBytes,
+    processedBytes = processedBytes,
+    lastErrorStage = lastErrorStage,
+    lastErrorClass = lastErrorClass,
 )
