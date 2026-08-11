@@ -53,6 +53,12 @@ domain object it shows.
 - **Always supply a `key`** on `items(<collection>)`/`itemsIndexed(<collection>)`;
   positional keys reuse remembered row state (checkbox/expand/scroll) on
   insert/reorder and can crash. The `items(<Int>)` count overload is exempt.
+- **Grouped rows must key at the rendered row grain.** If a ViewModel groups
+  backend rows into UI cards, group by the exact same identity that becomes
+  `ShedRow.id`/`uiKey`. Do not group by version/metadata fields such as
+  `sopVersionId`/`taskRowVersion` and then render a key that omits them; BT+SP,
+  split task rows, and weighing/feed assignment variants can then produce two
+  rendered rows with the same LazyColumn key.
 - Bounded exception → `// compose-guard:ignore: <reason>`.
 - Also watch (review, not yet machine-checked): missing `contentType` on
   heterogeneous lists, `mutableStateOf` without `remember`, and unstable inline
