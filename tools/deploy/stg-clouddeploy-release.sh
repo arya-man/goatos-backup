@@ -61,6 +61,7 @@ done
 [[ "$active_project" == "$PROJECT_ID" ]] || die "active gcloud project must be $PROJECT_ID, got $active_project"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
+backup_marker="${GOATOS_STG_BACKUP_MARKER:-.openai/stg-cloudsql-backup-${commit_sha}.ok}"
 registry="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}"
 backend_image="${registry}/backend:${commit_sha}"
 migration_image="${registry}/migrate:${commit_sha}"
@@ -72,6 +73,12 @@ echo "account=$active_account"
 echo "project=$active_project"
 echo "commit=$commit_sha"
 echo "release=$release_id"
+
+[[ -f "$backup_marker" ]] || die "missing current-SHA staging backup marker $backup_marker; run tools/deploy/stg-cloudsql-backup.sh immediately before release"
+grep -q "^project=${PROJECT_ID}$" "$backup_marker" || die "backup marker project mismatch: $backup_marker"
+grep -q "^project_number=${PROJECT_NUMBER}$" "$backup_marker" || die "backup marker project number mismatch: $backup_marker"
+grep -q "^instance=goatos-stg-core-db$" "$backup_marker" || die "backup marker instance mismatch: $backup_marker"
+grep -q "^commit=${commit_sha}$" "$backup_marker" || die "backup marker commit mismatch: $backup_marker"
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 

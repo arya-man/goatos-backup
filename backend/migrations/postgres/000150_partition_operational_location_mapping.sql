@@ -52,6 +52,50 @@ AS $$
   );
 $$;
 
+CREATE OR REPLACE FUNCTION public.shed_partition_lock_key(
+  p_tenant_id uuid,
+  p_shed_id uuid,
+  p_partition_label text
+) RETURNS text
+LANGUAGE sql
+AS $$
+  SELECT p_tenant_id::text || ':' || p_shed_id::text || ':' ||
+         regexp_replace(lower(btrim(COALESCE(p_partition_label, 'whole'))), '^part[[:space:]]+', '');
+$$;
+
+CREATE OR REPLACE FUNCTION public.reject_active_location_under_inactive_parent()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  bad_parent boolean;
+BEGIN
+  IF NEW.status = 'active' AND NEW.parent_location_id IS NOT NULL THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.locations parent
+      WHERE parent.tenant_id = NEW.tenant_id
+        AND parent.location_id = NEW.parent_location_id
+        AND parent.status <> 'active'
+    )
+    INTO bad_parent;
+
+    IF bad_parent THEN
+      RAISE EXCEPTION 'active_location_parent_inactive: tenant %, location %, parent %',
+        NEW.tenant_id, NEW.location_id, NEW.parent_location_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS locations_active_parent_trg ON public.locations;
+CREATE TRIGGER locations_active_parent_trg
+BEFORE INSERT OR UPDATE OF status, parent_location_id
+ON public.locations
+FOR EACH ROW
+EXECUTE FUNCTION public.reject_active_location_under_inactive_parent();
+
 DO $$
 DECLARE
   ambiguous_count integer;
@@ -68,9 +112,13 @@ BEGIN
        (sp.status = 'active' AND pen.status = 'active')
        OR (sp.status = 'retired' AND pen.status = 'inactive')
      )
-    JOIN public.locations parent
-      ON parent.tenant_id = pen.tenant_id
-     AND parent.location_id = pen.parent_location_id
+  JOIN public.locations parent
+    ON parent.tenant_id = pen.tenant_id
+   AND parent.location_id = pen.parent_location_id
+   AND (
+     (sp.status = 'active' AND parent.status = 'active')
+     OR sp.status = 'retired'
+   )
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
@@ -128,9 +176,13 @@ BEGIN
        (sp.status = 'active' AND pen.status = 'active')
        OR (sp.status = 'retired' AND pen.status = 'inactive')
      )
-    JOIN public.locations parent
-      ON parent.tenant_id = pen.tenant_id
-     AND parent.location_id = pen.parent_location_id
+  JOIN public.locations parent
+    ON parent.tenant_id = pen.tenant_id
+   AND parent.location_id = pen.parent_location_id
+   AND (
+     (sp.status = 'active' AND parent.status = 'active')
+     OR sp.status = 'retired'
+   )
     WHERE (
       lower(pen.name) = lower(operational_location_display(parent.name, sp.partition_label))
       OR lower(pen.name) = lower(operational_location_display(parent.name, sp.normalized_label))
@@ -149,13 +201,17 @@ UPDATE public.shed_partitions sp
 SET operational_location_id = pen.location_id,
     updated_at = now()
 FROM public.locations pen
-JOIN public.locations parent
-  ON parent.tenant_id = pen.tenant_id
- AND parent.location_id = pen.parent_location_id
+  JOIN public.locations parent
+    ON parent.tenant_id = pen.tenant_id
+   AND parent.location_id = pen.parent_location_id
 WHERE sp.operational_location_id IS NULL
   AND pen.tenant_id = sp.tenant_id
   AND pen.parent_location_id = sp.shed_id
   AND pen.location_type = 'pen'
+  AND (
+    (sp.status = 'active' AND parent.status = 'active')
+    OR sp.status = 'retired'
+  )
   AND (
     (sp.status = 'active' AND pen.status = 'active')
     OR (sp.status = 'retired' AND pen.status = 'inactive')
@@ -182,6 +238,10 @@ WITH alias_names AS (
     ON parent.tenant_id = sp.tenant_id
    AND parent.location_id = sp.shed_id
    AND parent.location_type = 'shed'
+   AND (
+     (sp.status = 'active' AND parent.status = 'active')
+     OR sp.status = 'retired'
+   )
   JOIN public.locations alias
     ON alias.tenant_id = sp.tenant_id
    AND alias.parent_location_id = parent.parent_location_id
@@ -326,12 +386,17 @@ FROM public.shed_partitions sp
 JOIN public.location_operational_attributes parent_loa
   ON parent_loa.tenant_id = sp.tenant_id
  AND parent_loa.location_id = sp.shed_id
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM public.location_operational_attributes pen_loa
-  WHERE pen_loa.tenant_id = sp.tenant_id
-    AND pen_loa.location_id = sp.operational_location_id
-);
+ON CONFLICT (location_id) DO UPDATE
+SET usable_for_counts = EXCLUDED.usable_for_counts,
+    usable_for_feed = EXCLUDED.usable_for_feed,
+    usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+    usable_for_sop = EXCLUDED.usable_for_sop,
+    is_holding = EXCLUDED.is_holding,
+    is_quarantine = EXCLUDED.is_quarantine,
+    is_icu = EXCLUDED.is_icu,
+    display_order = EXCLUDED.display_order,
+    notes = EXCLUDED.notes,
+    updated_at = now();
 
 -- Move live partitioned goats to the exact pen location. The parent shed stays
 -- in goats.shed_id for rollups and legacy filters.
@@ -348,7 +413,6 @@ JOIN public.shed_partitions sp
  AND sp.status = 'active'
 WHERE g.tenant_id = gsp.tenant_id
   AND g.goat_id = gsp.goat_id
-  AND g.shed_id = gsp.shed_id
   AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
   AND g.merged_into_goat_id IS NULL
   AND g.current_location_id IS DISTINCT FROM sp.operational_location_id;
@@ -371,11 +435,51 @@ BEGIN
    AND sp.status = 'active'
   WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
     AND g.merged_into_goat_id IS NULL
-    AND g.shed_id = gsp.shed_id
     AND sp.operational_location_id IS NULL;
 
   IF unmapped_count <> 0 THEN
     RAISE EXCEPTION 'live_partitioned_goats_unmapped: % live goats have no operational pen mapping', unmapped_count;
+  END IF;
+END $$;
+
+-- Guard the exact partition residence invariant: every live goat with partition
+-- evidence must point to that partition's mapped pen, and its rollup shed must
+-- match the partition evidence. This catches stale/cross-shed evidence instead
+-- of silently leaving the animal at a bare or mismatched shed.
+DO $$
+DECLARE
+  bad_count integer;
+BEGIN
+  SELECT count(*) INTO bad_count
+  FROM public.goats g
+  JOIN public.goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+  JOIN public.shed_partitions sp
+    ON sp.tenant_id = gsp.tenant_id
+   AND sp.shed_id = gsp.shed_id
+   AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+   AND sp.status = 'active'
+  JOIN public.locations parent
+    ON parent.tenant_id = sp.tenant_id
+   AND parent.location_id = sp.shed_id
+   AND parent.location_type = 'shed'
+   AND parent.status = 'active'
+  JOIN public.locations pen
+    ON pen.tenant_id = sp.tenant_id
+   AND pen.location_id = sp.operational_location_id
+   AND pen.location_type = 'pen'
+   AND pen.parent_location_id = sp.shed_id
+   AND pen.status = 'active'
+  WHERE g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+    AND g.merged_into_goat_id IS NULL
+    AND (
+      g.shed_id IS DISTINCT FROM gsp.shed_id
+      OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
+    );
+
+  IF bad_count <> 0 THEN
+    RAISE EXCEPTION 'live_partitioned_goats_exact_residence_failed: % live goats do not match goat_shed_partitions mapped pen', bad_count;
   END IF;
 END $$;
 
@@ -443,7 +547,8 @@ BEGIN
   WHERE tenant_id = NEW.tenant_id
     AND location_id = NEW.shed_id
     AND location_type = 'shed'
-    AND (NEW.status <> 'active' OR status = 'active');
+    AND (NEW.status <> 'active' OR status = 'active')
+  FOR SHARE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
@@ -454,10 +559,8 @@ BEGIN
       RETURN NEW;
     END IF;
 
-    PERFORM pg_advisory_xact_lock(hashtextextended(
-      NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
-      149
-    ));
+    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
+    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
     IF TG_OP = 'UPDATE'
       AND OLD.status = 'active'
@@ -545,10 +648,8 @@ BEGIN
       NEW.tenant_id, NEW.shed_id, NEW.partition_label;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(hashtextextended(
-    NEW.tenant_id::text || ':' || NEW.shed_id::text || ':' || NEW.normalized_label,
-    149
-  ));
+  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
+  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
 
   IF NEW.operational_location_id IS NOT NULL THEN
     SELECT EXISTS (
@@ -692,7 +793,36 @@ BEGIN
   FROM public.location_operational_attributes parent_loa
   WHERE parent_loa.tenant_id = NEW.tenant_id
     AND parent_loa.location_id = NEW.shed_id
-  ON CONFLICT (location_id) DO NOTHING;
+  ON CONFLICT (location_id) DO UPDATE
+  SET usable_for_counts = EXCLUDED.usable_for_counts,
+      usable_for_feed = EXCLUDED.usable_for_feed,
+      usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+      usable_for_sop = EXCLUDED.usable_for_sop,
+      is_holding = EXCLUDED.is_holding,
+      is_quarantine = EXCLUDED.is_quarantine,
+      is_icu = EXCLUDED.is_icu,
+      display_order = EXCLUDED.display_order,
+      notes = EXCLUDED.notes,
+      updated_at = now();
+
+  IF TG_OP = 'UPDATE'
+    AND OLD.operational_location_id IS NOT NULL
+    AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
+    UPDATE public.goats g
+    SET current_location_id = NEW.operational_location_id,
+        shed_id = NEW.shed_id,
+        updated_at = now(),
+        row_version = g.row_version + 1
+    FROM public.goat_shed_partitions gsp
+    WHERE g.tenant_id = NEW.tenant_id
+      AND g.current_location_id = OLD.operational_location_id
+      AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
+      AND g.merged_into_goat_id IS NULL
+      AND gsp.tenant_id = g.tenant_id
+      AND gsp.goat_id = g.goat_id
+      AND gsp.shed_id = NEW.shed_id
+      AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
+  END IF;
 
   RETURN NEW;
 END;
@@ -706,8 +836,11 @@ FOR EACH ROW
 EXECUTE FUNCTION public.ensure_shed_partition_operational_location();
 
 -- +goose Down
-DROP FUNCTION IF EXISTS public.operational_location_display(text, text);
+DROP TRIGGER IF EXISTS locations_active_parent_trg ON public.locations;
 DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON public.shed_partitions;
+DROP FUNCTION IF EXISTS public.operational_location_display(text, text);
+DROP FUNCTION IF EXISTS public.shed_partition_lock_key(uuid, uuid, text);
+DROP FUNCTION IF EXISTS public.reject_active_location_under_inactive_parent();
 DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
 
 SET lock_timeout = '2s';
@@ -720,6 +853,23 @@ WHERE g.tenant_id = sp.tenant_id
   AND g.current_location_id = sp.operational_location_id
   AND g.shed_id = sp.shed_id;
 RESET lock_timeout;
+
+DELETE FROM public.location_operational_attributes loa
+USING public.locations pen
+WHERE loa.tenant_id = pen.tenant_id
+  AND loa.location_id = pen.location_id
+  AND pen.location_type = 'pen'
+  AND pen.operational_notes IN (
+    'Created by migration 000150 from shed_partitions parent+partition mapping',
+    'Created from active shed_partitions row'
+  );
+
+DELETE FROM public.locations pen
+WHERE pen.location_type = 'pen'
+  AND pen.operational_notes IN (
+    'Created by migration 000150 from shed_partitions parent+partition mapping',
+    'Created from active shed_partitions row'
+  );
 
 ALTER TABLE public.shed_partitions
   DROP CONSTRAINT IF EXISTS shed_partitions_operational_location_fk;

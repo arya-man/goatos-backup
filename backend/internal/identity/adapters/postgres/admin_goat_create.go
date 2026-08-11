@@ -34,6 +34,13 @@ type adminGoatPartitionQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+func lockShedPartitionCatalog(ctx context.Context, tx pgx.Tx, tenantID, shedID string) error {
+	_, err := tx.Exec(ctx, `
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text || ':whole', 150))`,
+		tenantID, shedID)
+	return err
+}
+
 // resolveAdminGoatPartition is the single catalog check used by Admin preview and the create
 // transaction. It returns the catalog's HUMAN label (partition_label), never normalized_label.
 // A partitioned shed can never resolve to nil when requirePartitionGrain is true; a shed with no
@@ -151,7 +158,7 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 		out.ShedID = shedID
 	}
 	if out.ParkID != "" && out.ShedID != "" {
-		if err := r.ensureShedUnderPark(ctx, cmd.TenantID, out.ShedID, out.ParkID); err != nil {
+		if err := r.ensureShedUnderPark(ctx, r.pool, cmd.TenantID, out.ShedID, out.ParkID); err != nil {
 			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "shed_id", Code: "wrong_parent", Message: "shed does not belong to the selected park"})
 		}
 	}
@@ -426,6 +433,12 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	// Re-resolve inside this transaction. Admin preview is read-only and may be followed by a later
 	// commit, so validation alone cannot protect the canonical write. The helper also canonicalizes
 	// an accepted matching key ("3") to the human catalog label ("Part 3").
+	if err := lockShedPartitionCatalog(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
+		return nil, fmt.Errorf("identity: create admin goat: lock shed partition catalog: %w", err)
+	}
+	if err := r.ensureShedUnderPark(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.ParkID); err != nil {
+		return nil, err
+	}
 	partitionLabel, err := resolveAdminGoatPartition(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel, cmd.RequirePartitionGrain)
 	if err != nil {
 		return nil, err
@@ -1167,9 +1180,9 @@ WHERE g.tenant_id = $1::uuid
 	return nil
 }
 
-func (r *Repository) ensureShedUnderPark(ctx context.Context, tenantID, shedID, parkID string) error {
+func (r *Repository) ensureShedUnderPark(ctx context.Context, q adminGoatPartitionQuerier, tenantID, shedID, parkID string) error {
 	var ok bool
-	err := r.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1
   FROM locations shed
