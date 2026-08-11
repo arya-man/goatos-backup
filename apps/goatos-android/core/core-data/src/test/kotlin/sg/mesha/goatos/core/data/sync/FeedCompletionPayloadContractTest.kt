@@ -113,6 +113,7 @@ class FeedCompletionPayloadContractTest {
                 workflow = "normal",
                 distributionProofRef = "proof-feed",
                 waterProofRef = "proof-water",
+                feedWeightProofRef = "proof-weight",
             ),
         )
 
@@ -123,6 +124,7 @@ class FeedCompletionPayloadContractTest {
         assertTrue("distribution body must carry session_no: $body", body.contains(""""session_no":2"""))
         assertTrue(body.contains(""""partition_label":"Part 3""""))
         assertTrue(body.contains(""""water_proof_ref":"proof-water""""))
+        assertTrue(body.contains(""""feed_weight_proof_ref":"proof-weight""""))
     }
 
     /**
