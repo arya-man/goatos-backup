@@ -193,6 +193,89 @@ SELECT to_regprocedure('public.operational_location_display(text,text)') IS NOT 
 	}
 }
 
+func TestPartitionOperationalLocationMigrationUpDownUpKeepsOneActivePen(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenant = "f1460000-0000-4000-8000-000000000001"
+		park   = "f1460000-0000-4000-8000-000000000002"
+		shed   = "f1460000-0000-4000-8000-000000000003"
+	)
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("exec failed: %v\nsql: %s", err, sql)
+		}
+	}
+
+	exec(`INSERT INTO tenants (tenant_id, name, status)
+VALUES ($1::uuid, 'Partition Migration Cycle Test', 'active')`, tenant)
+	exec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
+	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1', 'active')`, tenant, shed, park)
+	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'pen', 'Godel 1 - Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", shed)
+
+	raw, err := os.ReadFile("000150_partition_operational_location_mapping.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
+		t.Fatalf("migrate up failed: %v", err)
+	}
+	exec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')`, tenant, shed)
+
+	if _, err := pool.Exec(ctx, migrationDown(string(raw))); err != nil {
+		t.Fatalf("migrate down failed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, migrationUp(string(raw))); err != nil {
+		t.Fatalf("migrate up after down failed: %v", err)
+	}
+
+	var penCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM locations
+WHERE tenant_id=$1::uuid
+  AND parent_location_id=$2::uuid
+  AND location_type='pen'
+  AND name = operational_location_display('Godel 1', 'Part 1')
+  AND status='active'`, tenant, shed).Scan(&penCount); err != nil {
+		t.Fatalf("query pen count failed: %v", err)
+	}
+	if penCount != 1 {
+		t.Fatalf("expected one active mapped pen after up-down-up, got %d", penCount)
+	}
+
+	var spPenID string
+	if err := pool.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label='1'`, tenant, shed).
+		Scan(&spPenID); err != nil {
+		t.Fatalf("query partition mapping failed: %v", err)
+	}
+	var penID string
+	if err := pool.QueryRow(ctx, `
+SELECT location_id::text
+FROM locations
+WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid
+  AND name = operational_location_display('Godel 1', 'Part 1')
+  AND location_type='pen'`, tenant, shed).Scan(&penID); err != nil {
+		t.Fatalf("query pen id failed: %v", err)
+	}
+	if spPenID != penID {
+		t.Fatalf("partition mapped to %s, expected %s", spPenID, penID)
+	}
+}
+
 func TestShedPartitionOperationalLocationTriggerRejectsInvalidAndSerializes(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

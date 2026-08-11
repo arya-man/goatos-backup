@@ -496,6 +496,48 @@ BEGIN
     INTO mapped_valid;
 
     IF mapped_valid THEN
+      INSERT INTO public.location_operational_attributes (
+        tenant_id,
+        location_id,
+        usable_for_counts,
+        usable_for_feed,
+        usable_for_vaccination,
+        usable_for_sop,
+        is_holding,
+        is_quarantine,
+        is_icu,
+        display_order,
+        notes,
+        updated_at
+      )
+      SELECT
+        parent_loa.tenant_id,
+        NEW.operational_location_id,
+        parent_loa.usable_for_counts,
+        parent_loa.usable_for_feed,
+        parent_loa.usable_for_vaccination,
+        parent_loa.usable_for_sop,
+        parent_loa.is_holding,
+        parent_loa.is_quarantine,
+        parent_loa.is_icu,
+        parent_loa.display_order,
+        parent_loa.notes,
+        now()
+      FROM public.location_operational_attributes parent_loa
+      WHERE parent_loa.tenant_id = NEW.tenant_id
+        AND parent_loa.location_id = NEW.shed_id
+      ON CONFLICT (location_id) DO UPDATE
+      SET usable_for_counts = EXCLUDED.usable_for_counts,
+          usable_for_feed = EXCLUDED.usable_for_feed,
+          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+          usable_for_sop = EXCLUDED.usable_for_sop,
+          is_holding = EXCLUDED.is_holding,
+          is_quarantine = EXCLUDED.is_quarantine,
+          is_icu = EXCLUDED.is_icu,
+          display_order = EXCLUDED.display_order,
+          notes = EXCLUDED.notes,
+          updated_at = now();
+
       RETURN NEW;
     END IF;
 
@@ -521,6 +563,48 @@ BEGIN
     INTO mapped_valid;
 
     IF mapped_valid THEN
+      INSERT INTO public.location_operational_attributes (
+        tenant_id,
+        location_id,
+        usable_for_counts,
+        usable_for_feed,
+        usable_for_vaccination,
+        usable_for_sop,
+        is_holding,
+        is_quarantine,
+        is_icu,
+        display_order,
+        notes,
+        updated_at
+      )
+      SELECT
+        parent_loa.tenant_id,
+        NEW.operational_location_id,
+        parent_loa.usable_for_counts,
+        parent_loa.usable_for_feed,
+        parent_loa.usable_for_vaccination,
+        parent_loa.usable_for_sop,
+        parent_loa.is_holding,
+        parent_loa.is_quarantine,
+        parent_loa.is_icu,
+        parent_loa.display_order,
+        parent_loa.notes,
+        now()
+      FROM public.location_operational_attributes parent_loa
+      WHERE parent_loa.tenant_id = NEW.tenant_id
+        AND parent_loa.location_id = NEW.shed_id
+      ON CONFLICT (location_id) DO UPDATE
+      SET usable_for_counts = EXCLUDED.usable_for_counts,
+          usable_for_feed = EXCLUDED.usable_for_feed,
+          usable_for_vaccination = EXCLUDED.usable_for_vaccination,
+          usable_for_sop = EXCLUDED.usable_for_sop,
+          is_holding = EXCLUDED.is_holding,
+          is_quarantine = EXCLUDED.is_quarantine,
+          is_icu = EXCLUDED.is_icu,
+          display_order = EXCLUDED.display_order,
+          notes = EXCLUDED.notes,
+          updated_at = now();
+
       RETURN NEW;
     END IF;
 
