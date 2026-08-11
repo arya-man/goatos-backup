@@ -124,7 +124,20 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("counts-herd", "Herd Register", "/counts/herd", nil),
 					navLeaf("counts-breakdown", "Counts Breakdown", "/counts/breakdown", nil),
-					navLeaf("counts-milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
+				},
+			},
+			// Milk is its own vertical, split out of Counts here the same way it was split out of the
+			// phone's Counts module (maintainer decision 2026-07-31, bootstrap_copy.go "milk"): Counts
+			// owns the herd-register events (birth, death, shifting) while the kid-milk round is a daily
+			// operational routine sharing neither their grain nor their read models.
+			//
+			// The page KEEPS its /counts/milk-preparation href. This is a nav regrouping, not a route
+			// change — exactly as the mobile split did — so existing deep links, the page contract's
+			// route id, and the live-smoke route list all keep working.
+			{
+				ID: "milk", Label: "Milk", Icon: "milk", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 				},
 			},
 			// Weighing is its own vertical, owned by the Growth Director. Its icon must
@@ -1033,7 +1046,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"board.title":      "Verification Board",
 			"filter.shed":      "Shed (optional)",
 			"filter.all_sheds": "All sheds",
-			"table.hint":       "Open a row to review the evidence and record a verdict.",
+			// The module filter row (maintainer request 2026-08-11). The module NAMES are not here:
+			// they come from the verification type registry on the queue response
+			// (filter_options.modules), which is the only place that knows which modules exist and
+			// what each is called. Duplicating them here would put two sources of truth on one row
+			// and quietly go stale the next time a module is registered.
+			"filter.module":      "Module",
+			"filter.all_modules": "All modules",
+			"table.hint":         "Open a row to review the evidence and record a verdict.",
 			// Accessible label for the player's full-screen toggle.
 			"drawer.media.fullscreen_label": "Full screen",
 			// Accept is blocked when the proof media does not resolve, so a verdict can never be
@@ -2675,10 +2695,27 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.feed_items.noun":      "feed item",
 			"label.feed_item_name":       "Feed item name",
 			"label.feed_item_name_note":  "The name that appears on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
-			"label.energy_kcal_per_kg":   "Energy (kcal/kg)",
-			"label.dry_matter_factor":    "Dry matter factor",
-			"label.wastage_factor":       "Wastage factor",
-			"label.display_order":        "Display order",
+			// Retiring a feed item. Worded as REMOVE-and-RESTORE rather than as a status toggle,
+			// because that is what it does to the farm: a retired item leaves every feed sheet issued
+			// from that point. The consequence line is mandatory copy, not decoration — this control
+			// changes what animals eat, and its authored rates vanish from the grid at the same time.
+			// Deliberately terse: this control sits INLINE beside the status chip in a table cell, and
+			// the chip already supplies the subject ("In feeding" / "Not fed"). The full consequence
+			// — that it leaves every feed sheet and its rates disappear from the grid — is on hover
+			// and again on the confirm step, which is where a reader needs it.
+			"action.retire_feed_item":         "Remove",
+			"action.restore_feed_item":        "Restore",
+			"action.feed_item_status_changed": "Saved. What is fed has changed — check the next Feed Direction for every park.",
+			"reason.retire_feed_item":         "Removes this item from every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so putting the item back restores them without re-entering anything.",
+			"reason.restore_feed_item":        "Puts this item back into feeding. Its authored rates return to the ration grid above exactly as they were.",
+			"label.feed_item_active":          "In feeding",
+			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
+			"label.feed_item_retired":         "Not fed",
+			"label.feed_item_retired_note":    "This item has been removed from feeding. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so putting it back restores them.",
+			"label.energy_kcal_per_kg":        "Energy (kcal/kg)",
+			"label.dry_matter_factor":         "Dry matter factor",
+			"label.wastage_factor":            "Wastage factor",
+			"label.display_order":             "Display order",
 			// Every attribute hint says the same thing in its own terms: blank is "not measured",
 			// which is a different statement from a measured 0 and is never turned into one.
 			"label.feed_item_attributes_note":  "All four are optional. Leave one blank when nobody has measured it — a blank is recorded as not measured, which is honest, and is never stored as 0. A missing energy value only blocks a nutritional rollup; it never affects how much an animal is fed.",

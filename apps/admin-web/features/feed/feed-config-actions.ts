@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
+  setFeedConfigFeedItemStatus,
   upsertFeedConfigExperiment,
   upsertFeedConfigExperimentBatch,
   upsertFeedConfigRationRate,
@@ -177,6 +178,7 @@ export async function saveRationRate(formData: FormData): Promise<FeedConfigActi
 
 const FEED_ITEM_REJECTED = "action.feed_item_rejected";
 const FEED_ITEM_SAVED = "action.feed_item_saved";
+const FEED_ITEM_STATUS_CHANGED = "action.feed_item_status_changed";
 
 /**
  * Reads an OPTIONAL authored attribute.
@@ -497,6 +499,37 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");
   return { ok: true, messageKey: EXPERIMENT_SWITCHED };
+}
+
+/**
+ * Retires one feed item, or restores a retired one.
+ *
+ * The status is validated against the closed pair here as well as server-side, because a value that
+ * is neither would otherwise travel to the backend as a rejected write the operator sees as a
+ * generic failure. There is no default: one value keeps the item in every feed sheet and the other
+ * removes it from all of them.
+ */
+export async function setFeedItemStatus(formData: FormData): Promise<FeedConfigActionResult> {
+  const feedItemId = readRequiredText(formData, "feed_item_id");
+  const status = readRequiredText(formData, "status");
+  if (!feedItemId || (status !== "active" && status !== "retired")) {
+    return { ok: false, messageKey: FEED_ITEM_REJECTED };
+  }
+
+  const result = await setFeedConfigFeedItemStatus(
+    { feed_item_id: feedItemId, status },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    return { ok: false, messageKey: FEED_ITEM_REJECTED, detail: result.error.message };
+  }
+
+  revalidatePath("/feed/config");
+  // The catalog is TENANT-wide and generation reads only its active rows, so retiring an item
+  // changes tomorrow's sheet and pack list for EVERY park, not just the one on screen.
+  revalidatePath("/feed/direction");
+  revalidatePath("/feed/packing");
+  return { ok: true, messageKey: FEED_ITEM_STATUS_CHANGED };
 }
 
 export async function saveSchedule(formData: FormData): Promise<FeedConfigActionResult> {

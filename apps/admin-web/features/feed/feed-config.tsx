@@ -24,6 +24,7 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { isConfiguredZero } from "./feed-quantity";
+import { RationRateValue } from "./feed-rate-optimistic";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
   enrolExperimentPen,
@@ -33,6 +34,7 @@ import {
   saveSchedule,
   saveShedFactor,
   setExperimentShedStatus,
+  setFeedItemStatus,
 } from "./feed-config-actions";
 import {
   ExperimentCellEditor,
@@ -40,6 +42,7 @@ import {
   ExperimentPenEnroller,
   ExperimentShedSwitch,
   FeedItemCreator,
+  FeedItemStatusSwitch,
   RationRateEditor,
   ScheduleEditor,
   ShedFactorEditor,
@@ -254,7 +257,16 @@ export async function FeedConfigPage({
 
   const locations = await getCensusLocations();
   const scope = resolveFeedScope(sp, "fc_park", "fc_date", locations.parks);
-  const rationGroupFilter = one(sp, "fc_group") || "";
+  // No ration-group filter. BREED is the one cohort control on this bar (maintainer decision
+  // 2026-08-11): two controls over the same column read as a duplicate, and the group is already the
+  // grid's own first column, so a reader can see what a row is without a second dropdown to say it.
+  //
+  // The consequence, stated so it is not rediscovered as a defect: `Kid` is a ration group with NO
+  // breed — kids of every breed collapse to it by age band and never touch the breed map
+  // (feeddirection/domain.ConfigSnapshot.RationGroupByBreedKey is adult-breeds-only) — so those rates
+  // are no longer reachable from this bar and are found by paging or by the shed-tag/feed-item
+  // filters. `fc_group` is not read either: a control that is gone must not keep narrowing the grid
+  // from a stale bookmarked URL with nothing on screen saying so.
   const breedFilter = one(sp, "fc_breed") || "";
   const shedTagFilter = one(sp, "fc_tag") || "";
   // A SET, read with `all` because the parameter repeats. `one` would keep the first pick and
@@ -266,6 +278,24 @@ export async function FeedConfigPage({
   // Experiment section filters, on their OWN params. The two sections page independently (see the
   // offsets below) and must filter independently for the same reason: they hold different row
   // counts and incompatible units, so one section's narrowing must not silently reshape the other.
+  // The experiment section's OWN park and shed narrowing, on its own params.
+  //
+  // Additive: blank leaves the section's scope exactly as it was — every park when nobody chose one
+  // on the page, that park otherwise. Picking a park here narrows THIS section only, which is the
+  // point: this is the one read on the screen that can span both parks (a cell carries its own park,
+  // unlike a rate or a dispatch clock), so it is also the only one that needs a park control of its
+  // own to cut a 150-row two-park list down.
+  const experimentParkFilter = one(sp, "fc_exp_park") || "";
+  // ONE VALUE carrying both halves of a pen: "<shed_id>|<partition label>". Split on the FIRST
+  // separator only — a shed id is a UUID and contains none, so the remainder is the label verbatim
+  // however it is punctuated. Two URL params would let a reader hand-edit one half and filter by a
+  // pen that does not exist.
+  const experimentPenFilter = one(sp, "fc_exp_shed") || "";
+  const penSeparator = experimentPenFilter.indexOf("|");
+  const experimentShedFilter =
+    penSeparator === -1 ? experimentPenFilter : experimentPenFilter.slice(0, penSeparator);
+  const experimentPartitionFilter =
+    penSeparator === -1 ? "" : experimentPenFilter.slice(penSeparator + 1);
   const experimentItemFilter = all(sp, "fc_exp_item");
   const experimentArmFilter = one(sp, "fc_exp_arm") || "";
   const experimentStatusFilter = one(sp, "fc_exp_status") || "";
@@ -285,7 +315,9 @@ export async function FeedConfigPage({
   // and the page carries no park param), and unlike the ration grid an experiment cell knows its own
   // park -- so the honest answer to "show me all parks" is every authored pen in the tenant, not one
   // park's silently. The other three sections stay park-scoped because they are park-OWNED.
-  const experimentAllParks = scope.parkSource === "fallback";
+  // The park this section actually reads: its own filter when set, otherwise the page's rule.
+  const experimentParkId = experimentParkFilter || (scope.parkSource === "fallback" ? "" : scope.parkId);
+  const experimentAllParks = experimentParkId === "";
   // A cross-park page holds both parks' pens (175 rows today against one park's 90), so the default
   // page size steps up to the contract's largest option in that mode. Still bounded, still paged.
   const experimentDefaultSize = experimentAllParks ? EXPERIMENT_ALL_PARKS_PAGE_SIZE : EXPERIMENT_PAGE_SIZE;
@@ -308,7 +340,6 @@ export async function FeedConfigPage({
     scope.parkId
       ? listFeedConfigRationRates({
           park_id: scope.parkId,
-          ration_group: rationGroupFilter || undefined,
           breed: breedFilter || undefined,
           shed_tag: shedTagFilter || undefined,
           feed_item: feedItemFilter,
@@ -330,7 +361,10 @@ export async function FeedConfigPage({
     scope.parkId
       ? listFeedConfigExperiment({
           // park_id omitted entirely in all-parks mode -- the backend reads that as "every park".
-          ...(experimentAllParks ? {} : { park_id: scope.parkId }),
+          ...(experimentAllParks ? {} : { park_id: experimentParkId }),
+          // Backend-supported since this endpoint shipped; it was simply never exposed.
+          ...(experimentShedFilter ? { shed_id: experimentShedFilter } : {}),
+          ...(experimentPartitionFilter ? { partition_label: experimentPartitionFilter } : {}),
           limit: experimentLimit,
           offset: experimentOffset,
           feed_item: experimentItemFilter,
@@ -349,13 +383,13 @@ export async function FeedConfigPage({
     // candidates from it made a pen configured on another page look unconfigured, and made a NEW pen
     // of an already-enrolled shed unreachable entirely. It follows the same all-parks rule as the
     // cell read so the two sections agree about what is in scope.
-    experimentAllParks || scope.parkId
+    experimentAllParks || experimentParkId
       ? listAllFeedConfigPens(
           experimentAllParks
             // park_id omitted entirely -- the backend reads that as "every park", the same rule the
             // experiment read above follows so the table and its enroller agree about scope.
             ? {}
-            : { park_id: scope.parkId },
+            : { park_id: experimentParkId },
         )
       : Promise.resolve(null),
     // The tenant's feed vocabulary, for the enrol control's item picker. It comes from the catalog
@@ -416,7 +450,13 @@ export async function FeedConfigPage({
       // Backend-composed. Clients never rejoin a shed name and a partition themselves.
       display: pen.operational_location_display,
     }));
-  const catalogItems = (feedItems?.items ?? []).map((item) => item.feed_item);
+  // ACTIVE items only. A retired item is on no feed sheet, so offering it as something to author a
+  // quantity for would invite an author to configure a cell that can never be served — and, on the
+  // experiment adder, to fill a pen's last unauthored slot with an item that feeds nothing. The
+  // catalog TABLE below still lists retired items, because that is where they are put back.
+  const catalogItems = (feedItems?.items ?? [])
+    .filter((item) => item.status === "active")
+    .map((item) => item.feed_item);
 
   const gridCols = tableLabels(pageContract, "ration-grid");
   const factorCols = tableLabels(pageContract, "shed-factors");
@@ -432,41 +472,86 @@ export async function FeedConfigPage({
   // The park the enroller offers in SINGLE-park mode: exactly the one being read, so its select has
   // one option and is preselected. Empty when the locations master returned no match, which leaves
   // the enroller with nothing to enrol into rather than guessing a park.
+  // Scoped to the EXPERIMENT section's own park, not the page's, because the enroller lives in that
+  // section and the two can now differ. Offering the page's park here would enrol a pen into a park
+  // the table on screen is not showing.
   const parkScopedParks = locations.parks
-    .filter((park) => park.id === scope.parkId)
+    .filter((park) => park.id === experimentParkId)
     .map((park) => ({ id: park.id, name: park.name }));
-  const hasGridFilter = Boolean(rationGroupFilter || shedTagFilter || feedItemFilter);
+  // The experiment section's park name, from its OWN effective scope rather than the page's — the
+  // two can differ now, and labelling a CBE table with the page's CPT would be worse than no label.
+  const experimentParkName = locations.parks.find((park) => park.id === experimentParkId)?.name ?? "";
+  // Sheds offered by the section's Shed filter: the locations master, narrowed to the park the
+  // section is actually reading. Keyed on shed_id, NEVER on the name — Castro, Gandhi and Yashoda
+  // each exist in BOTH parks, so a name-keyed option would merge two different buildings into one
+  // row and narrow to whichever the backend matched first.
+  //
+  // In all-parks mode the label is park-qualified for the same reason: two options reading "Castro"
+  // are indistinguishable to the operator even though their values differ. This is a park + shed
+  // pair, not a shed + partition operational location, so it composes here rather than through
+  // oploc — that helper owns the shed/partition display and would be the wrong shape for this.
+  const parkNameById = new Map(locations.parks.map((park) => [park.id, park.name]));
+  // PENS, not physical sheds, because that is what this section's rows are: Castro holds three pens
+  // with their own arms, head counts and quantities, so a shed-level option would name one thing and
+  // return three.
+  //
+  // The label is the BACKEND-COMPOSED operational location, rendered verbatim. It must not be
+  // rejoined here: the convention renders a pen as "Castro - 1" / "Godel 1 - Part 3", and the naive
+  // space-join that produces "Castro 1" is a recorded production defect (OL-3), not a shortcut. The
+  // catalog is the pen source rather than the cell rows, so an empty pen is still offered and a pen
+  // whose cells fall on another page is not missing from the list.
+  const experimentPenOptions = (pens?.items ?? [])
+    .filter((pen) => (experimentParkId ? pen.park_id === experimentParkId : true))
+    // ONLY pens that are actually on the experiment. The catalog holds every operational pen in the
+    // park — 131 of them tenant-wide — and all but ~35 have no experiment cell at all, so offering
+    // the lot made most choices return an empty table for a pen that was never on this workflow.
+    // has_experiment_config is computed by the backend against the SAME (shed, partition) natural
+    // key the table is keyed on, so the picker cannot disagree with the rows it filters. It counts
+    // RETIRED pens too, which is right: a withdrawn pen still has authored quantities and is exactly
+    // what someone filters for to restore it.
+    .filter((pen) => pen.has_experiment_config)
+    .map((pen) => ({
+      // Keyed on shed_id + partition, NEVER on a name: Castro, Gandhi and Yashoda each exist in both
+      // parks, so a name-keyed value would merge two different buildings.
+      value: `${pen.shed_id}|${pen.partition_label ?? ""}`,
+      label: experimentParkId
+        ? pen.operational_location_display
+        : `${parkNameById.get(pen.park_id) ?? ""} · ${pen.operational_location_display}`.replace(/^ · /, ""),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  // EVERY control on the bar, so an empty grid says which of the two things happened: nothing is
+  // authored, or the filters excluded it. Breed and the grams comparison were missing from this
+  // check, which sent a reader who had narrowed by breed alone to the "no rates authored" copy —
+  // the more alarming of the two answers, and the wrong one.
+  const hasGridFilter = Boolean(
+    breedFilter || shedTagFilter || feedItemFilter.length > 0 || gramsOpFilter || gramsValueFilter,
+  );
+  // The experiment section narrows on its OWN params, so it needs its own answer to "did the filters
+  // empty this, or is it genuinely empty?" — the grid's flag would report the wrong section.
+  const hasExperimentFilter = Boolean(
+    experimentParkFilter ||
+      experimentPenFilter ||
+      experimentItemFilter.length > 0 ||
+      experimentArmFilter ||
+      experimentStatusFilter ||
+      experimentKgOpFilter ||
+      experimentKgValueFilter,
+  );
 
   const gridRows = rates?.items ?? [];
 
   // Filter options are the tenant's authored catalog — the FULL vocabulary — not the current grid
   // page. Deriving them from gridRows showed only the values on the visible (paginated,
-  // already-filtered) rows, so a park's other ration groups / shed tags / feed items were
-  // unreachable in the filter. Shed tags and feed items carry a backend display_order, which is
-  // authoritative and preserved rather than re-sorted alphabetically. A ration group's label is not
-  // unique (Beetal and Sirohi both map to "Beetal/Sirohi"), so it is de-duplicated by label. If a
-  // catalog read failed, fall back to the grid-derived set so the filter never goes empty.
+  // already-filtered) rows, so a park's other breeds / shed tags / feed items were unreachable in
+  // the filter. Shed tags and feed items carry a backend display_order, which is authoritative and
+  // preserved rather than re-sorted alphabetically. If a catalog read failed, fall back to the
+  // grid-derived set so the filter never goes empty.
   const uniqueSorted = (values: string[]) => Array.from(new Set(values)).sort();
   const dedupe = (values: string[]) => Array.from(new Set(values));
   const toOptions = (values: string[]) => values.map((value) => ({ value, label: value }));
   const byDisplayOrder = <T extends { display_order: number }>(rows: readonly T[]) =>
     [...rows].sort((a, b) => a.display_order - b.display_order);
 
-  // The GROUP filter reads `ration_groups`, never `items`.
-  //
-  // `items` is the breed -> group MAP, and that table is adult breeds only: kids resolve to the fixed
-  // 'Kid' group by age band and appear in no row of it. Building this control from `items` therefore
-  // offered six of the seven live groups and made every 'Kid' rate unreachable from the filter -- 134
-  // of 721 rows per park, with the backend perfectly willing to answer `ration_group=Kid` if the URL
-  // was typed by hand. `ration_groups` is the backend's list of groups that actually carry an
-  // in-force rate, so the control can no longer disagree with the grid it filters.
-  //
-  // `?.length` rather than a bare presence check, so a backend older than this build (no such field)
-  // degrades to the same grid-derived fallback a FAILED catalog read uses, instead of throwing on
-  // `undefined.map` and taking the whole route down over a deploy-order skew.
-  const rationGroupOptions = rationGroups?.ration_groups?.length
-    ? toOptions(rationGroups.ration_groups)
-    : toOptions(uniqueSorted(gridRows.map((row) => row.ration_group)));
   // Real BREEDS, from the same breed -> ration-group map the backend resolves the filter through, so
   // every option is one the query can answer. Deduplicated and sorted by breed rather than by group:
   // Beetal and Sirohi are two options that happen to return the same rows, and collapsing them would
@@ -482,8 +567,17 @@ export async function FeedConfigPage({
   const shedTagOptions = shedTags
     ? toOptions(dedupe(byDisplayOrder(shedTags.items).map((tag) => tag.shed_tag)))
     : toOptions(uniqueSorted(gridRows.map((row) => row.shed_tag)));
+  // Also active-only: the grid no longer holds a retired item's rates, so offering one as a FILTER
+  // would be an option that always returns nothing — indistinguishable on screen from a combination
+  // that genuinely has no rate authored.
   const feedItemOptions = feedItems
-    ? toOptions(dedupe(byDisplayOrder(feedItems.items).map((item) => item.feed_item)))
+    ? toOptions(
+        dedupe(
+          byDisplayOrder(feedItems.items)
+            .filter((item) => item.status === "active")
+            .map((item) => item.feed_item),
+        ),
+      )
     : toOptions(uniqueSorted(gridRows.map((row) => row.feed_item)));
 
   const compareOptions = optionGroup(pageContract, "feed_grams_compare").map((option) => ({
@@ -501,23 +595,23 @@ export async function FeedConfigPage({
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
       options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
     },
-    // BREED, not ration group. The options are real breeds from the breed -> ration-group map, so
-    // picking Sirohi finds the Beetal/Sirohi rows -- a question the group filter cannot express,
-    // because no group is named Sirohi. The grid's own column keeps showing the GROUP, which is what
-    // the row actually is; the note under the control explains the relationship.
+    // BREED is the ONLY cohort control here. The options are real breeds from the breed ->
+    // ration-group map, so picking Sirohi finds the Beetal/Sirohi rows -- a question a group filter
+    // could not express, because no group is named Sirohi. The grid's own column keeps showing the
+    // GROUP, which is what the row actually is, so the cohort stays readable without a second
+    // dropdown naming it.
+    //
+    // The note is now RENDERED rather than authored and dropped. It carries the one thing this
+    // control cannot show by itself: several breeds share a rate, and picking any breed excludes the
+    // breedless `Kid` group entirely. That exclusion is invisible in the grid -- the rows simply are
+    // not there -- so a filter that silently removes a fifth of the authored rates has to say so.
     {
       kind: "select",
       param: "fc_breed",
       label: copy(pageContract, "filter.breed_label"),
       value: breedFilter,
       options: breedOptions,
-    },
-    {
-      kind: "select",
-      param: "fc_group",
-      label: copy(pageContract, "filter.ration_group_label"),
-      value: rationGroupFilter,
-      options: rationGroupOptions,
+      note: copy(pageContract, "filter.breed_note"),
     },
     {
       kind: "select",
@@ -551,6 +645,24 @@ export async function FeedConfigPage({
   // section's quantity is an ABSOLUTE PEN TOTAL in kg, so its comparison is labelled and named apart
   // from the grid's per-head grams.
   const experimentFilterFields: FeedFilterField[] = [
+    {
+      kind: "select",
+      param: "fc_exp_park",
+      label: copy(pageContract, "filter.park_label"),
+      value: experimentParkFilter,
+      options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+      // A pen belongs to ONE park, so a pen chosen in the other one cannot match anything here.
+      // Left in place it emptied the table while both controls still read as a valid pair, which is
+      // unexplainable on screen — the reader sees a park that has 60 pens and a table showing none.
+      clears: ["fc_exp_shed"],
+    },
+    {
+      kind: "select",
+      param: "fc_exp_shed",
+      label: copy(pageContract, "filter.shed_label"),
+      value: experimentPenFilter,
+      options: experimentPenOptions,
+    },
     {
       kind: "multiselect",
       param: "fc_exp_item",
@@ -635,13 +747,22 @@ export async function FeedConfigPage({
           <h3>{copy(pageContract, "section.ration_grid.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.ration_grid.caption")}</span>
         </div>
+        {/* STAGED, not applied per control. Six filters sit on this bar and an author normally
+            narrows by several at once — park, then breed, then item — and every one of those picks
+            re-ran the whole page: nine concurrent reads, four tables, and three intermediate result
+            sets the reader never asked to see. Edits now collect on the bar and one Apply commits
+            them. */}
         <FeedFilters
           basePath={PAGE_PATH}
           pageParam="fc_offset"
           fields={filterFields}
           pageContract={pageContract}
-        />
-
+          deferApply
+        >
+        {/* The grid is passed to the bar so ONE pending state drives both the bar's busy ring and
+            these rows being held back. They stay readable while the new page is fetched — the old
+            answer is still true until the new one lands — but go inert, so a stale row cannot be
+            clicked or mistaken for the result of the filter just applied. */}
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -673,9 +794,6 @@ export async function FeedConfigPage({
                 </tr>
               ) : (
                 gridRows.map((row) => {
-                  // An authored 0 is real configuration. It is tagged so it can never be read as the
-                  // missing-rate state, which has the opposite consequence (the shed goes unfed).
-                  const authoredZero = isConfiguredZero(row.grams_per_head);
                   return (
                     <tr key={row.ration_rate_id}>
                       {/* No park cell. Every /feed-config/* read requires park_id and filters on
@@ -684,23 +802,20 @@ export async function FeedConfigPage({
                       <td>{row.ration_group}</td>
                       <td className="muted">{row.shed_tag}</td>
                       <td>{row.feed_item}</td>
+                      {/* A client cell so a just-saved quantity appears at once. Saving writes in
+                          ~0.3s but the number only lands when revalidatePath re-renders this whole
+                          route, and until then the cell showed the OLD figure beside a form that had
+                          closed on success — which reads as "nothing happened" on a screen whose
+                          numbers are feeding instructions. The authored-zero rule travels with it. */}
                       <td>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                          <span
-                            style={{
-                              fontVariantNumeric: "tabular-nums",
-                              fontWeight: authoredZero ? 500 : 700,
-                              color: authoredZero ? "var(--muted)" : "var(--brand-d)",
-                            }}
-                          >
-                            {row.grams_per_head}
-                          </span>
-                          {authoredZero ? (
-                            <span className="tag t-info" title={copy(pageContract, "label.configured_zero_note")}>
-                              {copy(pageContract, "label.configured_zero")}
-                            </span>
-                          ) : null}
-                        </span>
+                        <RationRateValue
+                          pageContract={pageContract}
+                          parkId={row.park_id}
+                          rationGroup={row.ration_group}
+                          shedTag={row.shed_tag}
+                          feedItem={row.feed_item}
+                          gramsPerHead={row.grams_per_head}
+                        />
                       </td>
                       <td colSpan={2}>
                         <EffectiveWindow
@@ -728,6 +843,8 @@ export async function FeedConfigPage({
           </table>
         </div>
 
+        {/* Inside the held-back region too: the pager describes the page being replaced, so leaving
+            it live would let a reader page a result set that is already on its way out. */}
         <FeedPager
           pageContract={pageContract}
           offset={gridOffset}
@@ -739,6 +856,7 @@ export async function FeedConfigPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fc_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fc_limit", String(next))}
         />
+        </FeedFilters>
       </section>
 
       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.ration_grid.note")}</div>
@@ -816,8 +934,36 @@ export async function FeedConfigPage({
                     <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
                       {row.display_order}
                     </td>
+                    {/* The status cell carries BOTH the state and the control that changes it. The
+                        chip resolves its label through the page contract rather than printing
+                        row.status: that column holds storage vocabulary, and the retired value in
+                        particular reads as a property of the item rather than as the thing it
+                        actually means, which is that the item is on no feed sheet. */}
                     <td>
-                      <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+                        <span
+                          className={row.status === "active" ? "tag t-ok" : "tag t-mut"}
+                          title={copy(
+                            pageContract,
+                            row.status === "active" ? "label.feed_item_active_note" : "label.feed_item_retired_note",
+                          )}
+                        >
+                          {copy(
+                            pageContract,
+                            row.status === "active" ? "label.feed_item_active" : "label.feed_item_retired",
+                          )}
+                        </span>
+                        {/* Offers the OPPOSITE of the current state, so the control always names the
+                            change it makes rather than the state it is in — the same rule the
+                            experiment pen switch follows. */}
+                        <FeedItemStatusSwitch
+                          pageContract={pageContract}
+                          action={setFeedItemStatus}
+                          feedItemId={row.feed_item_id}
+                          feedItemLabel={row.feed_item}
+                          targetStatus={row.status === "active" ? "retired" : "active"}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -917,9 +1063,9 @@ export async function FeedConfigPage({
             <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
               {copy(pageContract, "label.all_parks")}
             </span>
-          ) : parkName ? (
+          ) : experimentParkName ? (
             <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
-              {parkName}
+              {experimentParkName}
             </span>
           ) : null}
           <span className="small muted">{copy(pageContract, "section.experiment.caption")}</span>
@@ -945,8 +1091,8 @@ export async function FeedConfigPage({
           pageParam="fc_exp_offset"
           fields={experimentFilterFields}
           pageContract={pageContract}
-        />
-
+          deferApply
+        >
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -975,10 +1121,17 @@ export async function FeedConfigPage({
                 <tr>
                   <td colSpan={experimentCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {/* An empty table is a real, meaningful state: this park runs no experiments
-                          and every shed in it is fed from the ration grid. It is not a failed read. */}
+                      {/* THREE different states, and telling them apart is the whole point. A failed
+                          read is an error. An empty UNFILTERED table is a real, meaningful fact: this
+                          park runs no experiments and every shed in it is fed from the ration grid.
+                          An empty FILTERED table is neither — the filters simply excluded everything.
+                          The filtered copy was authored in the contract and had no code path to the
+                          screen, so narrowing to nothing reported "no experiment pens authored for
+                          this park", which is alarming and untrue. */}
                       {!experimentResult || experimentResult.ok
-                        ? copy(pageContract, "empty.experiment")
+                        ? hasExperimentFilter
+                          ? copy(pageContract, "empty.experiment_filtered")
+                          : copy(pageContract, "empty.experiment")
                         : copy(pageContract, "state.experiment_unavailable")}
                     </div>
                   </td>
@@ -1157,6 +1310,7 @@ export async function FeedConfigPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fc_exp_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fc_exp_limit", String(next))}
         />
+        </FeedFilters>
       </section>
       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.experiment.note")}</div>
       {/* Spelled out rather than implied, for the same reason the blocked-vs-zero note is above:

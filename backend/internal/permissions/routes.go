@@ -426,6 +426,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedConfigPens", Method: "GET", Pattern: "/feed-config/pens", Permissions: []string{FeedConfigRead}},
 	{OperationID: "upsertFeedConfigRationRate", Method: "POST", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "createFeedConfigFeedItem", Method: "POST", Pattern: "/feed-config/feed-items", Permissions: []string{FeedConfigWrite}},
+	// Retiring a feed item removes it from every future feed sheet, so it carries the same write
+	// permission as authoring a rate -- it changes what animals are fed, not merely what a screen shows.
+	{OperationID: "setFeedConfigFeedItemStatus", Method: "POST", Pattern: "/feed-config/feed-items/status", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.
