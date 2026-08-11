@@ -1092,6 +1092,30 @@ bucket_catalog AS (
     AND shed.location_type='shed'
     AND shed.status='active'
     AND shed.retired_at IS NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM locations parent_shed
+      JOIN shed_partitions parent_partition
+        ON parent_partition.tenant_id=parent_shed.tenant_id
+       AND parent_partition.shed_id=parent_shed.location_id
+       AND parent_partition.status='active'
+      WHERE parent_shed.tenant_id=shed.tenant_id
+        AND parent_shed.parent_location_id=shed.parent_location_id
+        AND parent_shed.location_id <> shed.location_id
+        AND parent_shed.location_type='shed'
+        AND parent_shed.status='active'
+        AND parent_shed.retired_at IS NULL
+        AND starts_with(BTRIM(shed.name), BTRIM(parent_shed.name))
+        AND NULLIF(
+          regexp_replace(
+            BTRIM(replace(BTRIM(shed.name), BTRIM(parent_shed.name), '')),
+            '^\s*-\s*part\s*|\s+',
+            '',
+            'gi'
+          ),
+          ''
+        ) = parent_partition.normalized_label
+    )
 )
 SELECT
   bucket.display_order,
