@@ -967,7 +967,9 @@ private fun WeighingAssignmentUiRow.displayBusinessDate(): String =
 	}.orEmpty()
 
 private fun String.isBeforeIsoDate(other: String): Boolean {
+    // exception:exempt invalid or absent ISO dates are not ordered in UI badge fallback logic.
     val left = runCatching { LocalDate.parse(this) }.getOrNull() ?: return false
+    // exception:exempt invalid or absent ISO dates are not ordered in UI badge fallback logic.
     val right = runCatching { LocalDate.parse(other) }.getOrNull() ?: return false
     return left.isBefore(right)
 }

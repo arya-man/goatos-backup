@@ -795,7 +795,7 @@ func TestListCampaignsSoonestFirstOrder(t *testing.T) {
 	}
 }
 
-func TestListCampaignsForOperatorUsesWorkItemDelayedStateAndOriginalPlanDate(t *testing.T) {
+func TestListCampaignsForOperatorWorkItemStatusMatrixPageBoundaryOneToManyUsesDelayedStateAndOriginalPlanDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
