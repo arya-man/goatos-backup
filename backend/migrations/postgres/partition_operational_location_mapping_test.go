@@ -274,12 +274,12 @@ func TestShedPartitionOperationalLocationTriggerRetiresFailWhilePlacementInFligh
 	defer pool.Close()
 
 	const (
-		tenant       = "f14a0000-0000-4000-8000-000000000001"
-		custodian    = "f14a0000-0000-4000-8000-000000000002"
-		park         = "f14a0000-0000-4000-8000-000000000003"
-		shed         = "f14a0000-0000-4000-8000-000000000004"
-		goatID       = "f14a0000-0000-4000-8000-000000000005"
-		normalized   = "10"
+		tenant     = "f14a0000-0000-4000-8000-000000000001"
+		custodian  = "f14a0000-0000-4000-8000-000000000002"
+		park       = "f14a0000-0000-4000-8000-000000000003"
+		shed       = "f14a0000-0000-4000-8000-000000000004"
+		goatID     = "f14a0000-0000-4000-8000-000000000005"
+		normalized = "10"
 	)
 
 	exec := func(sql string, args ...any) {
@@ -327,7 +327,8 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::
 
 	placementReady := make(chan struct{})
 	placementReadyToContinue := make(chan struct{})
-	retirementStarted := make(chan struct{}, 1)
+	placementPID := make(chan int, 1)
+	retirementPID := make(chan int, 1)
 	retireErrCh := make(chan error, 1)
 	placeErrCh := make(chan error, 1)
 
@@ -351,6 +352,13 @@ FOR SHARE OF sp`,
 			placeErrCh <- err
 			return
 		}
+		var pid int
+		if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			_ = tx.Rollback(ctx)
+			placeErrCh <- err
+			return
+		}
+		placementPID <- pid
 		close(placementReady)
 		<-placementReadyToContinue
 		if _, err := tx.Exec(ctx, `UPDATE goats
@@ -372,12 +380,18 @@ WHERE tenant_id=$2::uuid AND goat_id=$3::uuid`,
 	go func() {
 		defer wg.Done()
 		<-placementReady
-		retirementStarted <- struct{}{}
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			retireErrCh <- err
 			return
 		}
+		var pid int
+		if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+			_ = tx.Rollback(ctx)
+			retireErrCh <- err
+			return
+		}
+		retirementPID <- pid
 
 		_, err = tx.Exec(ctx, `
 UPDATE shed_partitions
@@ -399,17 +413,41 @@ WHERE tenant_id=$1::uuid
 	case err := <-placeErrCh:
 		t.Fatalf("placement setup failed: %v", err)
 	}
+	placePid, ok := <-placementPID
+	if !ok {
+		t.Fatal("missing placement pid")
+	}
+	retirePid, ok := <-retirementPID
+	if !ok {
+		t.Fatal("retirement did not start")
+	}
 
-	select {
-	case <-retirementStarted:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("retirement did not start while placement lock was held")
+	deadline := time.Now().Add(5 * time.Second)
+	blocked := false
+	for time.Now().Before(deadline) {
+		var isBlocked bool
+		if err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM pg_blocking_pids($1::int) AS bp(pid)
+  WHERE pid = $2::int
+)`, retirePid, placePid).Scan(&isBlocked); err != nil {
+			t.Fatalf("query blocking pids: %v", err)
+		}
+		if isBlocked {
+			blocked = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked {
+		t.Fatal("retirement transaction was not blocked by placement lock")
 	}
 
 	close(placementReadyToContinue)
 	wg.Wait()
-	close(retireErrCh)
 	close(placeErrCh)
+	close(retireErrCh)
 
 	placementErr := <-placeErrCh
 	if placementErr != nil {

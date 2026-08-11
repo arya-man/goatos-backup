@@ -3270,16 +3270,30 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 				WHERE s.tenant_id = $1::uuid
 				  AND s.location_type = 'shed'
 				  AND s.status = 'active'
-				  AND (
-				  	s.parent_location_id IN (SELECT location_id FROM stale_parks)
-				  	OR s.location_id IN (SELECT location_id FROM stale_source_park_sheds)
-				  )
-				  AND NOT EXISTS (
-			    SELECT 1 FROM goats g
-			    WHERE g.tenant_id = s.tenant_id
-			      AND g.shed_id = s.location_id
-			      AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
-			  )
+				AND (
+					s.parent_location_id IN (SELECT location_id FROM stale_parks)
+					OR s.location_id IN (SELECT location_id FROM stale_source_park_sheds)
+				)
+				AND NOT EXISTS (
+				  SELECT 1 FROM shed_partitions sp
+				  WHERE sp.tenant_id = s.tenant_id
+				    AND sp.shed_id = s.location_id
+				    AND sp.status = 'active'
+				)
+				AND NOT EXISTS (
+				  SELECT 1
+				  FROM shed_partitions sp
+				  JOIN locations pen ON pen.tenant_id = sp.tenant_id AND pen.location_id = sp.operational_location_id
+				  WHERE sp.tenant_id = s.tenant_id
+				    AND sp.shed_id = s.location_id
+				    AND pen.status = 'active'
+				)
+				AND NOT EXISTS (
+				SELECT 1 FROM goats g
+					WHERE g.tenant_id = s.tenant_id
+				  AND g.shed_id = s.location_id
+				  AND g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
+				)
 			RETURNING 1
 		),
 		retired_parks AS (
