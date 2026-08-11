@@ -2245,7 +2245,9 @@ ORDER BY
 func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	if strings.TrimSpace(q.PartitionLabel) == "" {
+	partitionLabel := strings.TrimSpace(q.PartitionLabel)
+	exactShedID := q.ShedID
+	if partitionLabel == "" {
 		partitioned, err := r.shedHasActivePartitions(ctx, q.TenantID, q.ShedID)
 		if err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster partition check: %w", err)
@@ -2253,6 +2255,12 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		if partitioned {
 			return domain.ScanRosterResult{}, ports.ErrInvalidArgument
 		}
+	} else {
+		resolvedShedID, err := r.resolveScanRosterExactShed(ctx, q.TenantID, q.ShedID, partitionLabel)
+		if err != nil {
+			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster partition resolution: %w", err)
+		}
+		exactShedID = resolvedShedID
 	}
 	// task_id is OPTIONAL: when present the roster is pinned to that task's batch (task-scoped);
 	// when absent it falls back to the shed-wide roster (the pre-refactor behaviour the current
@@ -2260,7 +2268,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	identity := taskExecutionIdentity{}
 	if q.TaskID != "" {
 		var err error
-		identity, err = r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, q.ShedID)
+		identity, err = r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, exactShedID)
 		if err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster identity: %w", err)
 		}
@@ -2279,7 +2287,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	// Park-scope clamp (defence in depth): a park-scoped app actor may only read rosters for sheds
 	// in their authorized parks. Tenant-wide (or grant-less internal) callers pass nil = no filter.
 	restrictParks := authorizedParkFilter(ctx, q.TenantID)
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID, strings.TrimSpace(q.PartitionLabel))
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, exactShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID, partitionLabel)
 	if err != nil {
 		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
@@ -2339,6 +2347,23 @@ SELECT EXISTS (
     AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
 )`, tenantID, shedID).Scan(&exists)
 	return exists, err
+}
+
+func (r *Repository) resolveScanRosterExactShed(ctx context.Context, tenantID, shedID, partitionLabel string) (string, error) {
+	var resolved string
+	err := r.pool.QueryRow(ctx, `
+SELECT COALESCE((
+  SELECT sp.operational_location_id::text
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.shed_id = $2::uuid
+    AND sp.status = 'active'
+    AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '')
+      = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+  ORDER BY sp.updated_at DESC, sp.partition_label DESC
+  LIMIT 1
+), $2::text)`, tenantID, shedID, partitionLabel).Scan(&resolved)
+	return resolved, err
 }
 
 const scanRosterSQL = `
