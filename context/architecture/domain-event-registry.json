@@ -767,7 +767,7 @@
         {
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
-          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate: a feed-direction session is completed only when a verifier approves the operator's video + water proof. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert."
+          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate, EXTENDED 2026-08-11: a feed-direction session is completed only when a verifier approves the operator's THREE proofs -- a feed-weight PHOTO, a feed-distribution VIDEO and a water-distribution VIDEO (water was photo-or-video until then; migration 000151 adds feed_weight_proof_ref). All three ride ONE verification item in capture order. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert."
         },
         {
           "module": "feeddirection",
@@ -846,7 +846,7 @@
         {
           "module": "feeddirection",
           "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
-          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-records the video + water proof and re-submits."
+          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-captures the weight photo, the feed video and the water video and re-submits."
         },
         {
           "module": "feeddirection",

@@ -312,10 +312,13 @@ type completeDistributionRequest struct {
 	// PartitionLabel names the PEN the operator worked ("2", "Part 3"); omit or send "" for an
 	// undivided shed. It is part of the completion's identity: without it one pen's video closed
 	// out every pen of the shed (STG 2026-08-08). See migration 000137.
-	PartitionLabel       string `json:"partition_label"`
-	SessionNo            int32  `json:"session_no"`
-	TargetDate           string `json:"target_date"`
-	Workflow             string `json:"workflow"`
+	PartitionLabel string `json:"partition_label"`
+	SessionNo      int32  `json:"session_no"`
+	TargetDate     string `json:"target_date"`
+	Workflow       string `json:"workflow"`
+	// The three mandatory proofs, in capture order. FeedWeightProofRef is a PHOTO of the weighed feed;
+	// the other two are VIDEOS. Water became video-only on 2026-08-11 -- see migration 000151.
+	FeedWeightProofRef   string `json:"feed_weight_proof_ref"`
 	DistributionProofRef string `json:"distribution_proof_ref"`
 	WaterProofRef        string `json:"water_proof_ref"`
 }
@@ -373,8 +376,14 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Both proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the service,
-	// mirroring the shifting complete route, so a proofless request never reaches the write path.
+	// All three proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the
+	// service, mirroring the shifting complete route, so a proofless request never reaches the write
+	// path. Checked in CAPTURE ORDER so the message names the earliest missing step.
+	if strings.TrimSpace(body.FeedWeightProofRef) == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: "a feed-weight photo proof (feed_weight_proof_ref) is required"}, nil)
+		return
+	}
 	if strings.TrimSpace(body.DistributionProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: "a feed-distribution video proof (distribution_proof_ref) is required"}, nil)
@@ -382,7 +391,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	}
 	if strings.TrimSpace(body.WaterProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: "a water-distribution proof (water_proof_ref) is required"}, nil)
+			codedError{Code: "proof_required", Message: "a water-distribution video proof (water_proof_ref) is required"}, nil)
 		return
 	}
 
@@ -407,6 +416,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		SessionNo:            body.SessionNo,
 		TargetDate:           targetDate,
 		Workflow:             strings.TrimSpace(body.Workflow),
+		FeedWeightProofRef:   strings.TrimSpace(body.FeedWeightProofRef),
 		DistributionProofRef: strings.TrimSpace(body.DistributionProofRef),
 		WaterProofRef:        strings.TrimSpace(body.WaterProofRef),
 		CompletedBy:          actorID,
@@ -721,10 +731,19 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
+	case errors.Is(err, ports.ErrFeedWeightProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrDistributionProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrWaterProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrProofMediaKind):
+		// 422 with the same coded envelope: the reference is real, it is simply the wrong capture kind
+		// for its step, and the fix is the operator re-taking that one proof. A 400 would read as a
+		// malformed request and invite the client to retry the identical body.
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):

@@ -31,11 +31,25 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
- * The verifier-gated flow (docs/decisions/feed-distribution-verification.md): the operator records a
- * MANDATORY feed-distribution video, then the MANDATORY water-distribution proof (photo OR video)
- * enables. Both proofs are required before Submit enables (client-side gate; the backend also rejects
- * a blank proof `422 proof_required`). Submitting flips the shed-session to `pending_verification` —
- * NOTHING is completed until a verifier approves the pair.
+ *
+ * The verifier-gated flow (docs/decisions/feed-distribution-verification.md) is THREE mandatory
+ * captures, each unlocking the next:
+ *
+ *  1. the feed-weight PHOTO, taken while the feed is still on the scale;
+ *  2. the feed-distribution VIDEO;
+ *  3. the water-distribution VIDEO.
+ *
+ * All three are required before Submit enables (client-side gate; the backend also rejects a blank or
+ * wrong-kind proof `422 proof_required`). Submitting flips the shed-session to `pending_verification`
+ * — NOTHING is completed until a verifier approves the set.
+ *
+ * WHY THE ORDER IS ENFORCED rather than suggested: the weight photo can only be taken before the feed
+ * is given out, so a screen that let the operator shoot it last would be asking for a staged photo of
+ * a scale that no longer holds that pen's feed.
+ *
+ * Water is VIDEO-ONLY since 2026-08-11 (maintainer decision). The photo affordance is deliberately
+ * gone rather than hidden: a still of a full trough proves a trough is full, not that this operator
+ * filled it today.
  *
  * This is separate from the packing-proof flow.
  */
@@ -50,6 +64,9 @@ data class FeedDistributionUiState(
     val shedLabel: String = "",
     val sessionLabel: String = "",
     val workflowLabel: String = "",
+    val isCapturingWeight: Boolean = false,
+    val weightCaptured: Boolean = false,
+    val weightMessage: String? = null,
     val isCapturingVideo: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
@@ -67,22 +84,40 @@ data class FeedDistributionUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    /** The second proof is actionable only after the first proof has been recorded. */
-    val waterCaptureEnabled: Boolean
-        get() = !alreadySubmitted && videoCaptured && !waterCaptured && !isCapturingVideo && !isCapturingWater &&
-            result?.status != FeedDistributionStatus.SYNCED && result?.status != FeedDistributionStatus.QUEUED
+    /** True once the write is committed (queued or synced) — every capture affordance closes. */
+    private val committed: Boolean
+        get() = result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
-    /** Both mandatory proofs are recorded and the write is not already committed. */
+    /** No capture may start while another is in flight, or after the write is committed. */
+    private val captureIdle: Boolean
+        get() = !alreadySubmitted && !committed && !isCapturingWeight && !isCapturingVideo && !isCapturingWater
+
+    /** Step 1. The weight photo opens the flow — nothing gates it but the screen being actionable. */
+    val weightCaptureEnabled: Boolean
+        get() = captureIdle && !weightCaptured
+
+    /** Step 2. The distribution video is actionable only after the weight photo exists. */
+    val videoCaptureEnabled: Boolean
+        get() = captureIdle && weightCaptured && !videoCaptured
+
+    /** Step 3. The water video is actionable only after the distribution video exists. */
+    val waterCaptureEnabled: Boolean
+        get() = captureIdle && videoCaptured && !waterCaptured
+
+    /** ALL THREE mandatory proofs are recorded and the write is not already committed. */
     val submitEnabled: Boolean
-        get() = canComplete && videoCaptured && waterCaptured && !isCapturingVideo && !isCapturingWater &&
-            result?.status != FeedDistributionStatus.SYNCED && result?.status != FeedDistributionStatus.QUEUED
+        get() = canComplete && weightCaptured && videoCaptured && waterCaptured &&
+            !isCapturingWeight && !isCapturingVideo && !isCapturingWater && !committed
 }
 
 sealed interface FeedDistributionEvent {
-    /** Record the feed video with the LIVE in-app camera. */
+    /** Step 1: photograph the weighed feed with the LIVE in-app camera. */
+    data object TakeFeedWeightPhoto : FeedDistributionEvent
+
+    /** Step 2: record the feed-distribution video with the LIVE in-app camera. */
     data object RecordFeedVideo : FeedDistributionEvent
 
-    data object TakeWaterPhoto : FeedDistributionEvent
+    /** Step 3: record the water-distribution video. Video-only since 2026-08-11. */
     data object RecordWaterVideo : FeedDistributionEvent
 
     /**
@@ -90,8 +125,8 @@ sealed interface FeedDistributionEvent {
      * DROP the queued upload of the take being discarded — a re-record must not leave the verifier
      * two proofs for one step.
      */
+    data object ReTakeFeedWeightPhoto : FeedDistributionEvent
     data object ReRecordFeedVideo : FeedDistributionEvent
-    data object ReTakeWaterPhoto : FeedDistributionEvent
     data object ReRecordWaterVideo : FeedDistributionEvent
     data object MarkDone : FeedDistributionEvent
     data object Back : FeedDistributionEvent
@@ -124,7 +159,36 @@ fun FeedDistributionCompleteScreen(
             return@FeedCaptureScaffold
         }
 
-        // Step 1 — MANDATORY live feed-distribution video.
+        // Step 1 — MANDATORY live feed-weight PHOTO, taken while the feed is still on the scale.
+        FeedProofCard(
+            title = stringResource(R.string.feed_dist_weight_title),
+            hint = stringResource(R.string.feed_dist_weight_hint),
+        ) {
+            when {
+                state.weightCaptured -> FeedVerificationCaptured(
+                    label = stringResource(R.string.feed_dist_weight_captured),
+                    reRecordLabel = stringResource(R.string.feed_proof_recapture),
+                    onReRecord = { onEvent(FeedDistributionEvent.ReTakeFeedWeightPhoto) },
+                    enabled = !committed,
+                )
+                state.isCapturingWeight -> FeedVerificationActionButton(
+                    label = stringResource(R.string.feed_dist_weight_uploading),
+                    enabled = false,
+                    primary = false,
+                    loading = true,
+                    onClick = {},
+                )
+                else -> FeedVerificationActionButton(
+                    label = stringResource(R.string.feed_dist_take_weight_photo),
+                    enabled = state.weightCaptureEnabled,
+                    primary = false,
+                    onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
+                )
+            }
+            state.weightMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
+        }
+
+        // Step 2 — MANDATORY live feed-distribution video. Disabled until step 1 exists.
         FeedProofCard(title = stringResource(R.string.feed_dist_video_title)) {
             when {
                 state.videoCaptured -> FeedVerificationCaptured(
@@ -142,7 +206,7 @@ fun FeedDistributionCompleteScreen(
                 )
                 else -> FeedVerificationActionButton(
                     label = stringResource(R.string.feed_dist_record_video),
-                    enabled = !state.isCapturingWater && !committed,
+                    enabled = state.videoCaptureEnabled,
                     primary = false,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                 )
@@ -150,7 +214,7 @@ fun FeedDistributionCompleteScreen(
             state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
         }
 
-        // Step 2 — MANDATORY live water-distribution proof: photo OR video. Disabled until step 1.
+        // Step 3 — MANDATORY live water-distribution VIDEO. Disabled until step 2 exists.
         FeedProofCard(
             title = stringResource(R.string.feed_dist_water_title),
             hint = stringResource(R.string.feed_dist_water_hint),
@@ -158,7 +222,7 @@ fun FeedDistributionCompleteScreen(
             when {
                 state.waterCaptured -> FeedVerificationCaptured(
                     label = stringResource(R.string.feed_dist_water_captured),
-                    reRecordLabel = stringResource(R.string.feed_proof_recapture),
+                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
                     onReRecord = { onEvent(FeedDistributionEvent.ReRecordWaterVideo) },
                     enabled = !committed,
                 )
@@ -169,22 +233,14 @@ fun FeedDistributionCompleteScreen(
                     loading = true,
                     onClick = {},
                 )
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FeedVerificationActionButton(
-                        label = stringResource(R.string.feed_dist_take_water_photo),
-                        enabled = state.waterCaptureEnabled,
-                        primary = false,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onEvent(FeedDistributionEvent.TakeWaterPhoto) },
-                    )
-                    FeedVerificationActionButton(
-                        label = stringResource(R.string.feed_dist_record_water_video),
-                        enabled = state.waterCaptureEnabled,
-                        primary = false,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
-                    )
-                }
+                // ONE button. The photo affordance was removed with the 2026-08-11 video-only rule;
+                // do not restore it as a second option here.
+                else -> FeedVerificationActionButton(
+                    label = stringResource(R.string.feed_dist_record_water_video),
+                    enabled = state.waterCaptureEnabled,
+                    primary = false,
+                    onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
+                )
             }
             state.waterMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
         }
@@ -195,8 +251,10 @@ fun FeedDistributionCompleteScreen(
             primary = true,
             onClick = { onEvent(FeedDistributionEvent.MarkDone) },
         )
-        if (!state.submitEnabled && !committed && !(state.videoCaptured && state.waterCaptured)) {
-            Text(text = stringResource(R.string.feed_dist_need_both), color = MeshaColors.Faint, fontSize = 12.sp)
+        if (!state.submitEnabled && !committed &&
+            !(state.weightCaptured && state.videoCaptured && state.waterCaptured)
+        ) {
+            Text(text = stringResource(R.string.feed_dist_need_all), color = MeshaColors.Faint, fontSize = 12.sp)
         }
 
         state.result?.let { result ->

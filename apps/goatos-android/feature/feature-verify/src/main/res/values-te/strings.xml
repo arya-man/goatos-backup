@@ -45,6 +45,7 @@
     <string name="verify_detail_operator_label">ఆపరేటర్</string>
     <string name="verify_detail_raised_note_label">ఆపరేటర్ వ్యాఖ్య</string>
     <string name="verify_detail_captured_label">క్యాప్చర్ చేయబడింది</string>
+    <string name="verify_detail_photo_description">ఈ పని యొక్క ఫోటో రుజువు</string>
     <string name="verify_detail_recorded_answer">రికార్డ్ చేయబడింది: %1$s</string>
     <string name="verify_detail_no_media">ఈ అంశానికి వీడియో జోడించబడలేదు</string>
     <string name="verify_detail_approve">ఆమోదించండి</string>

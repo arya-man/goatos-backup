@@ -305,7 +305,8 @@ interface SyncRepository {
      * Enqueue a verifier-GATED feed-DISTRIBUTION completion
      * (`POST /feed-direction/distribution/complete`, docs/decisions/feed-distribution-verification.md).
      * BOTH proofs are MANDATORY and passed by REFERENCE to their PROOF_UPLOAD outbox rows
-     * ([distributionProofOutboxItemId] = feed-distribution video, [waterProofOutboxItemId] = water
+     * ([feedWeightProofOutboxItemId] = feed-weight photo, [distributionProofOutboxItemId] =
+     * feed-distribution video, [waterProofOutboxItemId] = water
      * photo/video): the dispatcher resolves each uploaded proof_id and sends the pair, exactly like
      * [enqueueShiftingComplete] resolves its mandatory evidence set. All three writes MUST share the
      * same [groupKey] (the shed-session) so the two proofs drain strictly before this completion.
@@ -323,6 +324,7 @@ interface SyncRepository {
         targetDate: String,
         workflow: String,
         distributionProofOutboxItemId: String,
+        feedWeightProofOutboxItemId: String,
         waterProofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("feed distribution completion sync is not configured")
 
@@ -896,6 +898,7 @@ class DefaultSyncRepository(
         targetDate: String,
         workflow: String,
         distributionProofOutboxItemId: String,
+        feedWeightProofOutboxItemId: String,
         waterProofOutboxItemId: String,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.FEED_DISTRIBUTION_COMPLETE,
@@ -910,6 +913,7 @@ class DefaultSyncRepository(
                 targetDate = targetDate.trim(),
                 workflow = workflow.trim(),
                 distributionProofOutboxItemId = distributionProofOutboxItemId,
+                feedWeightProofOutboxItemId = feedWeightProofOutboxItemId,
                 waterProofOutboxItemId = waterProofOutboxItemId,
             ),
         ),

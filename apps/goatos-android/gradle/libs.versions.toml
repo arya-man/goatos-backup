@@ -84,6 +84,7 @@ cameraX = "1.4.2"
 # capture-only). 1.8.0 is the latest stable line compatible with minSdk 29 / compileSdk 36
 # at scaffold.
 media3 = "1.8.0"
+coil = "2.7.0"
 # Showkase: debug-only on-device Compose catalog for fast UI edge-case review.
 showkase = "1.0.5"
 
@@ -161,6 +162,11 @@ androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.re
 # and produces ZERO logcat/Crashlytics/Analytics signal. Pinned to the SAME media3 version as
 # exoplayer/ui above (a second media3 version would be a runtime-incompatible split).
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+# Compose image loading for PHOTO proofs (the feed-weight photo, 2026-08-11). The verifier screen was
+# video-only and had no image path at all. coil-compose gives AsyncImage; coil-okhttp routes fetches
+# through the app's OkHttp client for the same reason media3-datasource-okhttp exists -- a 403 on an
+# expired signed URL must be visible in logcat/Crashlytics, not silently blank.
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 showkase = { group = "com.airbnb.android", name = "showkase", version.ref = "showkase" }
 showkase-annotation = { group = "com.airbnb.android", name = "showkase-annotation", version.ref = "showkase" }
 showkase-processor = { group = "com.airbnb.android", name = "showkase-processor", version.ref = "showkase" }

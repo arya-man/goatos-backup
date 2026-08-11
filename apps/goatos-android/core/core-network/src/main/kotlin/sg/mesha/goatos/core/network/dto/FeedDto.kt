@@ -388,14 +388,14 @@ data class FeedTransportTaskPageDto(
 /**
  * The gated feed-DISTRIBUTION completion body (docs/decisions/feed-distribution-verification.md).
  * This is a DIFFERENT record from the packing/direction [FeedDirectionCompleteRequestDto] path: the
- * DIRECTION operator now records BOTH a MANDATORY feed-distribution video and a MANDATORY
- * water-distribution proof (photo or video), which flips the shed-session to `pending_verification`
- * and enqueues a verification item. Nothing is completed until a verifier approves the pair.
+ * DIRECTION operator records THREE MANDATORY proofs — a feed-weight PHOTO, a feed-distribution VIDEO
+ * and a water-distribution VIDEO — which flips the shed-session to `pending_verification` and
+ * enqueues a verification item. Nothing is completed until a verifier approves the set.
  *
  * Grain is (park, shed, session, target_date, workflow). [parkId] may be null (server resolves the
- * default park). BOTH [distributionProofRef] and [waterProofRef] are REQUIRED — a blank either proof
- * is rejected `422 proof_required` server-side (the client also gates on both being uploaded). The
- * Idempotency-Key header, not the body, carries the replay key.
+ * default park). ALL THREE proof refs are REQUIRED — a blank one is rejected `422 proof_required`
+ * server-side (the client also gates on all three being uploaded), and so is one of the WRONG MEDIA
+ * KIND. The Idempotency-Key header, not the body, carries the replay key.
  */
 @Serializable
 data class FeedDistributionCompleteRequestDto(
@@ -407,7 +407,11 @@ data class FeedDistributionCompleteRequestDto(
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
+    /** The feed-weight PHOTO. Must be a photo captured by the LIVE in-app camera; the server checks
+     *  proof_type, mime and `capture_source`. */
+    @SerialName("feed_weight_proof_ref") val feedWeightProofRef: String,
     @SerialName("distribution_proof_ref") val distributionProofRef: String,
+    /** The water-distribution VIDEO. Video-only since 2026-08-11 — a photo is rejected. */
     @SerialName("water_proof_ref") val waterProofRef: String,
 )
 

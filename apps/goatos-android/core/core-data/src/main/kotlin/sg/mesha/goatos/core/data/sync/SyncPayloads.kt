@@ -242,9 +242,9 @@ data class FeedDirectionCompletePayload(
  * — the verifier-GATED direction flow (docs/decisions/feed-distribution-verification.md). Unlike
  * [FeedDirectionCompletePayload], BOTH proofs are MANDATORY and carried by reference to their
  * PROOF_UPLOAD outbox rows (exactly like [ShiftingCompletePayload]'s single mandatory video): the
- * dispatcher resolves each row's uploaded `proof_id` and sends the pair as `distribution_proof_ref`
- * / `water_proof_ref`. Both proof uploads are enqueued on the SAME group as this completion, so they
- * drain first. The shed-session key is the outbox group key.
+ * dispatcher resolves each row's uploaded `proof_id` and sends the set as `feed_weight_proof_ref` /
+ * `distribution_proof_ref` / `water_proof_ref`. All three proof uploads are enqueued on the SAME
+ * group as this completion, so they drain first. The shed-session key is the outbox group key.
  */
 @Serializable
 data class FeedDistributionCompletePayload(
@@ -256,9 +256,19 @@ data class FeedDistributionCompletePayload(
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
+    /**
+     * Outbox id of the MANDATORY feed-weight PHOTO's PROOF_UPLOAD item.
+     *
+     * NULLABLE with a default ONLY so a row queued by a build that predates the 2026-08-11 weight
+     * photo still DECODES. It is not optional: the dispatcher fails such a row terminally with an
+     * operator-facing reason rather than sending an incomplete set the backend would reject forever.
+     * A non-null field here would throw at decode time and strand the row with no message at all.
+     */
+    @SerialName("feed_weight_proof_outbox_item_id") val feedWeightProofOutboxItemId: String? = null,
     /** Outbox id of the MANDATORY feed-distribution VIDEO's PROOF_UPLOAD item. */
     @SerialName("distribution_proof_outbox_item_id") val distributionProofOutboxItemId: String,
-    /** Outbox id of the MANDATORY water-distribution proof's (photo or video) PROOF_UPLOAD item. */
+    /** Outbox id of the MANDATORY water-distribution VIDEO's PROOF_UPLOAD item. Video-only since
+     *  2026-08-11; a row queued earlier may reference a photo, which the backend now rejects. */
     @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String,
 )
 

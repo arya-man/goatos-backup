@@ -14,7 +14,12 @@ import (
 	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
-const uploadStateCompleted = "completed"
+const (
+	uploadStateCompleted = "completed"
+	// captureSourceInAppCamera is the metadata value a LIVE capture carries. Anything else (a gallery
+	// pick, an absent value) is not evidence of work done now.
+	captureSourceInAppCamera = "in_app_camera"
+)
 
 type Validator struct {
 	repo proofports.Repository
@@ -61,4 +66,60 @@ func (v *Validator) ValidateFeedProofs(ctx context.Context, tenantID string, pro
 		}
 	}
 	return nil
+}
+
+// ValidateFeedProofMedia is ValidateFeedProofs plus the MEDIA KIND each step demands.
+//
+// Both halves are asserted, and both matter: proof_type is what the client DECLARED at upload, while
+// mime_type is what the stored bytes actually are. Checking only the declaration would let a client
+// label a still image "video" and pass; checking only the mime would pass an artifact whose record
+// says something else than its bytes. They are written by different steps of the upload
+// (/app/proofs/uploads then /app/proofs/{id}/complete), so they can genuinely disagree.
+//
+// One round trip for the whole set -- the refs are read together, not per step, so adding a third
+// proof did not add a query.
+func (v *Validator) ValidateFeedProofMedia(ctx context.Context, tenantID string, expected []fdports.ExpectedProofMedia) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(expected))
+	for _, exp := range expected {
+		ids = append(ids, exp.ProofID)
+	}
+	found, err := v.repo.GetProofsByIDs(ctx, tenantID, ids)
+	if err != nil {
+		return err
+	}
+	for _, exp := range expected {
+		art, ok := found[exp.ProofID]
+		if !ok || art.TenantID != tenantID || art.UploadState != uploadStateCompleted {
+			return fdports.ErrInvalidProof
+		}
+		if !matchesKind(art.ProofType, art.MimeType, exp.Kind) ||
+			(exp.RequireLiveCamera && art.Metadata["capture_source"] != captureSourceInAppCamera) {
+			// The step-specific error, not a generic one: the operator is told WHICH capture to redo.
+			if exp.OnAbsent != nil {
+				return exp.OnAbsent
+			}
+			return fdports.ErrProofMediaKind
+		}
+	}
+	return nil
+}
+
+// matchesKind reports whether a stored artifact is the requested capture kind. The declared
+// proof_type and the actual mime prefix must BOTH agree with the expectation.
+func matchesKind(proofType, mimeType string, kind fdports.MediaKind) bool {
+	declared := strings.ToLower(strings.TrimSpace(proofType))
+	mime := strings.ToLower(strings.TrimSpace(mimeType))
+	switch kind {
+	case fdports.MediaKindPhoto:
+		return declared == "photo" && strings.HasPrefix(mime, "image/")
+	case fdports.MediaKindVideo:
+		return declared == "video" && strings.HasPrefix(mime, "video/")
+	default:
+		// An unknown expectation is a programming error, and the safe reading of "I do not know what
+		// this step wants" is to reject rather than to wave the proof through.
+		return false
+	}
 }

@@ -52,6 +52,7 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	weightProof := strings.TrimSpace(p.FeedWeightProofRef)
 	distProof := strings.TrimSpace(p.DistributionProofRef)
 	waterProof := strings.TrimSpace(p.WaterProofRef)
 	targetDate := p.TargetDate.Format("2006-01-02")
@@ -80,6 +81,11 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		fmt.Sprintf("%d", p.SessionNo),
 		targetDate,
 		p.Workflow,
+		// All three proofs are part of the request identity. Omitting the weight photo here would make
+		// a re-submission that changed ONLY the weight photo read as an exact replay of the earlier
+		// request, returning the original result and never storing the new photo -- the same-key
+		// different-payload hole the idempotency contract exists to close.
+		weightProof,
 		distProof,
 		waterProof,
 	)
@@ -111,15 +117,15 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_distribution_completions (
   tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
-  distribution_proof_ref, water_proof_ref, completed_by, idempotency_key
+  feed_weight_proof_ref, distribution_proof_ref, water_proof_ref, completed_by, idempotency_key
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
-  $8, $9, nullif($10::text, '')::uuid, $11
+  $8, $9, $10, nullif($11::text, '')::uuid, $12
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
-		distProof, waterProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
+		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
@@ -142,14 +148,15 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 			if err := tx.QueryRow(ctx, `
 UPDATE feed_distribution_completions
 SET status = 'pending_verification',
-    distribution_proof_ref = $3,
-    water_proof_ref = $4,
+    feed_weight_proof_ref = $3,
+    distribution_proof_ref = $4,
+    water_proof_ref = $5,
     rework_reason = NULL,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
 RETURNING row_version`,
-				p.TenantID, completionID, distProof, waterProof).Scan(&rowVersion); err != nil {
+				p.TenantID, completionID, weightProof, distProof, waterProof).Scan(&rowVersion); err != nil {
 				return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: resubmit distribution for verification: %w", err)
 			}
 			status = domain.DistributionStatusPendingVerification

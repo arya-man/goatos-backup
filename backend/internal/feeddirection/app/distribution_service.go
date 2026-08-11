@@ -14,11 +14,15 @@ import (
 
 // Feed DISTRIBUTION verification gate -- the app half (maintainer decision, 2026-07-26). A
 // feed-direction shed-session now passes through the generic Verification module before it is
-// completed: the operator submits TWO mandatory proofs (a feed-distribution video + a water proof),
-// which writes a 'pending_verification' feed_distribution_completions row and enqueues ONE verification
-// item; the session is 'completed' only when a verifier approves. This is entirely separate from the
-// untouched feed PACKING path (CompleteSession / feed_direction_session_completions). See
+// completed: the operator submits THREE mandatory proofs -- a feed-weight PHOTO, a feed-distribution
+// VIDEO and a water-distribution VIDEO -- which writes a 'pending_verification'
+// feed_distribution_completions row and enqueues ONE verification item; the session is 'completed'
+// only when a verifier approves. This is entirely separate from the untouched feed PACKING path
+// (CompleteSession / feed_direction_session_completions). See
 // docs/decisions/feed-distribution-verification.md.
+//
+// The weight photo and the water video-only rule are the 2026-08-11 maintainer decision; migration
+// 000151 carries the reasoning and the grandfathering of rows submitted before it.
 
 // ErrDistributionEnqueuerNotWired is returned when a distribution completion cannot enqueue its
 // verification item because the enqueue seam was never wired -- a composition bug, surfaced loudly
@@ -33,17 +37,21 @@ type FeedDistributionVerificationEnqueuer interface {
 	EnqueueFeedDistributionVerification(ctx context.Context, in FeedDistributionVerificationEnqueueRequest) error
 }
 
-// FeedDistributionVerificationEnqueueRequest is one distribution completion (both proofs) handed to the
-// verifier queue.
+// FeedDistributionVerificationEnqueueRequest is one distribution completion (all three proofs) handed
+// to the verifier queue.
 type FeedDistributionVerificationEnqueueRequest struct {
-	TenantID             string
-	CompletionID         string
-	ParkID               string
-	ShedID               string
-	PartitionLabel       string
-	SessionNo            int32
-	Workflow             string
-	TargetDate           time.Time
+	TenantID       string
+	CompletionID   string
+	ParkID         string
+	ShedID         string
+	PartitionLabel string
+	SessionNo      int32
+	Workflow       string
+	TargetDate     time.Time
+	// The three proofs in capture order: weight PHOTO, distribution VIDEO, water VIDEO. They stay in
+	// this order all the way onto the item's media list so the verifier reviews them in the order the
+	// work happened.
+	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
 	OperatorID           string
@@ -59,10 +67,12 @@ type CompleteDistributionInput struct {
 	ShedID   string
 	// PartitionLabel is the pen the operator actually worked ("2", "Part 3"); empty for an
 	// undivided shed. Carried end-to-end so ONE pen's proof closes ONE pen -- see migration 000137.
-	PartitionLabel       string
-	SessionNo            int32
-	TargetDate           time.Time
-	Workflow             string
+	PartitionLabel string
+	SessionNo      int32
+	TargetDate     time.Time
+	Workflow       string
+	// The three mandatory proofs, in capture order: weight PHOTO, distribution VIDEO, water VIDEO.
+	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
 	CompletedBy          string
@@ -72,9 +82,9 @@ type CompleteDistributionInput struct {
 	TraceID              string
 }
 
-// CompleteDistribution records a shed-session's two mandatory proofs at 'pending_verification' and
+// CompleteDistribution records a shed-session's three mandatory proofs at 'pending_verification' and
 // enqueues one verifier-queue item. It validates the request on the same terms as CompleteSession,
-// then requires BOTH proofs, validates them through the proof validator when wired, fails closed when
+// then requires ALL THREE proofs, validates them through the proof validator when wired, fails closed when
 // the store or enqueue seam is missing, and enqueues only when the row actually enters
 // pending_verification on this call. It relocates/completes NOTHING -- the session is completed only
 // when a verifier approves (the consumer's ApplyVerifiedDistribution).
@@ -100,6 +110,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 	in.ShedID = strings.TrimSpace(in.ShedID)
 	in.Workflow = strings.TrimSpace(in.Workflow)
 	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.FeedWeightProofRef = strings.TrimSpace(in.FeedWeightProofRef)
 	in.DistributionProofRef = strings.TrimSpace(in.DistributionProofRef)
 	in.WaterProofRef = strings.TrimSpace(in.WaterProofRef)
 
@@ -127,9 +138,12 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 		return ports.CompleteDistributionResult{}, ports.ErrIdempotencyRequired
 	}
 
-	// BOTH proofs are mandatory -- reject before any state changes (there is nothing for a verifier to
-	// approve without them). The feed-distribution proof must be a video; the water proof may be photo or
-	// video (the mode is enforced by the proof/SOP policy, not asserted here).
+	// ALL THREE proofs are mandatory -- reject before any state changes (there is nothing for a
+	// verifier to approve without them). Checked in CAPTURE ORDER so the error names the earliest
+	// missing step: an operator who shot nothing is told to weigh the feed, not to film the water.
+	if in.FeedWeightProofRef == "" {
+		return ports.CompleteDistributionResult{}, ports.ErrFeedWeightProofRequired
+	}
 	if in.DistributionProofRef == "" {
 		return ports.CompleteDistributionResult{}, ports.ErrDistributionProofRequired
 	}
@@ -138,9 +152,20 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 	}
 
 	// When a validator is wired, each proof id must resolve to a real, completed, tenant-owned upload
-	// before the completion is written.
+	// AND be the media kind its step requires: the weight is a PHOTO, the other two are VIDEOS.
+	//
+	// The kind is asserted server-side rather than trusted from the client because the phone chooses
+	// which capture button it shows, and a client built before this rule (or a replayed outbox row
+	// queued under it) would happily send a water PHOTO to a verifier expecting a clip.
 	if s.proofs != nil {
-		if err := s.proofs.ValidateFeedProofs(ctx, in.TenantID, []string{in.DistributionProofRef, in.WaterProofRef}); err != nil {
+		if err := s.proofs.ValidateFeedProofMedia(ctx, in.TenantID, []ports.ExpectedProofMedia{
+			// Live camera on the weight photo only. It is the capture that carries a NUMBER, and a
+			// gallery still of a scale is a reading from some other day; the two videos are already
+			// self-evidently live work.
+			{ProofID: in.FeedWeightProofRef, Kind: ports.MediaKindPhoto, RequireLiveCamera: true, OnAbsent: ports.ErrFeedWeightProofRequired},
+			{ProofID: in.DistributionProofRef, Kind: ports.MediaKindVideo, OnAbsent: ports.ErrDistributionProofRequired},
+			{ProofID: in.WaterProofRef, Kind: ports.MediaKindVideo, OnAbsent: ports.ErrWaterProofRequired},
+		}); err != nil {
 			return ports.CompleteDistributionResult{}, err
 		}
 	}
@@ -153,6 +178,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 		SessionNo:            in.SessionNo,
 		TargetDate:           in.TargetDate,
 		Workflow:             in.Workflow,
+		FeedWeightProofRef:   in.FeedWeightProofRef,
 		DistributionProofRef: in.DistributionProofRef,
 		WaterProofRef:        in.WaterProofRef,
 		CompletedBy:          strings.TrimSpace(in.CompletedBy),
@@ -179,6 +205,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 			SessionNo:            in.SessionNo,
 			Workflow:             in.Workflow,
 			TargetDate:           in.TargetDate,
+			FeedWeightProofRef:   in.FeedWeightProofRef,
 			DistributionProofRef: in.DistributionProofRef,
 			WaterProofRef:        in.WaterProofRef,
 			OperatorID:           strings.TrimSpace(in.CompletedBy),

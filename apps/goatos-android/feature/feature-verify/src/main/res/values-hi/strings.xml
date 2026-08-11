@@ -45,6 +45,7 @@
     <string name="verify_detail_operator_label">ऑपरेटर</string>
     <string name="verify_detail_raised_note_label">ऑपरेटर की टिप्पणी</string>
     <string name="verify_detail_captured_label">कैप्चर किया गया</string>
+    <string name="verify_detail_photo_description">इस काम का फ़ोटो प्रमाण</string>
     <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
