@@ -3296,10 +3296,21 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 				)
 			RETURNING 1
 		),
+		active_park_children AS (
+			SELECT DISTINCT child.parent_location_id
+			FROM locations child
+			WHERE child.tenant_id = $1::uuid
+			  AND child.status = 'active'
+			  AND child.parent_location_id IN (SELECT location_id FROM stale_parks)
+		),
 		retired_parks AS (
 			UPDATE locations p
 			SET status = 'inactive', updated_at = now(), row_version = row_version + 1
 			WHERE p.location_id IN (SELECT location_id FROM stale_parks)
+			  AND NOT EXISTS (
+			    SELECT 1 FROM active_park_children c
+			    WHERE c.parent_location_id = p.location_id
+			  )
 			RETURNING 1
 			)
 			SELECT (SELECT count(*) FROM retired_sheds) + (SELECT count(*) FROM retired_parks)

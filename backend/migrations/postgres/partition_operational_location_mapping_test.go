@@ -331,6 +331,13 @@ WHERE sp.tenant_id=$1::uuid AND sp.shed_id=$2::uuid AND sp.normalized_label=$3::
 	retirementPID := make(chan int, 1)
 	retireErrCh := make(chan error, 1)
 	placeErrCh := make(chan error, 1)
+	var closePlacementReadyToContinue sync.Once
+	signalPlacementToContinue := func() {
+		closePlacementReadyToContinue.Do(func() {
+			close(placementReadyToContinue)
+		})
+	}
+	defer signalPlacementToContinue()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -428,9 +435,7 @@ WHERE tenant_id=$1::uuid
 		var isBlocked bool
 		if err := pool.QueryRow(ctx, `
 SELECT EXISTS (
-  SELECT 1
-  FROM pg_blocking_pids($1::int) AS bp(pid)
-  WHERE pid = $2::int
+  SELECT $2::int = ANY(pg_blocking_pids($1::int))
 )`, retirePid, placePid).Scan(&isBlocked); err != nil {
 			t.Fatalf("query blocking pids: %v", err)
 		}
@@ -444,7 +449,7 @@ SELECT EXISTS (
 		t.Fatal("retirement transaction was not blocked by placement lock")
 	}
 
-	close(placementReadyToContinue)
+	signalPlacementToContinue()
 	wg.Wait()
 	close(placeErrCh)
 	close(retireErrCh)
