@@ -188,6 +188,37 @@ func TestSendFCMBackfillsBlankDataTextForMessageKeyPush(t *testing.T) {
 	}
 }
 
+func TestSendFCMContextCannotOverwriteDisplayText(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"name":"projects/goatos-dev/messages/provider-context"}`))
+	}))
+	defer server.Close()
+
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.NotificationType = "weighing_due"
+	req.Context = []byte(`{"message_key":"weighing_due_today","category":"weighing","title":"","body":" "}`)
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
+		FCMBearerToken: "fcm-token",
+	}, nil)
+	if _, err := gateway.SendWithResult(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	data, _ := message["data"].(map[string]any)
+	if data["title"] != "Vaccination overdue" || data["body"] != "Shed A vaccination is overdue." {
+		t.Fatalf("context overwrote display fallback: %#v", data)
+	}
+}
+
 func TestSendFCMWithoutRecipientFailsInsteadOfBroadcasting(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

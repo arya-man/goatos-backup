@@ -419,6 +419,9 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 	if contextMap != nil {
 		data := message["data"].(map[string]string)
 		for key, value := range contextMap {
+			if isFCMReservedDataKey(key) {
+				continue
+			}
 			data[key] = value
 		}
 		// FCM collapse/category controls come from the central notification request context.
@@ -725,6 +728,15 @@ func notificationTypeLabel(notificationType string) string {
 		return "New notification"
 	default:
 		return strings.ReplaceAll(notificationType, "_", " ")
+	}
+}
+
+func isFCMReservedDataKey(key string) bool {
+	switch key {
+	case "title", "body":
+		return true
+	default:
+		return false
 	}
 }
 
