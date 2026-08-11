@@ -3085,15 +3085,47 @@ func (r *Repository) shedScheduleConflicts(ctx context.Context, tx pgx.Tx, tenan
 		operationalKeys = append(operationalKeys, createCampaignShedOperationalKey(shed))
 	}
 	rows, err := tx.Query(ctx, `
-SELECT DISTINCT cs.display_name
-FROM weighing_campaign_sheds cs
-WHERE cs.tenant_id=$1::uuid
-  AND cs.park_id=$2::uuid
-  AND cs.start_business_date=$3::date
-  AND cs.location_id::text || '#' || COALESCE(cs.partition_label, '') = ANY($4::text[])
-  AND cs.status NOT IN ('canceled', 'closed', 'completed')
-  AND ($5::uuid IS NULL OR cs.campaign_id <> $5::uuid)
-ORDER BY cs.display_name`, tenantID, parkID, weighDate, operationalKeys, nullableString(strings.TrimSpace(excludeCampaignID)))
+WITH open_claims AS (
+  SELECT
+    cs.display_name,
+    COALESCE(represented_shed.location_id, cs.location_id)::text AS location_id,
+    CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END AS partition_label
+  FROM weighing_campaign_sheds cs
+  LEFT JOIN locations stored_shed
+    ON stored_shed.tenant_id=cs.tenant_id
+   AND stored_shed.location_id=cs.location_id
+   AND stored_shed.location_type='shed'
+   AND stored_shed.status='active'
+   AND stored_shed.retired_at IS NULL
+  LEFT JOIN locations represented_shed
+    ON represented_shed.tenant_id=cs.tenant_id
+   AND represented_shed.parent_location_id=cs.park_id
+   AND represented_shed.location_type='shed'
+   AND represented_shed.status='active'
+   AND represented_shed.retired_at IS NULL
+   AND represented_shed.location_id <> cs.location_id
+   AND stored_shed.location_id IS NOT NULL
+   AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
+   AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
+   AND NULLIF(
+     regexp_replace(
+       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+       '^\s*-?\s*',
+       '',
+       'g'
+     ),
+     ''
+   ) = BTRIM(cs.partition_label)
+  WHERE cs.tenant_id=$1::uuid
+    AND cs.park_id=$2::uuid
+    AND cs.start_business_date=$3::date
+    AND cs.status NOT IN ('canceled', 'closed', 'completed')
+    AND ($5::uuid IS NULL OR cs.campaign_id <> $5::uuid)
+)
+SELECT DISTINCT display_name
+FROM open_claims
+WHERE location_id || '#' || partition_label = ANY($4::text[])
+ORDER BY display_name`, tenantID, parkID, weighDate, operationalKeys, nullableString(strings.TrimSpace(excludeCampaignID)))
 	if err != nil {
 		return nil, err
 	}
@@ -3117,19 +3149,52 @@ ORDER BY cs.display_name`, tenantID, parkID, weighDate, operationalKeys, nullabl
 // between. Same index, same open definition as shedScheduleConflicts.
 func (r *Repository) campaignScheduleConflicts(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) ([]string, error) {
 	rows, err := tx.Query(ctx, `
+WITH open_claims AS (
+  SELECT
+    cs.campaign_id,
+    cs.display_name,
+    COALESCE(represented_shed.location_id, cs.location_id)::text AS location_id,
+    CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END AS partition_label
+  FROM weighing_campaign_sheds cs
+  LEFT JOIN locations stored_shed
+    ON stored_shed.tenant_id=cs.tenant_id
+   AND stored_shed.location_id=cs.location_id
+   AND stored_shed.location_type='shed'
+   AND stored_shed.status='active'
+   AND stored_shed.retired_at IS NULL
+  LEFT JOIN locations represented_shed
+    ON represented_shed.tenant_id=cs.tenant_id
+   AND represented_shed.parent_location_id=cs.park_id
+   AND represented_shed.location_type='shed'
+   AND represented_shed.status='active'
+   AND represented_shed.retired_at IS NULL
+   AND represented_shed.location_id <> cs.location_id
+   AND stored_shed.location_id IS NOT NULL
+   AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
+   AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
+   AND NULLIF(
+     regexp_replace(
+       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+       '^\s*-?\s*',
+       '',
+       'g'
+     ),
+     ''
+   ) = BTRIM(cs.partition_label)
+  WHERE cs.tenant_id=$1::uuid
+    AND cs.status NOT IN ('canceled', 'closed', 'completed')
+),
+mine AS (
+  SELECT *
+  FROM open_claims
+  WHERE campaign_id=$2::uuid
+)
 SELECT DISTINCT mine.display_name
-FROM weighing_campaign_sheds mine
-JOIN weighing_campaign_sheds other
-  ON other.tenant_id=mine.tenant_id
- AND other.park_id=mine.park_id
- AND other.start_business_date=mine.start_business_date
- AND other.location_id=mine.location_id
- AND COALESCE(other.partition_label, '')=COALESCE(mine.partition_label, '')
+FROM mine
+JOIN open_claims other
+  ON other.location_id=mine.location_id
+ AND other.partition_label=mine.partition_label
  AND other.campaign_id <> mine.campaign_id
- AND other.status NOT IN ('canceled', 'closed', 'completed')
-WHERE mine.tenant_id=$1::uuid
-  AND mine.campaign_id=$2::uuid
-  AND mine.status NOT IN ('canceled', 'closed', 'completed')
 ORDER BY mine.display_name`, tenantID, campaignID)
 	if err != nil {
 		return nil, err

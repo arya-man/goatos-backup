@@ -445,6 +445,62 @@ func TestCreateCampaignBlocksASecondOpenRowForTheSameShedAndWeighDateStatusMatri
 	}
 }
 
+func TestCreateCampaignBlocksNumberedShedWhenLegacyParentPartitionIsOpen(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21401)
+	numbered := lcpUUID(21402)
+	legacyCampaignID := lcpUUID(21403)
+	legacyBucketID := lcpUUID(21404)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 730)
+	lsInsertShed(t, ctx, pool, numbered, repoPark, "Alias Parent 1", 731)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'goat_attested', 1)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+	lcpInsertCampaign(t, ctx, pool, legacyCampaignID, repoPark, "2026-12-28", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, legacyCampaignID, "2026-12-28")
+	lcpInsertBucket(t, ctx, pool, legacyBucketID, legacyCampaignID, parent, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds
+SET partition_label='1'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
+		repoTenant, legacyBucketID)
+
+	_, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2026-12-28",
+		PeriodEndDate:     "2026-12-28",
+		StartBusinessDate: "2026-12-28",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "legacy-parent-numbered-conflict",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       numbered,
+			LocationType:     "shed",
+			DisplayName:      "Alias Parent 1",
+			WeighingCategory: domain.CategoryIndividualAnimal,
+			OperatorUserID:   repoOperator,
+		}},
+	})
+	if !errors.Is(err, ports.ErrShedAlreadyScheduled) {
+		t.Fatalf("numbered shed create err=%v, want ErrShedAlreadyScheduled", err)
+	}
+	conflict := &ports.ShedScheduleConflict{}
+	if !errors.As(err, &conflict) || len(conflict.Sheds) != 1 {
+		t.Fatalf("err=%v, want one shed schedule conflict", err)
+	}
+}
+
 // A shed whose weighing is DONE is finished work, not an occupied slot: the CEO
 // may schedule it again on the SAME date, in the same week, exactly as they may
 // schedule a shed nobody ever touched. Only work still OWED blocks (maintainer
