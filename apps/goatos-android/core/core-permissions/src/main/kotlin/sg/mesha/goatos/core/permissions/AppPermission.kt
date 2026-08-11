@@ -27,10 +27,9 @@ enum class AppPermission(
     val manifestPermission: String,
     val minSdkInt: Int,
     val optional: Boolean,
-    /** Highest SDK on which this permission is declared in the manifest and can therefore be
-     *  granted. Requesting past it can never succeed, which would strand the operator behind a
-     *  mandatory gate forever (seen live: ACCESS_FINE_LOCATION is capped at 30, so on Android 13
-     *  `pm grant` silently fails and the app is unusable). Int.MAX_VALUE = no cap. */
+    /** Highest SDK on which this login-time permission should be requested. Int.MAX_VALUE = no
+     *  cap. This catalog is role-neutral; operator camera surfaces have their own mandatory gate
+     *  for precise location, camera, microphone, and RFID permissions. */
     val maxSdkInt: Int = Int.MAX_VALUE,
 ) {
     /** CameraX proof capture (shed-record submit video/photo evidence). Needed on every
@@ -58,11 +57,9 @@ enum class AppPermission(
         optional = true,
     ),
 
-    /** Location for operator field work (maintainer directive 2026-08-02). NOTE the manifest
-     *  declares ACCESS_FINE_LOCATION with android:maxSdkVersion="30": from Android 12 the RFID
-     *  reader scans with BLUETOOTH_SCAN android:usesPermissionFlags="neverForLocation", so
-     *  location is neither needed nor grantable there. Capping it here keeps the mandatory gate
-     *  satisfiable on modern phones instead of locking the operator out. */
+    /** Legacy location for pre-Android-12 RFID readiness. From Android 12 the RFID path uses
+     *  BLUETOOTH_CONNECT; the operator proof-capture gate still requires precise location on
+     *  every supported OS so proof overlays can stamp the local address. */
     LOCATION(
         manifestPermission = Manifest.permission.ACCESS_FINE_LOCATION,
         minSdkInt = 0,

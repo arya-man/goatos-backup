@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -1730,6 +1731,31 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         updateStatusCalls++
         delegate.updateStatus(id, status, serverProofId, lastError)
     }
+    override suspend fun updateProcessingState(
+        id: String,
+        processingState: String,
+        attempt: Int,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        lastErrorStage: String?,
+        lastErrorClass: String?,
+        lastErrorRetryable: Boolean?,
+        lastErrorMessageHash: String?,
+        updatedAtMs: Long,
+    ) = delegate.updateProcessingState(
+        id = id,
+        processingState = processingState,
+        attempt = attempt,
+        processingAttempted = processingAttempted,
+        uploadOriginal = uploadOriginal,
+        lastErrorStage = lastErrorStage,
+        lastErrorClass = lastErrorClass,
+        lastErrorRetryable = lastErrorRetryable,
+        lastErrorMessageHash = lastErrorMessageHash,
+        updatedAtMs = updatedAtMs,
+    )
+    override suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity) =
+        delegate.insertStateEvent(entity)
     override suspend fun delete(id: String, taskId: String) = delegate.delete(id, taskId)
     override suspend fun updateCaption(id: String, taskId: String, caption: String) = delegate.updateCaption(id, taskId, caption)
     override suspend fun clearForTask(taskId: String) = delegate.clearForTask(taskId)
