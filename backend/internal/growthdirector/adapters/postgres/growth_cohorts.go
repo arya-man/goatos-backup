@@ -212,18 +212,28 @@ cohorted AS (
 ` + breedSexJoin + `
 ),
 week_medians AS (
+  -- The SAME >=3-pairs floor the group itself clears, applied PER WEEK: without
+  -- it a group can look solid overall while its "vs last week" number is one
+  -- kid's single pair. Weeks below the floor simply don't exist for the trend,
+  -- so the delta stays absent rather than thin.
   SELECT shed_id, breed, sex, week_start,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day) AS wk_median,
+         count(*) AS wk_pairs,
          row_number() OVER (PARTITION BY shed_id, breed, sex ORDER BY week_start DESC) AS wk_rn
   FROM cohorted
   WHERE shed_id IS NOT NULL
   GROUP BY shed_id, breed, sex, week_start
+),
+solid_weeks AS (
+  SELECT *, row_number() OVER (PARTITION BY shed_id, breed, sex ORDER BY week_start DESC) AS solid_rn
+  FROM week_medians
+  WHERE wk_pairs >= 3
 )
 SELECT cur.shed_id::text, cur.breed, cur.sex, (cur.wk_median - prev.wk_median)::float8 AS delta_g
-FROM week_medians cur
-JOIN week_medians prev
-  ON prev.shed_id = cur.shed_id AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.wk_rn = 2
-WHERE cur.wk_rn = 1`
+FROM solid_weeks cur
+JOIN solid_weeks prev
+  ON prev.shed_id = cur.shed_id AND prev.breed = cur.breed AND prev.sex = cur.sex AND prev.solid_rn = 2
+WHERE cur.solid_rn = 1`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
 	if err != nil {
 		return nil, err
