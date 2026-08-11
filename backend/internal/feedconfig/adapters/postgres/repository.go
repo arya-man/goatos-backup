@@ -680,8 +680,20 @@ func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.Pe
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// The oploc.PartitionAliasExclusionSQL term below drops legacy partition-ALIAS shed rows. The
+	// pre-existing `sp.normalized_label IS NOT NULL OR NOT EXISTS (...)` term does NOT cover them: it
+	// only suppresses the bare row of a shed that HAS catalogued pens, and an alias row has none of
+	// its own, so it sailed through as a pen in its own right -- listing `Castro 1` beside the real
+	// `Castro - 1`. Same defect, same day, same fix as the counts shifting-destination catalog; see
+	// that predicate's doc comment for why status='active' is not evidence that a row is a building.
+	//
+	// The alias predicate is interpolated ONCE rather than concatenated into the middle of the SQL,
+	// so this stays a single contiguous string literal. Splitting it moved the literal's start line
+	// away from the annotation below and made scale-guard report the bounded OFFSET as a new
+	// offender -- the annotation is resolved against the literal's position, not the OFFSET's.
+	//
 	// scale-guard:ignore: bounded LIMIT/OFFSET over ONE park's location catalog (two live parks hold ~20 sheds and ~40 pens each); the set is authored infrastructure and cannot grow with herd size. Served by the locations parent index and shed_partitions' own (tenant_id, shed_id) key.
-	const query = `
+	query := fmt.Sprintf(`
 SELECT shed.parent_location_id::text AS park_id,
        shed.location_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
@@ -704,6 +716,7 @@ WHERE shed.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR shed.parent_location_id = $2::uuid)
   AND shed.location_type = 'shed'
   AND shed.status = 'active'
+  AND %s
   AND (
     sp.normalized_label IS NOT NULL
     OR NOT EXISTS (
@@ -713,7 +726,7 @@ WHERE shed.tenant_id = $1::uuid
   )
 ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,
          sp.normalized_label NULLS FIRST
-LIMIT $3 OFFSET $4`
+LIMIT $3 OFFSET $4`, oploc.PartitionAliasExclusionSQL("shed"))
 
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID), q.Page.Limit+1, q.Page.Offset)
 	if err != nil {

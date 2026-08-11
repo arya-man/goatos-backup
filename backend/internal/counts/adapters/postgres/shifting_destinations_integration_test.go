@@ -155,6 +155,175 @@ func TestShiftingDestinationCatalogGroupsRepeatedShedNamesByPark(t *testing.T) {
 	}
 }
 
+// Fixture for the partition-alias exclusion. A THIRD park, deliberately isolated from the two
+// above: those two hold sheds legitimately NAMED "Castro 1" with no parent Castro, and this park
+// holds a real Castro whose pen 1 the alias duplicates. Keeping them apart is what lets one test
+// file assert both "hide the duplicate" and "never touch the standalone".
+const (
+	destAliasPark = "00000000-0000-4000-8000-000000003005"
+	// The canonical buildings.
+	destAliasCastro    = "00000000-0000-4000-8000-000000004201"
+	destAliasGodel1    = "00000000-0000-4000-8000-000000004202"
+	destAliasHoChiMinh = "00000000-0000-4000-8000-000000004203"
+	destAliasYashoda   = "00000000-0000-4000-8000-000000004204"
+	// The legacy alias rows that duplicate a catalogued pen. Both live spellings.
+	destAliasCastro1     = "00000000-0000-4000-8000-000000004211"
+	destAliasGodel1Part3 = "00000000-0000-4000-8000-000000004212"
+	// Two rows that LOOK like aliases and are not. Neither may be hidden.
+	destAliasHoChiMinh1 = "00000000-0000-4000-8000-000000004221"
+	destAliasYashoda5   = "00000000-0000-4000-8000-000000004222"
+)
+
+func seedPartitionAliasTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'ALIASPARK', 'Alias Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, destAliasPark); err != nil {
+		t.Fatalf("seed alias park: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES
+  ($3::uuid, $1::uuid, 'shed', 'AP-CASTRO',   'Castro',            $2::uuid, 'active'),
+  ($4::uuid, $1::uuid, 'shed', 'AP-GODEL1',   'Godel 1',           $2::uuid, 'active'),
+  ($5::uuid, $1::uuid, 'shed', 'AP-HCM',      'Ho Chi Minh',       $2::uuid, 'active'),
+  ($6::uuid, $1::uuid, 'shed', 'AP-YASHODA',  'Yashoda',           $2::uuid, 'active'),
+  ($7::uuid, $1::uuid, 'shed', 'AP-CASTRO1',  'Castro 1',          $2::uuid, 'active'),
+  ($8::uuid, $1::uuid, 'shed', 'AP-G1P3',     'Godel 1 - Part 3',  $2::uuid, 'active'),
+  ($9::uuid, $1::uuid, 'shed', 'AP-HCM1',     'Ho Chi Minh 1',     $2::uuid, 'active'),
+  ($10::uuid, $1::uuid, 'shed', 'AP-YASHODA5', 'Yashoda 5',        $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, destAliasPark, destAliasCastro, destAliasGodel1, destAliasHoChiMinh,
+		destAliasYashoda, destAliasCastro1, destAliasGodel1Part3, destAliasHoChiMinh1,
+		destAliasYashoda5); err != nil {
+		t.Fatalf("seed alias sheds: %v", err)
+	}
+	// The catalog. This is the authority on which pens exist, and therefore on which of the rows
+	// above are buildings.
+	//
+	// Ho Chi Minh is catalogued with pen '2' and NOT pen '1' on purpose: it makes the match
+	// per-PEN rather than per-shed. A predicate that only asked "does a same-park shed named
+	// 'Ho Chi Minh' exist" would hide the real undivided shed 'Ho Chi Minh 1'.
+	//
+	// Yashoda 5 carries a pen of its OWN ('A') while Yashoda catalogues pen '5'. It is name-shaped
+	// exactly like an alias and is a building, which is what the has-no-pens-of-its-own narrowing
+	// is for.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES
+  ($1::uuid, $2::uuid, '1',      '1',      'active', 'manual'),
+  ($1::uuid, $2::uuid, '2',      '2',      'active', 'manual'),
+  ($1::uuid, $3::uuid, 'Part 3', '3',      'active', 'manual'),
+  ($1::uuid, $4::uuid, '2',      '2',      'active', 'manual'),
+  ($1::uuid, $5::uuid, '5',      '5',      'active', 'manual'),
+  ($1::uuid, $6::uuid, 'A',      'a',      'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
+		countsTenant, destAliasCastro, destAliasGodel1, destAliasHoChiMinh, destAliasYashoda,
+		destAliasYashoda5); err != nil {
+		t.Fatalf("seed alias catalog: %v", err)
+	}
+}
+
+// TestShiftingDestinationCatalogHidesPartitionAliasRows is the regression proof for the duplicate
+// operators reported on 2026-08-11: the picker offered `Castro - 1` and `Castro 1` as two separate
+// destinations for the same physical pen.
+//
+// Migration 000112 built shed_partitions by READING the legacy per-pen `locations` rows and
+// documented that they stay status='inactive'. It enforced nothing, and on 2026-08-10 all 130 of
+// them went 'active' on STG -- 175 active shed rows of which only 45 are buildings. This test
+// reproduces that data state exactly, so it fails on the pre-fix query, which trusted
+// status='active' alone.
+//
+// The assertion is on the DISPLAY STRING and by MULTISET, not on ids or field presence. That is
+// deliberate: `Godel 1 - Part 3` is what the canonical shed+pen renders AND what the alias row is
+// named, so the two are indistinguishable on screen and only a count can tell them apart. An
+// id-based or "is the field populated" assertion passes on the broken query.
+func TestShiftingDestinationCatalogHidesPartitionAliasRows(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	seedPartitionAliasTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+
+	var aliasPark *struct{}
+	displays := map[string]int{}
+	shedIDs := map[string]bool{}
+	for _, park := range catalog.Parks {
+		if park.ParkID != destAliasPark {
+			continue
+		}
+		aliasPark = &struct{}{}
+		for _, shed := range park.Sheds {
+			displays[shed.Display]++
+			shedIDs[shed.ShedID] = true
+		}
+	}
+	if aliasPark == nil {
+		t.Fatalf("alias park %s missing from catalog", destAliasPark)
+	}
+
+	// Every physical pen exactly once, and every real building present.
+	want := map[string]int{
+		"Castro - 1":       1,
+		"Castro - 2":       1,
+		"Godel 1 - Part 3": 1, // from the CATALOG, not from the identically-named alias row
+		"Ho Chi Minh - 2":  1,
+		"Ho Chi Minh 1":    1, // a real undivided shed whose name merely ends in a digit
+		"Yashoda - 5":      1,
+		"Yashoda 5 - A":    1, // name-shaped like an alias, but the catalog calls it a building
+	}
+	for label, wantCount := range want {
+		if displays[label] != wantCount {
+			t.Errorf("destination %q appears %d time(s), want %d -- full set: %v",
+				label, displays[label], wantCount, displays)
+		}
+	}
+	for label, gotCount := range displays {
+		if _, ok := want[label]; !ok {
+			t.Errorf("unexpected destination %q (x%d) -- full set: %v", label, gotCount, displays)
+		}
+	}
+
+	// Named directly, because these two ids ARE the reported bug. A duplicate that arrives under a
+	// different display string would slip past the multiset check above if the composition ever
+	// changed, so the alias rows are also asserted absent by identity.
+	if shedIDs[destAliasCastro1] {
+		t.Error("the legacy alias row `Castro 1` is offered as its own destination alongside `Castro - 1` -- the same pen twice")
+	}
+	if shedIDs[destAliasGodel1Part3] {
+		t.Error("the legacy alias row `Godel 1 - Part 3` is offered as its own destination -- indistinguishable on screen from the catalogued pen")
+	}
+	if !shedIDs[destAliasHoChiMinh1] {
+		t.Error("`Ho Chi Minh 1` was hidden -- it is a real undivided shed (AGENTS.md Rule 1), and no same-park shed catalogues a pen `1`")
+	}
+	if !shedIDs[destAliasYashoda5] {
+		t.Error("`Yashoda 5` was hidden -- it carries pens of its own, so the catalog calls it a building")
+	}
+
+	// The exclusion must not reach across parks. The other two parks hold sheds genuinely named
+	// `Castro 1` with no parent Castro; the alias park's real Castro must not hide them.
+	for _, park := range catalog.Parks {
+		if park.ParkID != countsPark && park.ParkID != destSecondPark {
+			continue
+		}
+		found := false
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destCastroCPT || shed.ShedID == destCastroCBE {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("park %s lost its standalone `Castro 1` shed -- the alias exclusion leaked across parks", park.ParkID)
+		}
+	}
+}
+
 // TestShiftingDestinationCatalogIsTenantScoped proves the catalog never leaks another tenant's
 // topology into an operator's dropdown.
 func TestShiftingDestinationCatalogIsTenantScoped(t *testing.T) {

@@ -397,10 +397,26 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
-		// The destination catalog is built ONLY from active locations (see
-		// counts/adapters/postgres.shiftingDestinationCatalogQuery), so a shed id present in it can
-		// never be an INACTIVE location -- a retired alias such as "Castro 1"/"Godel 1 - Part 3" never
-		// appears here. When the catalog DOES know the shed, validate the operational-location
+		// A legacy partition-alias row such as "Castro 1"/"Godel 1 - Part 3" never appears in the
+		// catalog (see counts/adapters/postgres.shiftingDestinationCatalogQuery), so it cannot be
+		// picked. NOTE, because the reason changed on 2026-08-11 and the old one is unsafe to rely
+		// on: it is excluded by oploc.PartitionAliasExclusionSQL asking the shed_partitions catalog,
+		// NOT by being an inactive location. Those rows are 'active' on STG -- all 130 of them -- so
+		// "the catalog is active-only" was never the thing keeping them out.
+		//
+		// KNOWN RESIDUAL GAP, deliberately not closed here. Hidden is not the same as unwritable. A
+		// client holding a STALE cached catalog can still RAISE against an alias shed id: it is
+		// absent from destinationEntries, so the branch below is skipped rather than rejected, and
+		// the alias shed has no catalog partitions, so the completion-time validator accepts a blank
+		// label and files the animals there. The window is small (every Android read screen refreshes
+		// on resume) and no live animal currently sits in one of those rows, but the real close for
+		// this is retiring the alias rows -- which needs the pending weighing buckets that reference
+		// them re-pointed first, exactly as migration 000142 had to do. Do NOT close it by turning
+		// this into a second, looser copy of the relocation guard: a shed absent from the catalog is
+		// deliberately left to identity.ensureShedUnderPark, which fails closed on ground truth at
+		// approval-completion.
+		//
+		// When the catalog DOES know the shed, validate the operational-location
 		// contract against it (partition required vs allowed, and that a supplied partition is real).
 		// A shed absent from the catalog is not re-litigated here: the relocation write path
 		// (identity.ensureShedUnderPark, at approval-completion) already fails closed on an
