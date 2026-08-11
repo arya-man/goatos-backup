@@ -101,4 +101,16 @@ class WeighingAssignmentModeAwarenessTest {
         val mixedCase = uppercase.copy(category = "Per_Shed_Partition")
         assertEquals(true, mixedCase.category.equals("per_shed_partition", ignoreCase = true))
     }
+
+    @Test
+    fun `delayed backlog row reports delayed instead of today's due date state`() {
+        val row = individualRow().copy(
+            backendStatus = "pending",
+            plannedBusinessDate = "2026-07-30",
+            dueBusinessDate = "2026-08-11",
+        )
+
+        assertEquals(true, row.isDelayedBacklog)
+        assertEquals("delayed", row.rawStatus)
+    }
 }

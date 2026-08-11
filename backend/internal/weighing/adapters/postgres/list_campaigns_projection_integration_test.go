@@ -795,6 +795,54 @@ func TestListCampaignsSoonestFirstOrder(t *testing.T) {
 	}
 }
 
+func TestListCampaignsForOperatorUsesWorkItemDelayedStateAndOriginalPlanDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	campaign := lcpUUID(53001)
+	bucket := lcpUUID(53011)
+	lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-07-30", domain.StatusPublished, repoOperator)
+	lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedTwo, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_work_items (
+  tenant_id, campaign_id, campaign_shed_id, park_id, operator_user_id, weighing_category,
+  shed_label, shed_location_id, planned_business_date, due_business_date, work_state
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
+        'Yashoda 4', $7::uuid, '2026-07-30'::date, '2026-08-11'::date, 'delayed')`,
+		repoTenant, campaign, bucket, lcpParkCBE, repoOperator, domain.CategoryIndividualAnimal, lcpShedTwo)
+
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, lcpParkCBE, "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaignsForOperator: %v", err)
+	}
+	var got *domain.CampaignShed
+	for i := range page.Items {
+		for j := range page.Items[i].Sheds {
+			if page.Items[i].Sheds[j].CampaignShedID == bucket {
+				got = &page.Items[i].Sheds[j]
+			}
+		}
+	}
+	if got == nil {
+		t.Fatalf("delayed bucket %s not returned", bucket)
+	}
+	if got.Status != domain.StatusDelayed {
+		t.Fatalf("bucket status=%q, want %q from work item", got.Status, domain.StatusDelayed)
+	}
+	if got.PlannedBusinessDate != "2026-07-30" {
+		t.Fatalf("planned_business_date=%q, want original 2026-07-30", got.PlannedBusinessDate)
+	}
+	if got.DueBusinessDate != "2026-08-11" {
+		t.Fatalf("due_business_date=%q, want rolled due 2026-08-11", got.DueBusinessDate)
+	}
+}
+
 // TestListCampaignsOperatorScopingPreservedWithSoonestFirst verifies that operator
 // scoping predicate is maintained when we change to soonest-first ordering.
 func TestListCampaignsOperatorScopingPreservedWithSoonestFirst(t *testing.T) {
