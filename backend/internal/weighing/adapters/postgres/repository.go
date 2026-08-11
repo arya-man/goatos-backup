@@ -1045,10 +1045,14 @@ func (r *Repository) PlannerParkBuckets(ctx context.Context, tenantID, parkID, p
 	// completed taken rows.
 	rows, err := r.pool.Query(ctx, `
 WITH taken AS (
-  SELECT DISTINCT ON (cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, ''))
+  SELECT DISTINCT ON (
     cs.tenant_id,
-    cs.location_id,
-    COALESCE(cs.partition_label, '') AS partition_key,
+    COALESCE(represented_shed.location_id, cs.location_id),
+    CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END
+  )
+    cs.tenant_id,
+    COALESCE(represented_shed.location_id, cs.location_id) AS location_id,
+    CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END AS partition_key,
     cs.campaign_id::text AS campaign_id,
     cs.status,
     cs.operator_user_id::text AS operator_user_id,
@@ -1065,12 +1069,42 @@ WITH taken AS (
     ON op.tenant_id=cs.tenant_id
    AND op.user_id=cs.operator_user_id
    AND op.status='active'
+  LEFT JOIN locations stored_shed
+    ON stored_shed.tenant_id=cs.tenant_id
+   AND stored_shed.location_id=cs.location_id
+   AND stored_shed.location_type='shed'
+   AND stored_shed.status='active'
+   AND stored_shed.retired_at IS NULL
+  LEFT JOIN locations represented_shed
+    ON represented_shed.tenant_id=cs.tenant_id
+   AND represented_shed.parent_location_id=cs.park_id
+   AND represented_shed.location_type='shed'
+   AND represented_shed.status='active'
+   AND represented_shed.retired_at IS NULL
+   AND represented_shed.location_id <> cs.location_id
+   AND stored_shed.location_id IS NOT NULL
+   AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
+   AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
+   AND NULLIF(
+     regexp_replace(
+       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+       '^\s*-?\s*',
+       '',
+       'g'
+     ),
+     ''
+   ) = BTRIM(cs.partition_label)
   WHERE cs.tenant_id=$1::uuid
     AND cs.park_id=$2::uuid
     AND cs.start_business_date=$3::date
     AND cs.status NOT IN ('canceled', 'closed', 'completed')
     AND ($4::uuid IS NULL OR cs.campaign_id <> $4::uuid)
-  ORDER BY cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, ''), cs.created_at, cs.campaign_shed_id
+  ORDER BY
+    cs.tenant_id,
+    COALESCE(represented_shed.location_id, cs.location_id),
+    CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END,
+    cs.created_at,
+    cs.campaign_shed_id
 ),
 bucket_catalog AS (
   SELECT
