@@ -744,7 +744,7 @@ private fun AssignmentRow(
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusPill(if (row.isRework) stringResource(R.string.weighing_status_sent_back) else mapWeighingStatusLabel(row.status))
+                StatusPill(if (row.isRework) stringResource(R.string.weighing_status_sent_back) else mapWeighingStatusLabel(row.rawStatus))
                 CategoryPill(row.category)
             }
             Text(

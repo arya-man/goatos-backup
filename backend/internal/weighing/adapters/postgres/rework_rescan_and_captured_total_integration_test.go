@@ -248,6 +248,10 @@ func TestReworkVerdictAllowsLumpSumReplacement(t *testing.T) {
 	if rejectedBucket.LatestReworkReason != "video unusable, re-shoot" {
 		t.Fatalf("latest rework reason=%q, want verifier reason", rejectedBucket.LatestReworkReason)
 	}
+	rejectedOperatorSummary := mustFindOperatorSummaryForScope(t, ctx, repo, repoOperator, repoPark)
+	if rejectedOperatorSummary.ReworkCount != 1 {
+		t.Fatalf("operator summary rework_count=%d, want 1 for sent-back shed rework before replacement", rejectedOperatorSummary.ReworkCount)
+	}
 
 	// FAILING BEHAVIOR THIS PROVES FIXED: without markObservationRework stamping
 	// withdrawn_at on the rejected row (and deleting its idempotency record), this
@@ -282,6 +286,37 @@ func TestReworkVerdictAllowsLumpSumReplacement(t *testing.T) {
 	if replacedBucket.ReworkCount != 0 {
 		t.Fatalf("replacement shed proof rework_count=%d, want 0 so the card stops showing Sent back after redo", replacedBucket.ReworkCount)
 	}
+	replacedOperatorSummary := mustFindOperatorSummaryForScope(t, ctx, repo, repoOperator, repoPark)
+	if replacedOperatorSummary.ReworkCount != 0 {
+		t.Fatalf("operator summary rework_count=%d, want 0 after replacement proof exists", replacedOperatorSummary.ReworkCount)
+	}
+
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID:      repoTenant,
+		ObservationID: replacement.ObservationID,
+		RefType:       domain.VerificationRefTypeShed,
+		Status:        domain.VerificationStatusRework,
+		VerifiedBy:    repoOperator,
+		Reason:        "second video still too dark",
+		EventID:       "b05:shed-rework-event-2",
+	}); err != nil {
+		t.Fatalf("apply second rework verdict: %v", err)
+	}
+	secondRejectedPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
+	if err != nil {
+		t.Fatalf("list campaign sheds after second rework verdict: %v", err)
+	}
+	secondRejectedBucket := b05FindCampaignShed(t, secondRejectedPage.Items, repoShedScope)
+	if secondRejectedBucket.ReworkCount != 1 {
+		t.Fatalf("two withdrawn rejected shed proofs rework_count=%d, want 1 outstanding redo task", secondRejectedBucket.ReworkCount)
+	}
+	if secondRejectedBucket.LatestReworkReason != "second video still too dark" {
+		t.Fatalf("latest rework reason after second rejection=%q, want the second verifier reason", secondRejectedBucket.LatestReworkReason)
+	}
+	secondRejectedOperatorSummary := mustFindOperatorSummaryForScope(t, ctx, repo, repoOperator, repoPark)
+	if secondRejectedOperatorSummary.ReworkCount != 1 {
+		t.Fatalf("operator summary rework_count after second rejection=%d, want 1 outstanding redo task", secondRejectedOperatorSummary.ReworkCount)
+	}
 
 	// The rejected first attempt must remain immutable history (withdrawn, not
 	// deleted) -- AGENTS.md requires rejected proof attempts stay on the table.
@@ -292,6 +327,21 @@ func TestReworkVerdictAllowsLumpSumReplacement(t *testing.T) {
 	if withdrawnAt == nil {
 		t.Fatalf("rejected first attempt was not withdrawn -- it must stay as immutable history")
 	}
+}
+
+func mustFindOperatorSummaryForScope(t *testing.T, ctx context.Context, repo *Repository, operatorUserID, parkID string) domain.OperatorSummary {
+	t.Helper()
+	summaries, err := repo.operatorSummaries(ctx, repoTenant, operatorUserID, parkID)
+	if err != nil {
+		t.Fatalf("operator summaries: %v", err)
+	}
+	for _, summary := range summaries {
+		if summary.OperatorUserID == operatorUserID {
+			return summary
+		}
+	}
+	t.Fatalf("operator summary row for %s not found", operatorUserID)
+	return domain.OperatorSummary{}
 }
 
 // TestCampaignCapturedTotalCountsFreeFlowScansWithZeroExpectedAnimalRows is the

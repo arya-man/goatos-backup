@@ -17941,8 +17941,11 @@ components:
           type: integer
           minimum: 0
           description: >-
-            The subset of pending_verification_count that a verifier actively bounced back
-            to the operator. A strict subset, never added to the pending count.
+            Work a verifier actively bounced back to the operator and the
+            operator still owes. Individual rework counts submitted animal rows.
+            Shed-grain rework is a bucket signal: a withdrawn rejected lump-sum
+            proof counts as 1 until an open replacement proof exists, so this is
+            not always a subset of pending_verification_count.
         latest_rework_reason:
           type: string
           description: Most recent verifier-provided rework reason for this bucket, when available.
