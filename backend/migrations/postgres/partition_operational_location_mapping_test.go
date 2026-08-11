@@ -82,13 +82,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
 		t.Fatalf("replay 000152: %v", err)
 	}
 
-	var currentLocationID, shedID, currentType, parentID string
+	var currentLocationID, shedID, shedGroupID, currentType, parentID string
 	if err := pool.QueryRow(ctx, `
-SELECT g.current_location_id::text, g.shed_id::text, cur.location_type, cur.parent_location_id::text
+SELECT g.current_location_id::text, g.shed_id::text, COALESCE(g.shed_group_id::text, ''), cur.location_type, cur.parent_location_id::text
 FROM goats g
 JOIN locations cur ON cur.tenant_id=g.tenant_id AND cur.location_id=g.current_location_id
 WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
-		Scan(&currentLocationID, &shedID, &currentType, &parentID); err != nil {
+		Scan(&currentLocationID, &shedID, &shedGroupID, &currentType, &parentID); err != nil {
 		t.Fatalf("query partitioned goat: %v", err)
 	}
 	if currentLocationID == godelOne {
@@ -97,8 +97,11 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 	if currentLocationID == isolationPen {
 		t.Fatalf("partitioned goat current_location_id reused unrelated numbered pen %s", isolationPen)
 	}
-	if shedID != godelOne {
-		t.Fatalf("partitioned goat shed_id=%s, want parent rollup %s", shedID, godelOne)
+	if shedID != currentLocationID {
+		t.Fatalf("partitioned goat shed_id=%s, want exact partition location %s", shedID, currentLocationID)
+	}
+	if shedGroupID != godelOne {
+		t.Fatalf("partitioned goat shed_group_id=%s, want parent group %s", shedGroupID, godelOne)
 	}
 	if currentType != "pen" || parentID != godelOne {
 		t.Fatalf("partitioned goat current location type/parent = %s/%s, want pen/%s", currentType, parentID, godelOne)

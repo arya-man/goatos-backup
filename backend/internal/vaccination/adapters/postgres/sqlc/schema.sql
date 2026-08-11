@@ -958,8 +958,8 @@ BEGIN
       SELECT 1
       FROM public.goats g
       WHERE g.tenant_id = NEW.tenant_id
-        AND g.shed_id = NEW.shed_id
         AND g.current_location_id = NEW.shed_id
+        AND COALESCE(g.shed_group_id, g.shed_id) = NEW.shed_id
         AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
         AND g.merged_into_goat_id IS NULL
     ) THEN
@@ -1146,7 +1146,8 @@ BEGIN
     AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
     UPDATE public.goats g
     SET current_location_id = NEW.operational_location_id,
-        shed_id = NEW.shed_id,
+        shed_id = NEW.operational_location_id,
+        shed_group_id = NEW.shed_id,
         updated_at = now(),
         row_version = g.row_version + 1
     FROM public.goat_shed_partitions gsp
@@ -2897,6 +2898,7 @@ CREATE TABLE public.goats (
     breeding_date date,
     last_delivery_date date,
     time_of_birth time without time zone,
+    shed_group_id uuid,
     CONSTRAINT goats_display_id_format_check CHECK ((display_id ~ '^G-[0-9]{6,}$'::text)),
     CONSTRAINT goats_exit_reason_check CHECK (((exit_reason IS NULL) OR (exit_reason = ANY (ARRAY['sold'::text, 'died'::text, 'culled'::text, 'transferred'::text, 'lost'::text])))),
     CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
@@ -12329,6 +12331,13 @@ CREATE INDEX goats_park_lifecycle_idx ON public.goats USING btree (park_id, life
 
 
 --
+-- Name: goats_shed_group_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goats_shed_group_idx ON public.goats USING btree (tenant_id, shed_group_id) WHERE (shed_group_id IS NOT NULL);
+
+
+--
 -- Name: goats_shed_lifecycle_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -16423,6 +16432,14 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_park_tenant_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: goats goats_shed_group_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goats
+    ADD CONSTRAINT goats_shed_group_tenant_fk FOREIGN KEY (tenant_id, shed_group_id) REFERENCES public.locations(tenant_id, location_id) ON DELETE RESTRICT NOT VALID;
 
 
 --

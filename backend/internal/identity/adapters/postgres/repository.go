@@ -318,6 +318,7 @@ JOIN goats g ON g.tenant_id = gi.tenant_id AND g.goat_id = gi.goat_id
 LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+LEFT JOIN locations shed_group ON shed_group.tenant_id = g.tenant_id AND shed_group.location_id = g.shed_group_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
@@ -449,11 +450,12 @@ func goatSummaryColumns() string {
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display is the operational residence label. For partitioned sheds, shed_id is only
-  -- the parent/grouping key; applyLocationPartition rewrites the display to "<shed> - <partition>".
+  -- location_display is the operational residence label. For partitioned goats, shed_id is the
+  -- exact partition/pen and shed_group_id is the parent/grouping key; applyLocationPartition
+  -- rewrites the display to "<group shed> - <partition>".
   -- Exact filtering above uses current_location_id only, so a parent shed never masquerades as
   -- the animal's physical residence.
-  COALESCE(shed.name, park.name, 'Unknown location'),
+  COALESCE(shed_group.name, shed.name, park.name, 'Unknown location'),
   g.farm_id::text,
   farm.location_code,
   farm.name,
@@ -462,7 +464,7 @@ func goatSummaryColumns() string {
   park.name,
   g.shed_id::text,
   shed.location_code,
-  shed.name,
+  COALESCE(shed_group.name, shed.name),
   g.cohort_id::text,
   cohort.location_code,
   cohort.name,

@@ -1741,20 +1741,19 @@ When a named shed is subdivided, **each partition is itself the real shed**:
 animal residences. The parent/group name `Godel 1` is only a grouping/header for
 software and reporting. A shed with no partitions remains its own real residence.
 
-Current legacy schema shape:
+Current schema shape:
 - `goats.current_location_id` = exact real residence (`Godel 1 - Part 2` for a
   partitioned animal; `Yashoda` for an undivided shed).
-- `goats.shed_id` = legacy parent/group key when a partition exists; exact
-  shed id only when the shed is undivided.
+- `goats.shed_id` = exact real shed/partition id. For a partitioned animal this
+  is the partition pen id; for an undivided shed this is the shed id.
+- `goats.shed_group_id` = parent/group shed id when a partition exists; NULL
+  for undivided sheds.
 - `goat_shed_partitions.partition_label` / `shed_partitions.operational_location_id`
   bridge the legacy group to the real partition location.
 
-Future schema work should make this impossible to misread at DB level by either
-renaming the grouping field (`shed_group_id` / `parent_shed_id`) or making
-`shed_id` the exact operational shed id and storing the group separately.
-Until then, any exact-residence query that widens
-`current_location_id = X OR shed_id = X` is a bug: it treats the group/header as
-if it were where the animal physically lives.
+Do not reintroduce the old compatibility shape where partitioned animals store
+the parent/group id in `goats.shed_id`. If code needs the group/header, read
+`goats.shed_group_id` or the explicit `goat_shed_partitions.shed_id` bridge.
 
 **The convention is LOCKED by evidence from THREE independent sources (master registry, live BigQuery, legacy production code), with FOUR worked wrong-examples from production bugs. This section tightens the rule with those examples and a guard.**
 
@@ -1790,7 +1789,8 @@ Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Produc
 ### Rule 3: Carry Partition in All Location-Bearing Responses
 
 `shed_id` alone is NOT the ground location when a partition exists. Every location-bearing response struct MUST include:
-- `shed_id` (legacy parent/group UUID for partitioned animals; exact shed UUID only for undivided sheds)
+- `shed_id` (exact real shed/partition UUID)
+- `shed_group_id` (parent/group UUID for partitioned animals; NULL otherwise)
 - `shed_name` (display name of the physical shed)
 - `partition_label` (text or NULL)
 - `operational_location_display` (backend-composed: `DisplayName(shed_name, partition_label)`)
@@ -1889,11 +1889,11 @@ Session 2026-08-07 found ~15 live defects, ALL from ONE class: partition/locatio
 
 The product concept **"active shed"** means **active operational location** (partition if subdivided, shed if not), not "physical building holding ≥1 live animal after collapsing partitions". Using the old definition produced parent-only dropdowns that forced operators to guess.
 
-Do not use a parent/group `shed_id` as a substitute for exact residence. A
-filter like `current_location_id = $location OR shed_id = $location` reopens the
-bug: selecting `Godel 1` also returns animals physically in `Godel 1 - Part 1`.
-Use `current_location_id` for exact residence and explicit group/shed filters
-only for rollups that intentionally include every partition in the group.
+Do not use the parent/group as a substitute for exact residence. A filter like
+`current_location_id = $location OR shed_group_id = $location` is a rollup/group
+filter, not an exact residence filter. Use `current_location_id` or `shed_id`
+for exact residence; use `shed_group_id` only when the product explicitly asks
+for the grouped parent header.
 
 ### Partitions with Zero Animals Still Exist
 

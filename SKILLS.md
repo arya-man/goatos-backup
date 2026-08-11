@@ -69,7 +69,9 @@ partition is the real shed/residence (`"Castro 2"`, `"Godel 1 - Part 3"`). The
 parent/group name is only a grouping header. Every user-facing surface must
 render the partition label, group/key by a partition-aware key (`shed_id` +
 partition or exact operational location, never name), and never collapse
-partitions into the parent unless explicitly showing an aggregate. Full contract
+partitions into the parent unless explicitly showing an aggregate. In the DB,
+`goats.shed_id` is the exact real shed/partition id and `goats.shed_group_id`
+is the parent/group header when one exists. Full contract
 and shared primitives:
 `docs/decisions/operational-location-display-contract.md`.
 
@@ -80,9 +82,8 @@ Machine guard for the failure class that caused the 2026-08-10 staging loop:
 `make operational-location-guard` now also checks weighing partition alias
 resolution. Legacy partition aliases are inactive `locations` shed rows only;
 active sheds named like `Castro 1` remain whole sheds unless the partition
-catalog says otherwise. Exact location filters must not use
-`current_location_id OR shed_id`: for partitioned animals, legacy `shed_id` is
-the group/header, not the animal's real shed. `CreateCampaign` idempotency must fingerprint/replay the
+catalog says otherwise. Exact location filters must not use a group fallback:
+`shed_group_id` is for rollups, not exact residence. `CreateCampaign` idempotency must fingerprint/replay the
 original client request before mutable alias/catalog hydration, then store that
 raw fingerprint. Herd Register write destinations must come from the partition
 catalog (`shed_partitions`/feed config pens API), not animal census/count

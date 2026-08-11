@@ -43,7 +43,7 @@ FROM goats g
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid`,
 		tenantID, goatID).Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel) // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=scan-destinations-for-the-single-goat-id-keyed-query-above-names-are-display-only expiry=2027-08-06
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -725,7 +725,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	if err := batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
-					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
+					health_status, origin_type, dob, entry_date, current_location_id, shed_id, shed_group_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
 				VALUES (
 					$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
 					CASE
@@ -747,12 +747,35 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 						FOR SHARE OF sp
 					)
 					END,
-					$12,$13,$14,$15,$16,$17,now()
+					CASE
+					WHEN regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '') = 'whole' THEN $12
+					ELSE (
+						SELECT sp.operational_location_id
+						FROM shed_partitions sp
+						JOIN locations pen ON pen.tenant_id = sp.tenant_id
+						 AND pen.location_id = sp.operational_location_id
+						 AND pen.location_type = 'pen'
+						 AND pen.parent_location_id = sp.shed_id
+						 AND pen.status = 'active'
+						WHERE sp.tenant_id=$2
+						  AND sp.shed_id=$12
+						  AND sp.status='active'
+						  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+						      regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '')
+						LIMIT 1
+						FOR SHARE OF sp
+					)
+					END,
+					CASE
+					WHEN regexp_replace(lower(COALESCE(NULLIF(btrim($18), ''), 'whole')), '^part[[:space:]]+', '') = 'whole' THEN NULL
+					ELSE $12
+					END,
+					$13,$14,$15,$16,$17,now()
 				)
 				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
 					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 					origin_type=EXCLUDED.origin_type, dob=EXCLUDED.dob,
-					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
+					shed_id=EXCLUDED.shed_id, shed_group_id=EXCLUDED.shed_group_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
 					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
 					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
 			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),

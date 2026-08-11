@@ -6,11 +6,9 @@
 //   OperationalLocation = the real shed where the animal/work sits.
 //
 // Domain lock: when a shed has partitions, EACH PARTITION IS THE REAL SHED.
-// A parent/group name such as "Godel 1" is only a grouping/header. Legacy
-// columns may still store that group as goats.shed_id, but exact residence
-// filters and user-facing labels must read the operational location
-// (current_location_id / partition operational_location_id / display), never
-// treat parent shed_id as an alternate physical residence.
+// A parent/group name such as "Godel 1" is only a grouping/header. Exact
+// residence lives in goats.current_location_id / goats.shed_id; group rollups
+// use goats.shed_group_id or the explicit goat_shed_partitions bridge.
 //
 // Checks (ENFORCED):
 //   whole-leak      user-facing label built from the 'whole' matching sentinel.
@@ -75,8 +73,8 @@
 //                   must replay the original result even after catalog repair.
 //   parent-shed-as-residence
 //                   Exact location filters must not widen to
-//                   current_location_id OR shed_id. For partitioned animals,
-//                   shed_id is the legacy group/header, not the real shed.
+//                   current_location_id OR shed_group_id. shed_group_id is the
+//                   parent/header rollup, not the real shed.
 // REMAINING BLIND SPOTS (documented, cannot be caught):
 //   - composition split across helper functions (requires dataflow analysis).
 //   - composition via template strings with complex expressions.
@@ -179,12 +177,12 @@ const CHECKS = [
   {
     id: "parent-shed-as-residence",
     test: (line) => {
-      if (!/current_location_id/.test(line) || !/\bshed_id\b/.test(line)) return false;
+      if (!/current_location_id/.test(line) || !/\bshed_group_id\b/.test(line)) return false;
       if (!/\bOR\b|\|\|/.test(line)) return false;
       if (/operational-location:allow-parent-group-filter/.test(line)) return false;
-      return /current_location_id\s*=\s*[^)]*(?:\bOR\b|\|\|)[^)]*\bshed_id\s*=|\bshed_id\s*=\s*[^)]*(?:\bOR\b|\|\|)[^)]*current_location_id\s*=/.test(line);
+      return /current_location_id\s*=\s*[^)]*(?:\bOR\b|\|\|)[^)]*\bshed_group_id\s*=|\bshed_group_id\s*=\s*[^)]*(?:\bOR\b|\|\|)[^)]*current_location_id\s*=/.test(line);
     },
-    msg: "exact residence filter widens current_location_id with shed_id; partitioned shed_id is a group/header, not physical residence",
+    msg: "exact residence filter widens current_location_id with shed_group_id; shed_group_id is a group/header, not physical residence",
   },
   {
     id: "counts-grain",
@@ -909,7 +907,7 @@ function selfTest() {
     ["a/sqlcmp.go", `q := "WHERE effective.partition_label = 'whole' OR x"`, null],
     [
       "backend/internal/identity/adapters/postgres/repository.go",
-      `where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_id = $%d::uuid)", len(args), len(args)))`,
+      `where = append(where, fmt.Sprintf("(g.current_location_id = $%d::uuid OR g.shed_group_id = $%d::uuid)", len(args), len(args)))`,
       "parent-shed-as-residence",
     ],
     [

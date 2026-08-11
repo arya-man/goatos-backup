@@ -135,6 +135,12 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if err != nil {
 		return nil, err
 	}
+	toShedID := cmd.ToShedID
+	var toShedGroupID *string
+	if toPartitionLabel != nil {
+		toShedID = toLocationID
+		toShedGroupID = &cmd.ToShedID
+	}
 	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID &&
 		oploc.SamePartition(stringValue(state.PartitionLabel), stringValue(toPartitionLabel)) {
 		return nil, ports.ErrWriteConflict
@@ -145,10 +151,11 @@ UPDATE goats
 SET current_location_id = $6::uuid,
     park_id = $3::uuid,
     shed_id = $4::uuid,
+    shed_group_id = $7::uuid,
     updated_at = $5::timestamptz,
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
-		cmd.TenantID, cmd.GoatID, cmd.ToParkID, cmd.ToShedID, cmd.OccurredAt, toLocationID); err != nil {
+		cmd.TenantID, cmd.GoatID, cmd.ToParkID, toShedID, cmd.OccurredAt, toLocationID, toShedGroupID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `

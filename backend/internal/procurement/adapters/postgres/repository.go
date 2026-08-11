@@ -1579,6 +1579,12 @@ WHERE lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')
 	if err != nil {
 		return nil, err
 	}
+	goatShedID := in.ShedLocationID
+	var goatShedGroupID *string
+	if oploc.IsPartitioned(oploc.NormalizePartition(in.PartitionLabel)) {
+		goatShedID = intakeLocationID
+		goatShedGroupID = &in.ShedLocationID
+	}
 
 	// Batch update goats table for all accepted goats
 	_, err = tx.Exec(ctx, `
@@ -1589,6 +1595,7 @@ SET lifecycle_status = 'alive',
     current_location_id = $8::uuid,
     park_id = $3::uuid,
     shed_id = $4::uuid,
+    shed_group_id = $9::uuid,
     sex = COALESCE(NULLIF(plg.metadata ->> 'sex', ''), goats.sex),
     dob = COALESCE(
       CASE
@@ -1619,7 +1626,7 @@ WHERE goats.tenant_id = $1::uuid
   AND plg.tenant_id = goats.tenant_id
   AND plg.load_id = $7::uuid
   AND plg.goat_id = goats.goat_id`,
-		in.TenantID, goatIDs, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID, intakeLocationID)
+		in.TenantID, goatIDs, in.ParkLocationID, goatShedID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID, intakeLocationID, nullableUUID(goatShedGroupID))
 	if err != nil {
 		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
 	}

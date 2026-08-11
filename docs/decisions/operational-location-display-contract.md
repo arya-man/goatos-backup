@@ -23,9 +23,10 @@ locations row "Castro 2" (id=uuid2)
 ```
 
 The old schema confused that real-world model by storing a parent/group as
-`goats.shed_id`. That makes humans and code read the group as the goat's
-physical residence. The compatibility bridge is allowed only if exact residence
-is carried separately and never inferred from the parent group.
+`goats.shed_id`. That made humans and code read the group as the goat's
+physical residence. The accepted model stores exact residence in
+`goats.shed_id` and uses `goats.shed_group_id` only for the grouped parent
+header.
 
 The other extreme — storing only `Castro` and pretending both partitions are one
 shed — loses operational truth. An operator cannot express "move the goat from
@@ -33,13 +34,16 @@ Castro 1 to Castro 2" without a partition field.
 
 ## Decision
 
-**Storage layer (current compatibility shape):**
+**Storage layer:**
 
 - `goats.current_location_id` is the exact real residence. For a partitioned
   animal it points at the partition operational location; for an undivided shed
   it points at the shed itself.
-- `goats.shed_id` is a legacy parent/group key when partitions exist. It is the
-  exact shed id only when the shed has no partitions.
+- `goats.shed_id` is also the exact real shed/partition residence. For a
+  partitioned animal this is the partition pen id; for an undivided shed this is
+  the shed id.
+- `goats.shed_group_id` is the parent/group shed id when partitions exist and
+  NULL for undivided sheds.
 - A compatibility partition mapping is stored as
   `goat_shed_partitions.partition_label = '1'`, `'2'`, `'Part 3'`, etc. and
   `shed_partitions.operational_location_id` links that label to the real
@@ -50,10 +54,9 @@ Castro 1 to Castro 2" without a partition field.
 - Not every shed has partitions. A non-partitioned shed has no
   `goat_shed_partitions` rows.
 
-Future schema work should make this obvious in the DB itself: either rename the
-grouping field to `shed_group_id` / `parent_shed_id`, or make `shed_id` the
-exact operational shed id and store the group separately. Until then, any exact
-residence filter that widens `current_location_id = X` with `OR shed_id = X` is
+This makes the raw DB obvious: `shed_id` answers "where is the goat physically?"
+and `shed_group_id` answers "which parent/group header does that partition
+belong under?" Any exact residence filter that widens to `shed_group_id = X` is
 a bug.
 
 **Product/display layer (operational, every surface):**
@@ -73,9 +76,9 @@ vaccination detail, Action Center, CEO reporting, search results) must:
 
 1. Carry `partition_label` in the response payload when one exists.
 2. Render `OperationalLocation.Display()` instead of bare shed names.
-3. Group/key by a partition-aware identity (`current_location_id` for exact
-   residence; `shed_id + partition_label` only where the legacy group bridge is
-   intentionally being read), never by shed name.
+3. Group/key by a partition-aware identity (`current_location_id` or `shed_id`
+   for exact residence; `shed_group_id + partition_label` only where the group
+   bridge is intentionally being read), never by shed name.
 4. Never collapse partitions into the parent unless explicitly the aggregate.
 
 **Partition catalog must enumerate all existing partitions:**
@@ -97,8 +100,8 @@ vaccination detail, Action Center, CEO reporting, search results) must:
   animals, not the whole-shed total.
 - CEO reports show `Castro 1` and `Castro 2` as distinct real sheds when an
   operator was assigned to partition-specific work.
-- The parent/group name can still support rollups, but it must not masquerade as
-  exact residence.
+- The parent/group name can still support rollups through `shed_group_id`, but
+  it must not masquerade as exact residence.
 - Machine gates enforce partition presence on all location-bearing surfaces:
   `make operational-location-guard`, part of `make guardrails` and `make
   ci-local`. Shared primitives: Go

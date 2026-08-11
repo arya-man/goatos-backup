@@ -1288,7 +1288,7 @@ raw AS (
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
    AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = g.shed_id
+   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -2427,7 +2427,7 @@ JOIN goats g
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = g.shed_id
+ AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN LATERAL (
   SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
   FROM vaccination_drive_assignments assignment
@@ -5041,7 +5041,7 @@ shed_dose_obligations AS (
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -5181,7 +5181,7 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
@@ -5650,7 +5650,7 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
