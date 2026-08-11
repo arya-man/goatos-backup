@@ -343,6 +343,10 @@ class ScanViewModel @Inject constructor(
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
             .mapNotNull { scan -> scan.obligationId?.takeIf(String::isNotBlank)?.let { it to scan.capturedAtMs } }
             .toMap()
+        val syncedCaptureAtMsByGoat = persistedScans.asSequence()
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
+            .mapNotNull { scan -> scan.goatId?.takeIf(String::isNotBlank)?.let { it to scan.capturedAtMs } }
+            .toMap()
         val serverReopenedObligations = fullRows.asSequence()
             .filter { statusOf(it.status) != ScanStatus.DONE }
             .mapNotNull { row ->
@@ -351,7 +355,19 @@ class ScanViewModel @Inject constructor(
                 obligationId.takeIf { row.updatedAt > capturedAtMs }
             }
             .toMutableSet()
+        val serverReopenedGoats = fullRows.asSequence()
+            .filter { statusOf(it.status) != ScanStatus.DONE }
+            .mapNotNull { row ->
+                val goatId = row.goatId.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val capturedAtMs = syncedCaptureAtMsByGoat[goatId] ?: return@mapNotNull null
+                goatId.takeIf { row.updatedAt > capturedAtMs }
+            }
+            .toSet()
+        val persistedScannedGoats = persistedScans.asSequence()
+            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
+            .toSet()
         val reconciledLocalDone = localDone - serverReopenedObligations
+        val reconciledLocalDoneGoats = (localDoneGoats + persistedScannedGoats) - serverReopenedGoats
         val base = applyRows(
             rows = fullRows,
             total = total,
@@ -369,7 +385,7 @@ class ScanViewModel @Inject constructor(
             serverAllGoatProofsReady = policy.isPerGoatVideo && shedSummary.allHandledProofsReady(),
         )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
-        val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDone)
+        val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDoneGoats)
         // Submit gate follows the task SOP. Per-goat video mode still requires synced goat clips.
         // Shed-level video mode only gates this scan screen on all goats scanned; the submit form
         // then enforces the required 1..5 shed-level video proof clips.
