@@ -3,10 +3,46 @@ package postgres
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+func TestWeighingPartitionRollbackOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	raw, err := os.ReadFile("000141_weighing_partition_operational_identity.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(raw)
+	downMarker := "-- +goose Down"
+	downAt := strings.Index(sql, downMarker)
+	if downAt < 0 {
+		t.Fatalf("migration missing %q", downMarker)
+	}
+	downSQL := sql[downAt:]
+
+	required := []string{
+		"projection-review: membership=all weighing_campaign_sheds rows",
+		"cannot roll back 000141",
+		"GROUP BY tenant_id, campaign_id, location_id",
+		"GROUP BY tenant_id, park_id, start_business_date, location_id",
+		"status NOT IN ('canceled', 'closed', 'completed')",
+		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_campaign_location_uidx",
+		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_weighing_open_shed_per_park_date_v2",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(downSQL, fragment) {
+			t.Fatalf("down migration missing duplicate rollback guard fragment %q", fragment)
+		}
+	}
+
+	guardAt := strings.Index(downSQL, "cannot roll back 000141")
+	oldCampaignIndexAt := strings.Index(downSQL, "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaign_sheds_campaign_location_uidx")
+	if guardAt < 0 || oldCampaignIndexAt < 0 || guardAt > oldCampaignIndexAt {
+		t.Fatalf("rollback duplicate preflight must run before recreating old campaign/location uniqueness")
+	}
+}
 
 func TestWeighingPartitionForwardSafetyDoesNotRewriteActiveWholeShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
