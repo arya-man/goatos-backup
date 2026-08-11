@@ -319,6 +319,7 @@ LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = 
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
   SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
   FROM goat_identity_events gie
