@@ -3281,12 +3281,20 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 				    AND sp.status = 'active'
 				)
 				AND NOT EXISTS (
-				  SELECT 1
-				  FROM shed_partitions sp
-				  JOIN locations pen ON pen.tenant_id = sp.tenant_id AND pen.location_id = sp.operational_location_id
-				  WHERE sp.tenant_id = s.tenant_id
-				    AND sp.shed_id = s.location_id
-				    AND pen.status = 'active'
+					SELECT 1
+					FROM shed_partitions sp
+					JOIN locations pen ON pen.tenant_id = sp.tenant_id AND pen.location_id = sp.operational_location_id
+					WHERE sp.tenant_id = s.tenant_id
+					  AND sp.shed_id = s.location_id
+					  AND pen.status = 'active'
+				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM locations child
+					WHERE child.tenant_id = s.tenant_id
+					  AND child.parent_location_id = s.location_id
+					  AND child.location_type = 'pen'
+					  AND child.status = 'active'
 				)
 				AND NOT EXISTS (
 				SELECT 1 FROM goats g

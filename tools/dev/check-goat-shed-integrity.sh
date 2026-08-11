@@ -8,13 +8,15 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 
+non_terminal_lifecycle_predicate="g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu')"
+
 if [ "${1:-}" = "--self-test" ]; then
   bash -n "$0"
   grep -q "active_goat_shed_invariant" "$0"
   grep -q "vaccination_obligation_shed_scope_invariant" "$0"
   if [ -n "${DATABASE_URL:-}" ]; then
     semantic_count="$(
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<'SQL'
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<SQL
 BEGIN;
 CREATE TEMP TABLE goats (
   tenant_id uuid,
@@ -72,7 +74,7 @@ INSERT INTO goat_shed_partitions VALUES
 
 WITH active_goat_shed_invariant AS (
   SELECT g.display_id
-  FROM goats g
+    FROM goats g
   LEFT JOIN locations shed
     ON shed.tenant_id = g.tenant_id
    AND shed.location_id = g.shed_id
@@ -95,7 +97,7 @@ WITH active_goat_shed_invariant AS (
    AND park.location_type = 'park'
    AND park.status = 'active'
   WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-    AND g.lifecycle_status = 'alive'
+    AND ${non_terminal_lifecycle_predicate}
     AND g.merged_into_goat_id IS NULL
     AND (
       g.shed_id IS NULL
@@ -142,7 +144,7 @@ fi
 
 offenders="$(
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
-  -v tenant_id="$tenant_id" <<'SQL'
+  -v tenant_id="$tenant_id" <<SQL
 WITH active_goat_shed_invariant AS (
   SELECT
     'active_goat_shed_invariant' AS invariant,
@@ -199,7 +201,7 @@ WITH active_goat_shed_invariant AS (
    AND park.location_type = 'park'
    AND park.status = 'active'
   WHERE g.tenant_id = :'tenant_id'::uuid
-    AND g.lifecycle_status = 'alive'
+    AND ${non_terminal_lifecycle_predicate}
     AND g.merged_into_goat_id IS NULL
     AND (
       g.shed_id IS NULL
@@ -243,10 +245,10 @@ vaccination_obligation_shed_scope_invariant AS (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
-  JOIN goats g
+JOIN goats g
     ON g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-   AND g.lifecycle_status = 'alive'
+   AND ${non_terminal_lifecycle_predicate}
    AND g.merged_into_goat_id IS NULL
   WHERE oi.tenant_id = :'tenant_id'::uuid
     AND oi.target_type = 'goat'
@@ -280,10 +282,10 @@ fi
 
 summary="$(
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
-  -v tenant_id="$tenant_id" <<'SQL'
+  -v tenant_id="$tenant_id" <<SQL
 SELECT
-  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL) AS active_goats,
-  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL AND g.shed_id IS NOT NULL) AS active_goats_with_shed
+  count(*) FILTER (WHERE ${non_terminal_lifecycle_predicate} AND g.merged_into_goat_id IS NULL) AS active_goats,
+  count(*) FILTER (WHERE ${non_terminal_lifecycle_predicate} AND g.merged_into_goat_id IS NULL AND g.shed_id IS NOT NULL) AS active_goats_with_shed
 FROM goats g
 WHERE g.tenant_id = :'tenant_id'::uuid;
 SQL
