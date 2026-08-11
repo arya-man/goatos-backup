@@ -1403,6 +1403,49 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `a local unsynced scan updates full roster counts by goat before refresh`() = runTest(dispatcher) {
+        val reader = FakeRfidReaderPort()
+        val scanCaptures = FakeScanCaptureRepository()
+        val vm = ScanViewModel(
+            repo = rosterRepo(listOf(scanRow("goat-1", "901007000504418", "obl-1"))),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(
+                detail = TaskDetail(
+                    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+                    form = FormSpec.Empty,
+                    proofPolicy = ProofPolicy(
+                        proofMode = "shed_level_video",
+                        subjectScope = "shed",
+                        expectedSubjects = listOf("shed-1"),
+                        minimumCount = 1,
+                        maximumCount = 5,
+                    ),
+                ),
+            ),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.state.value.ringDone)
+        assertEquals(1, vm.state.value.pendingCount)
+
+        reader.emit("901007000504418")
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.ringDone)
+        assertEquals(0, vm.state.value.pendingCount)
+        assertTrue("shed-level submit unlocks once the locally scanned goat closes the animal count", vm.state.value.canSubmit)
+        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
+    }
+
+    @Test
     fun `a synced capture yields to a reopened obligation after rejection`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         scanCaptures.recordScan(
@@ -1531,7 +1574,8 @@ private class FakeScanExecutionRepository(
     ): Flow<List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>> =
         rows.map { it.take(windowSize) }
 
-    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> = rows.map { it.size }
+    override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
+        rows.map { list -> list.map { it.goatId }.filter { it.isNotBlank() }.distinct().size }
 
     override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         rows.map { list -> list.filter { it.goatId.isNotBlank() && statusIsDone(it.status) }.map { it.goatId }.distinct() }
@@ -1559,28 +1603,45 @@ private class FakeScanExecutionRepository(
         taskId: String?,
         partitionLabel: String?,
     ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> =
-        rows.map { list ->
-            list.groupingBy { it.status }.eachCount()
-                .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
-        }
+        rows.map { list -> list.effectiveStatusCountsByGoat() }
 
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
-        obligationIds: List<String>,
+        goatIds: List<String>,
         partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
-        rows.value.filter { it.obligationId in obligationIds }
-            .groupingBy { it.status }.eachCount()
-            .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
+        rows.value.filter { it.goatId in goatIds }.effectiveStatusCountsByGoat()
 
     override suspend fun getScanRosterStatusCounts(
         shedId: String,
         taskId: String?,
         partitionLabel: String?,
     ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
-        rows.value.groupingBy { it.status }.eachCount()
+        rows.value.effectiveStatusCountsByGoat()
+
+    private fun List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>.effectiveStatusCountsByGoat(): List<sg.mesha.goatos.core.data.cache.StatusCount> =
+        groupBy { it.goatId }
+            .filterKeys { it.isNotBlank() }
+            .values
+            .map { sameGoat ->
+                when {
+                    sameGoat.any { fakeScanStatusOf(it.status) == ScanStatus.PENDING } -> "due"
+                    sameGoat.any { fakeScanStatusOf(it.status) == ScanStatus.SKIPPED } -> "skipped"
+                    sameGoat.any { fakeScanStatusOf(it.status) == ScanStatus.DONE || it.scannedAtMs != null } -> "done"
+                    else -> "due"
+                }
+            }
+            .groupingBy { it }
+            .eachCount()
             .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
+
+    private fun fakeScanStatusOf(raw: String): ScanStatus =
+        when {
+            raw.contains("skip", ignoreCase = true) -> ScanStatus.SKIPPED
+            raw.contains("done", ignoreCase = true) || raw.contains("complete", ignoreCase = true) -> ScanStatus.DONE
+            else -> ScanStatus.PENDING
+        }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?, partitionLabel: String?): Result<Unit> = runCatching {
         lastRefreshPartitionLabel = partitionLabel
