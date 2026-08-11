@@ -53,20 +53,20 @@ func TestDisplayPreservesEachShedsOwnConvention(t *testing.T) {
 	cases := []struct {
 		shed, partition, want string
 	}{
-		{"Castro", "1", "Castro - 1"},
-		{"Castro", "2", "Castro - 2"},
-		{"Gandhi", "3", "Gandhi - 3"},
+		{"Castro", "1", "Castro 1"},
+		{"Castro", "2", "Castro 2"},
+		{"Gandhi", "3", "Gandhi 3"},
 		{"Godel 1", "Part 3", "Godel 1 - Part 3"},
 		{"Mandela 1", "Part 10", "Mandela 1 - Part 10"},
-		{"Ho Chi Minh", "1", "Ho Chi Minh - 1"},
+		{"Ho Chi Minh", "1", "Ho Chi Minh 1"},
 		{"Yashoda", "", "Yashoda"},
-		{"Old Yashoda", "5", "Old Yashoda - 5"},
+		{"Old Yashoda", "5", "Old Yashoda 5"},
 		// The cases that forced the separator change (2026-08-06): a shed name that
 		// itself ends in a digit. "Godel 1 1" and "Godel 1 10" were unreadable, and
 		// this shape was 75% of live STG destination options.
-		{"Godel 1", "1", "Godel 1 - 1"},
-		{"Godel 1", "10", "Godel 1 - 10"},
-		{"Sumathi 2", "7", "Sumathi 2 - 7"},
+		{"Godel 1", "1", "Godel 1 1"},
+		{"Godel 1", "10", "Godel 1 10"},
+		{"Sumathi 2", "7", "Sumathi 2 7"},
 	}
 	for _, c := range cases {
 		loc := OperationalLocation{ShedName: c.shed, PartitionLabel: c.partition}

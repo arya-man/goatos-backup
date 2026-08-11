@@ -1115,66 +1115,56 @@ WITH taken AS (
 bucket_catalog AS (
   SELECT
     shed.tenant_id,
-    shed.location_id,
-    shed.display_order,
-    shed.name AS parent_shed_name,
-    NULLIF(BTRIM(sp.partition_label), '') AS partition_label,
+    exact.location_id,
+    COALESCE(exact.display_order, shed.display_order) AS display_order,
+    exact.name AS parent_shed_name,
+    NULL::text AS partition_label,
     COALESCE(sp.display_order, 2147483647) AS partition_order,
-    COALESCE(sp.normalized_label, '') AS partition_key
+    ''::text AS partition_key
   FROM locations shed
-  LEFT JOIN shed_partitions sp
+  JOIN shed_partitions sp
     ON sp.tenant_id=shed.tenant_id
    AND sp.shed_id=shed.location_id
    AND sp.status='active'
    AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
-   AND NOT EXISTS (
-     SELECT 1
-     FROM locations represented_shed
-     WHERE represented_shed.tenant_id=shed.tenant_id
-       AND represented_shed.parent_location_id=shed.parent_location_id
-       AND represented_shed.location_id <> shed.location_id
-       AND represented_shed.location_type='shed'
-       AND represented_shed.status='active'
-       AND represented_shed.retired_at IS NULL
-       AND starts_with(BTRIM(represented_shed.name), BTRIM(shed.name))
-       AND NULLIF(
-         regexp_replace(
-           BTRIM(replace(BTRIM(represented_shed.name), BTRIM(shed.name), '')),
-           '^\s*-?\s*',
-           '',
-           'g'
-         ),
-         ''
-       ) IN (BTRIM(sp.partition_label), BTRIM(sp.normalized_label))
-   )
+   AND sp.operational_location_id IS NOT NULL
+  JOIN locations exact
+    ON exact.tenant_id=sp.tenant_id
+   AND exact.location_id=sp.operational_location_id
+   AND exact.location_type='shed'
+   AND exact.status='active'
+   AND exact.retired_at IS NULL
+  WHERE shed.tenant_id=$1::uuid
+    AND shed.parent_location_id=$2::uuid
+    AND shed.location_type='shed'
+    AND shed.status='active'
+    AND shed.retired_at IS NULL
+  UNION ALL
+  SELECT
+    shed.tenant_id,
+    shed.location_id,
+    shed.display_order,
+    shed.name AS parent_shed_name,
+    NULL::text AS partition_label,
+    2147483647 AS partition_order,
+    ''::text AS partition_key
+  FROM locations shed
   WHERE shed.tenant_id=$1::uuid
     AND shed.parent_location_id=$2::uuid
     AND shed.location_type='shed'
     AND shed.status='active'
     AND shed.retired_at IS NULL
     AND NOT EXISTS (
-      SELECT 1
-      FROM shed_partitions represented_partition
-      JOIN locations represented_shed
-        ON represented_shed.tenant_id=shed.tenant_id
-       AND represented_shed.parent_location_id=shed.parent_location_id
-       AND represented_shed.location_id <> shed.location_id
-       AND represented_shed.location_type='shed'
-       AND represented_shed.status='active'
-       AND represented_shed.retired_at IS NULL
-       AND starts_with(BTRIM(represented_shed.name), BTRIM(shed.name))
-       AND NULLIF(
-         regexp_replace(
-           BTRIM(replace(BTRIM(represented_shed.name), BTRIM(shed.name), '')),
-           '^\s*-?\s*',
-           '',
-           'g'
-         ),
-         ''
-       ) IN (BTRIM(represented_partition.partition_label), BTRIM(represented_partition.normalized_label))
-      WHERE represented_partition.tenant_id=shed.tenant_id
-        AND represented_partition.shed_id=shed.location_id
-        AND represented_partition.status='active'
+      SELECT 1 FROM shed_partitions sp
+      WHERE sp.tenant_id=shed.tenant_id
+        AND sp.shed_id=shed.location_id
+        AND sp.status='active'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM shed_partitions sp
+      WHERE sp.tenant_id=shed.tenant_id
+        AND sp.operational_location_id=shed.location_id
+        AND sp.status='active'
     )
 )
 SELECT
@@ -3057,11 +3047,9 @@ WHERE tenant_id=$1::uuid
 	// bucket from the `locations` catalog ("Godel 1 - Part 3", "Castro 2"), which is what the
 	// operator picked and what every other module names the same place.
 	//
-	// Deliberately NOT re-split through SplitShedPartitionName + oploc.Display here. That pass is
-	// right for weighing's own campaign-shed read models, but it rewrites "Castro 2" into
-	// "Castro - 2" -- and on the verifier's Actions queue a weighing row sits directly beside a
-	// vaccination row, which renders the same physical place as "Castro 2" (shed name plus the
-	// locations partition column). Splitting here would put two spellings of one shed in one list.
+	// Deliberately NOT re-split through SplitShedPartitionName + oploc.Display here. The verifier's
+	// Actions queue must show the exact shed name stored in locations, matching vaccination and
+	// counts rows for the same physical place.
 	return locationID, strings.TrimSpace(displayName), nil
 }
 
@@ -3369,8 +3357,8 @@ WITH requested AS (
 parent_options AS (
   SELECT
     r.requested_location_id::text,
-    parent.location_id::text AS canonical_location_id,
-    parent.name AS parent_shed_name,
+    exact.location_id::text AS canonical_location_id,
+    exact.name AS parent_shed_name,
     sp.partition_label,
     true AS partitioned,
     0 AS option_priority
@@ -3382,12 +3370,19 @@ parent_options AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
+   AND sp.operational_location_id IS NOT NULL
+  JOIN locations exact
+    ON exact.tenant_id=sp.tenant_id
+   AND exact.location_id=sp.operational_location_id
+   AND exact.location_type='shed'
+   AND exact.status='active'
+   AND exact.retired_at IS NULL
 ),
 alias_options AS (
   SELECT
     r.requested_location_id::text,
-    parent.location_id::text AS canonical_location_id,
-    parent.name AS parent_shed_name,
+    exact.location_id::text AS canonical_location_id,
+    exact.name AS parent_shed_name,
     sp.partition_label,
     true AS partitioned,
     1 AS option_priority
@@ -3407,6 +3402,13 @@ alias_options AS (
     ON sp.tenant_id=parent.tenant_id
    AND sp.shed_id=parent.location_id
    AND sp.status='active'
+   AND sp.operational_location_id IS NOT NULL
+  JOIN locations exact
+    ON exact.tenant_id=sp.tenant_id
+   AND exact.location_id=sp.operational_location_id
+   AND exact.location_type='shed'
+   AND exact.status='active'
+   AND exact.retired_at IS NULL
   WHERE (
     lower(alias.name)=lower(concat_ws(' - ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
     OR lower(alias.name)=lower(concat_ws(' ', parent.name, NULLIF(BTRIM(sp.partition_label), '')))
@@ -3430,6 +3432,12 @@ unpartitioned AS (
     SELECT 1 FROM shed_partitions sp
     WHERE sp.tenant_id=shed.tenant_id
       AND sp.shed_id=shed.location_id
+      AND sp.status='active'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM shed_partitions sp
+    WHERE sp.tenant_id=shed.tenant_id
+      AND sp.operational_location_id=shed.location_id
       AND sp.status='active'
   )
 )
@@ -3509,8 +3517,8 @@ ORDER BY requested_location_id, option_priority, parent_shed_name, partition_lab
 			return nil, ports.ErrInvalidArgument
 		}
 		out[i].LocationID = matched.canonicalLocationID
-		out[i].DisplayName = operationalLocationDisplay(matched.canonicalLocationID, matched.shedName, matched.label)
-		out[i].PartitionLabel = matched.label
+		out[i].DisplayName = matched.shedName
+		out[i].PartitionLabel = ""
 	}
 	return out, nil
 }

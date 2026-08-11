@@ -3,14 +3,9 @@
 //
 //	OperationalLocation = park + physical_shed + optional partition_label
 //
-// Physical sheds stay normalized: goats.shed_id always points at the parent
-// physical building (Castro), and goat_shed_partitions.partition_label carries
-// the actual sub-location ('1', '2', 'Part 3'). Raw partition-bearing names are
-// never modelled as separate canonical buildings -- see
-// docs/decisions/scale-anti-patterns.md. This package exists so that
-// normalization never leaks into product surfaces: every read model, API
-// response, and UI label must answer "where is this animal?" with the partition
-// included when one exists.
+// If a place has parts, each part is the operational shed. Legacy rows may still
+// carry a group shed plus partition label during compatibility reads; this
+// package exists so those reads render the same exact shed label everywhere.
 //
 // Not every shed has partitions. A non-partitioned shed renders as the bare shed
 // name ("Yashoda"), never as a synthetic "Yashoda whole".
@@ -29,14 +24,7 @@ const WholeSentinel = "whole"
 // convention so that 'Part 3' and '3' compare equal. It mirrors the SQL
 // normalizer byte for byte and must not drift from it.
 var partPrefix = regexp.MustCompile(`^part[[:space:]]+`)
-
-// NOTE (2026-08-06): the display join no longer branches on whether a label is
-// already worded ('Part 3') or bare ('1') -- BOTH now join with " - ", so the
-// regex that used to select between a space form and a dash form is gone. The
-// matching key still normalizes 'Part 3' and '3' to the same value; that is
-// partPrefix above and is unaffected. Android keeps its own
-// ALREADY_WORDED_PARTITION because partitionDisplayLabel (the standalone chip)
-// still needs it; only the JOIN collapsed.
+var numericLabel = regexp.MustCompile(`^[0-9]+$`)
 
 // NormalizePartition reduces a raw partition label to its comparison key.
 // It mirrors, exactly, the SQL used by the operator execution reads:
@@ -65,9 +53,9 @@ func SamePartition(a, b string) bool {
 }
 
 // OperationalLocation is the shared shape every location-bearing read model and
-// API response must carry. ShedID is the parent physical shed and is the only
-// safe grouping key: shed *names* repeat across parks (there are two "Castro"),
-// so grouping or filtering by name silently merges parks.
+// API response must carry. ShedID is the exact operational shed whenever the
+// caller has already crossed the partition-is-shed cutover. Legacy callers may
+// pass a group shed plus PartitionLabel only as a compatibility bridge.
 type OperationalLocation struct {
 	ParkID   string `json:"park_id"`
 	ParkName string `json:"park_name"`
@@ -87,23 +75,13 @@ type OperationalLocation struct {
 // Display renders the user-facing operational location.
 //
 //	non-partitioned:      "Yashoda"
-//	numeric convention:   "Castro - 2", "Gandhi - 3"
+//	numeric convention:   "Castro 2", "Gandhi 3"
 //	prefixed convention:  "Godel 1 - Part 3"
 //
 // The stored label is preserved verbatim rather than rewritten, so the text an
-// operator reads on screen matches the text painted on the shed; only the
-// SEPARATOR is ours.
-//
-// Why a dash and not a space (maintainer decision, 2026-08-06). The space form
-// was unreadable for the majority of real sheds, because shed NAMES themselves
-// end in a digit: "Godel 1" + partition "1" rendered "Godel 1 1", and
-// "Godel 1" + "10" rendered "Godel 1 10" -- which a human cannot parse as
-// shed "Godel 1" partition 10 rather than shed "Godel 1 1" partition 0, or
-// "Godel 1 10" as a name in its own right. On live STG data this was not an
-// edge case: 98 of 130 destination options (75%) had a digit-terminated shed
-// name with a numeric partition. Joining with " - " makes the boundary explicit
-// and, because worded labels already used the dash, collapses two formats into
-// one.
+// operator reads on screen matches the text painted on the shed. Bare numeric
+// labels use the existing shed-number convention ("Castro 2"); worded labels
+// keep the explicit separator ("Godel 1 - Part 3").
 //
 // Keep this identical to PartitionLabel.kt (Android) and
 // lib/operational-location.ts (admin-web); the same animal must never read two
@@ -123,8 +101,20 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
-	if strings.EqualFold(shed, label) || strings.HasSuffix(strings.ToLower(shed), " - "+strings.ToLower(label)) {
+	lowerShed := strings.ToLower(shed)
+	lowerLabel := strings.ToLower(label)
+	if strings.EqualFold(shed, label) ||
+		strings.HasSuffix(lowerShed, " - "+lowerLabel) {
 		return shed
+	}
+	if strings.HasPrefix(strings.ToLower(label), "part ") || strings.HasPrefix(strings.ToLower(label), "parts ") {
+		return shed + " - " + label
+	}
+	if NormalizePartition(label) != strings.ToLower(label) {
+		return shed + " - " + label
+	}
+	if numericLabel.MatchString(label) {
+		return shed + " " + label
 	}
 	return shed + " - " + label
 }

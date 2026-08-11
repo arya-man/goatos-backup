@@ -714,8 +714,13 @@ WITH exact_partition AS (
 UPDATE public.weighing_campaign_sheds wcs
 SET location_id = ep.exact_shed_id,
     location_type = 'shed',
+    display_name = exact.name,
+    partition_label = NULL,
     updated_at = now()
 FROM exact_partition ep
+JOIN public.locations exact
+  ON exact.tenant_id = ep.tenant_id
+ AND exact.location_id = ep.exact_shed_id
 WHERE wcs.tenant_id = ep.tenant_id
   AND wcs.location_id = ep.group_shed_id
   AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(wcs.partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -1259,18 +1264,18 @@ WHERE fec.tenant_id = ep.tenant_id
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label, partition_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.weighing_campaign_sheds wcs
 SET location_id = ep.group_shed_id,
     location_type = 'shed',
+    partition_label = ep.partition_label,
     updated_at = now()
 FROM exact_partition ep
 WHERE wcs.tenant_id = ep.tenant_id
   AND wcs.location_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(wcs.partition_label, 'whole'))), '^part[[:space:]]+', '')
   AND ep.normalized_label <> 'whole';
 
 ALTER TABLE public.shed_partitions

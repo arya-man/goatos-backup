@@ -210,7 +210,7 @@ func TestPlannerCatalogTakenJoinOneToManyDoesNotMultiplyShedRows(t *testing.T) {
 	}
 }
 
-func TestPlannerParkBucketsPrefersNumberedShedLocationsOverParentNumericPartitions(t *testing.T) {
+func TestPlannerParkBucketsExposeExactPartitionShedsOnly(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -218,36 +218,46 @@ func TestPlannerParkBucketsPrefersNumberedShedLocationsOverParentNumericPartitio
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	parent := lcpUUID(21101)
-	aliasOne := lcpUUID(21102)
-	aliasTwo := lcpUUID(21103)
-	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 700)
-	lsInsertShed(t, ctx, pool, aliasOne, repoPark, "Alias Parent 1", 701)
-	lsInsertShed(t, ctx, pool, aliasTwo, repoPark, "Alias Parent 2", 702)
+	groupShed := lcpUUID(21100)
+	exactOne := lcpUUID(21101)
+	exactTwo := lcpUUID(21102)
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, name, status, display_order)
 VALUES
-  ($1::uuid, $2::uuid, '1', '1', 'goat_attested', 1),
-  ($1::uuid, $2::uuid, '2', '2', 'goat_attested', 2)
+  ($1::uuid, $4::uuid, $5::uuid, 'shed', 'Gandhi', 'active', 10),
+  ($2::uuid, $4::uuid, $5::uuid, 'shed', 'Gandhi 1', 'active', 11),
+  ($3::uuid, $4::uuid, $5::uuid, 'shed', 'Gandhi 2', 'active', 12)
+ON CONFLICT (location_id) DO NOTHING`, groupShed, exactOne, exactTwo, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES
+  ($1::uuid, $2::uuid, '1', '1', 'active', 'location_alias', $3::uuid),
+  ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias', $4::uuid)
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
-SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
-		repoTenant, parent)
+SET status='active',
+    operational_location_id=EXCLUDED.operational_location_id,
+    partition_label=EXCLUDED.partition_label`, repoTenant, groupShed, exactOne, exactTwo)
 
-	buckets := drainAllParkBuckets(t, ctx, repo, "2026-09-01", "")
-	names := map[string]int{}
-	for _, bucketList := range buckets {
-		for _, bucket := range bucketList {
-			names[bucket.Name]++
-		}
+	buckets := drainParkBuckets(t, ctx, repo, repoPark, lsFixtureDay, "")
+	if got := buckets[groupShed]; len(got) != 0 {
+		t.Fatalf("group shed Gandhi appeared as %d planner bucket(s): %+v", len(got), got)
 	}
-	for _, want := range []string{"Alias Parent 1", "Alias Parent 2"} {
-		if names[want] != 1 {
-			t.Fatalf("bucket %q appears %d times, want exactly once in %#v", want, names[want], names)
+	for _, exact := range []struct {
+		id   string
+		name string
+	}{
+		{exactOne, "Gandhi 1"},
+		{exactTwo, "Gandhi 2"},
+	} {
+		rows := buckets[exact.id]
+		if len(rows) != 1 {
+			t.Fatalf("exact shed %s appeared %d times, want exactly once", exact.name, len(rows))
 		}
-	}
-	for _, wrong := range []string{"Alias Parent", "Alias Parent - 1", "Alias Parent - 2"} {
-		if names[wrong] != 0 {
-			t.Fatalf("wrong bucket %q leaked into planner buckets: %#v", wrong, names)
+		if rows[0].Name != exact.name || rows[0].OperationalLocationDisplay != exact.name {
+			t.Fatalf("exact shed display=%q/%q, want %q", rows[0].Name, rows[0].OperationalLocationDisplay, exact.name)
+		}
+		if rows[0].PartitionLabel != "" {
+			t.Fatalf("exact shed %s partition_label=%q, want blank because the partition is the shed", exact.name, rows[0].PartitionLabel)
 		}
 	}
 }
@@ -309,11 +319,14 @@ func TestPlannerParkBucketsMarksOldParentPartitionTaskScheduledOnNumberedShed(t 
 	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 710)
 	lsInsertShed(t, ctx, pool, numbered, repoPark, "Alias Parent 1", 711)
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
-VALUES ($1::uuid, $2::uuid, '1', '1', 'goat_attested', 1)
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, display_order, operational_location_id)
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'goat_attested', 1, $3::uuid)
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
-SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
-		repoTenant, parent)
+SET partition_label=EXCLUDED.partition_label,
+    status='active',
+    display_order=EXCLUDED.display_order,
+    operational_location_id=EXCLUDED.operational_location_id`,
+		repoTenant, parent, numbered)
 	lcpInsertCampaign(t, ctx, pool, campaignID, repoPark, "2026-09-02", domain.StatusPublished, repoOperator)
 	lsSetCampaignWeighDate(t, ctx, pool, campaignID, "2026-09-02")
 	lcpInsertBucket(t, ctx, pool, campaignShedID, campaignID, parent, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")

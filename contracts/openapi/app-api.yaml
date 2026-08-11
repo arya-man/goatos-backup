@@ -12004,7 +12004,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         drive_name:
           type: string
@@ -13449,7 +13449,7 @@ components:
           maxLength: 200
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
     EvidenceRef:
       type: object
@@ -14040,7 +14040,7 @@ components:
             - "null"
           description: >-
             User-facing location label for shed_id. No partition -> bare shed
-            name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed
+            name ("Yashoda"); numeric convention -> "Castro 2"; prefixed
             convention -> "Godel 1 - Part 3".
         cohort_id:
           type:
@@ -14350,7 +14350,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         total_animals:
           type: integer
@@ -14962,7 +14962,7 @@ components:
             - "null"
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         stage:
           type:
@@ -15559,7 +15559,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         expected:
           type: string
@@ -15934,7 +15934,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         animalStage:
           type: string
@@ -16448,7 +16448,7 @@ components:
           type: string
           description: >-
             Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed
-            has one ("Castro - 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal
+            has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal
             standing in a partition, and never the "whole" matching sentinel. Backend-composed via
             oploc.Display(); clients render verbatim.
         parkName:
@@ -16532,7 +16532,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         doseRule:
           type: string
@@ -16636,7 +16636,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         doseRule:
           type: string
@@ -19002,7 +19002,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         animals:
           type: integer
@@ -19160,7 +19160,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         operator_display_name:
           type: string
@@ -19926,7 +19926,7 @@ components:
           type: string
           description: >-
             User-facing label for this shed option. No partition -> bare shed
-            name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed
+            name ("Yashoda"); numeric convention -> "Castro 2"; prefixed
             convention -> "Godel 1 - Part 3".
         kid_count:
           type: integer
@@ -20087,7 +20087,7 @@ components:
           type: string
           description: >-
             User-facing label for expected_location_id. No partition -> bare
-            shed name; numeric convention -> "Castro - 2"; prefixed convention
+            shed name; numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         status:
           type: string
@@ -20111,7 +20111,7 @@ components:
           type: string
           description: >-
             User-facing label for current_location_id. No partition -> bare
-            shed name; numeric convention -> "Castro - 2"; prefixed convention
+            shed name; numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         current_lifecycle_status:
           type: string
@@ -20758,7 +20758,7 @@ components:
           type: string
           description: >-
             User-facing label for this shed option. No partition -> bare shed
-            name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed
+            name ("Yashoda"); numeric convention -> "Castro 2"; prefixed
             convention -> "Godel 1 - Part 3".
         park_id:
           type: string
@@ -21513,7 +21513,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         animals:
           type: integer
@@ -21670,7 +21670,7 @@ components:
           description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
         operational_location_display:
           type: string
-          description: Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not shed-scoped.
+          description: Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not shed-scoped.
     VaccinationPassportHistoryItem:
       type: object
       additionalProperties: false
@@ -21727,7 +21727,7 @@ components:
           description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
         operational_location_display:
           type: string
-          description: Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not available.
+          description: Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not available.
     LastAcceptedVaccinationDose:
       type: object
       additionalProperties: false
@@ -21772,7 +21772,7 @@ components:
           description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
         operational_location_display:
           type: string
-          description: Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown.
+          description: Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown.
         next_due:
           anyOf:
             - $ref: "#/components/schemas/VaccinationPassportDue"
@@ -22198,7 +22198,7 @@ components:
             - "null"
           description: >-
             User-facing location label for currentLocationId. No partition ->
-            bare shed name ("Yashoda"); numeric convention -> "Castro - 2";
+            bare shed name ("Yashoda"); numeric convention -> "Castro 2";
             prefixed convention -> "Godel 1 - Part 3".
         breed:
           type: string
@@ -22292,7 +22292,7 @@ components:
             - "null"
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         management_stage:
           type: string
@@ -22399,7 +22399,7 @@ components:
             - "null"
           description: >-
             User-facing location label for this operational location. No partition -> bare
-            shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
     CountsBreakdownFacets:
       type: object
@@ -22548,7 +22548,7 @@ components:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
             -> "Godel 1 - Part 3".
         management_stage:
           type: string
@@ -23077,7 +23077,7 @@ components:
           type: string
           description: >-
             Backend-owned composed display label for the operational location (shed + partition).
-            Examples: 'Castro - 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned).
+            Examples: 'Castro 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned).
             Render this field verbatim; do NOT compose it on the client.
         shed_label:
           type: string
@@ -23849,7 +23849,7 @@ components:
           type: string
           description: >-
             User-facing label for this destination option. No partition ->
-            bare shed name ("Yashoda"); numeric convention -> "Castro - 2";
+            bare shed name ("Yashoda"); numeric convention -> "Castro 2";
             prefixed convention -> "Godel 1 - Part 3".
         animal_count:
           type: integer
@@ -25300,13 +25300,13 @@ components:
             - string
             - "null"
           description: >-
-            Backend-composed operator-facing label for the source end ("Castro - 1"). Render this
+            Backend-composed operator-facing label for the source end ("Castro 1"). Render this
             verbatim; do not rebuild it from shed name + partition on the client. Absent when the
             movement has no tracked origin.
         destination_operational_location_display:
           type: string
           description: >-
-            Backend-composed operator-facing label for the destination end ("Castro - 2"). Added
+            Backend-composed operator-facing label for the destination end ("Castro 2"). Added
             2026-08-06: this item previously shipped shed names only, so approve/execute rendered
             "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already
             declared the partition fields and deserialized them to null.
