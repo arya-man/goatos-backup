@@ -1421,6 +1421,67 @@ class WeighingViewModelTest {
             "the attempt must be tracked before the outcome",
             analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED),
         )
+        assertTrue(
+            "the confirmation open must be tracked",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_OPENED),
+        )
+        assertTrue(
+            "the confirmation accept must be tracked",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CONFIRMED),
+        )
+    }
+
+    @Test
+    fun `visible weight and synced video pair can arm submit even when draft readiness lags`() = runTest(dispatcher) {
+        val scans = FakeScanCaptureRepository()
+        val staleDraft = acceptedDraft(animalId = TEST_TAG, weightKg = 22.8).copy(
+            readyToSubmit = false,
+            syncedToBackend = false,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = listOf(rosterRow()),
+                individualDrafts = listOf(staleDraft),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                proofRow(
+                    id = "proof-$TEST_TAG",
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-$TEST_TAG",
+                ),
+            )
+        }
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.individualSubmitReady)
+
+        var submitted = false
+        vm.submitIndividualScope { submitted = true }
+        advanceUntilIdle()
+
+        assertTrue("the visible pair should arm the confirmation dialog", vm.state.value.showSubmitConfirmation)
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertTrue(submitted)
+        assertEquals(listOf(TEST_TAG), repository.submitIndividualScopeCalls.single())
     }
 
     @Test

@@ -421,7 +421,11 @@ class ShedsViewModel @Inject constructor(
                 else -> dueDate == selectedDay
             }
         }
-        val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
+        // Group by the exact key rendered by Compose. Do not group by metadata that is not also
+        // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
+        // (for example BT + SP rows, or a task row version/sop version split) but must remain one
+        // UI card with one LazyColumn key.
+        val shedRows = rowsForSelectedDay.groupBy { it.executionCardId() }.map { (cardId, group) ->
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusForRows(group)
@@ -439,7 +443,7 @@ class ShedsViewModel @Inject constructor(
                 }
             val effectiveDone = effectiveDoneCount(group)
             ShedRow(
-                id = identity.cardId,
+                id = cardId,
                 // The shed CARD TITLE. It must carry the backend-composed operational location,
                 // or a partitioned shed shows its bare name and every partition of that shed
                 // reads identically on the operator's list ("Mandela 2" three times instead of
@@ -473,12 +477,12 @@ class ShedsViewModel @Inject constructor(
                     counts.target,
                     needsRedo = group.any { it.needsRedo() },
                 ),
-                shedId = identity.shedId,
-                driveId = identity.driveId,
-                batchId = identity.batchId,
-                taskId = identity.taskId,
-                sopVersionId = identity.sopVersionId,
-                taskRowVersion = identity.taskRowVersion,
+                shedId = first.shedId,
+                driveId = first.driveId,
+                batchId = first.batchId,
+                taskId = first.sopTaskId,
+                sopVersionId = first.sopVersionId,
+                taskRowVersion = first.sopTaskRowVersion,
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
                 canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
             )
@@ -714,18 +718,6 @@ private fun VaccinationExecutionRowDto.adherenceDriveKey(): String? =
         ?: driveId?.takeIf { it.isNotBlank() }
         ?: sopTaskId?.takeIf { it.isNotBlank() }
 
-private data class ExecutionIdentity(
-    val shedId: String,
-    val partitionKey: String,
-    val driveId: String?,
-    val batchId: String?,
-    val taskId: String?,
-    val sopVersionId: String?,
-    val taskRowVersion: Int?,
-) {
-    val cardId: String = executionCardId(shedId, taskId, batchId, driveId, partitionKey)
-}
-
 /**
  * A park-level vaccination task can legitimately span several sheds. Compose lazy-list keys
  * therefore cannot use task/batch/drive identity alone: every shed card needs its own stable key
@@ -749,15 +741,14 @@ internal fun executionCardId(
     }
 }
 
-private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
-    shedId = shedId,
-    partitionKey = executionPartitionKey(partitionLabel ?: partition),
-    driveId = driveId,
-    batchId = batchId,
-    taskId = sopTaskId,
-    sopVersionId = sopVersionId,
-    taskRowVersion = sopTaskRowVersion,
-)
+internal fun VaccinationExecutionRowDto.executionCardId(): String =
+    executionCardId(
+        shedId = shedId,
+        taskId = sopTaskId,
+        batchId = batchId,
+        driveId = driveId,
+        partitionLabel = partitionLabel ?: partition,
+    )
 
 private fun executionPartitionKey(raw: String?): String {
     val normalized = raw.orEmpty().trim().lowercase()

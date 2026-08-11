@@ -97,6 +97,24 @@ Android integration completed in this branch:
 - keep all writes idempotent and retryable without duplicate proof artifacts or
   duplicate task submissions.
 
+### Android verifier detail scope guard
+
+Verifier queue rows and verifier detail are one cache-scoped flow. When a row
+is tapped, Android must carry the exact queue scope into detail: category,
+action mode, park, shed, status, business date, and missed-only. Detail must not
+re-derive or default those values.
+
+This is locked because of the 2026-08-11 Weighing verifier regression: the
+queue correctly showed a pending Weighing row with video, but detail opened
+without the same status/date/missed scope and observed a different Room cache
+slice, rendering "No video attached to this item". Backend media was present;
+Android looked in the wrong local scope.
+
+Machine guard: `make mobile-guard` runs
+`tools/agent-hooks/check-android-verifier-detail-scope.mjs` with a self-test.
+Focused regression coverage lives in
+`VerifyDetailViewModelAnalyticsTest.detail keeps opened weighing video when refresh page omits the group`.
+
 ## Target Execution Flow
 
 The target operator flow is:

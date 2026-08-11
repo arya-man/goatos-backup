@@ -251,6 +251,14 @@ against `origin/main`; a genuinely-bounded case appends
   expand, scroll) for the WRONG row and some mutations crash. Supply
   `key = { it.<uniqueRowId> }`. The count overload `items(<Int>)` is exempt (it
   has no key parameter).
+- **`lazy-list-derived-key-drift` (crash).** If a ViewModel groups backend rows
+  into UI cards, the grouping key and the rendered Compose key must be the same
+  grain. Do not group by fields that the rendered key omits. The staging sheds
+  crash on 2026-08-11 was this exact shape: vaccination BT+SP / split row-version
+  rows grouped separately by `sopVersionId`/`taskRowVersion`, but both rendered
+  with the same shed/partition/task `ShedRow.id`, so LazyColumn received duplicate
+  keys. Fix by grouping on the rendered card key, or include every grouping
+  discriminator in that key.
 
 Rule of thumb: **the key is the unique identity of the RENDERED ROW, not of the
 domain object it happens to show.** When a list can hold more than one row per

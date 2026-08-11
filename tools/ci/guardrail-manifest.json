@@ -68,6 +68,17 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-verifier-detail-scope",
+      "script": "tools/agent-hooks/check-android-verifier-detail-scope.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Blocks the 2026-08-11 Android verifier regression where a Weighing queue row showed video but detail opened without the same status/date/missed scope, observed the wrong Room cache slice, and rendered 'No video attached to this item'."
+    },
+    {
       "id": "android-bounded-memory",
       "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
       "makeTarget": "android-bounded-memory-guard",
