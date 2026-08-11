@@ -3372,7 +3372,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 		var shed domain.CampaignShed
 		var partitionLabel string
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
@@ -3416,7 +3416,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 		var shed domain.CampaignShed
 		var partitionLabel string
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.LatestReworkReason, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err
 		}
