@@ -16,7 +16,6 @@
 // packages/api-client/src/index.ts (the @goatos/api-client getTraceHeaders hook) — so the RUM trace and
 // the backend's otelhttp span chain onto one trace end to end.
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
 import { faro, getWebInstrumentations, initializeFaro } from "@grafana/faro-web-sdk";
 import { TracingInstrumentation } from "@grafana/faro-web-tracing";
 
@@ -89,16 +88,24 @@ export function FaroProvider(): null {
     initFaro();
   }, []);
 
-  const pathname = usePathname();
   const previousPathname = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!faro.api || previousPathname.current === pathname) {
+    if (!faro.api) {
       return;
     }
-    faro.api.setView({ name: pathname });
-    previousPathname.current = pathname;
-  }, [pathname]);
+    const recordView = () => {
+      const pathname = window.location.pathname;
+      if (previousPathname.current === pathname) {
+        return;
+      }
+      faro.api?.setView({ name: pathname });
+      previousPathname.current = pathname;
+    };
+    recordView();
+    window.addEventListener("popstate", recordView);
+    return () => window.removeEventListener("popstate", recordView);
+  }, []);
 
   return null;
 }

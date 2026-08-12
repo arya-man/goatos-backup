@@ -58,11 +58,8 @@ func TestKernelStory_HighPriorityShiftingIntoEmptyPenPricesFeedPerAnimalStage(t 
 	fx.SeedShed(sourceShed, "E2E-SF-SRC", sharedStage)
 	fx.SeedShed(emptyPen, "E2E-SF-EMPTY", sharedStage)
 	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, biztime.DefaultLocation())
-	fx.SeedGoat(GoatSpec{GoatID: adultGoat, ShedID: sourceShed, Stage: "Adult", DOB: &dob, AgeBand: "adult"})
-	fx.SeedGoat(GoatSpec{GoatID: growerGoat, ShedID: sourceShed, Stage: "Grower", DOB: &dob, AgeBand: "adult"})
-	fx.exec("breed for ration grouping",
-		`UPDATE goats SET breed='Beetal' WHERE tenant_id=$1 AND goat_id = ANY($2::uuid[])`,
-		fxTenant, []string{adultGoat, growerGoat})
+	fx.SeedGoat(GoatSpec{GoatID: adultGoat, ShedID: sourceShed, Stage: "Adult", DOB: &dob, AgeBand: "adult", Breed: "Beetal"})
+	fx.SeedGoat(GoatSpec{GoatID: growerGoat, ShedID: sourceShed, Stage: "Grower", DOB: &dob, AgeBand: "adult", Breed: "Beetal"})
 
 	story.Step("The park's active Feed Config prices Adult and Grower differently",
 		"250 g/head of Concentrate for an Adult, 150 g/head for a Grower. Two different numbers is what "+
