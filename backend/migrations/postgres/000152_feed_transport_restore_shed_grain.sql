@@ -28,14 +28,45 @@
 -- completed -- is left exactly as it is: an operator recorded that video, a verifier may have
 -- already judged it, and retiring it would discard real work. Those sheds simply carry both the
 -- surviving pen rows and one new shed row for the day, which is the honest state.
-UPDATE public.feed_transport_tasks
-SET status = 'retired',
-    updated_at = now(),
-    row_version = row_version + 1
-WHERE COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole') <> 'whole'
-  AND status = 'due'
-  AND current_attempt_id IS NULL
-  AND completed_at IS NULL;
+--
+-- This repair is deliberately batched. A single global UPDATE over feed_transport_tasks would scan
+-- and lock all matching historical pen rows across tenants for the whole statement during deploy.
+-- Goose runs this migration with NO TRANSACTION, so the procedure commits each small batch before
+-- selecting the next one.
+CREATE OR REPLACE PROCEDURE public.goatos_retire_unstarted_feed_transport_pen_tasks(batch_size integer DEFAULT 500)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  updated_rows integer;
+BEGIN
+  LOOP
+    WITH candidates AS (
+      SELECT ctid
+      FROM public.feed_transport_tasks
+      WHERE COALESCE(NULLIF(BTRIM(partition_label), ''), 'whole') <> 'whole'
+        AND status = 'due'
+        AND current_attempt_id IS NULL
+        AND completed_at IS NULL
+      ORDER BY tenant_id, business_date, shed_id, task_id
+      LIMIT batch_size
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE public.feed_transport_tasks task
+    SET status = 'retired',
+        updated_at = now(),
+        row_version = row_version + 1
+    FROM candidates
+    WHERE task.ctid = candidates.ctid;
+
+    GET DIAGNOSTICS updated_rows = ROW_COUNT;
+    COMMIT;
+    EXIT WHEN updated_rows = 0;
+  END LOOP;
+END;
+$$;
+
+CALL public.goatos_retire_unstarted_feed_transport_pen_tasks(500);
+DROP PROCEDURE public.goatos_retire_unstarted_feed_transport_pen_tasks(integer);
 
 -- +goose Down
 -- +goose NO TRANSACTION
