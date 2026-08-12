@@ -8,11 +8,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ScanCaptureDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import java.io.IOException
@@ -109,6 +115,69 @@ class SyncRepositoryTest {
         assertEquals(1, status.items.size)
         assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
         assertEquals(1, api.verdictCalls.size)
+    }
+
+    @Test
+    fun `verification review events survive failed upload and retry exactly once`() = runBlocking {
+        val store = FakeOutboxStore()
+        var now = 0L
+        var fail = true
+        var successfulPosts = 0
+        val api = ScriptedAppApi().apply {
+            recordVerificationReviewEventsFn = { request ->
+                if (fail) throw IOException("offline")
+                successfulPosts += 1
+                VerificationReviewEventBatchResponseDto(inserted = request.events.size)
+            }
+        }
+        val engine = SyncEngine(
+            store = store,
+            api = api,
+            connectivityGate = { true },
+            dispatchers = unconfinedDispatchers,
+            clock = { now },
+        )
+        val repo = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { true },
+            appScope = CoroutineScope(Dispatchers.Unconfined),
+            dispatchers = unconfinedDispatchers,
+            clock = { now },
+        )
+        val event = VerificationReviewEventRequestDto(
+            itemId = "item-1",
+            proofId = "proof-1",
+            sessionId = "session-1",
+            eventType = "video_play",
+            occurredAt = "2026-08-12T05:30:00Z",
+            payload = VerificationReviewEventPayloadDto(videoDurationMs = 25_000L),
+            clientEventId = "client-event-1",
+        )
+        val request = VerificationReviewEventBatchRequestDto(events = listOf(event))
+
+        val result = repo.enqueueVerificationReviewEvents(
+            groupKey = "verification-review:item-1",
+            idempotencyKey = "verification-review:${event.clientEventId}",
+            request = request,
+        )
+
+        assertTrue(result is AppResult.Ok)
+        val failedRow = store.snapshot().single()
+        assertEquals(OutboxOpType.VERIFICATION_REVIEW_EVENTS.name, failedRow.opType)
+        assertEquals(OutboxStatus.FAILED.name, failedRow.status)
+        assertEquals(1, api.reviewEventCalls.size)
+        assertEquals(0, successfulPosts)
+
+        fail = false
+        now = 60_000L
+        repo.triggerDrain()
+
+        val syncedRow = store.snapshot().single()
+        assertEquals(OutboxStatus.SUCCEEDED.name, syncedRow.status)
+        assertEquals(2, api.reviewEventCalls.size)
+        assertEquals(1, successfulPosts)
+        assertEquals(listOf(event.clientEventId), api.reviewEventCalls.map { it.events.single().clientEventId }.distinct())
     }
 
     @Test

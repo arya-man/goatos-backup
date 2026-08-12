@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -319,6 +320,7 @@ class VerifyDetailViewModel @Inject constructor(
         payload: VerificationReviewEventPayloadDto = VerificationReviewEventPayloadDto(),
     ) {
         if (targetItemId.isBlank()) return
+        val clientEventId = UUID.randomUUID().toString()
         val event = VerificationReviewEventRequestDto(
             itemId = targetItemId,
             proofId = proofId?.takeIf { it.isNotBlank() },
@@ -326,11 +328,18 @@ class VerifyDetailViewModel @Inject constructor(
             eventType = eventType,
             occurredAt = Instant.now().toString(),
             payload = payload,
-            clientEventId = UUID.randomUUID().toString(),
+            clientEventId = clientEventId,
         )
         viewModelScope.launch {
-            repo.recordReviewEvents(listOf(event)).onFailure { error ->
-                runCatching { crashReporter.recordException(error, "verification review event upload failed") }
+            val result = syncRepo.enqueueVerificationReviewEvents(
+                groupKey = "verification-review:$targetItemId",
+                idempotencyKey = "verification-review:$clientEventId",
+                request = VerificationReviewEventBatchRequestDto(events = listOf(event)),
+            )
+            if (result is AppResult.Err) {
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification review event enqueue failed") }
+                }
             }
         }
     }

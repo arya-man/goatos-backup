@@ -16,6 +16,8 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
@@ -34,6 +36,7 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
     var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
+    var recordVerificationReviewEventsFn: (suspend (VerificationReviewEventBatchRequestDto) -> VerificationReviewEventBatchResponseDto)? = null
     var closeVerificationSubmissionFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var closeVaccinationBatchFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var completeHealthWorkItemFn: (suspend (String, String, HealthCompleteRequestDto) -> HealthCompleteResponseDto)? = null
@@ -51,6 +54,8 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     val closeBatchCalls: MutableList<Pair<String, String>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+    val reviewEventCalls: MutableList<VerificationReviewEventBatchRequestDto> =
+        java.util.concurrent.CopyOnWriteArrayList<VerificationReviewEventBatchRequestDto>()
 
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
      *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
@@ -132,6 +137,14 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         closeBatchCalls += batchId to idempotencyKey
         return closeVaccinationBatchFn?.invoke(batchId, idempotencyKey)
             ?: delegate.closeVaccinationBatch(batchId, idempotencyKey)
+    }
+
+    override suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto {
+        reviewEventCalls += request
+        return recordVerificationReviewEventsFn?.invoke(request)
+            ?: delegate.recordVerificationReviewEvents(request)
     }
 
     override suspend fun completeHealthWorkItem(
