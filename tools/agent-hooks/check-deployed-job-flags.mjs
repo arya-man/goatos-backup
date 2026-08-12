@@ -417,6 +417,10 @@ function diffTfAgainstManifest(tfEntry, manifestEntry) {
   return null;
 }
 
+function argsKey(tokens) {
+  return (tokens || []).join("\u0000");
+}
+
 if (process.argv.includes("--self-test")) {
   selfTest();
   process.exit(0);
@@ -489,27 +493,42 @@ for (const [envName, envDef] of Object.entries(manifest.environments || {})) {
   }
   const tfText = readFileSync(tfAbsPath, "utf8");
   const tfJobs = extractJobs(tfText);
-  const manifestJobsByBinary = new Map((envDef.jobs || []).map((j) => [j.binary, j]));
-  const seenBinaries = new Set();
+  const manifestJobs = envDef.jobs || [];
+  const manifestJobsByBinary = new Map();
+  for (const job of manifestJobs) {
+    if (!manifestJobsByBinary.has(job.binary)) manifestJobsByBinary.set(job.binary, []);
+    manifestJobsByBinary.get(job.binary).push(job);
+  }
+  const seenManifestJobs = new Set();
 
   for (const tfJob of tfJobs) {
-    seenBinaries.add(tfJob.binary);
-    const manifestJob = manifestJobsByBinary.get(tfJob.binary);
-    if (!manifestJob) {
+    const tfArgTokens = argTokensFromArgsRaw(tfJob.argsRaw);
+    const manifestCandidates = manifestJobsByBinary.get(tfJob.binary) || [];
+    if (manifestCandidates.length === 0) {
       allFindings.push(
         `${tfRelPath}: job "${tfJob.binary}" is deployed in Terraform but has no matching entry in deploy/runtime/workers.json environments.${envName}.jobs (manifest drift)`,
       );
       continue;
     }
-    const tfArgTokens = argTokensFromArgsRaw(tfJob.argsRaw);
+
+    const manifestJob =
+      manifestCandidates.find((job) => argsKey(job.args || []) === argsKey(tfArgTokens)) ||
+      (manifestCandidates.length === 1 ? manifestCandidates[0] : null);
+    if (!manifestJob) {
+      allFindings.push(
+        `${tfRelPath}: job "${tfJob.binary}" args [${tfArgTokens.join(" ")}] do not match any deploy/runtime/workers.json environments.${envName}.jobs entry for that binary`,
+      );
+      continue;
+    }
+    seenManifestJobs.add(manifestJob.name);
     const drift = diffTfAgainstManifest({ binary: tfJob.binary, argTokens: tfArgTokens }, manifestJob);
     if (drift) {
       allFindings.push(`${tfRelPath}: ${drift}`);
     }
   }
 
-  for (const manifestJob of envDef.jobs || []) {
-    if (!seenBinaries.has(manifestJob.binary)) {
+  for (const manifestJob of manifestJobs) {
+    if (!seenManifestJobs.has(manifestJob.name)) {
       allFindings.push(
         `deploy/runtime/workers.json: environments.${envName}.jobs entry "${manifestJob.name}" (binary "${manifestJob.binary}") is not deployed anywhere in ${tfRelPath} (stale manifest entry — remove it or redeploy the job)`,
       );

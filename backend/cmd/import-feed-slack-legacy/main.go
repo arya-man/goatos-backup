@@ -132,6 +132,7 @@ func main() {
 		water := proofFor(proofs, rec.Water.FileID)
 		completedBy := members[strings.ToLower(strings.TrimSpace(rec.WeightPhoto.UploaderEmail))]
 		key := "legacy-slack-feed-distribution:" + m.Source.ChannelID + ":" + rec.ThreadTS
+		// scale-guard:ignore: one-time operator-run backfill over the fixed 2026-08-12 Slack manifest (50 rows), not a request path; each completion must pass through the production idempotent command/verifier enqueue path to preserve audit and replay semantics.
 		result, err := feedRepo.CompleteDistribution(ctx, feedportsParams(rec, parkID, sheds[rec.BaseShed], date, weight.ID, dist.ID, water.ID, completedBy, key))
 		if err != nil {
 			log.Fatalf("complete %s session %d: %v", rec.SlackShed, rec.SessionNo, err)
@@ -139,6 +140,7 @@ func main() {
 		// Always repair the deterministic queue item while the completion remains pending. This makes
 		// an interrupted import resumable if the completion committed before verification enqueueing.
 		if result.Status == "pending_verification" {
+			// scale-guard:ignore: one-time operator-run backfill over the fixed 2026-08-12 Slack manifest (50 rows), not a request path; each verification item must be repaired through the production idempotent enqueue bridge so partial imports are replay-safe.
 			if err := enqueuer.EnqueueFeedDistributionVerification(ctx, feeddirectionapp.FeedDistributionVerificationEnqueueRequest{
 				TenantID: tenantID, CompletionID: result.CompletionID, ParkID: parkID, ShedID: sheds[rec.BaseShed],
 				PartitionLabel: rec.PartitionLabel, SessionNo: rec.SessionNo, Workflow: m.Source.Workflow, TargetDate: date,
@@ -326,12 +328,14 @@ func resolveScope(ctx context.Context, pool *pgxpool.Pool, m manifest) (string, 
 			continue
 		}
 		var id string
+		// scale-guard:ignore: one-time bounded Slack manifest validation over distinct physical sheds (single farm, tens at most); not a serving path, and failures must name the exact missing shed.
 		if err := pool.QueryRow(ctx, `SELECT location_id::text FROM locations WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid AND location_type='shed' AND name=$3 AND status='active'`, tenantID, parkID, r.BaseShed).Scan(&id); err != nil {
 			log.Fatalf("resolve shed %s: %v", r.BaseShed, err)
 		}
 		sheds[r.BaseShed] = id
 		if r.PartitionLabel != "" {
 			var exists bool
+			// scale-guard:ignore: one-time bounded Slack manifest validation over distinct partitions in the import file; not a serving path, and the importer must fail closed on the exact invalid partition.
 			if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM shed_partitions WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND status='active' AND lower(btrim(partition_label))=lower(btrim($3)))`, tenantID, id, r.PartitionLabel).Scan(&exists); err != nil || !exists {
 				log.Fatalf("partition missing: %s %s", r.BaseShed, r.PartitionLabel)
 			}
@@ -357,6 +361,7 @@ func validateNoCollisions(ctx context.Context, pool *pgxpool.Pool, m manifest, p
 	replays := 0
 	for _, r := range m.Records {
 		var existingKey string
+		// scale-guard:ignore: dry-run/replay audit over the fixed 50-row legacy Slack manifest; not a serving path, and each natural-key collision must fail with the exact source row.
 		err := pool.QueryRow(ctx, `SELECT idempotency_key FROM feed_distribution_completions WHERE tenant_id=$1::uuid AND park_id=$2::uuid AND shed_id=$3::uuid AND partition_key=CASE WHEN btrim($4)='' THEN 'whole' ELSE lower(btrim($4)) END AND session_no=$5 AND target_date=$6::date AND workflow=$7`, tenantID, parkID, sheds[r.BaseShed], r.PartitionLabel, r.SessionNo, m.Source.BusinessDate, m.Source.Workflow).Scan(&existingKey)
 		if err != nil && err != pgx.ErrNoRows {
 			log.Fatal(err)
@@ -382,12 +387,14 @@ func insertProofs(ctx context.Context, pool *pgxpool.Pool, proofs map[string]pre
 	for _, p := range proofs {
 		meta, _ := json.Marshal(map[string]any{"capture_source": "legacy_slack_import", "source_system": "slack", "slack_channel_id": channelID, "slack_file_id": p.File.FileID, "slack_file_name": p.File.FileName, "slack_uploader_id": p.File.UploaderSlackID, "slack_uploader_name": p.File.UploaderName, "slack_uploader_email": p.File.UploaderEmail, "slack_uploaded_at": p.File.UploadedAt})
 		uploadedBy := members[strings.ToLower(strings.TrimSpace(p.File.UploaderEmail))]
+		// scale-guard:ignore: one-time proof metadata backfill over the fixed legacy Slack manifest (three proofs per completion, 150 rows max), inside one transaction and never on a request path.
 		tag, err := tx.Exec(ctx, `INSERT INTO proof_artifacts(proof_id,tenant_id,storage_provider,object_key,content_hash,mime_type,size_bytes,upload_state,scope_type,scope_id,subject_type,subject_id,proof_type,uploaded_by,metadata,uploaded_at,idempotency_key,request_fingerprint,retention_policy) VALUES($1::uuid,$2::uuid,'gcs',$3,$4,$5,$6,'completed','tenant',$2::uuid,'other',NULL,$7,nullif($8,'')::uuid,$9::jsonb,$10,$11,$4,'standard_1y') ON CONFLICT (tenant_id,idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`, p.ID, tenantID, p.ObjectKey, "sha256:"+p.Hash, p.File.MimeType, p.Size, proofType(p.File.MimeType), uploadedBy, string(meta), parseSlackTime(p.File.UploadedAt), "legacy-slack-proof:"+p.File.FileID)
 		if err != nil {
 			log.Fatal(err)
 		}
 		if tag.RowsAffected() == 0 {
 			var hash, key string
+			// scale-guard:ignore: one-time replay-conflict check over legacy proof rows inside the importer transaction; only runs for ON CONFLICT rows in the fixed Slack manifest and must fail with the exact bad proof id.
 			if err := tx.QueryRow(ctx, `SELECT content_hash,object_key FROM proof_artifacts WHERE tenant_id=$1::uuid AND idempotency_key=$2`, tenantID, "legacy-slack-proof:"+p.File.FileID).Scan(&hash, &key); err != nil || hash != "sha256:"+p.Hash || key != p.ObjectKey {
 				log.Fatalf("proof replay conflict %s", p.File.FileID)
 			}
