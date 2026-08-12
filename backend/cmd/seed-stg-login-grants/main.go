@@ -61,10 +61,14 @@ import (
 // 2026-07-22), and RoleOperator already holds ProtocolRead/FeedPackingRead for
 // those two Feed tabs. Omitting feed_direction here is what left STG-seeded
 // operators without the Feed module while local (roster-seeded) operators had it.
-// "milk" accompanies counts for the same reason: Milk Preparation and Milk Feeding
-// moved into their own drawer module (maintainer decision 2026-07-31), so a grant set
-// carrying counts but not milk loses those two daily pages.
-var defaultVaccinationModules = []string{"vaccination", "counts", "milk", "feed_direction"}
+// NO "milk" and NO "aas_health" (maintainer decision 2026-08-05): a PC seat's bar is
+// Vaccination + Counts + Feed. This list previously carried "milk" and was left behind
+// when seed-roster-real and migration 000110 dropped it, which mattered because
+// grantDepartmentModules re-activates every key it is given
+// (ON CONFLICT DO UPDATE SET status='active') -- so the next run of this command on STG
+// would have silently REVERSED that migration. A seed command must never undo a landed
+// decision. The retired counts-implies-milk coupling is not a reason to add it back.
+var defaultVaccinationModules = []string{"vaccination", "counts", "feed_direction"}
 
 var departmentCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 

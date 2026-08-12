@@ -97,19 +97,19 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-20 18:58:06 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-08-12 15:01:00 UTC &middot; backend/tests/e2e</p>
 
   <p class="subtitle">Related reports in this category:
     <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
     &mdash; 14-bug handoff closure, capacity/lifecycle E2E audit, false-DOB disposition, P0 shed-move fix.</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">6</span>stories</div>
-    <div class="tile pass"><span class="n">6</span>stories passed</div>
-    <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">58</span>assertions checked</div>
-    <div class="tile pass"><span class="n">0</span>assertions failed</div>
-    <div class="tile pass"><span class="n">6/6</span>certification surfaces declared</div>
+    <div class="tile"><span class="n">1</span>stories</div>
+    <div class="tile pass"><span class="n">0</span>stories passed</div>
+    <div class="tile fail"><span class="n">1</span>stories failed</div>
+    <div class="tile"><span class="n">11</span>assertions checked</div>
+    <div class="tile fail"><span class="n">5</span>assertions failed</div>
+    <div class="tile pass"><span class="n">1/1</span>certification surfaces declared</div>
   </div>
 
   <section class="boundary">
@@ -133,29 +133,41 @@
   </section>
 
 
-  <section class="story pass">
-    <h2>Shifting completion hands off to vaccination: move &#43; reclassify &#43; re-scope &#43; recheck <span class="badge pass">PASS</span></h2>
+  <section class="story fail">
+    <h2>Feed Transport is one task per shed, never one per pen <span class="badge fail">FAIL</span></h2>
     <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">An approved goat shifting is COMPLETED. The completion atomically moves the animal into the destination shed, adopts that shed&#39;s CONFIGURED operational cohort (from shed_profiles, not residents), and emits one goat.location.changed and one goat.stage_changed in the same transaction. The obligation GoatShiftedHandler then re-scopes the animal&#39;s open vaccination obligation to the new shed, and the vaccination GoatRecheckHandler re-runs eligibility for the new cohort so a stage-scoped protocol that did not match in the old shed now issues work in the new one. A move into a shed with no configured profile fails closed and moves nothing.</p>
+    <p class="narrative">A shed&#39;s pens are packed as separate bags and fed separately, but the feed for all of them is LOADED AND STAGED as one trip. Feed Transport is therefore one daily task, one video and one verifier review per physical shed, no matter how many pens the shed is divided into.</p>
 
     <div class="step">
-      <h3>A K1 goat in the source shed has one open, shed-scoped vaccination obligation</h3>
-      <p class="narrative">The real generator (goat.created) issues the generic dose scoped shed=source. The K2-only protocol issues nothing because the animal resolves as K1 in the source shed.</p>
+      <h3>A park with one partitioned shed and one undivided shed</h3>
+      <p class="narrative">The partitioned shed carries three ACTIVE pens in the shed_partitions catalog. Under the per-pen grain this shed alone produced three transport tasks for one day.</p>
+
+    </div>
+
+    <div class="step">
+      <h3>The scheduler materializes the day&#39;s transport work</h3>
+      <p class="narrative">MaterializeTransportTasks is the production call. It runs twice here on purpose: overlapping workers and retries are normal, and the daily shed key must absorb them.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
-          <tr class="ok">
-            <td>one open dose scoped to the source shed</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
+          <tr class="bad">
+            <td>the three-pen shed produced exactly ONE transport task</td>
+            <td>FAIL</td>
+            <td class="detail">tasks=3 (a per-pen grain would produce 3)</td>
           </tr>
 
           <tr class="ok">
-            <td>K2-only protocol issued nothing for the K1 animal yet</td>
+            <td>the undivided shed produced exactly one too</td>
             <td>PASS</td>
-            <td class="detail">count=1</td>
+            <td class="detail">tasks=1</td>
+          </tr>
+
+          <tr class="bad">
+            <td>the task names no pen</td>
+            <td>FAIL</td>
+            <td class="detail">partition_label=&#34;1&#34;</td>
           </tr>
 
         </tbody>
@@ -164,590 +176,72 @@
     </div>
 
     <div class="step">
-      <h3>Complete the approved shifting: the real producer moves &#43; reclassifies the animal</h3>
-      <p class="narrative">counts.CompleteShiftingEvent runs identity.RelocateGoatsToShedInTx, which moves the animal, adopts the destination shed&#39;s configured K2 cohort, and emits the location &#43; stage event pair.</p>
+      <h3>The operator&#39;s list and its shed filter agree with that grain</h3>
+      <p class="narrative">ListTransportTasks serves the phone. The row must read as the bare shed, and the filter vocabulary must offer the shed ONCE — it previously listed the same shed once per pen, keyed by an opaque &lt;shed&gt;\x1f&lt;pen&gt; composite the operator could not tell apart.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="bad">
+            <td>the list shows the partitioned shed once</td>
+            <td>FAIL</td>
+            <td class="detail">rows=3</td>
+          </tr>
+
+          <tr class="bad">
+            <td>and names it by the bare shed, with no pen suffix</td>
+            <td>FAIL</td>
+            <td class="detail">display=&#34;E2E-FT-PART - 1&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the filter option is keyed by the plain shed UUID, not a pen composite</td>
+            <td>PASS</td>
+            <td class="detail">partition_label=&#34;&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the shed filter offers that shed exactly once</td>
+            <td>PASS</td>
+            <td class="detail">options=1</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>One submitted video reaches the verifier as ONE review item</h3>
+      <p class="narrative">The service is wired exactly as bootstrap/api.go wires it: SubmitTransport appends the proof attempt and the transport bridge creates the verification item. This is the hop that made the per-pen grain expensive — ten pens meant ten clips of one load sitting in the queue.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>completion succeeded</td>
+            <td>the operator&#39;s submit succeeded</td>
             <td>PASS</td>
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
-            <td>completion is a fresh execution (not a replay)</td>
+            <td>the task is awaiting verification</td>
             <td>PASS</td>
-            <td class="detail">replayed=false</td>
+            <td class="detail">status=verification_due</td>
           </tr>
 
           <tr class="ok">
-            <td>completion applied the movement</td>
+            <td>the verifier receives exactly ONE feed-transport item for the three-pen shed</td>
             <td>PASS</td>
-            <td class="detail">status=applied</td>
+            <td class="detail">verification_items=1 (a per-pen grain would queue 3 clips of one trip)</td>
           </tr>
 
-          <tr class="ok">
-            <td>the mover is the relocated animal</td>
-            <td>PASS</td>
-            <td class="detail">moved=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>animal is now in the destination shed</td>
-            <td>PASS</td>
-            <td class="detail">shed_id=5f000000-0000-4000-8000-000000000002</td>
-          </tr>
-
-          <tr class="ok">
-            <td>animal adopted the destination shed&#39;s configured cohort (management_stage=K2)</td>
-            <td>PASS</td>
-            <td class="detail">management_stage=K2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>one goat.location.changed identity event</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>one goat.location.changed outbox message</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>one goat.stage_changed identity event</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>one goat.stage_changed outbox message</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>goat.location.changed payload scope_id is the destination shed</td>
-            <td>PASS</td>
-            <td class="detail">scope_id=5f000000-0000-4000-8000-000000000002</td>
-          </tr>
-
-          <tr class="ok">
-            <td>before the consumer runs, the open obligation is still scoped to the source shed</td>
-            <td>PASS</td>
-            <td class="detail">scope_id=5f000000-0000-4000-8000-000000000001</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>The producer&#39;s own events drive the production consumers</h3>
-      <p class="narrative">Read the exact goat.location.changed and goat.stage_changed business payloads the completion wrote to the outbox, and deliver them to the EXACT handler types registered in domainconsumer/wiring.BuildDomainBus: obligation.GoatShiftedHandler and vaccination.GoatRecheckHandler. (FINDING: the completion producer emits an envelope with an empty trace_id, which the domain-event-envelope schema rejects at minLength 1, so the durable relay/consumer TRANSPORT currently drops these two events; the completion command carries a TraceID field that RelocateGoatsToShedInTx never threads into the outbox envelope. Driving the registered handler types with the producer&#39;s own business payload proves the handoff logic while that producer defect is fixed separately.)</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>GoatShiftedHandler consumed goat.location.changed without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>GoatRecheckHandler consumed goat.location.changed without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>GoatRecheckHandler consumed goat.stage_changed without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>GoatShiftedHandler re-scoped the open obligation to the new shed</h3>
-      <p class="narrative">The moved animal&#39;s open, shed-scoped obligation now belongs to the destination shed&#39;s drive; the old shed no longer counts it, and the re-scope wrote its audit &#43; watermark.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>obligation re-scoped to the destination shed (scope_id)</td>
-            <td>PASS</td>
-            <td class="detail">scope_id=5f000000-0000-4000-8000-000000000002</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the dose is still open, only re-scoped</td>
-            <td>PASS</td>
-            <td class="detail">status=scheduled</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the source shed&#39;s drive no longer counts the animal</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>exactly one &#39;rescoped&#39; status event (uniquely written by GoatShiftedHandler)</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the shift watermark advanced for the animal</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>GoatRecheckHandler re-ran eligibility for the new cohort</h3>
-      <p class="narrative">Now that the animal resolves as K2 in the destination shed, the K2-only protocol becomes eligible, so the recheck ISSUES its dose in the destination shed — an obligation that could not exist before the move.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>the animal now carries two open doses (generic re-scoped &#43; K2 recheck-issued)</td>
-            <td>PASS</td>
-            <td class="detail">count=2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the K2-only protocol issued its dose in the destination shed via the recheck</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Both production handlers are idempotent under redelivery</h3>
-      <p class="narrative">Re-deliver the same events to the same registered handler types; a re-scope watermark no-op and an idempotent re-generation must add nothing.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>GoatShiftedHandler redelivery ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>GoatRecheckHandler redelivery ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>redelivery added no new &#39;rescoped&#39; event</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>redelivery issued no duplicate dose</td>
-            <td>PASS</td>
-            <td class="detail">count=2</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>A move into a shed with NO configured profile fails closed</h3>
-      <p class="narrative">The destination cohort is authoritative config; a shed with no active shed_profiles row has no authority to assign a cohort, so the completion aborts and moves nothing.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion fails closed with ErrDestinationProfileMissing</td>
-            <td>PASS</td>
-            <td class="detail">err=identity relocate: destination shed has no active configured operational profile</td>
-          </tr>
-
-          <tr class="ok">
-            <td>nothing moved: the animal stays in the source shed</td>
-            <td>PASS</td>
-            <td class="detail">shed_id=5f000000-0000-4000-8000-000000000001</td>
-          </tr>
-
-          <tr class="ok">
-            <td>no location/stage events were written for the un-moved animal</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-  </section>
-
-  <section class="story pass">
-    <h2>Cross-cohort shifting persists the destination profile snapshot on goat.stage_changed <span class="badge pass">PASS</span></h2>
-    <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">A K1 goat is moved into an empty K2 shed. The completion&#39;s goat.stage_changed outbox payload must carry destination_profile_id = the destination shed and destination_profile_row_version &gt;= 1 -- the snapshot of the shed_profiles row that authorised the K2 cohort.</p>
-
-    <div class="step">
-      <h3>Complete an approved K1-&gt;K2 shifting</h3>
-      <p class="narrative">The real producer moves the animal and adopts the destination shed&#39;s configured K2 cohort.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion succeeded</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>completion is a fresh execution</td>
-            <td>PASS</td>
-            <td class="detail">replayed=false</td>
-          </tr>
-
-          <tr class="ok">
-            <td>completion applied the movement</td>
-            <td>PASS</td>
-            <td class="detail">status=applied</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>The goat.stage_changed payload carries the destination profile snapshot</h3>
-      <p class="narrative">destination_profile_id is the destination shed&#39;s profile (its location_id), and destination_profile_row_version snapshots that shed_profiles row version.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>destination_profile_id is the destination shed</td>
-            <td>PASS</td>
-            <td class="detail">destination_profile_id=51000000-0000-4000-8000-000000000002</td>
-          </tr>
-
-          <tr class="ok">
-            <td>destination_profile_row_version parses to an int</td>
-            <td>PASS</td>
-            <td class="detail">raw=&#34;1&#34; err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>destination_profile_row_version &gt;= 1</td>
-            <td>PASS</td>
-            <td class="detail">row_version=1</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-  </section>
-
-  <section class="story pass">
-    <h2>A same-cohort shed move emits location but not stage <span class="badge pass">PASS</span></h2>
-    <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">Two DIFFERENT sheds are both configured K2. A K2 goat moving between them relocates (one goat.location.changed) but its management_stage is unchanged, so ZERO goat.stage_changed is written.</p>
-
-    <div class="step">
-      <h3>Complete an approved K2-&gt;K2 shifting</h3>
-      <p class="narrative">The animal relocates from shed A to shed B; both are the K2 cohort, so no stage transition.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion succeeded</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>completion applied the movement</td>
-            <td>PASS</td>
-            <td class="detail">status=applied</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Exactly one location event and zero stage events</h3>
-      <p class="narrative">management_stage is unchanged (K2-&gt;K2), so the stage-change writer emits nothing.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>animal is now in shed B</td>
-            <td>PASS</td>
-            <td class="detail">shed_id=52000000-0000-4000-8000-000000000002</td>
-          </tr>
-
-          <tr class="ok">
-            <td>management_stage is still K2</td>
-            <td>PASS</td>
-            <td class="detail">management_stage=K2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>exactly one goat.location.changed outbox message</td>
-            <td>PASS</td>
-            <td class="detail">count=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>zero goat.stage_changed outbox messages</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>zero goat.stage_changed identity events</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-  </section>
-
-  <section class="story pass">
-    <h2>A move into a clinical-cohort shed fails closed <span class="badge pass">PASS</span></h2>
-    <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">The destination shed is configured &#39;icu&#39;. Movement must never invent clinical truth, so the completion returns ErrClinicalDestinationTag, the animal stays in the source shed, and no location/stage events are written.</p>
-
-    <div class="step">
-      <h3>Complete an approved move into the icu-configured shed</h3>
-      <p class="narrative">The resolved destination cohort is clinical, so the relocation aborts.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion fails closed with ErrClinicalDestinationTag</td>
-            <td>PASS</td>
-            <td class="detail">err=identity relocate: destination cohort is a clinical state that a shed move must not fabricate</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Nothing moved and no events were written</h3>
-      <p class="narrative">The animal stays in the source shed; the transaction rolled back with no side effects.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>animal stays in the source shed</td>
-            <td>PASS</td>
-            <td class="detail">shed_id=53000000-0000-4000-8000-000000000001</td>
-          </tr>
-
-          <tr class="ok">
-            <td>no location/stage identity events written</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>no location/stage outbox messages written</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-  </section>
-
-  <section class="story pass">
-    <h2>A destination-tag conflict fails closed <span class="badge pass">PASS</span></h2>
-    <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">The destination shed is configured K2, but completion supplies tag=K3. A shed cannot hold two cohorts, so the completion returns ErrDestinationTagConflict and nothing moves.</p>
-
-    <div class="step">
-      <h3>Complete the move with a conflicting operator tag (K3 vs configured K2)</h3>
-      <p class="narrative">The supplied tag is a request that must AGREE with the configured profile; it can never override it.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion fails closed with ErrDestinationTagConflict</td>
-            <td>PASS</td>
-            <td class="detail">err=identity relocate: supplied destination management_stage disagrees with the occupied destination shed&#39;s cohort</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Nothing moved</h3>
-      <p class="narrative">The animal stays in the source shed with its original cohort.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>animal stays in the source shed</td>
-            <td>PASS</td>
-            <td class="detail">shed_id=54000000-0000-4000-8000-000000000001</td>
-          </tr>
-
-          <tr class="ok">
-            <td>management_stage unchanged (still K1)</td>
-            <td>PASS</td>
-            <td class="detail">management_stage=K1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>no location/stage identity events written</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-  </section>
-
-  <section class="story pass">
-    <h2>One shifting moves two same-cohort animals into the destination shed <span class="badge pass">PASS</span></h2>
-    <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">Two K1 movers are relocated to one K2 shed in a single approved shifting. Both end up in the destination shed at management_stage K2, with exactly 2 goat.location.changed and 2 goat.stage_changed outbox rows (one per animal), and result.MovedGoatIDs has 2.</p>
-
-    <div class="step">
-      <h3>Complete one approved shifting carrying both animals</h3>
-      <p class="narrative">recordAndApproveShifting sets head_count = len(goatIDs) = 2; the completion moves both in one transaction.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>completion succeeded</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>completion applied the movement</td>
-            <td>PASS</td>
-            <td class="detail">status=applied</td>
-          </tr>
-
-          <tr class="ok">
-            <td>both animals relocated (MovedGoatIDs has 2)</td>
-            <td>PASS</td>
-            <td class="detail">moved=2</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Both animals are in the destination shed at K2</h3>
-      <p class="narrative">Each mover adopted the destination shed&#39;s configured cohort.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>both animals are in the destination shed at management_stage K2</td>
-            <td>PASS</td>
-            <td class="detail">count=2</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Exactly two location events and two stage events (one per animal)</h3>
-      <p class="narrative">The set-based relocation emits a per-animal event pair, not a single batch event.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>exactly 2 goat.location.changed outbox rows</td>
-            <td>PASS</td>
-            <td class="detail">count=2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>exactly 2 goat.stage_changed outbox rows</td>
-            <td>PASS</td>
-            <td class="detail">count=2</td>
+          <tr class="bad">
+            <td>and that item names no pen either</td>
+            <td>FAIL</td>
+            <td class="detail">partition_label=&#34;1&#34;</td>
           </tr>
 
         </tbody>

@@ -1,0 +1,1926 @@
+{
+  "version": 1,
+  "source": {
+    "kind": "legacy_slack_feed_distribution",
+    "channel_id": "C0AD56LEGGN",
+    "channel_name": "cbe-feed-distribution-channel",
+    "business_date": "2026-08-12",
+    "park_name": "Coimbatore",
+    "workflow": "normal",
+    "import_mode": "pending_verification",
+    "approved_scope": "50 complete legacy evidence sets only"
+  },
+  "records": [
+    {
+      "thread_ts": "1786499720.651169",
+      "slack_shed": "Godel 1 - Part 7",
+      "base_shed": "Godel 1",
+      "partition_label": "Part 7",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091625.jpg",
+        "file_id": "F0BPMP3CXC2",
+        "mime_type": "image/jpeg",
+        "size_label": "126.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:16:38 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_113830.mp4",
+        "file_id": "F0BPLET8TUN",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:39:37 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_124056.mp4",
+        "file_id": "F0BQH5C8G3S",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:41:42 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499735.275489",
+      "slack_shed": "Godel 2 - Part 1",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 1",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_092214.jpg",
+        "file_id": "F0BP6D9LCP9",
+        "mime_type": "image/jpeg",
+        "size_label": "71.1 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:22:24 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_110147.mp4",
+        "file_id": "F0BPN7PPKMG",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:02:24 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163758.mp4",
+        "file_id": "F0BPNC62GUW",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:38:54 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499750.511709",
+      "slack_shed": "Godel 2 - Part 2",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 2",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_092236.jpg",
+        "file_id": "F0BPREZ9QPN",
+        "mime_type": "image/jpeg",
+        "size_label": "78.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:22:45 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_110202.mp4",
+        "file_id": "F0BPL94PDLN",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:02:40 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163758.mp4",
+        "file_id": "F0BPU1WD0H2",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:39:04 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499789.971539",
+      "slack_shed": "Godel 2 - Part 6",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 6",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_092258.jpg",
+        "file_id": "F0BPRF021C4",
+        "mime_type": "image/jpeg",
+        "size_label": "93.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:23:07 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_110404.mp4",
+        "file_id": "F0BP6T050JK",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:05:15 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163616.mp4",
+        "file_id": "F0BPJ4R6QUT",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:41:49 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499802.574409",
+      "slack_shed": "Godel 2 - Part 7",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 7",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_092318.jpg",
+        "file_id": "F0BPRF1QHRS",
+        "mime_type": "image/jpeg",
+        "size_label": "90.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:23:27 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_110423.mp4",
+        "file_id": "F0BP6SZUAF9",
+        "mime_type": "video/mp4",
+        "size_label": "2.1 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:05:25 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163559.mp4",
+        "file_id": "F0BP90QVAP9",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:42:02 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499815.785499",
+      "slack_shed": "Godel 2 - Part 8",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 8",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_092339.jpg",
+        "file_id": "F0BPRF0D3GU",
+        "mime_type": "image/jpeg",
+        "size_label": "109.9 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:23:49 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_110451.mp4",
+        "file_id": "F0BP6T0M00P",
+        "mime_type": "video/mp4",
+        "size_label": "2.0 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:05:33 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163541.mp4",
+        "file_id": "F0BQJN04P88",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:42:15 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499397.315169",
+      "slack_shed": "Mandela 1 - Part 3",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 3",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091300.jpg",
+        "file_id": "F0BPKQ6T7CN",
+        "mime_type": "image/jpeg",
+        "size_label": "130.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:13:10 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_102746.mp4",
+        "file_id": "F0BPRPFEE04",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:29:12 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115715.mp4",
+        "file_id": "F0BPK02PEE9",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 11:57:52 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499410.734239",
+      "slack_shed": "Mandela 1 - Part 4",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 4",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091236.jpg",
+        "file_id": "F0BP6C655P1",
+        "mime_type": "image/jpeg",
+        "size_label": "169.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:12:48 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_102730.mp4",
+        "file_id": "F0BPL4CLC14",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:29:04 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115744.mp4",
+        "file_id": "F0BPQF3A81F",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 11:58:12 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499424.899209",
+      "slack_shed": "Mandela 1 - Part 5",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 5",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091217.jpg",
+        "file_id": "F0BQG41LM7A",
+        "mime_type": "image/jpeg",
+        "size_label": "175.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:12:26 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_102711.mp4",
+        "file_id": "F0BPFRSRZH9",
+        "mime_type": "video/mp4",
+        "size_label": "2.2 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:28:56 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115803.mp4",
+        "file_id": "F0BQGT3A9B2",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 11:58:29 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499437.794789",
+      "slack_shed": "Mandela 1 - Part 6",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 6",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091157.jpg",
+        "file_id": "F0BPKQ32Q94",
+        "mime_type": "image/jpeg",
+        "size_label": "150.1 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:12:08 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_102702.mp4",
+        "file_id": "F0BPFRS5BV1",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:28:46 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115822.mp4",
+        "file_id": "F0BP75U6F1D",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 11:58:49 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499450.860779",
+      "slack_shed": "Mandela 1 - Part 7",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 7",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091136.jpg",
+        "file_id": "F0BPMNK35GA",
+        "mime_type": "image/jpeg",
+        "size_label": "155.2 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:11:47 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_102653.mp4",
+        "file_id": "F0BPL49HK3Q",
+        "mime_type": "video/mp4",
+        "size_label": "2.0 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:28:32 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115842.mp4",
+        "file_id": "F0BP75UT287",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 11:59:02 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499464.339489",
+      "slack_shed": "Mandela 2 - Part 1",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 1",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091007.jpg",
+        "file_id": "F0BPKPUUBCN",
+        "mime_type": "image/jpeg",
+        "size_label": "116.1 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:10:18 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103748.mp4",
+        "file_id": "F0BPL5U17U6",
+        "mime_type": "video/mp4",
+        "size_label": "2.0 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:38:29 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120006.mp4",
+        "file_id": "F0BP764H8EB",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:00:27 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499493.256479",
+      "slack_shed": "Mandela 2 - Part 2",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 2",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090944.jpg",
+        "file_id": "F0BQG3R7ZK2",
+        "mime_type": "image/jpeg",
+        "size_label": "128.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:09:55 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103731.mp4",
+        "file_id": "F0BP6P79KAT",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:38:15 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120020.mp4",
+        "file_id": "F0BPNGQELN6",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:00:48 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499522.161679",
+      "slack_shed": "Mandela 2 - Part 3",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 3",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090920.jpg",
+        "file_id": "F0BPJ6627PX",
+        "mime_type": "image/jpeg",
+        "size_label": "130.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:09:32 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103649.mp4",
+        "file_id": "F0BPQ329YKT",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:37:32 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120039.mp4",
+        "file_id": "F0BPLJ9A86A",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:01:07 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499548.353079",
+      "slack_shed": "Mandela 2 - Part 4",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 4",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090855.jpg",
+        "file_id": "F0BPKPRAWT0",
+        "mime_type": "image/jpeg",
+        "size_label": "136.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:09:09 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103631.mp4",
+        "file_id": "F0BPJHH3M8V",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:37:26 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120100.mp4",
+        "file_id": "F0BPK0T4CDB",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:01:30 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499560.453619",
+      "slack_shed": "Mandela 2 - Part 5",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 5",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090831.jpg",
+        "file_id": "F0BP6BQT3N3",
+        "mime_type": "image/jpeg",
+        "size_label": "152.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:08:44 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103616.mp4",
+        "file_id": "F0BPFT3LYD9",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:37:15 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120119.mp4",
+        "file_id": "F0BPLJF4TML",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:01:48 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499574.622859",
+      "slack_shed": "Mandela 2 - Part 6",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 6",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090806.jpg",
+        "file_id": "F0BP6BN4Y23",
+        "mime_type": "image/jpeg",
+        "size_label": "133.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:08:17 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103539.mp4",
+        "file_id": "F0BPFSYQUBV",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:36:52 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120135.mp4",
+        "file_id": "F0BQGTTSBCG",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:02:06 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499586.876439",
+      "slack_shed": "Mandela 2 - Part 7",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 7",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090740.jpg",
+        "file_id": "F0BPPLZ9W01",
+        "mime_type": "image/jpeg",
+        "size_label": "120.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:07:52 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103523.mp4",
+        "file_id": "F0BPN40R97U",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:36:13 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120154.mp4",
+        "file_id": "F0BQGTWNQ7J",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:02:29 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499613.499849",
+      "slack_shed": "Mandela 2 - Part 8",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 8",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_090714.jpg",
+        "file_id": "F0BQG3GGP16",
+        "mime_type": "image/jpeg",
+        "size_label": "131.2 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:07:29 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_103516.mp4",
+        "file_id": "F0BP6NWL80P",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:36:11 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_120216.mp4",
+        "file_id": "F0BPLJKSJH4",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 12:02:43 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499367.794789",
+      "slack_shed": "Q2",
+      "base_shed": "Q2",
+      "partition_label": "",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_091354.jpg",
+        "file_id": "F0BP6CA63V5",
+        "mime_type": "image/jpeg",
+        "size_label": "145.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 09:14:07 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_114712.mp4",
+        "file_id": "F0BPLGU72RL",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:52:45 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_115027.mp4",
+        "file_id": "F0BPLGU2YNA",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 11:52:45 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499127.652949",
+      "slack_shed": "Yashoda 10",
+      "base_shed": "Yashoda",
+      "partition_label": "10",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_100527.jpg",
+        "file_id": "F0BPPU7K4UR",
+        "mime_type": "image/jpeg",
+        "size_label": "120.2 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:05:41 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_091227.mp4",
+        "file_id": "F0BPMNM0BMG",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 09:12:40 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_100556.mp4",
+        "file_id": "F0BP6JXKC07",
+        "mime_type": "video/mp4",
+        "size_label": "2.4 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:06:38 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499068.436599",
+      "slack_shed": "Yashoda 6",
+      "base_shed": "Yashoda",
+      "partition_label": "6",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_100406.jpg",
+        "file_id": "F0BQGALR140",
+        "mime_type": "image/jpeg",
+        "size_label": "115.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:04:16 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_091417.mp4",
+        "file_id": "F0BPMNR5S6N",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 09:14:29 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_100706.mp4",
+        "file_id": "F0BPJDHPME1",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:07:41 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499084.781699",
+      "slack_shed": "Yashoda 7",
+      "base_shed": "Yashoda",
+      "partition_label": "7",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_100424.jpg",
+        "file_id": "F0BPFNSCXQT",
+        "mime_type": "image/jpeg",
+        "size_label": "107.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:04:34 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_091543.mp4",
+        "file_id": "F0BPKQJ1K2A",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 09:16:24 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_100658.mp4",
+        "file_id": "F0BPL1P5EGN",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:07:28 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499099.059839",
+      "slack_shed": "Yashoda 8",
+      "base_shed": "Yashoda",
+      "partition_label": "8",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_100444.jpg",
+        "file_id": "F0BP6JRLDL7",
+        "mime_type": "image/jpeg",
+        "size_label": "111.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:04:53 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_091257.mp4",
+        "file_id": "F0BQG44A8Q0",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 09:13:42 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_100627.mp4",
+        "file_id": "F0BPN049KFC",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:07:17 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786499112.613869",
+      "slack_shed": "Yashoda 9",
+      "base_shed": "Yashoda",
+      "partition_label": "9",
+      "session_no": 1,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_100504.jpg",
+        "file_id": "F0BPRLGFYR2",
+        "mime_type": "image/jpeg",
+        "size_label": "121.1 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:05:16 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_091242.mp4",
+        "file_id": "F0BPMNP9UHG",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 09:13:04 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_100621.mp4",
+        "file_id": "F0BP6K03ZTR",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 10:06:52 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520621.207919",
+      "slack_shed": "Godel 1 - Part 7",
+      "base_shed": "Godel 1",
+      "partition_label": "Part 7",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150308.jpg",
+        "file_id": "F0BPHGA5V2P",
+        "mime_type": "image/jpeg",
+        "size_label": "162.2 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:03:20 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_155914.mp4",
+        "file_id": "F0BP8QUNYPR",
+        "mime_type": "video/mp4",
+        "size_label": "2.1 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:11:34 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_164303.mp4",
+        "file_id": "F0BPLQR218V",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:43:28 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520631.679749",
+      "slack_shed": "Godel 2 - Part 1",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 1",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_145615.jpg",
+        "file_id": "F0BPL593BFF",
+        "mime_type": "image/jpeg",
+        "size_label": "171.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:56:25 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_160853.mp4",
+        "file_id": "F0BPHUXDZCK",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:11:49 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163758.mp4",
+        "file_id": "F0BPJ456CQ3",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:38:18 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520642.326189",
+      "slack_shed": "Godel 2 - Part 2",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 2",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_145552.jpg",
+        "file_id": "F0BPL573CF7",
+        "mime_type": "image/jpeg",
+        "size_label": "124.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:56:03 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_160902.mp4",
+        "file_id": "F0BPLK82M7F",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:11:57 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163737.mp4",
+        "file_id": "F0BPQAL64QJ",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:38:05 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520674.362589",
+      "slack_shed": "Godel 2 - Part 6",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 6",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_145400.jpg",
+        "file_id": "F0BPMNGLM1U",
+        "mime_type": "image/jpeg",
+        "size_label": "171.5 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:54:40 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_161326.mp4",
+        "file_id": "F0BPTSWM5PW",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:14:21 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163616.mp4",
+        "file_id": "F0BPU1GGP7W",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:36:42 IST"
+      },
+      "ignored_extra_files": [
+        {
+          "file_name": "TimeVideo_20260812_163616.mp4",
+          "file_id": "F0BPNCJAV3Q",
+          "mime_type": "video/mp4",
+          "size_label": "1.4 MB",
+          "uploader_slack_id": "U0AT30SED1P",
+          "uploader_name": "Arun kumar",
+          "uploader_email": "arunk657179@gmail.com",
+          "uploaded_at": "2026-08-12 16:41:08 IST"
+        }
+      ]
+    },
+    {
+      "thread_ts": "1786520685.218519",
+      "slack_shed": "Godel 2 - Part 7",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 7",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_145338.jpg",
+        "file_id": "F0BPTC2BUCC",
+        "mime_type": "image/jpeg",
+        "size_label": "165.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:53:48 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_161357.mp4",
+        "file_id": "F0BPQ6DJHMY",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:14:33 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163559.mp4",
+        "file_id": "F0BP8V63XJB",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:36:22 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520696.152689",
+      "slack_shed": "Godel 2 - Part 8",
+      "base_shed": "Godel 2",
+      "partition_label": "Part 8",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_145314.jpg",
+        "file_id": "F0BPPLUV5SN",
+        "mime_type": "image/jpeg",
+        "size_label": "167.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:53:25 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_161447.mp4",
+        "file_id": "F0BQJH84PJ4",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:15:07 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_163541.mp4",
+        "file_id": "F0BPQA6F090",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:36:06 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520352.957129",
+      "slack_shed": "Mandela 1 - Part 3",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 3",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_151011.jpg",
+        "file_id": "F0BPHHP7FU3",
+        "mime_type": "image/jpeg",
+        "size_label": "122.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:10:22 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_152539.mp4",
+        "file_id": "F0BPMUJQ1KQ",
+        "mime_type": "video/mp4",
+        "size_label": "2.0 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:26:21 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_164928.mp4",
+        "file_id": "F0BQJP6P9LG",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:49:43 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520363.109819",
+      "slack_shed": "Mandela 1 - Part 4",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 4",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150940.jpg",
+        "file_id": "F0BQJ5D9KH6",
+        "mime_type": "image/jpeg",
+        "size_label": "147.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:09:54 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_152525.mp4",
+        "file_id": "F0BQJ8BKY56",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:26:06 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_164955.mp4",
+        "file_id": "F0BPU3RMR9A",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:50:15 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520374.741429",
+      "slack_shed": "Mandela 1 - Part 5",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 5",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150909.jpg",
+        "file_id": "F0BPTF3HJ3E",
+        "mime_type": "image/jpeg",
+        "size_label": "193.5 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:09:22 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_152446.mp4",
+        "file_id": "F0BQJ882Y1E",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:25:51 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165018.mp4",
+        "file_id": "F0BP924JUFR",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:50:32 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520387.753469",
+      "slack_shed": "Mandela 1 - Part 6",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 6",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150837.jpg",
+        "file_id": "F0BPHHD9SDR",
+        "mime_type": "image/jpeg",
+        "size_label": "141.1 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:08:48 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_152426.mp4",
+        "file_id": "F0BPRRRGB6D",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:25:33 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165035.mp4",
+        "file_id": "F0BP927J0K1",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:51:05 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520398.996459",
+      "slack_shed": "Mandela 1 - Part 7",
+      "base_shed": "Mandela 1",
+      "partition_label": "Part 7",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150812.jpg",
+        "file_id": "F0BPRNN2ZSM",
+        "mime_type": "image/jpeg",
+        "size_label": "138.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:08:22 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_152418.mp4",
+        "file_id": "F0BPMUBGWBY",
+        "mime_type": "video/mp4",
+        "size_label": "2.1 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:25:18 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165058.mp4",
+        "file_id": "F0BPSBM195X",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:51:19 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520410.658969",
+      "slack_shed": "Mandela 2 - Part 1",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 1",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150719.jpg",
+        "file_id": "F0BPPPM0P7U",
+        "mime_type": "image/jpeg",
+        "size_label": "148.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:07:29 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153935.mp4",
+        "file_id": "F0BPLDQN6G5",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:40:26 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165252.mp4",
+        "file_id": "F0BPSBZ2PND",
+        "mime_type": "video/mp4",
+        "size_label": "1.2 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:53:13 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520432.554609",
+      "slack_shed": "Mandela 2 - Part 2",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 2",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150657.jpg",
+        "file_id": "F0BPPPK2MFU",
+        "mime_type": "image/jpeg",
+        "size_label": "163.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:07:08 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153917.mp4",
+        "file_id": "F0BP8KB3HF1",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:40:21 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165306.mp4",
+        "file_id": "F0BQJPVTWSC",
+        "mime_type": "video/mp4",
+        "size_label": "1.2 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:53:34 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520457.104649",
+      "slack_shed": "Mandela 2 - Part 3",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 3",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150619.jpg",
+        "file_id": "F0BPL7AMJ77",
+        "mime_type": "image/jpeg",
+        "size_label": "167.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:06:33 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153841.mp4",
+        "file_id": "F0BPLDHTWJ1",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:40:19 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165325.mp4",
+        "file_id": "F0BPU4BPR36",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:53:52 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520479.757739",
+      "slack_shed": "Mandela 2 - Part 4",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 4",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150558.jpg",
+        "file_id": "F0BPRN8JY3T",
+        "mime_type": "image/jpeg",
+        "size_label": "139.5 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:06:09 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153824.mp4",
+        "file_id": "F0BPQ089X3L",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:39:14 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165345.mp4",
+        "file_id": "F0BPU4D74DA",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:54:22 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520491.025599",
+      "slack_shed": "Mandela 2 - Part 5",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 5",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150537.jpg",
+        "file_id": "F0BPRN5QREV",
+        "mime_type": "image/jpeg",
+        "size_label": "156.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:05:47 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153808.mp4",
+        "file_id": "F0BQJAYATBJ",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:39:03 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165415.mp4",
+        "file_id": "F0BPU4FFUA0",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:54:36 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520503.521509",
+      "slack_shed": "Mandela 2 - Part 6",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 6",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150514.jpg",
+        "file_id": "F0BPL74DWGM",
+        "mime_type": "image/jpeg",
+        "size_label": "113.8 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:05:25 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153657.mp4",
+        "file_id": "F0BP8K00A6T",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:38:47 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165442.mp4",
+        "file_id": "F0BQJQ4JD40",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:55:12 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520514.464529",
+      "slack_shed": "Mandela 2 - Part 7",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 7",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150452.jpg",
+        "file_id": "F0BPPP5RTD0",
+        "mime_type": "image/jpeg",
+        "size_label": "167.6 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:05:02 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153640.mp4",
+        "file_id": "F0BPQ01G47L",
+        "mime_type": "video/mp4",
+        "size_label": "1.9 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:38:14 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165505.mp4",
+        "file_id": "F0BPJ701J91",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:55:33 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520536.547339",
+      "slack_shed": "Mandela 2 - Part 8",
+      "base_shed": "Mandela 2",
+      "partition_label": "Part 8",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_150429.jpg",
+        "file_id": "F0BPTE82M60",
+        "mime_type": "image/jpeg",
+        "size_label": "146.4 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:04:39 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_153633.mp4",
+        "file_id": "F0BPTLKA684",
+        "mime_type": "video/mp4",
+        "size_label": "2.2 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 15:38:04 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_165526.mp4",
+        "file_id": "F0BPU4N00NQ",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:55:47 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520331.921309",
+      "slack_shed": "Q2",
+      "base_shed": "Q2",
+      "partition_label": "",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_162017.jpg",
+        "file_id": "F0BPLMM75HT",
+        "mime_type": "image/jpeg",
+        "size_label": "149.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:26:24 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_162518.mp4",
+        "file_id": "F0BPS77CWGZ",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:26:24 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162538.mp4",
+        "file_id": "F0BQJK2A37S",
+        "mime_type": "video/mp4",
+        "size_label": "1.6 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 16:26:24 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520172.452219",
+      "slack_shed": "Yashoda 10",
+      "base_shed": "Yashoda",
+      "partition_label": "10",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_141848.jpg",
+        "file_id": "F0BPRCMMVUH",
+        "mime_type": "image/jpeg",
+        "size_label": "99.7 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:18:58 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_143253.mp4",
+        "file_id": "F0BPL0R0UNR",
+        "mime_type": "video/mp4",
+        "size_label": "2.2 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:33:32 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162310.mp4",
+        "file_id": "F0BPN9D4ALE",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:23:35 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520112.557679",
+      "slack_shed": "Yashoda 6",
+      "base_shed": "Yashoda",
+      "partition_label": "6",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_142002.jpg",
+        "file_id": "F0BPKTASFEH",
+        "mime_type": "image/jpeg",
+        "size_label": "71.5 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:20:13 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_143415.mp4",
+        "file_id": "F0BPPH5N0BU",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:34:42 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162149.mp4",
+        "file_id": "F0BQJJCJRTJ",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:22:12 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520126.188139",
+      "slack_shed": "Yashoda 7",
+      "base_shed": "Yashoda",
+      "partition_label": "7",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_141944.jpg",
+        "file_id": "F0BP83GDJET",
+        "mime_type": "image/jpeg",
+        "size_label": "81.3 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:19:53 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_143407.mp4",
+        "file_id": "F0BQHTV6YFJ",
+        "mime_type": "video/mp4",
+        "size_label": "1.7 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:34:34 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162206.mp4",
+        "file_id": "F0BPTU8QAS0",
+        "mime_type": "video/mp4",
+        "size_label": "1.3 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:22:30 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520142.664159",
+      "slack_shed": "Yashoda 8",
+      "base_shed": "Yashoda",
+      "partition_label": "8",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_141927.jpg",
+        "file_id": "F0BP83E5N95",
+        "mime_type": "image/jpeg",
+        "size_label": "83.0 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:19:36 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_143322.mp4",
+        "file_id": "F0BPRFWRVFT",
+        "mime_type": "video/mp4",
+        "size_label": "1.5 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:34:25 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162224.mp4",
+        "file_id": "F0BPLM0PB29",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:22:41 IST"
+      },
+      "ignored_extra_files": []
+    },
+    {
+      "thread_ts": "1786520157.290379",
+      "slack_shed": "Yashoda 9",
+      "base_shed": "Yashoda",
+      "partition_label": "9",
+      "session_no": 2,
+      "weight_photo": {
+        "file_name": "TimePhoto_20260812_141906.jpg",
+        "file_id": "F0BPPDW7P26",
+        "mime_type": "image/jpeg",
+        "size_label": "87.4 KB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:19:16 IST"
+      },
+      "distribution_video": {
+        "file_name": "TimeVideo_20260812_143316.mp4",
+        "file_id": "F0BPL0VDB8D",
+        "mime_type": "video/mp4",
+        "size_label": "1.8 MB",
+        "uploader_slack_id": "U0AER3YDG65",
+        "uploader_name": "kumarmunna",
+        "uploader_email": "kumarrmunna109@gmail.com",
+        "uploaded_at": "2026-08-12 14:34:00 IST"
+      },
+      "water_video": {
+        "file_name": "TimeVideo_20260812_162302.mp4",
+        "file_id": "F0BPS6PPXFB",
+        "mime_type": "video/mp4",
+        "size_label": "1.4 MB",
+        "uploader_slack_id": "U0AT30SED1P",
+        "uploader_name": "Arun kumar",
+        "uploader_email": "arunk657179@gmail.com",
+        "uploaded_at": "2026-08-12 16:23:16 IST"
+      },
+      "ignored_extra_files": []
+    }
+  ]
+}

@@ -45,6 +45,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /admin/goats/{goat_id}/move", h.MoveGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/exit", h.ExitGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/critical-death-exit", h.CriticalDeathExit)
+	mux.HandleFunc("POST /admin/goats/shed-stage/preview", h.PreviewReclassifyShedStage)
+	mux.HandleFunc("POST /admin/goats/shed-stage/commit", h.CommitReclassifyShedStage)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/stage", h.StageGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/health", h.HealthGoat)
 	mux.HandleFunc("POST /admin/goats/{goat_id}/reproductive", h.ReproductiveGoat)
@@ -178,6 +180,37 @@ func (h *Handler) CommitAdminGoatBulkImport(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	result, err := h.service.CommitAdminGoatBulkImport(r.Context(), app.CommitAdminGoatBulkInput{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		TraceID:        traceID(r),
+		RawBody:        body,
+	})
+	h.respond(w, r, result, err)
+}
+
+// PreviewReclassifyShedStage reports what a whole-pen cohort change would do. Read-only, so it
+// takes no Idempotency-Key: repeating it is free and must stay free while a human reads the dialog.
+func (h *Handler) PreviewReclassifyShedStage(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.PreviewReclassifyShedStage(r.Context(), app.ReclassifyShedStageInput{
+		TenantID: tenantID(r),
+		TraceID:  traceID(r),
+		RawBody:  body,
+	})
+	h.respond(w, r, result, err)
+}
+
+// CommitReclassifyShedStage applies the cohort tag to every live animal of one pen, immediately.
+func (h *Handler) CommitReclassifyShedStage(w http.ResponseWriter, r *http.Request) {
+	body, ok := readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	result, err := h.service.CommitReclassifyShedStage(r.Context(), app.ReclassifyShedStageInput{
 		TenantID:       tenantID(r),
 		ActorID:        actorID(r),
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),

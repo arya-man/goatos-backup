@@ -3,10 +3,11 @@ import { Filter, Users } from "lucide-react";
 
 import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
 import { dash } from "@/lib/format";
-import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { control, controlEnabled, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getCountsBreakdown,
+  listAnimalStages,
   type CountsBreakdownResponse,
   type CountsBreakdownSeriesPoint,
 } from "@/lib/api/server";
@@ -20,6 +21,8 @@ import {
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
+import { ShedStageDrawer, type PenOption, type StageOption } from "./shed-stage-drawer";
+import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { operationalLocationLabel } from "@/lib/operational-location";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
@@ -83,16 +86,28 @@ export async function CountsBreakdownPage({
   // One round trip for the whole screen: rows, totals, all four chart series and the filter
   // facets (including the park-scoped shed vocabulary) come back together, so there is no
   // per-chart fan-out and no serial await.
-  const breakdownResult = await getCountsBreakdown({
-    park_id: parkId || farmParkId,
-    shed_id: shedId,
-    partition_label: partitionLabel || undefined,
-    management_stage: stage,
-    breed,
-    sex,
-    limit: pageSize,
-    offset: (requestedPage - 1) * pageSize,
-  });
+  //
+  // The stage-change picker's two vocabularies ride along in the SAME fan-out rather than a serial
+  // await: neither depends on the breakdown, and both are small tenant reference sets.
+  //
+  // Pens come from the partition CATALOG (feed-config pens reads locations x shed_partitions), not
+  // from `breakdown.facets.sheds`. That is the write-picker rule: facets answer "where animals
+  // currently are", and a real pen holding zero animals would silently vanish from a picker built
+  // on them -- while remaining a perfectly valid place to retag when animals arrive.
+  const [breakdownResult, penResult, stageResult] = await Promise.all([
+    getCountsBreakdown({
+      park_id: parkId || farmParkId,
+      shed_id: shedId,
+      partition_label: partitionLabel || undefined,
+      management_stage: stage,
+      breed,
+      sex,
+      limit: pageSize,
+      offset: (requestedPage - 1) * pageSize,
+    }),
+    listAllFeedConfigPens(),
+    listAnimalStages(),
+  ]);
 
   const authError = firstAuthRequiredError(breakdownResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -249,6 +264,32 @@ export async function CountsBreakdownPage({
   const totalAdults = breakdown?.total_adults ?? 0;
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
+  // Keyed by shed_id + partition, never by shed NAME: 66 of 154 shed names exist in both parks, so
+  // a name key would merge two different buildings into one picker row. The label is the backend's
+  // own `operational_location_display`, prefixed with the park for the duplicate-name case -- this
+  // does NOT recompose the location, it only disambiguates two pens that legitimately render the
+  // same string.
+  const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen) => ({
+    key: `${pen.shed_id}|${pen.partition_label ?? ""}`,
+    shedId: pen.shed_id,
+    partitionLabel: pen.partition_label ?? "",
+    label: pen.operational_location_display,
+  }));
+
+  // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
+  // and `stage_code` is what the write sends.
+  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : []).map((item) => ({
+    code: item.stage_code,
+    label: item.name || item.stage_code,
+  }));
+
+  // Authority is the backend's answer, read off the compiled control. A principal without
+  // goat.reclassify_shed_stage gets a DISABLED button carrying the backend's reason, not a missing
+  // one -- and the routes require the same permission, so the button is the honest label, not the
+  // lock.
+  const stageChangeEnabled = controlEnabled(pageContract, "change_shed_stage", false);
+  const stageChangeReason = control(pageContract, "change_shed_stage").disabled_reason ?? "";
+
   return (
     <div className="screen on">
       <div className="phead">
@@ -259,6 +300,13 @@ export async function CountsBreakdownPage({
           <h1>{pageContract.title}</h1>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        <ShedStageDrawer
+          pageContract={pageContract}
+          pens={penOptions}
+          stages={stageOptions}
+          enabled={stageChangeEnabled}
+          disabledReason={stageChangeReason}
+        />
       </div>
 
       {/* An API failure surfaces as a visible error band, never as an empty table that reads

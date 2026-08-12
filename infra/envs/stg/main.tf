@@ -38,6 +38,19 @@ locals {
       account_id   = "goatos-legacy-sync-stg"
       display_name = "Goat OS staging legacy sync runtime"
     }
+    # feed_direction: the dispatch-clock jobs that ISSUE, AMEND and LOCK the daily feed sheet.
+    # Its access is the feed tables plus the counts projection it generates from, so it needs
+    # Cloud SQL and the database secret -- and nothing else.
+    feed_direction = {
+      account_id   = "goatos-feed-direction-stg"
+      display_name = "Goat OS staging feed direction dispatch runtime"
+    }
+    # scheduler: the identity Cloud Scheduler uses to INVOKE the jobs above. It runs no code and
+    # holds NO database access; its only grant is run.jobs.run on the specific jobs it triggers.
+    scheduler = {
+      account_id   = "goatos-scheduler-stg"
+      display_name = "Goat OS staging Cloud Scheduler invoker"
+    }
   }
 
   runtime_service_accounts = local.base_runtime_service_accounts
@@ -48,6 +61,7 @@ locals {
     "outbox_dlq",
     "migrate",
     "legacy_sync",
+    "feed_direction",
   ])
 
   secret_containers = {

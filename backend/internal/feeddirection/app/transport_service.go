@@ -33,9 +33,10 @@ type SubmitTransportInput struct {
 	AuthorizedParkIDs []string
 }
 
+// ListTransportTasksInput carries no partition: transport is one task per physical shed.
 type ListTransportTasksInput struct {
-	TenantID, ActorID, Date, ParkID, ShedID, PartitionLabel, Status, Cursor string
-	Limit                                                                   int
+	TenantID, ActorID, Date, ParkID, ShedID, Status, Cursor string
+	Limit                                                   int
 }
 
 func (s *Service) MaterializeTransportTasks(ctx context.Context, tenantID string, asOf time.Time) (ports.MaterializeTransportResult, error) {
@@ -58,15 +59,14 @@ func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksI
 		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTransportStatus
 	}
 	return s.transports.ListTransportTasks(ctx, ports.ListTransportTasksParams{
-		TenantID:       strings.TrimSpace(in.TenantID),
-		ActorID:        strings.TrimSpace(in.ActorID),
-		Day:            day,
-		ParkID:         strings.TrimSpace(in.ParkID),
-		ShedID:         strings.TrimSpace(in.ShedID),
-		PartitionLabel: strings.TrimSpace(in.PartitionLabel),
-		Status:         status,
-		Cursor:         strings.TrimSpace(in.Cursor),
-		Limit:          in.Limit,
+		TenantID: strings.TrimSpace(in.TenantID),
+		ActorID:  strings.TrimSpace(in.ActorID),
+		Day:      day,
+		ParkID:   strings.TrimSpace(in.ParkID),
+		ShedID:   strings.TrimSpace(in.ShedID),
+		Status:   status,
+		Cursor:   strings.TrimSpace(in.Cursor),
+		Limit:    in.Limit,
 	})
 }
 
