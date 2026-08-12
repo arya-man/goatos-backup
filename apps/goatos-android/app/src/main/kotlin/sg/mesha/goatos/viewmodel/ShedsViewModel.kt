@@ -544,7 +544,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = if (pageComplete) protocolAdherenceSummary(rowsForSelectedDay, totals) else null,
+            adherence = protocolAdherenceSummary(rowsForSelectedDay, totals),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,

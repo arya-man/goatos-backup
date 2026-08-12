@@ -188,6 +188,36 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 	}
 }
 
+func TestBootstrapProtocolAdherenceCardRoleGate(t *testing.T) {
+	tests := []struct {
+		role string
+		want bool
+	}{
+		{role: permissions.RoleCEOInternal, want: true},
+		{role: permissions.RolePCDirector, want: true},
+		{role: permissions.RoleOperator, want: false},
+		{role: permissions.RoleParkHead, want: false},
+		{role: permissions.RoleVerifier, want: false},
+		{role: permissions.RoleGrowthDirector, want: false},
+		{role: permissions.RoleFeedDirector, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.role, func(t *testing.T) {
+			svc := NewService(&fakeRepo{
+				profile: profile("active"),
+				grants:  []domain.GrantSummary{grantWithRole(tc.role)},
+			})
+			got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("Bootstrap() error=%v", err)
+			}
+			if got.FeatureFlags["protocol_adherence_card"] != tc.want {
+				t.Fatalf("protocol_adherence_card=%v want %v", got.FeatureFlags["protocol_adherence_card"], tc.want)
+			}
+		})
+	}
+}
+
 func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile:        profile("active"),
