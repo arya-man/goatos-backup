@@ -120,3 +120,32 @@ func TestFeedTransportDailyShedWorkflowRetainsRejectedAttempt(t *testing.T) {
 		t.Fatalf("status=%s attempts=%d rejected=%d approved=%d", taskStatus, attempts, rejected, approved)
 	}
 }
+
+func TestFeedTransportTenantWideNilAuthorizedParksListsRowsAndFilters(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupFeedDirectionDB(t, ctx)
+	day := time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation())
+	if _, err := repo.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{
+		TenantID: fdTenant,
+		AsOf:     day.Add(15*time.Hour + 30*time.Minute),
+	}); err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+
+	page, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID:          fdTenant,
+		Day:               day,
+		ActorID:           transportOperator,
+		AuthorizedParkIDs: nil,
+		Limit:             20,
+	})
+	if err != nil {
+		t.Fatalf("tenant-wide list: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("tenant-wide nil authorized parks returned %d tasks, want 2: %+v", len(page.Items), page.Items)
+	}
+	if len(page.Filters.Parks) != 1 || len(page.Filters.Sheds) != 2 {
+		t.Fatalf("tenant-wide nil authorized parks filters=%+v, want one park and two sheds", page.Filters)
+	}
+}
