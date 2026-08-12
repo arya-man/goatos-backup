@@ -179,8 +179,9 @@ func TestSendFCMBackfillsBlankDataTextForMessageKeyPush(t *testing.T) {
 	}
 
 	message, _ := got["message"].(map[string]any)
-	if _, exists := message["notification"]; exists {
-		t.Fatalf("message_key push without recipient_locale should stay data-only: %#v", message["notification"])
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Mesha" || notification["body"] != "weighing due" {
+		t.Fatalf("message_key push without recipient_locale must still have English notification fallback: %#v", notification)
 	}
 	data, _ := message["data"].(map[string]any)
 	if data["title"] != "Mesha" || data["body"] != "weighing due" {
@@ -291,13 +292,11 @@ func TestSendFCMExplicitTopicRecipientStillWorks(t *testing.T) {
 	}
 }
 
-// TestSendFCMWithMessageKeyGoesDataOnly asserts the key+client-translation contract (issue #27):
-// a push whose context carries message_key must NOT include a `notification` block (so the OS
-// never auto-displays the untranslated English fallback in background/killed states), must carry
-// message_key + its structured params in `data` for the client to render locally, must force
-// Android high priority so onMessageReceived is reachable while backgrounded/killed, and must
-// preserve the `target` tap-routing field byte-for-byte.
-func TestSendFCMWithMessageKeyGoesDataOnly(t *testing.T) {
+// TestSendFCMWithMessageKeyWithoutLocaleKeepsEnglishNotification asserts the fallback contract:
+// a push whose context carries message_key but no recipient_locale still includes a nonblank
+// English `notification` block for OS display, while preserving message_key + structured params in
+// `data` for the client to render locally when onMessageReceived runs.
+func TestSendFCMWithMessageKeyWithoutLocaleKeepsEnglishNotification(t *testing.T) {
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
@@ -315,8 +314,9 @@ func TestSendFCMWithMessageKeyGoesDataOnly(t *testing.T) {
 	}
 
 	message, _ := got["message"].(map[string]any)
-	if _, hasNotification := message["notification"]; hasNotification {
-		t.Fatalf("message-key push must be data-only, got notification block: %#v", message["notification"])
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Vaccination overdue" || notification["body"] != "Shed A vaccination is overdue." {
+		t.Fatalf("message-key push without locale must keep English notification block: %#v", notification)
 	}
 	data, _ := message["data"].(map[string]any)
 	if data["message_key"] != "vaccination.reminder.overdue" {
@@ -331,6 +331,33 @@ func TestSendFCMWithMessageKeyGoesDataOnly(t *testing.T) {
 	android, _ := message["android"].(map[string]any)
 	if android["priority"] != "high" {
 		t.Fatalf("android.priority = %#v, want high", android["priority"])
+	}
+}
+
+func TestSendFCMStringifiesScalarContextValues(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Context = []byte(`{"message_key":"vaccination.reminder.overdue","obligation_count":3,"urgent":true,"target":"/vaccination"}`)
+	if err := gateway.Send(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	data, _ := message["data"].(map[string]any)
+	if data["message_key"] != "vaccination.reminder.overdue" || data["obligation_count"] != "3" || data["urgent"] != "true" {
+		t.Fatalf("scalar context values not preserved as FCM data strings: %#v", data)
+	}
+	if data["target"] != "/vaccination" {
+		t.Fatalf("target field not preserved: %#v", data["target"])
 	}
 }
 

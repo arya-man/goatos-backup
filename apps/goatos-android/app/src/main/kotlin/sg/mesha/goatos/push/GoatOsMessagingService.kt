@@ -50,11 +50,14 @@ class GoatOsMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         runCatching {
             val data = message.data
-            val title = message.notification?.title?.takeIf { it.isNotBlank() }
-                ?: data[PushExtras.TITLE]?.takeIf { it.isNotBlank() }
-                ?: getString(DesignSystemR.string.push_default_title)
-            val body = message.notification?.body?.takeIf { it.isNotBlank() }
-                ?: data[PushExtras.BODY].orEmpty()
+            val display = pushDisplayText(
+                data = data,
+                notificationTitle = message.notification?.title,
+                notificationBody = message.notification?.body,
+                defaultTitle = getString(DesignSystemR.string.push_default_title),
+            )
+            val title = display.title
+            val body = display.body
             pushNotifications.show(title = title, body = body, payload = data)
             // TODO(backend): delivery/read ACK. AppApi has no "notification delivered/read" endpoint
             // today (checked core-network's AppApi — out of scope for the mobile FCM slice to invent
@@ -70,4 +73,23 @@ class GoatOsMessagingService : FirebaseMessagingService() {
     private companion object {
         const val TAG = "GoatOsMessagingService"
     }
+}
+
+data class PushDisplayText(
+    val title: String,
+    val body: String,
+)
+
+fun pushDisplayText(
+    data: Map<String, String>,
+    notificationTitle: String?,
+    notificationBody: String?,
+    defaultTitle: String,
+): PushDisplayText {
+    val title = data[PushExtras.TITLE]?.trim()?.takeIf { it.isNotBlank() }
+        ?: notificationTitle?.trim()?.takeIf { it.isNotBlank() }
+        ?: defaultTitle
+    val body = data[PushExtras.BODY]?.trim()?.takeIf { it.isNotBlank() }
+        ?: notificationBody?.trim().orEmpty()
+    return PushDisplayText(title = title, body = body)
 }
