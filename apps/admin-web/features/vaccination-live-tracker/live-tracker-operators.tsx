@@ -1,28 +1,32 @@
 import { User } from "lucide-react";
-import { Tag, ClipText, type Tone } from "@/components/ui-primitives";
+import { ClipText } from "@/components/ui-primitives";
 import Link from "@/components/no-prefetch-link";
 import {
   copy,
   optionLabel,
-  optionTone,
   optionTitle,
   tableLabels,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import type { LiveTrackerOperatorRow } from "@/lib/api/vaccination-live-tracker";
 import { fmtClock, initials, pct, progressTone } from "./format";
+import { LiveStateTag } from "./live-state-tag";
 
 // Operators — live. One row per operator on the drive day, at ADMINISTRATION grain: the sum of the
 // Scheduled column equals the Scheduled tile for the same filter set.
 export function LiveTrackerOperators({
   rows,
   parkCount,
+  total,
+  truncated,
   hasFilter,
   resetHref,
   pageContract,
 }: {
   rows: LiveTrackerOperatorRow[];
   parkCount: number;
+  total: number;
+  truncated: boolean;
   hasFilter: boolean;
   resetHref: string;
   pageContract: AdminUiPageContract;
@@ -36,8 +40,14 @@ export function LiveTrackerOperators({
         <User className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.operators.title")}</h3>
         <span className="tag t-mut">
-          {rows.length} {copy(pageContract, "section.operators.count_suffix")} · {parkCount}{" "}
-          {copy(pageContract, "section.operators.park_suffix")}
+          {rows.length}{" "}
+          {rows.length === 1
+            ? copy(pageContract, "section.operators.count_suffix_one")
+            : copy(pageContract, "section.operators.count_suffix")}{" "}
+          · {parkCount}{" "}
+          {parkCount === 1
+            ? copy(pageContract, "section.operators.park_suffix_one")
+            : copy(pageContract, "section.operators.park_suffix")}
         </span>
         <div className="sp" style={{ flex: 1 }} />
         <span className="small muted">{copy(pageContract, "section.operators.drilldown_note")}</span>
@@ -88,8 +98,14 @@ export function LiveTrackerOperators({
                 const subLine = row.current_vaccine_label
                   ? row.current_vaccine_label
                   : row.last_activity_at
-                    ? fmtClock(row.last_activity_at)
+                    ? `${copy(pageContract, "section.operators.now_at_prefix")} ${fmtClock(row.last_activity_at)}`
                     : optionLabel(pageContract, "live_operator_state", "not_started");
+                // The mock's idle pill carries the duration ("idle 2h+", mock line 261): "idle" with
+                // no number gives a director nothing to act on. idle_minutes is already returned.
+                const stateLabel =
+                  stateKey === "idle" && row.idle_minutes != null
+                    ? `${copy(pageContract, "section.operators.idle_prefix")} ${row.idle_minutes} ${copy(pageContract, "section.operators.idle_suffix")}`
+                    : optionLabel(pageContract, "live_operator_state", stateKey);
                 return (
                   <tr key={row.operator_id}>
                     <td>
@@ -128,18 +144,31 @@ export function LiveTrackerOperators({
                       </div>
                     </td>
                     <td>
-                      <Tag
-                        tone={optionTone(pageContract, "live_operator_state", stateKey) as Tone}
+                      <LiveStateTag
+                        pageContract={pageContract}
+                        group="live_operator_state"
+                        stateKey={stateKey}
                         title={optionTitle(pageContract, "live_operator_state", stateKey)}
                       >
-                        {optionLabel(pageContract, "live_operator_state", stateKey)}
-                      </Tag>
+                        {stateLabel}
+                      </LiveStateTag>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          {/* Rows may never vanish silently. The KPI tiles are folded from the untruncated rollup,
+              so past the cap the Scheduled tile legitimately reads higher than this table sums —
+              which is unreadable unless the page says why. */}
+          {truncated ? (
+            <div className="note lt-truncnote" role="status">
+              <b>
+                {rows.length}/{total}
+              </b>{" "}
+              {copy(pageContract, "section.operators.truncated_note")}
+            </div>
+          ) : null}
         </div>
       )}
     </section>

@@ -18,12 +18,10 @@ import type { LiveTrackerCombo } from "@/lib/api/vaccination-live-tracker";
 export function LiveTrackerComboCard({
   combo,
   passportHref,
-  truncatedHref,
   pageContract,
 }: {
   combo: LiveTrackerCombo;
   passportHref: (goatId: string) => string;
-  truncatedHref: string;
   pageContract: AdminUiPageContract;
 }) {
   const placeholder = copy(pageContract, "label.placeholder");
@@ -37,7 +35,10 @@ export function LiveTrackerComboCard({
         ) : null}
         <div className="sp" style={{ flex: 1 }} />
         <span className="small muted">
-          {combo.animal_count} {copy(pageContract, "section.combo.count_suffix")}
+          {combo.animal_count}{" "}
+          {combo.animal_count === 1
+            ? copy(pageContract, "section.combo.count_suffix_one")
+            : copy(pageContract, "section.combo.count_suffix")}
         </span>
       </div>
       <div className="bd">
@@ -97,21 +98,29 @@ export function LiveTrackerComboCard({
         )}
 
         <div style={{ marginTop: 9 }}>
-          {/* The mock's "All 70 combo animals →" implies a longer list behind the card. It is only a
-              real destination when the server actually truncated; otherwise every combo animal is
-              already on screen and the button says so instead of leading nowhere. */}
+          {/* The mock's all-combo-animals button implies a longer list behind the card. Neither
+              branch has one: no paginated combo-animal endpoint or route exists on this surface.
+              BOTH branches are therefore disabled-with-reason. Pointing the truncated branch at
+              rows[0] Goat Passport drawer — which is what shipped — is the failure the house rule
+              forbids: a control labelled with the full animal count that opens ONE animal instead,
+              leaving the truncated remainder unreachable, on the only code path a real high-volume
+              combo day would ever take. */}
+          <span
+            className="btn sm"
+            aria-disabled="true"
+            title={
+              combo.rows_truncated
+                ? copy(pageContract, "section.combo.truncated_reason")
+                : copy(pageContract, "section.combo.all_listed")
+            }
+          >
+            {copy(pageContract, "action.all_combo_animals")}
+          </span>
           {combo.rows_truncated ? (
-            <LocalOverlayLink href={truncatedHref} className="btn sm" scroll={false}>
-              {combo.animal_count} {copy(pageContract, "action.all_combo_animals")}
-            </LocalOverlayLink>
-          ) : (
-            // Not truncated: the count is already in the card header, and repeating it here reads as
-            // "0 All combo animals" on a day with none. The button keeps its place and states why it
-            // does nothing.
-            <span className="btn sm" aria-disabled="true" title={copy(pageContract, "section.combo.all_listed")}>
-              {copy(pageContract, "action.all_combo_animals")}
-            </span>
-          )}
+            // A hover-only tooltip is invisible on touch, and this is the branch that actually hides
+            // animals from the reader, so the reason is also rendered as text.
+            <span className="muted small lt-truncnote">{copy(pageContract, "section.combo.truncated_reason")}</span>
+          ) : null}
         </div>
       </div>
     </section>

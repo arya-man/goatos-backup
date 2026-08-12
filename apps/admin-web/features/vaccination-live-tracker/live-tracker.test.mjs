@@ -140,3 +140,143 @@ test("counted labels do not read as broken singulars", () => {
     "the untruncated button must not repeat the animal count the card header already shows",
   );
 });
+
+test("the Full Schedule button's fragment matches a section id that is actually rendered", () => {
+  // The board emitted "#full-vaccine-schedule", which is the BACKEND TABLE CONTRACT id
+  // (adminui service.go), not a DOM anchor. Nothing on /vaccination carries it, so the button
+  // navigated and scrolled nowhere. Pinning the fragment against the rendering file is the only
+  // thing that stops this silently rotting again.
+  const anchor = board.match(/export const FULL_SCHEDULE_ANCHOR = "([a-z0-9-]+)"/)?.[1];
+  assert.ok(anchor, "the schedule anchor must be named once, not inlined into a string concat");
+  assert.match(board, /"#" \+ FULL_SCHEDULE_ANCHOR/, "the href must be built from that constant");
+  const schedule = readFileSync(
+    new URL("../preventive-care-vaccination/full-vaccine-schedule.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    schedule.includes(`id="${anchor}"`),
+    `no <section id="${anchor}"> exists in full-vaccine-schedule.tsx — the Full Schedule button is a dead link`,
+  );
+});
+
+test("the combo truncation control is never rebound to a single animal's drawer", () => {
+  // "All 200 combo animals" opening ONE animal's passport is the exact house-rule failure: an
+  // affordance the backend cannot power must be disabled with a visible reason, never silently
+  // rebound to a different action.
+  assert.ok(
+    !/truncatedHref/.test(code(board)),
+    "the board must not synthesise a destination for the truncated branch",
+  );
+  assert.ok(!/truncatedHref/.test(code(combo)), "the combo card must not accept a truncated destination");
+  assert.ok(
+    !/rows\[0\]/.test(code(board)),
+    "no control may be wired to the FIRST combo row as a stand-in for the whole list",
+  );
+  assert.match(combo, /section\.combo\.truncated_reason/, "the truncated branch carries its own visible reason");
+  const comboCode = code(combo);
+  const truncatedBlock = comboCode.slice(comboCode.indexOf("action.all_combo_animals") - 400);
+  assert.ok(
+    !/LocalOverlayLink[\s\S]{0,200}action\.all_combo_animals/.test(truncatedBlock),
+    "the all-combo-animals control must not be a link in either branch",
+  );
+});
+
+test("the error branch offers a way back — one transient read failure must not freeze the board", () => {
+  // LivePoller unmounts when generatedAt is null, and router.refresh() is this page's only refresh
+  // path, so without a retry the board stayed frozen on the error card until a manual reload.
+  const errorBranch = board.slice(board.indexOf("if (!result.ok)"), board.indexOf("const data = result.data"));
+  assert.match(errorBranch, /liveTrackerHref\(params\)/, "the error card must link back to this page");
+  assert.match(errorBranch, /action\.retry/);
+});
+
+test("every counted label has a singular branch", () => {
+  // "1 operators · 1 parks" is the NORMAL case under a park filter, and "1 sheds" / "1 animals
+  // today" are all reachable. Small wrongness in a headline makes a reader distrust every number.
+  for (const [name, source, keys] of [
+    ["operators", operators, ["section.operators.count_suffix_one", "section.operators.park_suffix_one"]],
+    ["combo", combo, ["section.combo.count_suffix_one"]],
+    ["rail", rail, ["section.verification.sheds_suffix_one"]],
+  ]) {
+    for (const key of keys) {
+      assert.ok(source.includes(key), `${name} must branch on ${key}`);
+    }
+  }
+  assert.match(sheds, /row\.extra_attempt_count > 1/, "the count only leads the label above one");
+});
+
+test("no counted figure renders as a bare unlabelled integer", () => {
+  // "0/8 · 137 · 15:32" gave the reader no way to tell whether 137 was minutes, animals or scans.
+  assert.match(rail, /section\.attention\.elapsed_suffix/, "the attention elapsed figure carries a unit");
+  assert.ok(
+    !/`\s*·\s*\$\{row\.elapsed_minutes\}`/.test(code(rail)),
+    "elapsed_minutes must never be interpolated without its unit",
+  );
+});
+
+test("the operator idle duration reaches the screen — the datum is already on the wire", () => {
+  // The mock's cell is "idle 2h+"; the duration IS the cell, because "idle" alone gives a director
+  // nothing to act on. idle_minutes was returned by the backend and rendered nowhere.
+  assert.match(operators, /row\.idle_minutes/);
+  assert.match(operators, /section\.operators\.idle_prefix/);
+});
+
+test("silently dropped rows are impossible — both boards declare their own truncation", () => {
+  // The KPI tiles are folded from the untruncated rollup, so past the caps the Scheduled tile
+  // legitimately exceeds the visible table sums. That is only readable if the page says so.
+  assert.match(operators, /truncated/, "the operator board must render a truncation note");
+  assert.match(operators, /section\.operators\.truncated_note/);
+  assert.match(sheds, /section\.sheds\.truncated_note/);
+  assert.match(kpis, /kpi\.truncated_note/, "a truncated rollup makes the headline itself wrong");
+  assert.match(board, /data\.operators_truncated/);
+  assert.match(board, /data\.sheds_truncated/);
+  assert.match(board, /data\.cells_truncated/);
+});
+
+test("the live tick is observed, not asserted", () => {
+  // The mock's tick is opacity:0 by default and flashes only when a tile value actually bumps. A
+  // permanently rendered tick claims liveness even on a PAUSED board.
+  const tick = readFileSync(new URL("./live-tick.tsx", import.meta.url), "utf8");
+  assert.match(tick, /"use client"/, "the tick has to compare against the previous value client-side");
+  assert.match(tick, /previous/, "the tick fires on a change, never unconditionally");
+  assert.match(css, /\.lt-page \.lt-tick\{[^}]*opacity:0/, "the tick must be hidden by default");
+  assert.match(css, /\.lt-page \.lt-tick\.on\{[^}]*opacity:1/);
+});
+
+test("row status pills carry the mock's pulsing dot and never cast an unknown tone", () => {
+  // Tag's Tone union has no "live" member; `as Tone` silenced tsc while `.t-live` painted the same
+  // red wash as `.t-dng` with no dot, making "active now", "idle" and "not started" identical.
+  const liveTag = readFileSync(new URL("./live-state-tag.tsx", import.meta.url), "utf8");
+  assert.match(liveTag, /<i \/>/, "the live pill must emit the mock's dot element");
+  for (const [name, source] of Object.entries({ operators, sheds })) {
+    assert.ok(!/as Tone/.test(code(source)), `${name} must not cast a backend tone into the design-system union`);
+    assert.match(source, /LiveStateTag/, `${name} must render its status through the live-aware pill`);
+  }
+});
+
+test("every cross-page link on this board carries the scope its own numbers were read under", () => {
+  // The verification counts are park-scoped and /verify reads parseScope, so a bare "/verify" landed
+  // the reader on a company-scoped queue whose totals contradicted the card they clicked.
+  assert.ok(!/href="\/verify"/.test(code(rail)), "Open Verify must not bypass scopeHref");
+  assert.match(board, /scopeHref\("\/verify"/);
+});
+
+test("Clear all is only offered when there is something it can clear", () => {
+  // liveTrackerResetHref re-emits the top-bar park scope, so offering the chip for a bare park
+  // selection produced a button that navigated to the identical URL and changed nothing.
+  assert.match(board, /const clearAllHref = params\.hasFilter \? resetHref : null;/);
+});
+
+test("no dead markup ships to production", () => {
+  for (const attr of ["data-live-tracker-path", "data-live-tracker-filters"]) {
+    assert.ok(!board.includes(attr), `${attr} is read by nothing — it must not be rendered`);
+  }
+});
+
+test("PAUSED survives the Suspense remount every filter change triggers", () => {
+  // page.tsx keys the Suspense boundary on JSON.stringify(sp), so any filter change remounts the
+  // poller. The interval already survived because it lives in storage; the pause state did not, and
+  // a board deliberately paused to read a row resumed under the reader.
+  assert.match(poller, /LIVE_STORAGE_KEY/);
+  assert.match(poller, /useSyncExternalStore\(subscribeLive/);
+  assert.ok(!/useState\(true\)/.test(code(poller)), "the live flag must not be remount-local state");
+});

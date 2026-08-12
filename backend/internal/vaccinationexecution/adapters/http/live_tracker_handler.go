@@ -117,6 +117,15 @@ func (h *Handler) GetVaccinationLiveTracker(w http.ResponseWriter, r *http.Reque
 		cursor := parsed.In(loc)
 		q.ActivityBefore = &cursor
 	}
+	// The feed's key is (occurred_at, event_id). Accepting the timestamp without its tiebreaker is
+	// what silently dropped every event sharing the previous page's boundary timestamp.
+	if raw := strings.TrimSpace(query.Get("activity_before_id")); raw != "" {
+		if len(raw) > 128 {
+			h.badRequest(w, r, "invalid_activity_before_id", "activity_before_id must be an event_id from next_cursor_event_id")
+			return
+		}
+		q.ActivityBeforeID = &raw
+	}
 
 	resp, err := h.reader.LiveTracker(r.Context(), q)
 	if err != nil {

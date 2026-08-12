@@ -19,7 +19,9 @@ export type LiveTrackerParams = {
   status?: VaccinationLiveTrackerStatus;
   businessDate?: string;
   activityLimit: number;
+  // Both halves of the feed's keyset cursor. occurred_at alone is not a key.
   activityBefore?: string;
+  activityBeforeId?: string;
   hasFilter: boolean;
 };
 
@@ -56,6 +58,7 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
   const businessDate = businessDateRaw && BUSINESS_DATE_RE.test(businessDateRaw) ? businessDateRaw : undefined;
   const activityLimit = boundedInt(one(sp, "lt_activity_limit"), ACTIVITY_LIMIT_DEFAULT, 1, ACTIVITY_LIMIT_MAX);
   const activityBefore = boundedText(one(sp, "lt_activity_before"), 40);
+  const activityBeforeId = boundedText(one(sp, "lt_activity_before_id"), 128);
 
   return {
     sp,
@@ -69,6 +72,7 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
     businessDate,
     activityLimit,
     activityBefore,
+    activityBeforeId,
     hasFilter: Boolean(shedId || partitionLabel || operatorId || vaccineCode || status),
   };
 }
@@ -86,6 +90,10 @@ export function liveTrackerHref(params: LiveTrackerParams, overrides: Record<str
     lt_vaccine: params.vaccineCode,
     lt_status: params.status,
     lt_date: params.businessDate,
+    // The feed cursor is deliberately NOT carried across these links. It is a PAIR
+    // (lt_activity_before + lt_activity_before_id) that keys one specific filter set's feed, so
+    // re-emitting it onto a link that changes the filter set would page a different feed from a
+    // boundary that does not belong to it. Every link here resets the feed to its newest page.
     ...rest,
   });
 }

@@ -108,7 +108,12 @@ function AttentionCard({
               <div className="muted small" style={{ marginTop: 3 }}>
                 {row.metric_count}
                 {row.total_count > 0 ? `/${row.total_count}` : null}
-                {row.elapsed_minutes > 0 ? ` · ${row.elapsed_minutes}` : null}
+                {/* Never a bare integer. A reader seeing "0/8 · 137 · 15:32" cannot tell whether
+                    137 is minutes, animals or scans — and the backend no longer emits a policy
+                    threshold here, so this figure is always a measured idle gap. */}
+                {row.elapsed_minutes > 0
+                  ? ` · ${row.elapsed_minutes} ${copy(pageContract, "section.attention.elapsed_suffix")}`
+                  : null}
                 {row.since_at ? ` · ${fmtClock(row.since_at)}` : null}
                 {" · "}
                 {optionTitle(pageContract, "live_attention_kind", row.kind)}
@@ -134,12 +139,15 @@ function AttentionCard({
 
 function VerificationCard({
   verification,
+  verifyHref,
   pageContract,
 }: {
   verification: LiveTrackerVerification;
+  verifyHref: string;
   pageContract: AdminUiPageContract;
 }) {
-  const shedsSuffix = copy(pageContract, "section.verification.sheds_suffix");
+  const shedsSuffix = (count: number) =>
+    copy(pageContract, count === 1 ? "section.verification.sheds_suffix_one" : "section.verification.sheds_suffix");
   return (
     <section id="lt-verification" className="card lt-card">
       <div className="hd">
@@ -152,13 +160,13 @@ function VerificationCard({
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span>{copy(pageContract, "section.verification.awaiting")}</span>
           <b>
-            {verification.awaiting_review_sheds} {shedsSuffix}
+            {verification.awaiting_review_sheds} {shedsSuffix(verification.awaiting_review_sheds)}
           </b>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span>{copy(pageContract, "section.verification.verified")}</span>
           <b style={{ color: "var(--ok)" }}>
-            {verification.verified_today_sheds} {shedsSuffix}
+            {verification.verified_today_sheds} {shedsSuffix(verification.verified_today_sheds)}
           </b>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -166,7 +174,10 @@ function VerificationCard({
           <b style={{ color: "var(--warn)" }}>{verification.rework_requested}</b>
         </div>
         <div>
-          <Link href="/verify" className="btn sm" style={{ marginTop: 5 }}>
+          {/* The counts above are park-scoped, and /verify reads parseScope. Linking bare "/verify"
+              landed the reader on a company-scoped queue whose totals contradicted the card they
+              just clicked through from. */}
+          <Link href={verifyHref} className="btn sm" style={{ marginTop: 5 }}>
             {copy(pageContract, "action.open_verify")}
           </Link>
         </div>
@@ -179,18 +190,20 @@ export function LiveTrackerRail({
   activity,
   attention,
   verification,
+  verifyHref,
   pageContract,
 }: {
   activity: LiveTrackerActivity;
   attention: LiveTrackerAttentionRow[];
   verification: LiveTrackerVerification;
+  verifyHref: string;
   pageContract: AdminUiPageContract;
 }) {
   return (
     <div className="lt-stack">
       <ActivityCard activity={activity} pageContract={pageContract} />
       <AttentionCard attention={attention} pageContract={pageContract} />
-      <VerificationCard verification={verification} pageContract={pageContract} />
+      <VerificationCard verification={verification} verifyHref={verifyHref} pageContract={pageContract} />
     </div>
   );
 }
