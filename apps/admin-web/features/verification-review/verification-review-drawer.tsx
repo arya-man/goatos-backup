@@ -441,7 +441,7 @@ function VerificationReviewDrawerPanel({
             </div>
           )}
 
-          {/* Video Player: Large, centered, capped at 44vh */}
+          {/* Media Player: Large, centered, capped at 44vh */}
           {item.media.length === 0 ? (
             <div className="vr-player" ref={playerRef} style={{ background: "var(--panel-2)", justifyContent: "center" }}>
               <div className="vr-player-empty">{text("drawer.media.empty")}</div>
@@ -457,6 +457,10 @@ function VerificationReviewDrawerPanel({
                   itemId={item.item_id}
                   eventBuffer={eventBuffer}
                 />
+              ) : activeMedia?.mime_type?.startsWith("image/") ? (
+                <a href={activeMedia.download_url} target="_blank" rel="noreferrer" className="vr-image-link">
+                  <img className="vr-image-proof" src={activeMedia.download_url} alt={activeMedia.label || text("drawer.media.title")} />
+                </a>
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
               )}

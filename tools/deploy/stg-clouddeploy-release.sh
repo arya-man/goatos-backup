@@ -23,6 +23,17 @@ die() {
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+if [[ "${GOATOS_ALLOW_NON_MAIN_STG_RELEASE:-}" != "1" ]]; then
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  [[ "$origin_url" == "git@github.com:vgoats/goatos.git" || "$origin_url" == "ssh://git@github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos.git" || "$origin_url" == "https://github.com/vgoats/goatos" ]] \
+    || die "staging releases must run from vgoats/goatos; got origin=$origin_url"
+  git fetch origin main --quiet
+  main_sha="$(git rev-parse --verify origin/main)"
+  head_sha="$(git rev-parse --verify HEAD)"
+  [[ "$head_sha" == "$main_sha" ]] \
+    || die "refusing staging release from non-main commit: HEAD=$head_sha origin/main=$main_sha. Land on main first, or set GOATOS_ALLOW_NON_MAIN_STG_RELEASE=1 for an explicit break-glass release."
+fi
+
 if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
   git diff --quiet || die "working tree has unstaged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
   git diff --cached --quiet || die "working tree has staged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
