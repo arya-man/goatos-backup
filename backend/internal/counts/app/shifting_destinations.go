@@ -94,13 +94,7 @@ func (s *Service) DeriveShiftingSource(
 		}
 	}
 
-	partition := partitionOrNil(facts[0].ShedPartitionLabel)
-	for _, fact := range facts[1:] {
-		if !oploc.SamePartition(derefOrBlank(partition), derefOrBlank(partitionOrNil(fact.ShedPartitionLabel))) {
-			return nil, nil, nil, ErrImpactNotDerivable
-		}
-	}
-	return park, shed, partition, nil
+	return park, shed, nil, nil
 }
 
 // partitionOrNil collapses every "not partitioned" encoding (NULL, "", and the 'whole' matching

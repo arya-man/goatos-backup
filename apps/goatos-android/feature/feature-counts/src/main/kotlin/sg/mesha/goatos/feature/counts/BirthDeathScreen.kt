@@ -142,9 +142,9 @@ data class BirthDeathUiState(
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
 
-    /** The composite dropdown key for the current selection; shed alone is not unique. */
+    /** The dropdown key for the current exact shed selection. */
     val shedOptionKey: String
-        get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
+        get() = shedId
 }
 
 sealed interface BirthDeathEvent {

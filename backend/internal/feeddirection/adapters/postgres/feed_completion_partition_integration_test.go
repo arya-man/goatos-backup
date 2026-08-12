@@ -58,13 +58,13 @@ func TestPackingCompletionIsPerPenNotPerShed(t *testing.T) {
 	// Two rows, and each holds its OWN video. If the pen were missing from the key there would be
 	// one row and one proof standing for both.
 	rows, err := pool.Query(ctx, `
-SELECT coalesce(c.partition_label, ''), c.packing_proof_ref
-FROM feed_packing_completions c
-JOIN shed_partitions sp
-  ON sp.tenant_id = c.tenant_id
- AND sp.operational_location_id = c.shed_id
-WHERE c.tenant_id = $1::uuid AND sp.shed_id = $2::uuid
-ORDER BY c.partition_label`, pen1.TenantID, pen1.ShedID)
+	SELECT sp.partition_label, c.packing_proof_ref
+	FROM feed_packing_completions c
+	JOIN shed_partitions sp
+	  ON sp.tenant_id = c.tenant_id
+	 AND sp.operational_location_id = c.shed_id
+	WHERE c.tenant_id = $1::uuid AND sp.shed_id = $2::uuid
+	ORDER BY sp.partition_label`, pen1.TenantID, pen1.ShedID)
 	if err != nil {
 		t.Fatalf("read completions: %v", err)
 	}

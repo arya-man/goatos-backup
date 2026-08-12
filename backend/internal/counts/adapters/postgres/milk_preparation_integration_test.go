@@ -181,8 +181,8 @@ func TestMilkPreparationPartitionRowsSumExactlyToParentShedTotal(t *testing.T) {
 	if shedBHeadSum != 5 {
 		t.Fatalf("shed B partition rows sum to %d heads, want 5 (sum-to-parent violated)", shedBHeadSum)
 	}
-	if len(labels) != 2 {
-		t.Fatalf("shed B operational_location_display values=%v, want 2 visibly distinct labels", labels)
+	if len(labels) != 1 || !labels[shedBRows[0].ShedLabel] {
+		t.Fatalf("shed B operational_location_display values=%v, want exact shed label only", labels)
 	}
 
 	// WHOLE-SCOPE PROOF: summary, farm_tasks, and milk_direction are unaffected by the partition

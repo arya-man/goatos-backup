@@ -42,13 +42,23 @@ WITH grouped AS MATERIALIZED (
     COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
     g.shed_id AS shed_uuid,
     COALESCE(g.shed_id::text, '') AS shed_id,
-    COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+    COALESCE(
+      CASE
+        WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
+        WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
+        WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
+        ELSE btrim(gsp.source_shed_name)
+      END,
+      NULLIF(shed.name, ''),
+      shed.location_code,
+      ''
+    ) AS shed_label,
     g.management_stage,
     ` + partitionKeyExpr + ` AS partition_key,
     -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
     -- display preserves each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
     -- representative among rows sharing the same normalized key.
-    min(gsp.partition_label) AS partition_label_raw,
+	    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
     count(*)::integer AS head_count
   FROM goats g
   LEFT JOIN locations park
@@ -57,8 +67,12 @@ WITH grouped AS MATERIALIZED (
     ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
   -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. A goat
   -- with no row here is not partitioned and normalizes to 'whole'.
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+	  LEFT JOIN goat_shed_partitions gsp
+	    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+	  LEFT JOIN shed_partitions exact_sp
+	    ON exact_sp.tenant_id = g.tenant_id
+	   AND exact_sp.operational_location_id = g.shed_id
+	   AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
@@ -66,6 +80,12 @@ WITH grouped AS MATERIALIZED (
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
   GROUP BY g.park_id, park.location_code, park.name,
            g.shed_id, shed.name, shed.location_code, g.management_stage,
+           CASE
+             WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
+             WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
+             WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
+             ELSE btrim(gsp.source_shed_name)
+           END,
            ` + partitionKeyExpr + `
 ),
 -- grouped_by_shed re-rolls the partition grain back up to the pre-partition (shed, stage) grain.
@@ -74,10 +94,10 @@ WITH grouped AS MATERIALIZED (
 -- to what they were before partitions existed -- summing head_count is exact because it is already
 -- a per-row count(*), never re-derived from goats.
 grouped_by_shed AS (
-  SELECT park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, management_stage,
+  SELECT park_uuid, park_id, park_label, shed_uuid, shed_id, min(shed_label) AS shed_label, management_stage,
          sum(head_count)::integer AS head_count
   FROM grouped
-  GROUP BY park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, management_stage
+  GROUP BY park_uuid, park_id, park_label, shed_uuid, shed_id, management_stage
   -- Deliberately re-rolled up ACROSS partition_key: this GROUP BY reads the already
   -- partition-complete grouped CTE and sums its head_count back to the pre-partition shed grain
   -- for whole-scope summary/farm_task consumers only; page_window (the visible row grain) reads

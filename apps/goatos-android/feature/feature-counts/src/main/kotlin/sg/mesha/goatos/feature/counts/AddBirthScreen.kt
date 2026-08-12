@@ -81,9 +81,9 @@ data class AddBirthUiState(
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
 
-    /** The composite dropdown key for the current selection; shed alone is not unique. */
+    /** The dropdown key for the current exact shed selection. */
     val shedOptionKey: String
-        get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
+        get() = shedId
 }
 
 sealed interface AddBirthEvent {
@@ -218,11 +218,7 @@ fun AddBirthScreen(
                         enabled = state.destinationParks.isNotEmpty(),
                     )
                     val sheds = state.shedsForSelectedPark
-                    // Keyed on optionKey (shedId|partitionLabel), never shedId alone. The
-                    // destinations feed returns one row PER PARTITION, so a shed with 10 pens
-                    // appears 10 times under one shedId; matching on shedId resolved every one of
-                    // them to the first row, which meant the operator could pick "Godel 1 - 7" and
-                    // silently record "Godel 1 - 1".
+                    // Keyed on exact shed id. Partitions are sheds in the destination feed.
                     val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
                     CountsDropdownField(
                         label = stringResource(R.string.counts_field_shed),

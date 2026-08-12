@@ -632,13 +632,11 @@ func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
-		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+		shedID, partitionLabel, err := canonicalizeExperimentShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		if err != nil {
 			return writeEffect{}, err
 		}
-		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
-			return writeEffect{}, err
-		}
-		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, shedID); err != nil {
 			return writeEffect{}, err
 		}
 		var alreadyConfigured bool
@@ -647,7 +645,7 @@ SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
-)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&alreadyConfigured); err != nil {
+)`, cmd.TenantID, cmd.ParkID, shedID, partitionLabel).Scan(&alreadyConfigured); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen enrollment: %w", err)
 		}
 		if alreadyConfigured {
@@ -671,7 +669,7 @@ SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
        cell.kg::numeric, $5, $6, 'active', nullif($7,'')::uuid
 FROM unnest($8::text[], $9::text[]) AS cell(item, kg)
 RETURNING experiment_config_id::text, feed_item_key`,
-			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
+			cmd.TenantID, cmd.ParkID, shedID, partitionLabel,
 			cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, kgs)
 		if err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
@@ -736,22 +734,12 @@ func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.Pe
 SELECT shed.parent_location_id::text AS park_id,
        shed.location_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
-       COALESCE(sp_exact.partition_label, '') AS partition_label,
+       '' AS partition_label,
        EXISTS (
          SELECT 1 FROM feed_experiment_config e
          WHERE e.tenant_id = shed.tenant_id
-           AND (
-             e.shed_id = shed.location_id
-             OR (
-               sp_exact.shed_id IS NOT NULL
-               AND e.shed_id = sp_exact.shed_id
-               AND e.partition_key = feed_config_norm(sp_exact.partition_label)
-             )
-           )
-           AND e.partition_key = CASE
-                 WHEN sp_exact.partition_label IS NULL OR btrim(sp_exact.partition_label) = '' THEN 'whole'
-                 ELSE feed_config_norm(sp_exact.partition_label)
-               END
+           AND e.shed_id = shed.location_id
+           AND e.partition_key = 'whole'
        ) AS has_experiment_config
 FROM locations shed
 LEFT JOIN shed_partitions sp_exact
@@ -1194,13 +1182,11 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
-		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+		shedID, partitionLabel, err := canonicalizeExperimentShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		if err != nil {
 			return writeEffect{}, err
 		}
-		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
-			return writeEffect{}, err
-		}
-		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, shedID); err != nil {
 			return writeEffect{}, err
 		}
 		var penConfigured bool
@@ -1209,7 +1195,7 @@ SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
-)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&penConfigured); err != nil {
+)`, cmd.TenantID, cmd.ParkID, shedID, partitionLabel).Scan(&penConfigured); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen before cell edit: %w", err)
 		}
 		if !penConfigured {
@@ -1227,13 +1213,13 @@ SELECT EXISTS (
 		// replaced, which made 130 of 175 authored cells un-editable.
 		var openID, openKg, openCategory, openStatus string
 		var openHeadCount *int32
-		err := tx.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 SELECT experiment_config_id::text, absolute_kg::text, head_count, experiment_category, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$5")+`
   AND feed_item_key = feed_config_norm($4)
-FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.PartitionLabel).
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, shedID, cmd.FeedItemLabel, partitionLabel).
 			Scan(&openID, &openKg, &openHeadCount, &openCategory, &openStatus)
 
 		switch {
@@ -1249,21 +1235,21 @@ INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label
                                     absolute_kg, head_count, experiment_category, status, created_by)
 VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($9,''), $4, $5::numeric, $6, $7, 'active', nullif($8,'')::uuid)
 RETURNING experiment_config_id::text`,
-				cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.AbsoluteKg,
+				cmd.TenantID, cmd.ParkID, shedID, cmd.FeedItemLabel, cmd.AbsoluteKg,
 				cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef),
-				strings.TrimSpace(cmd.PartitionLabel)).Scan(&newID); err != nil {
+				strings.TrimSpace(partitionLabel)).Scan(&newID); err != nil {
 				return writeEffect{}, fmt.Errorf("feedconfig: insert experiment config: %w", err)
 			}
 			// See reactivateExperimentPen: a brand-new cell inserted 'active' into a pen that
 			// still carries OTHER retired rows would leave the shed mixed-status, which
 			// ExperimentPlanner.Applies reads as "enrolled" while feeding only the active subset.
-			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, shedID, partitionLabel); err != nil {
 				return writeEffect{}, err
 			}
 			// CR-07: sync shed-level metadata to every OTHER row of this shed. head_count and
 			// experiment_category are shed-level facts (see syncExperimentShedMetadata), not
 			// per-item ones, even though this table stores one row per (shed, feed item).
-			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, shedID, partitionLabel, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 				return writeEffect{}, err
 			}
 			return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
@@ -1291,7 +1277,7 @@ WHERE experiment_config_id = $1::uuid`,
 		}
 		// CR-07: sync shed-level metadata to every OTHER row of this shed (see
 		// syncExperimentShedMetadata and the insert branch above).
-		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, shedID, partitionLabel, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, err
 		}
 		// ROOT-CAUSE FIX (P1 follow-up): editing ONE cell of a retired shed must not leave the
@@ -1307,7 +1293,7 @@ WHERE experiment_config_id = $1::uuid`,
 		// ("this shed is back on the experiment workflow"), and it cannot race with
 		// SetExperimentShedStatus because both lock the shed's rows with the same
 		// `FOR UPDATE ... WHERE shed_id = $3` pattern.
-		if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+		if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, shedID, partitionLabel); err != nil {
 			return writeEffect{}, err
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: openID}, nil
@@ -1384,6 +1370,60 @@ func partitionKeyMatch(placeholder string) string {
 	arg := "(" + placeholder + ")::text"
 	return "(CASE WHEN " + arg + " IS NULL OR btrim(" + arg + ") = '' THEN 'whole'" +
 		" ELSE feed_config_norm(" + arg + ") END)"
+}
+
+func canonicalizeExperimentShedInPark(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) (string, string, error) {
+	if err := requireShedInPark(ctx, tx, tenantID, parkID, shedID); err != nil {
+		return "", "", err
+	}
+
+	wanted := strings.TrimSpace(partitionLabel)
+	if wanted != "" && oploc.NormalizePartition(wanted) != oploc.WholeSentinel {
+		var exactShedID string
+		err := tx.QueryRow(ctx, `
+SELECT sp.operational_location_id::text
+FROM shed_partitions sp
+JOIN locations exact
+  ON exact.tenant_id = sp.tenant_id
+ AND exact.location_id = sp.operational_location_id
+ AND exact.location_type = 'shed'
+ AND exact.status = 'active'
+WHERE sp.tenant_id = $1::uuid
+  AND (sp.shed_id = $2::uuid OR sp.operational_location_id = $2::uuid)
+  AND sp.status = 'active'
+  AND feed_config_norm(sp.partition_label) = feed_config_norm($3)
+ORDER BY CASE WHEN sp.operational_location_id = $2::uuid THEN 0 ELSE 1 END, sp.updated_at DESC, sp.partition_label
+LIMIT 1
+FOR SHARE OF sp`, tenantID, shedID, wanted).Scan(&exactShedID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ports.ErrPartitionNotFound
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("feedconfig: canonicalize experiment partition: %w", err)
+		}
+		return exactShedID, "", nil
+	}
+
+	var exactPartition bool
+	err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shed_partitions sp
+  WHERE sp.tenant_id = $1::uuid
+    AND sp.operational_location_id = $2::uuid
+    AND sp.status = 'active'
+)`, tenantID, shedID).Scan(&exactPartition)
+	if err != nil {
+		return "", "", fmt.Errorf("feedconfig: canonicalize exact experiment shed: %w", err)
+	}
+	if exactPartition {
+		return shedID, "", nil
+	}
+
+	if err := requirePartitionInShed(ctx, tx, tenantID, shedID, wanted); err != nil {
+		return "", "", err
+	}
+	return shedID, "", nil
 }
 
 // requirePartitionInShed rejects a partition label that is not in the shed's own catalog.
@@ -1521,11 +1561,8 @@ func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.Set
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
-		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
-			return writeEffect{}, err
-		}
-
-		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+		shedID, partitionLabel, err := canonicalizeExperimentShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+		if err != nil {
 			return writeEffect{}, err
 		}
 
@@ -1537,7 +1574,7 @@ FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$4")+`
 ORDER BY experiment_config_id
-FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, shedID, partitionLabel)
 		if err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment shed: %w", err)
 		}
@@ -1578,7 +1615,7 @@ SET status = $4, updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = `+partitionKeyMatch("$5")+`
   AND status IS DISTINCT FROM $4`,
-			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.Status, cmd.PartitionLabel); err != nil {
+			cmd.TenantID, cmd.ParkID, shedID, cmd.Status, partitionLabel); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: set experiment pen status: %w", err)
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: firstID}, nil

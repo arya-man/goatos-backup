@@ -1847,6 +1847,7 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		if err != nil {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: resolved shed id: %w", err)
 		}
+		partitionLabel = ""
 	}
 
 	var (
@@ -2954,18 +2955,11 @@ func (r *Repository) RecomputeEligibilityRollup(ctx context.Context, tenantID st
 		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: clear rollup: %w", err)
 	}
 
-	// projection-review: membership=canonical live goats for the tenant, LEFT JOINed 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)) so an animal is counted exactly once; group_key=the existing (tenant_id, park_id, shed_id, species, management_stage, sex, breed, health_status, usable_for_vaccination) key PLUS NULLIF(gsp.partition_label,'whole'), which SPLITS a shed's rollup across its pens instead of multiplying it, and keeps a single NULL-partition row for every non-partitioned shed; join_cardinality=the goat_shed_partitions LEFT JOIN is 1:{0,1} per goat and adds an ATTRIBUTE before grouping, so it cannot fan out the count(*); pagination=none, this is a full recompute of a derived rollup, never paged; scope=tenant_id, with park/shed/partition carried as columns for the two ceo_ai views (migration 000114) that match on the identical (tenant_id, shed_id, NULLIF(partition_label,'whole')) key
-	// partition_review: producer key adds NULLIF(gsp.partition_label,'whole') to
-	// the existing (tenant_id, park_id, shed_id, species, management_stage, sex,
-	// breed, health_status, usable_for_vaccination) GROUP BY. goat_shed_partitions
-	// PK is (tenant_id, goat_id), 1:{0,1} per goat, so this LEFT JOIN cannot fan
-	// out the per-goat membership the count(*) is grouping over -- it only adds
-	// an ATTRIBUTE to each goat row before grouping. A goat in a non-partitioned
-	// shed (no goat_shed_partitions row, or one stamped 'whole') groups into the
-	// partition_label = NULL grain, keeping today's single-row-per-shed behavior
-	// for every non-partitioned shed. group_key=consumer (the two ceo_ai views
-	// this feeds, migration 000114) matches on the identical (tenant_id, shed_id,
-	// NULLIF(partition_label,'whole')) key.
+	// projection-review: membership=canonical live goats for the tenant; after
+	// the exact-shed cutover, g.shed_id is the real physical shed, including
+	// partition sheds such as "Godel 1 - Part 1". partition_label is stored as
+	// NULL in this derived rollup so consumers cannot re-split an already exact
+	// shed by the legacy compatibility bridge.
 	tag, err := tx.Exec(ctx, `
 INSERT INTO vaccination_eligibility_rollups (
   tenant_id, park_id, shed_id, species, management_stage, sex, breed, health_status,
@@ -2990,7 +2984,7 @@ SELECT
   $2::bigint,
   $3::timestamptz,
   $3::timestamptz,
-  NULLIF(gsp.partition_label, 'whole')
+	  NULL::text
 FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
@@ -3002,14 +2996,10 @@ LEFT JOIN animal_stage_lookup asl
   ON asl.tenant_id = sp.tenant_id
  AND asl.animal_stage_id = sp.animal_stage_id
  AND asl.status = 'active'
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id
- AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
-WHERE g.tenant_id = $1::uuid
-  AND g.lifecycle_status = 'alive'
-  AND g.merged_into_goat_id IS NULL
-GROUP BY g.tenant_id, g.park_id, g.shed_id,
+	WHERE g.tenant_id = $1::uuid
+	  AND g.lifecycle_status = 'alive'
+	  AND g.merged_into_goat_id IS NULL
+	GROUP BY g.tenant_id, g.park_id, g.shed_id,
          COALESCE(g.species, ''),
          COALESCE(asl.stage_code, g.management_stage, ''),
          COALESCE(g.sex, ''),
@@ -3020,8 +3010,7 @@ GROUP BY g.tenant_id, g.park_id, g.shed_id,
            AND COALESCE(loa.usable_for_vaccination, true)
            AND NOT COALESCE(loa.is_quarantine, false)
            AND NOT COALESCE(loa.is_icu, false)
-         ),
-         NULLIF(gsp.partition_label, 'whole')`, tenant, sourceRevision, recomputedAt)
+	         )`, tenant, sourceRevision, recomputedAt)
 	if err != nil {
 		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: rebuild rollup: %w", err)
 	}
@@ -3291,7 +3280,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+	       ''::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -3328,11 +3317,7 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id
- AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
-WHERE g.tenant_id = $1
+	WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($3::text = '' OR lower(COALESCE(asl.stage_code, g.management_stage, '')) = lower($3::text))
   AND ($4::text = '' OR lower(g.sex) = lower($4::text))

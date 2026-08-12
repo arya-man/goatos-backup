@@ -247,10 +247,12 @@ type DirectionRow struct {
 	ParkLabel string `json:"park_label"`
 	ShedID    string `json:"shed_id"`
 	ShedLabel string `json:"shed_label"`
-	// PartitionLabel is the row's operational partition ("1", "Part 3"), empty for a shed with no
-	// partitions. Clients render shed + partition per the operational-location rule ("Godel 2 -
-	// Part 3"); they must never print the 'whole' matching token, which never reaches this field.
+	// PartitionLabel is a legacy compatibility field. Current rows use ShedID/ShedLabel as the exact
+	// operational shed and render OperationalLocationDisplay verbatim.
 	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the backend-owned current shed label. Clients must render this
+	// verbatim instead of rebuilding a parent+partition name.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 	// ShedTag is the authored tag label the live management_stage normalized onto -- the canonical
 	// spelling, not the raw source text.
 	//

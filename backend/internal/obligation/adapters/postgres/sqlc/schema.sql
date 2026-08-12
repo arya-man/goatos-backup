@@ -1833,15 +1833,18 @@ $$;
 CREATE FUNCTION public.operational_location_display(p_shed_name text, p_partition_label text) RETURNS text
     LANGUAGE sql
     AS $_$
-  SELECT NULLIF(
-    BTRIM(
-      regexp_replace(
-        format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(COALESCE(p_partition_label, ''))),
-        ' - (whole)?\s*$', '', 'i'
-      )
-    ),
-    ''
-  );
+  SELECT NULLIF(BTRIM(
+    CASE
+      WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
+        OR lower(BTRIM(p_partition_label)) = 'whole'
+        THEN BTRIM(COALESCE(p_shed_name, ''))
+      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
+        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
+        THEN format('%s - Part %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+    END
+  ), '');
 $_$;
 
 

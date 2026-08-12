@@ -303,10 +303,7 @@ class FeedDirectionViewModel @Inject constructor(
         parkLabel = parkLabel,
         shedId = shedId,
         sessionNo = sessionNo,
-        // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
-        // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
-        // identical "Castro" lines the operator cannot tell apart.
-        shedLabel = operationalLocationLabel(shedLabel, partitionLabel),
+        shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
         partitionLabel = partitionLabel.orEmpty(),
         shedTag = shedTag,
         breed = breed,

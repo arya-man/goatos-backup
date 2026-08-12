@@ -143,14 +143,12 @@ class AddBirthViewModel @Inject constructor(
                     val shedStillOffered = parks
                         .firstOrNull { it.parkId == parkId }
                         ?.sheds
-                        // Match the PEN, not just the shed: a refresh that drops "Godel 1 - 7"
-                        // while keeping "Godel 1" must not silently retain the stale partition.
-                        ?.any { it.shedId == current.shedId && it.partitionLabel == current.partitionLabel } == true
+                        ?.any { it.shedId == current.shedId } == true
                     current.copy(
                         destinationParks = parks,
                         parkId = parkId,
                         shedId = if (shedStillOffered) current.shedId else "",
-                        partitionLabel = if (shedStillOffered) current.partitionLabel else null,
+                        partitionLabel = null,
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
                 }
@@ -226,17 +224,14 @@ class AddBirthViewModel @Inject constructor(
     }
 
     /**
-     * [optionKey] is the composite dropdown key `shedId|partitionLabel` (or a bare `shedId` for a
-     * non-partitioned shed), not a shed id. Resolving the option rather than parsing the string
-     * keeps the pen exactly as the backend spelled it, so a label containing "|" could never
-     * corrupt the selection.
+     * [optionKey] is the exact shed id. Partition labels are compatibility metadata only.
      */
     private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
             val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
             if (option != null) {
-                current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
+                current.copy(shedId = option.shedId, partitionLabel = null)
             } else {
                 current
             }

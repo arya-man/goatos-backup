@@ -96,15 +96,33 @@ func enrollExperimentPen(t *testing.T, ctx context.Context, repo *Repository, ke
 	return out
 }
 
+func exactExperimentPenID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pen string) string {
+	t.Helper()
+	var shedID string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(sp.operational_location_id, sp.shed_id)::text
+FROM shed_partitions sp
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+ORDER BY sp.updated_at DESC, sp.partition_label
+LIMIT 1`, fcTenant, fcPennedShed, pen).Scan(&shedID); err != nil {
+		t.Fatalf("resolve exact experiment pen %q: %v", pen, err)
+	}
+	return shedID
+}
+
 // penCells reads (feed item -> kg) for one pen, keyed the way the DATABASE keys it.
 func penCells(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pen string) map[string]string {
 	t.Helper()
+	exactShedID := exactExperimentPenID(t, ctx, pool, pen)
 	rows, err := pool.Query(ctx, `
 SELECT feed_item_label, absolute_kg::text
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
-  AND partition_key = CASE WHEN btrim($3) = '' THEN 'whole' ELSE feed_config_norm($3) END`,
-		fcTenant, fcPennedShed, pen)
+  AND partition_key = 'whole'`,
+		fcTenant, exactShedID)
 	if err != nil {
 		t.Fatalf("read pen cells: %v", err)
 	}
@@ -123,12 +141,13 @@ WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
 // penStatuses reads (feed item -> status) for one pen.
 func penStatuses(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pen string) map[string]string {
 	t.Helper()
+	exactShedID := exactExperimentPenID(t, ctx, pool, pen)
 	rows, err := pool.Query(ctx, `
 SELECT feed_item_label, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
-  AND partition_key = CASE WHEN btrim($3) = '' THEN 'whole' ELSE feed_config_norm($3) END`,
-		fcTenant, fcPennedShed, pen)
+  AND partition_key = 'whole'`,
+		fcTenant, exactShedID)
 	if err != nil {
 		t.Fatalf("read pen statuses: %v", err)
 	}
@@ -436,9 +455,10 @@ func TestUpsertExperimentConfigBatchWritesEveryCellOrNone(t *testing.T) {
 		t.Fatalf("bad-pen batch err = %v, want %v", err, ports.ErrPartitionNotFound)
 	}
 	var total int
+	exactPenID := exactExperimentPenID(t, ctx, pool, fcPenA)
 	if err := pool.QueryRow(ctx, `
 SELECT count(*) FROM feed_experiment_config WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`,
-		fcTenant, fcPennedShed).Scan(&total); err != nil {
+		fcTenant, exactPenID).Scan(&total); err != nil {
 		t.Fatalf("count rows: %v", err)
 	}
 	if total != len(cells) {
@@ -468,7 +488,7 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	}
 
 	first, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
-		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1},
+		TenantID: fcTenant, ParkID: fcPark, Status: domain.ExperimentStatusActive, Page: domain.Page{Limit: 1},
 	})
 	if err != nil {
 		t.Fatalf("first page: %v", err)
@@ -476,12 +496,12 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	if len(first.Items) != 6 {
 		t.Fatalf("first page contains %d cells, want all 6 cells of one pen", len(first.Items))
 	}
-	if !first.HasMore {
-		t.Fatalf("first page has_more = false, want a second pen page")
+	if first.HasMore {
+		t.Fatalf("first page has_more = true, want only one active pen page after retiring the sibling")
 	}
 	for _, cell := range first.Items {
-		if cell.PartitionLabel != fcPenA {
-			t.Fatalf("first page mixed pen %q into %q", cell.PartitionLabel, fcPenA)
+		if cell.ShedID != exactExperimentPenID(t, ctx, pool, fcPenA) || cell.PartitionLabel != "" {
+			t.Fatalf("first page mixed non-exact pen shed=%q partition=%q into exact %q", cell.ShedID, cell.PartitionLabel, exactExperimentPenID(t, ctx, pool, fcPenA))
 		}
 	}
 
@@ -491,8 +511,14 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
-	if len(second.Items) != 1 || second.Items[0].PartitionLabel != fcPenB {
-		t.Fatalf("second page = %#v, want the complete second pen", second.Items)
+	if len(second.Items) == 0 {
+		t.Fatalf("second page empty, want one complete exact-shed pen")
+	}
+	secondShedID := second.Items[0].ShedID
+	for _, cell := range second.Items {
+		if cell.ShedID != secondShedID || cell.PartitionLabel != "" {
+			t.Fatalf("second page split/mixed exact sheds: %#v", second.Items)
+		}
 	}
 	if second.HasMore {
 		t.Fatalf("second page has_more = true, want end of pen catalog")
@@ -506,7 +532,7 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retired-only page: %v", err)
 	}
-	if len(retiredOnly.Items) != 1 || retiredOnly.Items[0].PartitionLabel != fcPenB || retiredOnly.HasMore {
+	if len(retiredOnly.Items) != 1 || retiredOnly.Items[0].ShedID != exactExperimentPenID(t, ctx, pool, fcPenB) || retiredOnly.Items[0].PartitionLabel != "" || retiredOnly.HasMore {
 		t.Fatalf("retired-only page = %#v, want only complete retired pen B", retiredOnly)
 	}
 }
@@ -716,9 +742,9 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	if !ok {
 		t.Fatalf("pen A missing; got displays %v", keysOf(byDisplay))
 	}
-	if penA.PartitionLabel != fcPenA {
-		t.Fatalf("partition label = %q, want %q (normalized_label is a matching key, never display)",
-			penA.PartitionLabel, fcPenA)
+	if penA.PartitionLabel != "" {
+		t.Fatalf("partition label = %q, want blank because shed_id is already the exact partition shed",
+			penA.PartitionLabel)
 	}
 	if !penA.HasExperimentConfig {
 		t.Fatalf("pen A has an authored cell but reads as unconfigured")

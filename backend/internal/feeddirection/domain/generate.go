@@ -153,11 +153,15 @@ func materializeRow(
 	}
 
 	row := DirectionRow{
-		ParkID:                 in.Config.ParkID,
-		ParkLabel:              in.Config.ParkLabel,
-		ShedID:                 shed.ShedID,
-		ShedLabel:              shed.ShedLabel,
-		PartitionLabel:         shed.PartitionLabel,
+		ParkID:         in.Config.ParkID,
+		ParkLabel:      in.Config.ParkLabel,
+		ShedID:         shed.ShedID,
+		ShedLabel:      shed.ShedLabel,
+		PartitionLabel: shed.PartitionLabel,
+		OperationalLocationDisplay: oploc.OperationalLocation{
+			ShedName:       shed.ShedLabel,
+			PartitionLabel: shed.PartitionLabel,
+		}.Display(),
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
@@ -227,11 +231,15 @@ func blockedSessionItemsRow(in GenerateInput, shed ShedInput, daily DailyRow, se
 	}
 	columns := in.Config.blockedColumnItems()
 	row := DirectionRow{
-		ParkID:                 in.Config.ParkID,
-		ParkLabel:              in.Config.ParkLabel,
-		ShedID:                 shed.ShedID,
-		ShedLabel:              shed.ShedLabel,
-		PartitionLabel:         shed.PartitionLabel,
+		ParkID:         in.Config.ParkID,
+		ParkLabel:      in.Config.ParkLabel,
+		ShedID:         shed.ShedID,
+		ShedLabel:      shed.ShedLabel,
+		PartitionLabel: shed.PartitionLabel,
+		OperationalLocationDisplay: oploc.OperationalLocation{
+			ShedName:       shed.ShedLabel,
+			PartitionLabel: shed.PartitionLabel,
+		}.Display(),
 		ShedTag:                daily.ShedTag,
 		Breed:                  daily.Breed,
 		RationGroup:            daily.RationGroup,
@@ -279,11 +287,15 @@ func blockedSessionRows(in GenerateInput, shed ShedInput, dailyRows []DailyRow) 
 			}
 		}
 		row := DirectionRow{
-			ParkID:                 in.Config.ParkID,
-			ParkLabel:              in.Config.ParkLabel,
-			ShedID:                 shed.ShedID,
-			ShedLabel:              shed.ShedLabel,
-			PartitionLabel:         shed.PartitionLabel,
+			ParkID:         in.Config.ParkID,
+			ParkLabel:      in.Config.ParkLabel,
+			ShedID:         shed.ShedID,
+			ShedLabel:      shed.ShedLabel,
+			PartitionLabel: shed.PartitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{
+				ShedName:       shed.ShedLabel,
+				PartitionLabel: shed.PartitionLabel,
+			}.Display(),
 			ShedTag:                daily.ShedTag,
 			Breed:                  daily.Breed,
 			RationGroup:            daily.RationGroup,

@@ -386,15 +386,11 @@ fun VerifyQueueScreen(
                     } else {
                         state.rows
                     }
-                    // Group by stable shedId + partitionLabel when both are present -- two
-                    // partitions of the same shed share the same shedId but must render as
-                    // separate groups (e.g. "Godel 1 - Part 1" and "Godel 1 - Part 3" are
-                    // different rows, not merged under one header). Rows without a shedId
-                    // (legacy/non-shed items) fall back to the old label key.
+                    // Group by exact shedId. Partition labels are compatibility metadata after
+                    // the partition-is-shed cutover.
                     val shedGroups = visibleRows.groupBy {
                         if (it.shedId != null) {
-                            val key = it.shedId + (it.partitionLabel?.let { "::$it" } ?: "")
-                            key
+                            it.shedId
                         } else {
                             it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
                         }

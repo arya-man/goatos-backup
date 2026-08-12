@@ -263,11 +263,12 @@ class BirthDeathViewModel @Inject constructor(
                         ?.sheds
                         ?.any { it.shedId == current.shedId } == true
                     current.copy(
-                        destinationParks = parks,
-                        parkId = parkId,
-                        shedId = if (shedStillOffered) current.shedId else "",
-                        destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
-                    )
+						destinationParks = parks,
+						parkId = parkId,
+						shedId = if (shedStillOffered) current.shedId else "",
+						partitionLabel = null,
+						destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
+					)
                 }
                 recomputeSubmitGate()
             }
@@ -361,17 +362,14 @@ class BirthDeathViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
-    /**
-     * [optionKey] is the composite `shedId|partitionLabel` dropdown key, not a shed id — the
-     * destinations feed returns one option per PARTITION, so a shed id does not identify a choice.
-     */
+    /** [optionKey] is the exact shed id. Partition labels are compatibility metadata only. */
     private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
             // Guard the pairing at selection too: only an option that belongs to the chosen park stores.
             val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
             if (option != null) {
-                current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
+                current.copy(shedId = option.shedId, partitionLabel = null)
             } else {
                 current
             }

@@ -99,10 +99,8 @@ data class ShiftingAnimalUi(
 )
 
 /**
- * One OPERATIONAL LOCATION a movement may target — either a whole shed or one of its partitions.
- * Identity is [shedId] + [partitionLabel] together: a partitioned shed offers one entry per
- * partition (never a bare whole-shed entry alongside them), and an unpartitioned shed offers
- * exactly one entry with a null [partitionLabel].
+ * One operational shed a movement may target. When the farm calls a place a partition, that
+ * partition is still the shed for this screen; [shedId] is already the exact shed id.
  */
 @Immutable
 data class ShiftingShedUi(
@@ -122,9 +120,9 @@ data class ShiftingShedUi(
     val displayLabel: String
         get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
 
-    /** Stable dropdown-option key: shed alone is not unique once a shed has partitions. */
+    /** Stable dropdown-option key: exact shed id. */
     val optionKey: String
-        get() = listOfNotNull(shedId, partitionLabel).joinToString("|")
+        get() = shedId
 }
 
 /** One park a movement may target, with the sheds that belong to it. */
@@ -190,7 +188,7 @@ data class ShiftingUiState(
     /** The currently-selected destination option, if any. */
     val selectedDestination: ShiftingShedUi?
         get() = shedsForSelectedPark.firstOrNull {
-            it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
+            it.shedId == destinationShedId
         }
 }
 
@@ -347,11 +345,11 @@ fun ShiftingScreen(
                         stringResource(R.string.counts_select_shed)
                     },
                     options = destinations.map {
-                        CountsDropdownOption(it.optionKey, it.name)
+                        CountsDropdownOption(it.optionKey, it.displayLabel)
                     },
                     onSelect = { key ->
                         val chosen = destinations.firstOrNull { it.optionKey == key }
-                        onEvent(ShiftingEvent.SelectDestinationShed(chosen?.shedId.orEmpty(), chosen?.partitionLabel))
+                        onEvent(ShiftingEvent.SelectDestinationShed(chosen?.shedId.orEmpty(), null))
                     },
                     enabled = destinations.isNotEmpty(),
                 )
@@ -470,9 +468,7 @@ private fun ShiftingAnimalHero(
                 modifier = Modifier.weight(1f),
                 label = stringResource(R.string.counts_shifting_from),
                 parkLabel = animal.parkName,
-                // The operational location — shed name plus partition when the animal's shed is
-                // partitioned (e.g. "Yashoda 2"), so a same-shed cross-partition move is visible.
-                shedLabel = operationalLocationLabel(animal.shedName, animal.partitionLabel),
+                shedLabel = animal.locationLabel.ifBlank { operationalLocationLabel(animal.shedName, animal.partitionLabel) },
                 fallback = animal.locationLabel,
                 accent = MeshaColors.Faint,
             )

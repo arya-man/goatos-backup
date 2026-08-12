@@ -206,7 +206,7 @@ func resolveFeedShedPartitionInPark(ctx context.Context, tx pgx.Tx, tenantID, pa
 		var out feedShedPartition
 		err := tx.QueryRow(ctx, `
 SELECT sp.operational_location_id::text,
-       COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole')
+       ''
 FROM shed_partitions sp
 WHERE sp.tenant_id = $1::uuid
   AND (sp.shed_id = $2::uuid OR sp.operational_location_id = $2::uuid)
@@ -237,7 +237,8 @@ LIMIT 1
 FOR SHARE`, tenantID, shedID).Scan(&exactLabel)
 	switch {
 	case err == nil:
-		return feedShedPartition{ShedID: shedID, PartitionLabel: exactLabel}, nil
+		_ = exactLabel
+		return feedShedPartition{ShedID: shedID}, nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		return feedShedPartition{}, fmt.Errorf("feeddirection: resolve exact partition shed: %w", err)
 	}
@@ -266,10 +267,7 @@ func canonicalizeFeedCompletionParams(ctx context.Context, tx pgx.Tx, tenantID, 
 	if err != nil {
 		return "", "", err
 	}
-	if domain.PartitionMatchKey(canonical.PartitionLabel) == "whole" {
-		canonical.PartitionLabel = ""
-	}
-	return canonical.ShedID, canonical.PartitionLabel, nil
+	return canonical.ShedID, "", nil
 }
 
 func writeCompletionAudit(ctx context.Context, tx pgx.Tx, p ports.CompleteSessionParams, completionID string) error {

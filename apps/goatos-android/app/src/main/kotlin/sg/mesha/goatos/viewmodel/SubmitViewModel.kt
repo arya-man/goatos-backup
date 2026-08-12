@@ -1616,8 +1616,7 @@ class SubmitViewModel @Inject constructor(
 
         fun submissionScope(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String {
             val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
-            val partitionKey = partitionLabel?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole"
-            return "${task.taskId}:scope:$scopeId:partition:$partitionKey:rv:${task.rowVersion}"
+            return "${task.taskId}:scope:$scopeId:rv:${task.rowVersion}"
         }
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {

@@ -145,10 +145,10 @@ data class FeedDirectionRowDto(
     @SerialName("park_label") val parkLabel: String = "",
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("shed_label") val shedLabel: String = "",
-    // A feed row's grain is the OPERATIONAL LOCATION, not the shed: Castro 1 and Castro 2 are two
-    // rows sharing one shed_id. Render shed + partition together via PartitionLabel.display -- the
-    // bare shed name would print two identical lines for two different pens.
+    // Compatibility only. Current backend rows identify the exact shed in shedId/shedLabel and send
+    // operationalLocationDisplay for the UI to render verbatim.
     @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("shed_tag") val shedTag: String = "",
     @SerialName("breed") val breed: String = "",
     @SerialName("ration_group") val rationGroup: String = "",
@@ -178,12 +178,6 @@ data class FeedDirectionRowDto(
     val grainKey: String
         get() = listOf(
             shedId,
-            // PARTITION IS PART OF THE IDENTITY, not just the label. A feed row's grain is the
-            // OPERATIONAL LOCATION, so Castro 1 and Castro 2 share a shed_id and agree on every
-            // other column here. Leaving the partition out made them the SAME key -- and because
-            // this is the Room primary key, one silently OVERWROTE the other: the sheet showed
-            // "Castro - 2" and no Castro 1 at all, a dropped pen rather than a mislabelled one.
-            partitionLabel.orEmpty(),
             workflow,
             rationGroup,
             experimentArm,

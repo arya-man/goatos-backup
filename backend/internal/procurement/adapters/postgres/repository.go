@@ -1638,10 +1638,10 @@ SELECT name
 FROM locations
 WHERE tenant_id = $1::uuid
   AND location_id = $2::uuid
-  AND location_type = 'shed'`, in.TenantID, intakeLocation.GroupShedID).Scan(&shedName); err != nil {
+  AND location_type = 'shed'`, in.TenantID, intakeLocation.ExactShedID).Scan(&shedName); err != nil {
 			return nil, fmt.Errorf("procurement: resolve partition source shed: %w", err)
 		}
-		sourceShedName := oploc.OperationalLocation{ShedID: intakeLocation.GroupShedID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+		sourceShedName := oploc.OperationalLocation{ShedID: intakeLocation.ExactShedID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if strings.TrimSpace(sourceShedName) == "" {
 			sourceShedName = intakeLocation.ExactShedID
 		}
@@ -1654,7 +1654,7 @@ WHERE tenant_id = $1::uuid
 	    partition_label = EXCLUDED.partition_label,
 	    source_shed_name = EXCLUDED.source_shed_name,
 	    updated_at = now()`,
-			in.TenantID, intakeLocation.GroupShedID, partitionLabel, sourceShedName, goatIDs)
+			in.TenantID, intakeLocation.ExactShedID, oploc.WholeSentinel, sourceShedName, goatIDs)
 	} else {
 		_, err = tx.Exec(ctx, `
 DELETE FROM goat_shed_partitions

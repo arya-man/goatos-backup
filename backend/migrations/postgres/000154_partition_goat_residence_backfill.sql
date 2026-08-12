@@ -154,7 +154,7 @@ WITH exact_goat_obligations AS (
    AND sp.operational_location_id = g.shed_id
   WHERE oi.target_type = 'goat'
     AND oi.scope_type = 'shed'
-    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded')
+    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded','missed')
     AND oi.scope_id IS DISTINCT FROM g.shed_id
 )
 UPDATE public.obligation_instances oi
@@ -173,7 +173,7 @@ WITH single_exact_batch AS (
   WHERE oi.target_type = 'goat'
     AND oi.scope_type = 'shed'
     AND oi.batch_id IS NOT NULL
-    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded')
+    AND oi.status NOT IN ('completed','skipped','canceled','waived','superseded','missed')
   GROUP BY oi.tenant_id, oi.batch_id
   HAVING count(DISTINCT oi.scope_id) = 1
 )
@@ -205,6 +205,51 @@ FROM single_exact_task setask
 WHERE st.tenant_id = setask.tenant_id
   AND st.task_id = setask.task_id
   AND st.scope_id IS DISTINCT FROM setask.exact_shed_id;
+
+WITH exact_task_submission AS (
+  SELECT ss.tenant_id, ss.submission_id
+  FROM public.sop_submissions ss
+  JOIN public.sop_tasks st
+    ON st.tenant_id = ss.tenant_id
+   AND st.task_id = ss.task_id
+   AND st.scope_type = 'shed'
+  JOIN public.shed_partitions sp
+    ON sp.tenant_id = st.tenant_id
+   AND sp.operational_location_id = st.scope_id
+  WHERE NULLIF(btrim(COALESCE(ss.partition_label, '')), '') IS NOT NULL
+)
+UPDATE public.sop_submissions ss
+SET partition_label = NULL,
+    row_version = ss.row_version + 1
+FROM exact_task_submission ets
+WHERE ss.tenant_id = ets.tenant_id
+  AND ss.submission_id = ets.submission_id;
+
+WITH exact_shed_proofs AS (
+  SELECT
+    p.tenant_id,
+    p.proof_id,
+    sp.operational_location_id AS exact_shed_id
+  FROM public.proof_artifacts p
+  JOIN public.shed_partitions sp
+    ON sp.tenant_id = p.tenant_id
+   AND sp.shed_id = p.scope_id
+   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+   AND sp.status = 'active'
+   AND sp.operational_location_id IS NOT NULL
+  WHERE p.scope_type = 'shed'
+    AND p.subject_type = 'shed'
+    AND NULLIF(btrim(COALESCE(p.metadata ->> 'partition_label', '')), '') IS NOT NULL
+)
+UPDATE public.proof_artifacts p
+SET scope_id = esp.exact_shed_id,
+    subject_id = CASE WHEN p.subject_id IS NULL OR p.subject_id = p.scope_id THEN esp.exact_shed_id ELSE p.subject_id END,
+    metadata = p.metadata - 'partition_label',
+    updated_at = now(),
+    row_version = p.row_version + 1
+FROM exact_shed_proofs esp
+WHERE p.tenant_id = esp.tenant_id
+  AND p.proof_id = esp.proof_id;
 
 -- +goose Down
 -- +goose NO TRANSACTION
