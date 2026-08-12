@@ -130,6 +130,19 @@ export async function VerificationReviewPage({
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
   const columns = tableLabels(pageContract, "verification-actions");
   const tableContract = table(pageContract, "verification-actions");
+  // Gates the CROSS-MODULE oversight chrome (module chips, capture-date range picker):
+  // permissions.VerificationOversee, backend/internal/permissions/permissions.go. These filters
+  // were built for the CEO's oversight view but rendered for every role that can open /verify,
+  // including RoleVerifier, before this fix (STG incident, 2026-08-12) -- because /verify is one
+  // role-agnostic component. This is the UI half of the gate; the backend independently ignores
+  // nav_module/business_date_from/business_date_to for callers without the capability and blanks
+  // filter_options.modules, so a hand-edited URL cannot reach the oversight query shape even if
+  // this control were somehow bypassed. See docs/decisions/role-scoped-ui-is-capability-gated.md.
+  //
+  // Status chips and the shed filter are NOT gated here: both predate the oversight rollout (the
+  // verifier's original working-queue screen, commit 89b16c0fa / fe06be1ed) and stay available to
+  // every role that can open this page.
+  const oversightFiltersEnabled = controlEnabled(pageContract, "oversight_filters", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -198,7 +211,7 @@ export async function VerificationReviewPage({
             it enabled for leadership, whose single nav item makes this row their only module
             picker. Defaulting to true keeps a backend one release behind — which declares no such
             control — showing the row. */}
-        {moduleFilterOffered && modules.length > 1 ? (
+        {moduleFilterOffered && oversightFiltersEnabled && modules.length > 1 ? (
           <div className="vr-legend" role="group" aria-label={copy(pageContract, "filter.module")}>
             <Link
               href={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
@@ -236,24 +249,26 @@ export async function VerificationReviewPage({
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
         <div className="vr-frow">
-          <ActionsDateFilter
-            basePath={PATHNAME}
-            from={dateRange.from}
-            to={dateRange.to}
-            today={today}
-            labels={{
-              field: copy(pageContract, "filter.date"),
-              today: copy(pageContract, "filter.date.today"),
-              single: copy(pageContract, "filter.date.single"),
-              range: copy(pageContract, "filter.date.range"),
-              aria: copy(pageContract, "filter.date.aria"),
-              previousMonth: copy(pageContract, "filter.date.previous_month"),
-              nextMonth: copy(pageContract, "filter.date.next_month"),
-              rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-              rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-              rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-            }}
-          />
+          {oversightFiltersEnabled ? (
+            <ActionsDateFilter
+              basePath={PATHNAME}
+              from={dateRange.from}
+              to={dateRange.to}
+              today={today}
+              labels={{
+                field: copy(pageContract, "filter.date"),
+                today: copy(pageContract, "filter.date.today"),
+                single: copy(pageContract, "filter.date.single"),
+                range: copy(pageContract, "filter.date.range"),
+                aria: copy(pageContract, "filter.date.aria"),
+                previousMonth: copy(pageContract, "filter.date.previous_month"),
+                nextMonth: copy(pageContract, "filter.date.next_month"),
+                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+              }}
+            />
+          ) : null}
           {sheds.length ? (
             <>
             <form action={PATHNAME} style={{ display: "contents" }}>

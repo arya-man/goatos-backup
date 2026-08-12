@@ -948,13 +948,34 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: actReason,
 		Action:         "POST /admin/tasks/{task_id}/rework",
 	})
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "reassign_task",
 		Label:          copy["reassign.submit"],
 		Kind:           "action",
 		Enabled:        mayAct,
 		DisabledReason: actReason,
 		Action:         "POST /admin/tasks/{task_id}/assign",
+	})
+	// oversight_filters gates the CROSS-MODULE oversight chrome on /verify (module chips, the
+	// capture-date range picker): see permissions.VerificationOversee. Incident (2026-08-12, STG):
+	// these filters were built for the CEO's oversight view but rendered for every role that can
+	// open /verify, including RoleVerifier, because the page is a single role-agnostic component.
+	// The renderer must gate on THIS control -- not on the caller's role, and not by inferring
+	// oversight from grant shape -- so the verifier's working queue (status chips, shed filter;
+	// both predate the oversight rollout) is unaffected. See
+	// docs/decisions/role-scoped-ui-is-capability-gated.md.
+	mayOversee := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationOversee})
+	oversightReason := ""
+	if !mayOversee {
+		oversightReason = controlCopy(copy, "oversight_filters.disabled_no_access", "Cross-module filters are limited to leadership oversight of verification.")
+	}
+	return upsertControl(out, domain.Control{
+		ID:             "oversight_filters",
+		Label:          copy["filter.module"],
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "",
 	})
 }
 
