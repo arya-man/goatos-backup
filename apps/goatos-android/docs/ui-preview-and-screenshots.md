@@ -28,7 +28,8 @@ Proof-video screenshots must resemble the actual feature screen. Do not replace
 an existing feature shape with a generic card/list just to show states. If the
 real surface is a scan screen, show the scan screen. If the real surface is a
 weighing captured-animal list, show that list. If the real surface is a
-multi-video form, show the multi-video form.
+multi-video form, show the multi-video form. Feed, shifting, workflow, and milk
+states must be shown inside their production step/action rows.
 
 For proof-video work, every touched feature needs screenshot coverage for:
 
@@ -69,6 +70,28 @@ Verify before push:
 ```bash
 ./gradlew :app:verifyPaparazziDevDebug --console=plain
 ```
+
+The proof-video screenshot guard is:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+```
+
+The proof-video pipeline guard is:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-pipeline.mjs
+```
+
+Ordinary local CI runs the diff-scoped guard through `make mobile-guard`. A full
+legacy audit can be run with:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
+```
+
+The full audit currently reports known direct-upload legacy screens until they
+are migrated to the shared proof capture/orchestration path.
 
 For focused review, run a single test class or method:
 

@@ -829,6 +829,7 @@ class DefaultProofCaptureRepository(
                 put("captured_start_ms", JsonPrimitive(uploadEntity.capturedStartMs))
                 put("captured_end_ms", JsonPrimitive(uploadEntity.capturedEndMs))
                 put("duration_ms", JsonPrimitive((uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0)))
+                proofOverlayRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
                 uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },
@@ -892,6 +893,7 @@ class DefaultProofCaptureRepository(
                     fieldKey = entity.fieldKey,
                     subjectType = entity.proofSubject,
                     subjectId = entity.subjectId,
+                    rfidTag = proofOverlayRfidTag(entity),
                     originalUri = entity.originalUri ?: entity.localUri,
                     mimeType = entity.mimeType,
                     capturedStartMs = entity.capturedStartMs,
@@ -1203,6 +1205,7 @@ private fun proofAnalyticsProps(
     put("field_key", entity.fieldKey)
     put("proof_subject", entity.proofSubject)
     entity.subjectId?.takeIf { it.isNotBlank() }?.let { put("subject_id", it) }
+    proofOverlayRfidTag(entity)?.let { put("rfid_tag", it) }
     entity.featureSurface?.takeIf { it.isNotBlank() }?.let { put("feature_surface", it) }
     entity.proofMode?.takeIf { it.isNotBlank() }?.let { put("proof_mode", it) }
     entity.slotIndex?.let { put("slot_index", it.toString()) }
@@ -1223,6 +1226,16 @@ private fun proofAnalyticsProps(
     entity.locationStatus?.takeIf { it.isNotBlank() }?.let { put("location_status", it) }
     entity.geocoderStatus?.takeIf { it.isNotBlank() }?.let { put("geocoder_status", it) }
 }
+
+private fun proofOverlayRfidTag(entity: ProofCaptureEntity): String? =
+    entity.caption
+        ?.takeIf { entity.fieldKey in rfidBurnOverlayFieldKeys }
+        ?.takeIf { it.isNotBlank() }
+
+private val rfidBurnOverlayFieldKeys = setOf(
+    "vaccination_goat_proof",
+    "weighing_individual_video",
+)
 
 private fun localFileBytes(localUri: String): Long? = runCatching {
     val file = if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)

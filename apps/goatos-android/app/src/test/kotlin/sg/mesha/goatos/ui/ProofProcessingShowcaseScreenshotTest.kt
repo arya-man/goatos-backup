@@ -44,67 +44,6 @@ class ProofProcessingShowcaseScreenshotTest {
     val paparazzi = Paparazzi(deviceConfig = DeviceConfig.PIXEL_6)
 
     @Test
-    fun perVideoScanRows() = shot("proof_processing_01_scan_rows") {
-        ShowcaseScreen(
-            title = "Scan video proof",
-            subtitle = "Vaccination and weighing individual rows",
-        ) {
-            SectionTitle("Vaccination scan")
-            ProofScanRow("RFID 004821", "ET+TT · Gandhi 1", ProofUiPhase.PREPARING)
-            ProofScanRow("RFID 004822", "PPR · Gandhi 1", ProofUiPhase.COMPRESSING)
-            ProofScanRow("RFID 004823", "FMD · Gandhi 1", ProofUiPhase.UPLOADING)
-            ProofScanRow("RFID 004824", "ET+TT · Gandhi 1", ProofUiPhase.UPLOADED)
-            ProofScanRow("RFID 004825", "ET+TT · Gandhi 1", ProofUiPhase.RETRYING)
-            ProofScanRow("RFID 004826", "PPR · Gandhi 1", ProofUiPhase.RETRY_ORIGINAL)
-
-            SectionTitle("Weighing individual")
-            ProofScanRow("901007000504407", "18.4 kg · Kid Shed A", ProofUiPhase.COMPRESSING)
-            ProofScanRow("901007000504418", "19.1 kg · Kid Shed A", ProofUiPhase.UPLOADING_ORIGINAL)
-            ProofScanRow("901007000504419", "20.2 kg · Kid Shed A", ProofUiPhase.UPLOADED)
-        }
-    }
-
-    @Test
-    fun formAndShedProofRows() = shot("proof_processing_02_form_and_shed") {
-        ShowcaseScreen(
-            title = "Form and shed video proof",
-            subtitle = "Vaccination form fields and weighing shed videos",
-        ) {
-            SectionTitle("Vaccination submit form")
-            ProofCard("Administration video", "Shows vaccine, goat tag, and operator narration", ProofUiPhase.PREPARING)
-            ProofCard("Shed completion video", "One clip for all completed animals in this shed", ProofUiPhase.UPLOADING)
-
-            SectionTitle("Weighing shed / lump-sum")
-            ProofCard("Kid Shed B / Part 1", "74.5 kg · one shed proof video", ProofUiPhase.COMPRESSING)
-            ProofCard("Kid Shed B / Part 2", "71.0 kg · retry is automatic", ProofUiPhase.RETRYING)
-        }
-    }
-
-    @Test
-    fun moduleStepCards() = shot("proof_processing_03_module_steps") {
-        ShowcaseScreen(
-            title = "Module proof steps",
-            subtitle = "Feed, shifting, milk, birth/death",
-        ) {
-            SectionTitle("Feed")
-            ProofStepCard("Feed distribution", "Feed video", ProofUiPhase.COMPRESSING)
-            ProofStepCard("Feed distribution", "Water video", ProofUiPhase.UPLOADING)
-            ProofStepCard("Feed packing", "Packing video", ProofUiPhase.UPLOADED)
-            ProofStepCard("Feed transport", "Transport video", ProofUiPhase.RETRYING)
-
-            SectionTitle("Shifting")
-            ProofStepCard("Movement", "Destination shed video", ProofUiPhase.PREPARING)
-            ProofStepCard("High priority", "Feed given video", ProofUiPhase.UPLOADING_ORIGINAL)
-            ProofStepCard("High priority", "Packing video", ProofUiPhase.RETRY_ORIGINAL)
-
-            SectionTitle("Milk and workflow")
-            ProofStepCard("Milk preparation", "Mixing and storage video", ProofUiPhase.COMPRESSING)
-            ProofStepCard("Milk feeding", "Feeding proof video", ProofUiPhase.UPLOADING)
-            ProofStepCard("Death evidence", "Required evidence video", ProofUiPhase.RECORD_AGAIN)
-        }
-    }
-
-    @Test
     fun vaccinationScanFeature() = shot("proof_processing_10_vaccination_scan") {
         CameraScanShowcase(
             title = "Vaccination scan",
@@ -115,6 +54,7 @@ class ProofProcessingShowcaseScreenshotTest {
             overlayLines = listOf(
                 "Aug 11, 2026 2:48 PM",
                 "Operator: Raviteja",
+                "RFID: 004821",
                 "Channapatna - Sathanur Road",
                 "Banduru Varagarahalli, Karnataka",
             ),

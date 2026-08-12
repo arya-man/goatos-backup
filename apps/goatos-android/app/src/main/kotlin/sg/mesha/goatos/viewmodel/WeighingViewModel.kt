@@ -2717,7 +2717,7 @@ class WeighingViewModel @Inject constructor(
             subjectId = null,
             localUri = captured.localUri,
             mimeType = captured.mimeType,
-            caption = row.animalId,
+            caption = row.displayAnimalId,
             scopeType = "shed",
             scopeId = row.expectedLocationId,
             capturedStartMs = captured.startedAtMs,
