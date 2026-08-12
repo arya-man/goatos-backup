@@ -604,6 +604,18 @@
   .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
+  /* Subject cell: the queue's densest column. subject_label arrives as a "·"-joined string whose
+     segments mean different things per module (a shed part, a goat count, an RFID tag, a weight, a
+     feed session), so a single run-on line reads as noise. Split it: the operational location leads
+     in the row's own weight, the quantitative segments become typed chips (count / weight / tag),
+     and the operator trails as muted context. */
+  .vr-subj{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .vr-subj .t{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .vr-subj .chip{border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5}
+  .vr-subj .chip.count{background:var(--okx);color:var(--ok)}
+  .vr-subj .chip.kg{background:var(--infox);color:var(--info)}
+  .vr-subj .chip.tag{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
   .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
   .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
   .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}

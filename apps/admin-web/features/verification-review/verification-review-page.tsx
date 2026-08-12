@@ -504,9 +504,7 @@ function QueueRow({
         </div>)}
       </td>
       <td>
-        {cell(item.subject_label?.trim()
-          ? item.subject_label
-          : `${item.operator_name || "—"} · ${item.operational_location_display || item.shed_label || "—"}`)}
+        {cell(subjectCell(item))}
       </td>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(fmtDateTime(item.captured_at))}
@@ -530,6 +528,67 @@ function QueueRow({
         {cell(watchCell(item))}
       </td>
     </tr>
+  );
+}
+
+// subjectCell renders the Subject column as a headline plus typed chips instead of the raw
+// "·"-joined subject_label. The label's segments carry different kinds of fact depending on the
+// module -- "Godel 1 - Part 2", "31 goats", "Tag 901007000503938", "732.0 kg", "Session 2" -- and
+// reading them as one grey sentence forced the reviewer to parse every row. The operational
+// location leads (it is what the reviewer is looking at), quantities become chips that scan
+// vertically down the column, and the operator trails as context.
+const COUNT_SEGMENT = /^\d[\d,]*\s+(goats?|animals?|kids?)$/i;
+const WEIGHT_SEGMENT = /^[\d.,]+\s*kg$/i;
+const TAG_SEGMENT = /^tag\s+(\S+)$/i;
+
+function subjectCell(item: VerificationQueueItem): React.ReactNode {
+  const location = (item.operational_location_display || item.shed_label || "").trim();
+  const segments = (item.subject_label || "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const chips: React.ReactNode[] = [];
+  const rest: string[] = [];
+  for (const segment of segments) {
+    const tag = TAG_SEGMENT.exec(segment);
+    if (tag) {
+      chips.push(
+        <span key={`tag-${segment}`} className="chip tag" title={tag[1]}>
+          {tag[1]}
+        </span>,
+      );
+      continue;
+    }
+    if (COUNT_SEGMENT.test(segment)) {
+      chips.push(<span key={`count-${segment}`} className="chip count">{segment}</span>);
+      continue;
+    }
+    if (WEIGHT_SEGMENT.test(segment)) {
+      chips.push(<span key={`kg-${segment}`} className="chip kg">{segment}</span>);
+      continue;
+    }
+    rest.push(segment);
+  }
+
+  // The headline prefers the label's own descriptive segment when it carries MORE than the shed
+  // name ("Godel 1 - Part 2" beats "Godel 1"); otherwise the resolved location leads and the
+  // remaining segments ("Whole shed", "Session 2") drop to the meta line.
+  const descriptive = rest.find((segment) => location && segment.startsWith(location)) || "";
+  const headline = descriptive || location || rest[0] || item.subject_label?.trim() || "—";
+  const meta = rest.filter((segment) => segment !== headline && segment !== descriptive);
+  if (item.operator_name) meta.push(item.operator_name);
+
+  return (
+    <div className="vr-subj">
+      <span className="t" title={item.subject_label || headline}>{headline}</span>
+      {chips.length || meta.length ? (
+        <span className="m">
+          {chips}
+          {meta.length ? <span>{meta.join(" · ")}</span> : null}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
