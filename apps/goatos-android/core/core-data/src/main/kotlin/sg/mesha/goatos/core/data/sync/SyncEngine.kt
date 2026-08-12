@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
@@ -236,7 +237,14 @@ class SyncEngine(
     private fun Throwable.outboxLastError(): String =
         serverErrorText()?.display
             ?: (this as? NonRetryableSyncException)?.message?.trim()?.takeIf { it.isNotBlank() }
+            ?: authAccessOutboxLastError()
             ?: "This did not go through yet. It will be tried again."
+
+    private fun Throwable.authAccessOutboxLastError(): String? = when (appApiStatusCode()) {
+        401 -> "Your session expired. Sign in again, then retry this write."
+        403 -> "You do not have access for this write. Ask an admin to update your access, then retry."
+        else -> null
+    }
 
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
         val attempt = item.attemptCount + 1

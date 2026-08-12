@@ -172,6 +172,10 @@ class SyncEngineTelemetryTest {
         assertEquals(1, row.attemptCount)
         assertEquals(Long.MAX_VALUE, row.nextAttemptAt)
         assertEquals(
+            "You do not have access for this write. Ask an admin to update your access, then retry.",
+            row.lastError,
+        )
+        assertEquals(
             listOf(
                 OutboxWritePhase.ATTEMPT_STARTED,
                 OutboxWritePhase.ATTEMPT_FAILED,
