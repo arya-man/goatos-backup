@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptRow
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
@@ -119,6 +120,13 @@ class ScanViewModel @Inject constructor(
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val observedNeighborRows: StateFlow<List<ScanRosterRowEntity>> =
+        (if (shedId != null) {
+            repo.observeScanRosterNeighborRows(shedId, taskId, partitionLabel)
+        } else {
+            flowOf(emptyList())
+        }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Full-roster row count for this scope (page-independent) — drives hasMore and the sync/error gates.
     private val rosterTotal: StateFlow<Int> =
         (if (shedId != null) repo.observeScanRosterTotal(shedId, taskId, partitionLabel) else flowOf(0))
@@ -170,6 +178,12 @@ class ScanViewModel @Inject constructor(
     private val persistedScans: StateFlow<List<ScannedGoatRow>> =
         (taskId?.let { id ->
             scanCaptureRepository.observeScannedTags(id, ROSTER_SCAN_FIELD_KEY, partitionLabel)
+        } ?: flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val persistedAttempts: StateFlow<List<RfidScanAttemptRow>> =
+        (taskId?.let { id ->
+            scanAttemptRepository.observeAttempts(id)
         } ?: flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -243,6 +257,7 @@ class ScanViewModel @Inject constructor(
     @Suppress("UNCHECKED_CAST")
     val state: StateFlow<ScanUiState> = combine(
         observedRows,
+        observedNeighborRows,
         rosterTotal,
         persistedDoneGoatIds,
         _isRefreshing,
@@ -269,36 +284,39 @@ class ScanViewModel @Inject constructor(
         _proofReplacementGoatId,
         _proofSyncingStartedAt,
         shedCompletionSummary,
+        persistedAttempts,
     ) { values: Array<Any?> ->
         val rows = values[0] as List<ScanRosterRowEntity>
-        val total = values[1] as Int
-        val persistedDoneGoats = values[2] as List<String>
-        val isRefreshing = values[3] as Boolean
-        val isOffline = values[4] as Boolean
-        val isLoadingMore = values[5] as Boolean
-        val selectedFilter = values[6] as ScanStatus?
-        val rosterExpanded = values[7] as Boolean
-        val selectedGroupId = values[8] as String?
-        val persistedScans = values[9] as List<ScannedGoatRow>
+        val serverNeighborRows = values[1] as List<ScanRosterRowEntity>
+        val total = values[2] as Int
+        val persistedDoneGoats = values[3] as List<String>
+        val isRefreshing = values[4] as Boolean
+        val isOffline = values[5] as Boolean
+        val isLoadingMore = values[6] as Boolean
+        val selectedFilter = values[7] as ScanStatus?
+        val rosterExpanded = values[8] as Boolean
+        val selectedGroupId = values[9] as String?
+        val persistedScans = values[10] as List<ScannedGoatRow>
         val persistedDone = persistedScans.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet()
-        val localDone = persistedDone + (values[10] as Set<String>)
-        val localDoneGoats = values[11] as Set<String>
-        val feed = values[12] as List<ScanFeedEntry>
-        val neighborFeed = values[13] as List<ScanFeedEntry>
-        val readerStatus = values[14] as RfidReaderStatus
-        val readerName = values[15] as String?
-        val counts = values[16] as List<StatusCount>
-        val proofs = values[17] as List<ProofCaptureRow>?
+        val localDone = persistedDone + (values[11] as Set<String>)
+        val localDoneGoats = values[12] as Set<String>
+        val feed = values[13] as List<ScanFeedEntry>
+        val neighborFeed = values[14] as List<ScanFeedEntry>
+        val readerStatus = values[15] as RfidReaderStatus
+        val readerName = values[16] as String?
+        val counts = values[17] as List<StatusCount>
+        val proofs = values[18] as List<ProofCaptureRow>?
         val proofRows = proofs.orEmpty()
-        val operatorAllowed = values[18] as Boolean?
-        val refreshError = values[19] as String?
-        val policy = values[20] as ProofPolicy
-        val duplicateNotice = values[21] as String?
-        val scanErrorNotice = values[22] as ScanError?
-        val detail = values[23] as TaskDetail?
-        val proofReplacementGoatId = values[24] as String?
-        val proofSyncingStartedAt = values[25] as Map<String, Long>
-        val shedSummary = values[26] as ShedCompletionSummaryDto?
+        val operatorAllowed = values[19] as Boolean?
+        val refreshError = values[20] as String?
+        val policy = values[21] as ProofPolicy
+        val duplicateNotice = values[22] as String?
+        val scanErrorNotice = values[23] as ScanError?
+        val detail = values[24] as TaskDetail?
+        val proofReplacementGoatId = values[25] as String?
+        val proofSyncingStartedAt = values[26] as Map<String, Long>
+        val shedSummary = values[27] as ShedCompletionSummaryDto?
+        val attempts = values[28] as List<RfidScanAttemptRow>
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -371,6 +389,39 @@ class ScanViewModel @Inject constructor(
             .toSet()
         val reconciledLocalDone = localDone - serverReopenedObligations
         val reconciledLocalDoneGoats = (localDoneGoats + persistedScannedGoats) - serverReopenedGoats
+        val durableNeighborRows = attempts
+            .asSequence()
+            .filter { it.reason == "neighbor_partition" && it.outcome == RfidScanAttemptOutcome.ACCEPTED }
+            .distinctBy { it.goatId?.takeIf(String::isNotBlank) ?: it.normalizedTag }
+            .sortedByDescending { it.capturedAtMs }
+            .map { attempt ->
+                ScanFeedEntry(
+                    primaryTag = attempt.tag,
+                    secondaryTag = null,
+                    vaccineLabel = "Neighbor partition",
+                    status = ScanStatus.DONE,
+                    scannedAtLabel = scanTimeLabel(attempt.capturedAtMs),
+                    goatId = attempt.goatId.orEmpty(),
+                    tone = ScanFeedTone.DUPLICATE,
+                )
+            }
+            .toList()
+        val serverNeighborFeed = serverNeighborRows
+            .collapseByGoat()
+            .map { row ->
+                ScanFeedEntry(
+                    primaryTag = row.primaryTag,
+                    secondaryTag = row.secondaryTag,
+                    vaccineLabel = "Neighbor partition",
+                    status = ScanStatus.DONE,
+                    scannedAtLabel = row.scannedAtMs?.let(::scanTimeLabel),
+                    goatId = row.goatId,
+                    tone = ScanFeedTone.DUPLICATE,
+                )
+            }
+        val visibleNeighborFeed = (neighborFeed + durableNeighborRows + serverNeighborFeed)
+            .distinctBy { it.goatId.takeIf(String::isNotBlank) ?: it.primaryTag }
+
         val base = applyRows(
             rows = fullRows,
             total = total,
@@ -459,7 +510,7 @@ class ScanViewModel @Inject constructor(
         gate.copy(
             cohortLabel = scanHeaderTitle(routeScanTitle, detail),
             feed = mergedFeed,
-            neighborRows = neighborFeed,
+            neighborRows = visibleNeighborFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
             lastSyncedAt = rows.maxOfOrNull { it.updatedAt } ?: gate.lastSyncedAt,

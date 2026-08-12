@@ -34,6 +34,7 @@ data class ScanRosterResponseDto(
     @SerialName("taskRowVersion") val taskRowVersion: Int = 0,
     @SerialName("batchId") val batchId: String = "",
     @SerialName("rows") val rows: List<ScanRosterRowDto> = emptyList(),
+    @SerialName("neighbor_rows") val neighborRows: List<ScanRosterRowDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
 )
 

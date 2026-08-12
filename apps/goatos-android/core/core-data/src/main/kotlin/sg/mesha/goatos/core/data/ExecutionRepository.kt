@@ -139,6 +139,12 @@ interface ExecutionRepository {
         partitionLabel: String? = null,
     ): Flow<List<ScanRosterRowEntity>>
 
+    fun observeScanRosterNeighborRows(
+        shedId: String,
+        taskId: String? = null,
+        partitionLabel: String? = null,
+    ): Flow<List<ScanRosterRowEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
     /** Full-roster row count for this shed/task scope — drives `hasMore` (window < total). */
     fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<Int>
 
@@ -359,6 +365,14 @@ class DefaultExecutionRepository(
         scanRosterRowDao.observeRowsWindow(scanRosterRowScopeKey(shedId, taskId, partitionLabel), windowSize)
             .flowOn(Dispatchers.Default)
 
+    override fun observeScanRosterNeighborRows(
+        shedId: String,
+        taskId: String?,
+        partitionLabel: String?,
+    ): Flow<List<ScanRosterRowEntity>> =
+        scanRosterRowDao.observeRowsWindow(scanRosterNeighborRowScopeKey(shedId, taskId, partitionLabel), Int.MAX_VALUE)
+            .flowOn(Dispatchers.Default)
+
     override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
         scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId, partitionLabel)).flowOn(Dispatchers.Default)
 
@@ -382,6 +396,7 @@ class DefaultExecutionRepository(
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
             val rowScope = scanRosterRowScopeKey(shedId, taskId, partitionLabel)
+            val neighborScope = scanRosterNeighborRowScopeKey(shedId, taskId, partitionLabel)
             // Walk the WHOLE shed roster keyset page-by-page over the NETWORK first (each page stays
             // ~20 rows), staging the entities in one bounded per-shed buffer with backend `seq` order.
             // No DB transaction is held across the network I/O — a long multi-page walk must not block
@@ -391,6 +406,7 @@ class DefaultExecutionRepository(
             // network DTOs are transient per page; the buffer holds one bounded copy of the roster
             // (a single shed = hundreds of animals), not the roster twice (R50-008).
             val staged = ArrayList<ScanRosterRowEntity>() // mobile-guard:ignore: transient function-local sync buffer, GC'd on return; one bounded per-shed roster copy, not a persisted blob
+            val stagedNeighbors = ArrayList<ScanRosterRowEntity>()
             val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's page count, not a persistent field
             var seq = 0L
             var cursor: String? = null
@@ -406,6 +422,9 @@ class DefaultExecutionRepository(
                     scanRoster(shedId, taskId = null, cursor = null, limit = limit, partitionLabel = partitionLabel)
                 }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
+                if (cursor == null) {
+                    page.neighborRows.forEach { stagedNeighbors += it.toRowEntity(neighborScope, shedId, taskId, seq++, clock()) }
+                }
                 val next = page.nextCursor ?: break
                 if (!seenCursors.add(next)) {
                     throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
@@ -424,7 +443,9 @@ class DefaultExecutionRepository(
                 .toList()
             database.withTransaction {
                 scanRosterRowDao.deleteForScope(rowScope)
+                scanRosterRowDao.deleteForScope(neighborScope)
                 scanRosterRowDao.upsertAll(rows)
+                scanRosterRowDao.upsertAll(stagedNeighbors.distinctBy { it.id })
                 // Cleanup stale scan records when proofs are rejected.
                 // When the server no longer reports an animal as done (vaccination_completions deleted),
                 // remove its SYNCED scan record so it doesn't persist as a false "scanned" marker.
@@ -604,6 +625,9 @@ private fun Throwable.isHttpNotFound(): Boolean =
 
 internal fun scanRosterRowScopeKey(shedId: String, taskId: String?, partitionLabel: String?): String =
     cacheKey(shedId, executionPartitionKey(partitionLabel), taskId ?: "shed-wide")
+
+internal fun scanRosterNeighborRowScopeKey(shedId: String, taskId: String?, partitionLabel: String?): String =
+    cacheKey(scanRosterRowScopeKey(shedId, taskId, partitionLabel), "neighbor")
 
 internal fun executionPartitionKey(raw: String?): String {
     val normalized = raw.orEmpty().trim().lowercase()
