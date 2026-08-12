@@ -19,16 +19,77 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
-export type WeightDemographicsResponse = AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
-export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
-export type WeightDemographicBucket = AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
-export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
-export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
-export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
-export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
-export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
-export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
+export type WeightGainBucket = { label: string; median_gain_g_per_day: number };
+export type WeightDemographicBucket = { label: string; average_weight_kg: number };
+export type WeightDemographicsResponse = {
+  by_breed: WeightDemographicBucket[];
+  by_sex: WeightDemographicBucket[];
+  by_stage: WeightDemographicBucket[];
+  gain_by_breed: WeightGainBucket[];
+  gain_by_sex: WeightGainBucket[];
+  gain_by_stage: WeightGainBucket[];
+  unresolved_animals: number;
+};
+export type WeighingLosingAnimal = {
+  scanned_identifier: string;
+  shed_display_name: string;
+  previous_weight_kg: number;
+  latest_weight_kg: number;
+  days_between: number;
+  latest_weigh_date: string;
+};
+export type WeighingGrowthResponse = {
+  losing_animals: WeighingLosingAnimal[];
+  shed_leaderboard: Array<{
+    location_id: string;
+    display_name: string;
+    adg_pair_count: number;
+    median_adg_g_per_day: number;
+  }>;
+};
+export type ShedWeightsSummary = {
+  sheds_weighed: number;
+  sheds_in_scope: number;
+  animals_weighed: number;
+  total_weight_kg: number;
+  average_weight_kg: number | null;
+  at_or_above_30kg: number;
+  at_or_above_35kg: number;
+  threshold_basis_animals: number;
+};
+export type ShedWeightsRow = {
+  location_id: string;
+  park_id: string;
+  park_name: string;
+  shed_display_name: string;
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+  weighing_category: string;
+  animals_weighed: number;
+  average_weight_kg: number;
+  total_weight_kg: number;
+  last_weighed_date?: string | null;
+  bucket_status: string;
+  shed_average_gain_g_per_day?: number | null;
+  gain_span_days?: number | null;
+};
+export type ShedWeightsResponse = {
+  rows: ShedWeightsRow[];
+  summary: ShedWeightsSummary;
+  parks: Array<{ park_id: string; name: string }>;
+  period_start: string;
+  period_end: string;
+  by_load: Array<{
+    load_ref: string;
+    owner_name?: string | null;
+    average_weight_kg: number;
+    gain_g_per_day?: number | null;
+    gain_span_days?: number | null;
+  }>;
+  load_unattributed_sheds: number;
+};
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
+export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
 export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"] & {
@@ -54,7 +115,9 @@ export type ProcessIntegrityProofState = AppApiComponents["schemas"]["ProcessInt
 export type ProcessIntegrityVerificationState = AppApiComponents["schemas"]["ProcessIntegrityVerificationState"];
 export type CountByWorkState = AppApiComponents["schemas"]["CountByWorkState"];
 export type AdherenceSummary = AppApiComponents["schemas"]["AdherenceSummary"];
-export type AdherenceRow = AppApiComponents["schemas"]["AdherenceRow"];
+export type AdherenceRow = AppApiComponents["schemas"]["AdherenceRow"] & {
+  source_shed_name?: string | null;
+};
 export type ProtocolAdherenceResponse = AppApiComponents["schemas"]["ProtocolAdherenceResponse"];
 export type ControlTowerSummary = AppApiComponents["schemas"]["ControlTowerSummary"];
 export type ControlTowerAlert = AppApiComponents["schemas"]["ControlTowerAlert"];
@@ -76,13 +139,20 @@ export type ProofResponse = AppApiComponents["schemas"]["ProofResponse"];
 export type SubmissionResponse = AppApiComponents["schemas"]["SubmissionResponse"];
 
 export type VaccinationExecutionResponse = AppApiComponents["schemas"]["VaccinationExecutionResponse"];
-export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"];
+export type VaccinationExecutionRow = AppApiComponents["schemas"]["VaccinationExecutionRow"] & {
+  operational_location_display?: string;
+};
 export type VaccinationOperationsResponse = AppApiComponents["schemas"]["VaccinationOperationsResponse"];
-export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"];
+export type VaccinationOperationsCohort = AppApiComponents["schemas"]["VaccinationOperationsCohort"] & {
+  partitionLabel?: string;
+  operationalLocationDisplay?: string;
+};
 export type VaccinationOperationsProtocol = AppApiComponents["schemas"]["VaccinationOperationsProtocol"];
 export type VaccinationOperationsCell = AppApiComponents["schemas"]["VaccinationOperationsCell"];
 export type VaccinationOperationsCounts = AppApiComponents["schemas"]["VaccinationOperationsCounts"];
-export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"];
+export type VaccinationExecutionShedDrilldown = AppApiComponents["schemas"]["VaccinationExecutionShedDrilldown"] & {
+  operationalLocationDisplay?: string;
+};
 export type VaccinationExecutionWorkState = AppApiComponents["schemas"]["VaccinationExecutionWorkState"];
 export type VaccinationExecutionSeverity = AppApiComponents["schemas"]["VaccinationExecutionSeverity"];
 export type VaccinationExecutionSOPStatus = AppApiComponents["schemas"]["VaccinationExecutionSOPStatus"];
@@ -91,8 +161,13 @@ export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]
 
 // Shed-wise vaccination read model (the main /vaccination table + shed detail + capacity planner).
 export type VaccinationShedSummaryResponse = AppApiComponents["schemas"]["VaccinationShedSummaryResponse"];
-export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"];
-export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"];
+export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"] & {
+  partitionLabel?: string;
+  operationalLocationDisplay?: string;
+};
+export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"] & {
+  source_shed_name?: string | null;
+};
 export type VaccinationShedVaccineRow = AppApiComponents["schemas"]["VaccinationShedVaccineRow"];
 export type VaccinationShedAnimalPage = AppApiComponents["schemas"]["VaccinationShedAnimalPage"];
 export type VaccinationShedAnimalRow = AppApiComponents["schemas"]["VaccinationShedAnimalRow"];
@@ -186,8 +261,40 @@ export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest
 export type VerificationItemStatus = AppApiComponents["schemas"]["VerificationItemStatus"];
 export type VerificationSourceRef = AppApiComponents["schemas"]["VerificationSourceRef"];
 export type VerificationMediaItem = AppApiComponents["schemas"]["VerificationMediaItem"];
-export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"];
-export type VerificationQueueResponse = AppApiComponents["schemas"]["VerificationQueueResponse"];
+export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"] & {
+  verified_by_name?: string | null;
+};
+type VerificationQueueFilterOption = {
+  key: string;
+  label: string;
+};
+type VerificationActionTypeOption = {
+  category: string;
+  label: string;
+  module_label: string;
+};
+type VerificationStatusOption = {
+  key: string;
+  label: string;
+  status?: VerificationItemStatus | null;
+};
+type VerificationShedOption = {
+  id: string;
+  label: string;
+  park_label?: string | null;
+  operational_location_display?: string | null;
+};
+export type VerificationQueueResponse = Omit<AppApiComponents["schemas"]["VerificationQueueResponse"], "items" | "filter_options"> & {
+  items: VerificationQueueItem[];
+  filter_options: {
+    modules?: VerificationQueueFilterOption[];
+    module_key?: string | null;
+    action_types: VerificationActionTypeOption[];
+    statuses: VerificationStatusOption[];
+    sheds: VerificationShedOption[];
+    counts: Record<"pending" | "approved" | "rejected", number>;
+  };
+};
 export type VerificationDecision = AppApiComponents["schemas"]["VerificationDecision"];
 export type VerificationVerdictRequest = AppApiComponents["schemas"]["VerificationVerdictRequest"];
 export type VerificationVerdictResponse = AppApiComponents["schemas"]["VerificationVerdictResponse"];
@@ -354,6 +461,16 @@ export function apiClientOptions(config: ServerConfig) {
     // context (if any) onto the backend call so RUM and backend spans join one trace.
     getTraceHeaders: traceparent ? () => ({ traceparent }) : undefined,
   };
+}
+
+type AppClient = ReturnType<typeof createAppApiClient>;
+
+function appRequest<T>(
+  client: AppClient,
+  path: string,
+  options?: Parameters<AppClient["request"]>[1],
+): Promise<T> {
+  return client.request<T>(path as keyof AppApiPaths & string, options);
 }
 
 export function isAuthRequiredError(error: ApiUiError): boolean {
@@ -547,7 +664,7 @@ export async function getMilkPreparation(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<MilkPreparationPage>("/counts/milk-preparation", {
+    appRequest<MilkPreparationPage>(client, "/counts/milk-preparation", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -570,7 +687,7 @@ export async function getShedWeights(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+    appRequest<ShedWeightsResponse>(client, "/weighing/shed-weights", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -588,7 +705,7 @@ export async function getWeightDemographics(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<WeightDemographicsResponse>("/weighing/weight-demographics", {
+    appRequest<WeightDemographicsResponse>(client, "/weighing/weight-demographics", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -607,7 +724,7 @@ export async function getWeighingGrowth(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
+    appRequest<WeighingGrowthResponse>(client, "/weighing/leadership/growth", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -618,8 +735,53 @@ export async function getWeighingGrowth(params: {
 // Growth Director — the analytics block under the Weights page. One request serves the whole
 // block; every aggregate (bands, medians, feed-per-kg ratios) is computed by the backend over the
 // whole filter, so this layer never re-derives a number from a row slice.
-export type GrowthDirectorWeightsResponse =
-  AppApiComponents["schemas"]["GrowthDirectorWeightsResponse"];
+export type GrowthDirectorWeightsResponse = {
+  road_to_sale: {
+    total_identities: number;
+    matched_identities: number;
+    movement: {
+      moved_up: number;
+      held: number;
+      moved_down: number;
+    };
+    bands: Array<{ band: string; identity_count: number }>;
+  };
+  fair_fight: {
+    cohorts: Array<{
+      breed: string;
+      sex: string;
+      sheds: Array<{
+        operational_key: string;
+        shed_display_name: string;
+        pair_identities: number;
+        median_adg_g_per_day: number;
+      }>;
+    }>;
+  };
+  slow_growth: {
+    groups: Array<{
+      operational_key: string;
+      shed_display_name: string;
+      breed: string;
+      sex: string;
+      pair_identities: number;
+      median_adg_g_per_day: number;
+      week_over_week_delta_g: number | null;
+      status: "losing" | "below_target" | "thin_sample";
+    }>;
+  };
+  feed_vs_growth: {
+    sheds: Array<{
+      location_id: string;
+      shed_display_name: string;
+      basis: "per_animal" | "shed_average";
+      is_experiment: boolean;
+      feed_g_per_head_per_day: number | null;
+      adg_g_per_day: number | null;
+      kg_feed_per_kg_gain: number | null;
+    }>;
+  };
+};
 
 export async function getGrowthDirector(params: {
   park_id?: string;
@@ -630,7 +792,7 @@ export async function getGrowthDirector(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
+    appRequest<GrowthDirectorWeightsResponse>(client, "/growth-director/weights", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -654,14 +816,25 @@ export async function getGrowthDirector(params: {
 //
 // The read pages page by offset and get `has_more` rather than a total — counting the filtered set on
 // every request would be compute-on-read — so the pager is prev/next, not numbered.
-export type FeedDirectionPreviewPage = AppApiComponents["schemas"]["FeedDirectionPreviewPage"];
-export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"];
+export type FeedDirectionPreviewPage = Omit<AppApiComponents["schemas"]["FeedDirectionPreviewPage"], "items"> & {
+  items: FeedDirectionRow[];
+};
+export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"] & {
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+  blocked_reasons?: AppApiComponents["schemas"]["FeedDirectionItemQuantity"]["blocked_reason"][];
+};
 export type FeedDirectionItemQuantity = AppApiComponents["schemas"]["FeedDirectionItemQuantity"];
 export type FeedDirectionPreviewSummary = AppApiComponents["schemas"]["FeedDirectionPreviewSummary"];
 export type FeedDirectionLifecycle = AppApiComponents["schemas"]["FeedDirectionLifecycle"];
 export type FeedDirectionWorkflowLifecycle = AppApiComponents["schemas"]["FeedDirectionWorkflowLifecycle"];
-export type FeedPackingWorklistPage = AppApiComponents["schemas"]["FeedPackingWorklistPage"];
-export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"];
+export type FeedPackingWorklistPage = Omit<AppApiComponents["schemas"]["FeedPackingWorklistPage"], "items"> & {
+  items: FeedPackingRow[];
+};
+export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"] & {
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+};
 export type FeedConfigRationRatePage = AppApiComponents["schemas"]["FeedConfigRationRatePage"];
 export type FeedConfigRationRate = AppApiComponents["schemas"]["FeedConfigRationRate"];
 export type FeedConfigShedFactorPage = AppApiComponents["schemas"]["FeedConfigShedFactorPage"];
@@ -680,29 +853,99 @@ export type CreateFeedConfigFeedItemRequest = AppApiComponents["schemas"]["Creat
 export type SetFeedConfigFeedItemStatusRequest = AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
 export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
 export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
-export type FeedConfigExperimentPage = AppApiComponents["schemas"]["FeedConfigExperimentPage"];
-export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperiment"];
-export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"];
+export type FeedConfigExperimentPage = Omit<AppApiComponents["schemas"]["FeedConfigExperimentPage"], "items"> & {
+  items: FeedConfigExperiment[];
+};
+export type FeedConfigExperiment = AppApiComponents["schemas"]["FeedConfigExperiment"] & {
+  partition_label?: string;
+  park_name?: string;
+  operational_location_display?: string;
+};
+export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["UpsertFeedConfigExperimentRequest"] & {
+  partition_label?: string;
+};
 export type SetFeedConfigExperimentShedStatusRequest =
-  AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
-export type FeedConfigPenPage = AppApiComponents["schemas"]["FeedConfigPenPage"];
+  AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"] & {
+    partition_label?: string;
+  };
 export type FeedConfigPen = AppApiComponents["schemas"]["FeedConfigPen"];
+export type FeedConfigPenPage = AppApiComponents["schemas"]["FeedConfigPenPage"];
 export type UpsertFeedConfigExperimentBatchRequest =
   AppApiComponents["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
 
-export type HealthConfigProtocolPage = AppApiComponents["schemas"]["HealthConfigProtocolPage"];
-export type HealthConfigProtocolRow = AppApiComponents["schemas"]["HealthConfigProtocolRow"];
-export type HealthConfigProtocolDetail = AppApiComponents["schemas"]["HealthConfigProtocolDetail"];
-export type HealthConfigStep = AppApiComponents["schemas"]["HealthConfigStep"];
-export type HealthConfigVersionSummary = AppApiComponents["schemas"]["HealthConfigVersionSummary"];
-export type HealthConfigWriteResult = AppApiComponents["schemas"]["HealthConfigWriteResult"];
-export type HealthConfigFieldError = AppApiComponents["schemas"]["HealthConfigFieldError"];
-export type CreateHealthConfigDiseaseRequest =
-  AppApiComponents["schemas"]["CreateHealthConfigDiseaseRequest"];
-export type OpenHealthConfigDraftRequest =
-  AppApiComponents["schemas"]["OpenHealthConfigDraftRequest"];
-export type SaveHealthConfigDraftRequest =
-  AppApiComponents["schemas"]["SaveHealthConfigDraftRequest"];
+export type HealthConfigProtocolRow = {
+  disease_key: string;
+  display_name: string;
+  age_band: "adult" | "kid";
+  duration_days: number;
+  step_count: number;
+  medication_count: number;
+  critical_action_count: number;
+  published_version_id?: string | null;
+  published_version?: number | null;
+  has_draft: boolean;
+  draft_version_id?: string | null;
+};
+export type HealthConfigProtocolPage = {
+  items: HealthConfigProtocolRow[];
+  next_cursor?: string | null;
+};
+export type HealthConfigStep = {
+  step_id?: string | null;
+  day_no: number;
+  seq: number;
+  session?: string | null;
+  record_type?: string | null;
+  medicine_name?: string | null;
+  dosage_text?: string | null;
+  dosage_denominator?: string | null;
+  medicine_route?: string | null;
+  instruction?: string | null;
+  critical_action_type?: string | null;
+};
+export type HealthConfigVersionSummary = {
+  protocol_version_id: string;
+  version: number;
+  status: "draft" | "published" | "retired";
+  step_count: number;
+  duration_days: number;
+  published_at?: string | null;
+};
+export type HealthConfigProtocolDetail = {
+  protocol_version_id: string;
+  disease_key: string;
+  display_name: string;
+  age_band: "adult" | "kid";
+  status: "draft" | "published" | "retired";
+  version: number;
+  duration_days: number;
+  open_case_count: number;
+  row_version?: string | null;
+  steps?: HealthConfigStep[];
+  history?: HealthConfigVersionSummary[];
+};
+export type HealthConfigWriteResult = {
+  outcome: string;
+};
+export type HealthConfigFieldError = {
+  field: string;
+  message: string;
+};
+export type CreateHealthConfigDiseaseRequest = {
+  display_name: string;
+  duration_days?: number;
+};
+export type OpenHealthConfigDraftRequest = {
+  disease_key: string;
+  age_band: "adult" | "kid";
+};
+export type SaveHealthConfigDraftRequest = {
+  disease_key: string;
+  age_band: "adult" | "kid";
+  display_name: string;
+  duration_days?: number;
+  steps: HealthConfigStep[];
+};
 
 export type FeedDirectionPreviewParams = {
   /** Required: the ration grid, the session split and the dispatch clock are all park-scoped. */
@@ -924,7 +1167,7 @@ export async function setFeedConfigFeedItemStatus(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<FeedConfigWriteResult>("/feed-config/feed-items/status", {
+    appRequest<FeedConfigWriteResult>(client, "/feed-config/feed-items/status", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1033,7 +1276,7 @@ export async function listFeedConfigPens(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<FeedConfigPenPage>("/feed-config/pens", {
+    appRequest<FeedConfigPenPage>(client, "/feed-config/pens", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -1056,7 +1299,7 @@ export async function upsertFeedConfigExperimentBatch(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<FeedConfigWriteResult>("/feed-config/experiment/batch", {
+    appRequest<FeedConfigWriteResult>(client, "/feed-config/experiment/batch", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1108,7 +1351,7 @@ export async function listHealthConfigProtocols(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<HealthConfigProtocolPage>("/health-config/protocols", {
+    appRequest<HealthConfigProtocolPage>(client, "/health-config/protocols", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -1142,7 +1385,7 @@ export async function createHealthConfigDisease(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<HealthConfigWriteResult>("/health-config/diseases", {
+    appRequest<HealthConfigWriteResult>(client, "/health-config/diseases", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1164,7 +1407,7 @@ export async function openHealthConfigDraft(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<HealthConfigProtocolDetail>("/health-config/drafts", {
+    appRequest<HealthConfigProtocolDetail>(client, "/health-config/drafts", {
       method: "POST",
       cache: "no-store",
       body,
@@ -1181,7 +1424,7 @@ export async function saveHealthConfigDraft(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<HealthConfigWriteResult>("/health-config/drafts/save", {
+    appRequest<HealthConfigWriteResult>(client, "/health-config/drafts/save", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },

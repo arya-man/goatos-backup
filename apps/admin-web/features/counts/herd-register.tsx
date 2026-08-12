@@ -95,7 +95,6 @@ function locationLabel(g: GoatRow, part: "park" | "shed"): string {
     operationalLocationLabel({
       shedName,
       partitionLabel: path.partition_label,
-      sourceShedName: path.source_shed_name,
     })
   );
 }

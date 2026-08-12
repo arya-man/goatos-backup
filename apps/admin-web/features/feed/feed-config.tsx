@@ -138,11 +138,11 @@ type ExperimentShedGroup = {
   shedId: string;
   parkId: string;
   /** Backend-supplied park name. Shown as its own column because the list may span both parks. */
-  parkName: string;
+  parkName: string | null | undefined;
   /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
   partitionLabel: string;
   /** Server-composed "Mandela 1 - Part 3". Shown verbatim -- never rejoined here. */
-  locationDisplay: string;
+  locationDisplay: string | null | undefined;
   /** The experiment ARM. Taken from the pen's rows, which the writer keeps consistent. */
   category: string;
   /** INFORMATIONAL population. Null means not recorded — never rendered or sent as 0. */
@@ -155,6 +155,14 @@ type ExperimentShedGroup = {
    */
   active: boolean;
   rows: FeedConfigExperiment[];
+};
+
+type FeedConfigPenOption = {
+  park_id: string;
+  shed_id: string;
+  partition_label?: string | null;
+  operational_location_display: string;
+  has_experiment_config: boolean;
 };
 
 /**
@@ -421,6 +429,7 @@ export async function FeedConfigPage({
   // — no second fetch, no accumulation across pages, and the shed's own rows are the only input.
   const experimentRows = experiment?.items ?? [];
   const experimentSheds = groupExperimentRowsByShed(experimentRows);
+  const penItems = (pens?.items ?? []) as FeedConfigPenOption[];
   // PENS with no authored experiment cell — the candidates the enrol control offers.
   //
   // `has_experiment_config` is computed by the backend against the SAME (shed, partition) natural
@@ -430,7 +439,7 @@ export async function FeedConfigPage({
   // and a shed with any enrolled pen excluded ALL its pens — so a new pen of that shed could not be
   // added at all. A pen holding only RETIRED cells is correctly not a candidate: it already has
   // authored quantities and is restored through its own row group rather than re-enrolled.
-  const candidatePens = (pens?.items ?? [])
+  const candidatePens = penItems
     .filter((pen) => !pen.has_experiment_config)
     .map((pen) => ({
       parkId: pen.park_id,
@@ -488,7 +497,7 @@ export async function FeedConfigPage({
   // space-join that produces "Castro 1" is a recorded production defect (OL-3), not a shortcut. The
   // catalog is the pen source rather than the cell rows, so an empty pen is still offered and a pen
   // whose cells fall on another page is not missing from the list.
-  const experimentPenOptions = (pens?.items ?? [])
+  const experimentPenOptions = penItems
     .filter((pen) => (experimentParkId ? pen.park_id === experimentParkId : true))
     // ONLY pens that are actually on the experiment. The catalog holds every operational pen in the
     // park — 131 of them tenant-wide — and all but ~35 have no experiment cell at all, so offering

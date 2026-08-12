@@ -1,8 +1,29 @@
 import type { AppApiComponents } from "@goatos/api-client";
 
 type ApiCommandBoardDriveOption = AppApiComponents["schemas"]["VaccinationCommandBoardDriveOption"];
+type CommandBoardShedLocation = {
+  shedId: string;
+  shedName: string;
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+};
+type CommandBoardOperatorDay = {
+  date: string;
+  targetCount: number;
+  doseCount: number;
+};
 
 export type CommandBoardDriveOption = ApiCommandBoardDriveOption & {
+  driveName?: string;
+  parkId?: string | null;
+  parkName?: string | null;
+  plannedDate?: string | null;
+  targetCount?: number;
+  doseCount?: number;
+  shedNames?: string[];
+  shedIds?: string[];
+  shedLocations?: CommandBoardShedLocation[];
+  operatorDays?: CommandBoardOperatorDay[];
   // Set when the option's counts were reconstructed from the projection matrices instead of being
   // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
   // fold below must not add it to its siblings.
@@ -227,8 +248,8 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         parkId: option.parkId ?? "",
         parkName: option.parkName ?? "",
         dateKeys: [day.date],
-        targetCount: day.targetCount,
-        doseCount: day.doseCount,
+        targetCount: day.targetCount ?? 0,
+        doseCount: day.doseCount ?? 0,
         shedNames: [...(option.shedNames ?? [])].sort(),
         shedIds: [...(option.shedLocations?.map((location) => `${location.shedId}|${location.partition_label ?? ""}`) ?? option.shedIds ?? [])].sort(),
         batchIds: [option.driveBatchId],
@@ -242,8 +263,8 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         parkId: option.parkId ?? "",
         parkName: option.parkName ?? "",
         dateKeys,
-        targetCount: option.targetCount,
-        doseCount: option.doseCount,
+        targetCount: option.targetCount ?? 0,
+        doseCount: option.doseCount ?? 0,
         shedNames: [...shedNames].sort(),
         batchIds: [option.driveBatchId],
         treatments,

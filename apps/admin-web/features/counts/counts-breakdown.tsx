@@ -45,6 +45,17 @@ import { operationalLocationLabel } from "@/lib/operational-location";
 const PAGE_PATH = "/counts/breakdown";
 const DEFAULT_PAGE_SIZE = 10;
 
+type FeedConfigPenOptionItem = {
+  shed_id: string;
+  partition_label?: string | null;
+  operational_location_display: string;
+};
+
+type AnimalStageOptionItem = {
+  stage_code: string;
+  name?: string | null;
+};
+
 function toBarData(points: CountsBreakdownSeriesPoint[], fallbackLabel: string): SvgBarDatum[] {
   return points.map((point) => ({
     key: point.key || fallbackLabel,
@@ -269,7 +280,7 @@ export async function CountsBreakdownPage({
   // own `operational_location_display`, prefixed with the park for the duplicate-name case -- this
   // does NOT recompose the location, it only disambiguates two pens that legitimately render the
   // same string.
-  const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen) => ({
+  const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen: FeedConfigPenOptionItem) => ({
     key: `${pen.shed_id}|${pen.partition_label ?? ""}`,
     shedId: pen.shed_id,
     partitionLabel: pen.partition_label ?? "",
@@ -278,7 +289,7 @@ export async function CountsBreakdownPage({
 
   // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
   // and `stage_code` is what the write sends.
-  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : []).map((item) => ({
+  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : []).map((item: AnimalStageOptionItem) => ({
     code: item.stage_code,
     label: item.name || item.stage_code,
   }));

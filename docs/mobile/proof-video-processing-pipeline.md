@@ -5,16 +5,17 @@ This applies to weighing individual videos, weighing shed videos, vaccination
 proof, feed proof, shifting proof, workflow proof, milk proof, and future
 operator camera workflows that upload video from the phone.
 
-Implementation status for this PR branch: Android now has the durable
-Room/schema fields, state vocabulary, operator permission gate, screenshot
-coverage, telemetry names, Gallery-save hook, production processor binding, and
-CI guardrails needed by this contract. The shared `ProofCaptureRepository` path
-now selects one final proof artifact before upload, saves that same artifact to
-Gallery, and queues that same artifact for upload. The current app-layer
-processor is intentionally pass-through until the native compression/overlay
-engine lands; it must not be replaced with `ProofMediaProcessor.Noop`, because
-that would record every production capture as a processing failure and silently
-upload originals through the exception fallback.
+Implementation acceptance: Android must ship this as a real media processor,
+not a pass-through placeholder. The shared `ProofCaptureRepository` path selects
+one final proof artifact before upload, saves that same artifact to Gallery, and
+queues that same artifact for upload. A successful video processing step must
+produce a new compressed MP4 with the audit overlay burned into pixels. A
+successful photo processing step must produce a new image with the audit overlay
+burned into pixels. Returning the original URI, copying bytes unchanged, or
+recording "processed" while `processed_uri == original_uri` is a failed
+implementation, even when the upload succeeds. The original artifact is
+saved/uploaded only when compression, overlay rendering, metadata extraction,
+codec selection, muxing, or processed-file writing fails.
 
 Current coverage is intentionally explicit. The shared path now covers:
 
@@ -62,6 +63,9 @@ This doc extends:
   step so failures are diagnosable from device logs and backend audit rows.
 - Fail open for proof bytes: if compression or overlay processing fails, upload
   the original captured video rather than losing the proof.
+- Never fail open as normal acceptance: a healthy processing path uploads and
+  saves the processed artifact; the original-upload path is reserved for a
+  recorded processing failure.
 - Operator-only capture: only signed-in operator execution flows may create
   camera proofs. Leadership, verifier, admin, and read-only flows can review or
   inspect proofs only through their server-authorized surfaces.
@@ -79,6 +83,8 @@ This doc extends:
 - Do not expose internal words such as Room, outbox, codec, bitrate, or
   idempotency in operator UI.
 - Do not upload video directly from UI state. Room is the source of truth.
+- Do not accept a no-op media processor. A successful processor result must be a
+  new processed artifact, not the original URI with unchanged byte counts.
 - Do not add feature-local calls to `SyncRepository.enqueueProofUpload` for
   phone-camera proof capture. Capture surfaces must go through the shared proof
   capture/orchestration path so processing, Gallery save, fallback, retry, Room
@@ -119,8 +125,10 @@ location.
 
 ## Burned Audit Overlay
 
-The overlay is burned into the output video pixels during the transcode. It is
-not an ExoPlayer view overlay and not a separate caption.
+The overlay is burned into the output media pixels. For videos this happens
+during transcode; for photos this happens when writing the processed image. It
+is not an ExoPlayer view overlay, Compose preview overlay, separate caption,
+metadata tag, or server-side review adornment.
 
 Required lines:
 
@@ -204,6 +212,11 @@ Module minimums must be conservative for proof readability:
 - weighing individual: preserve scale readability and speech
 - vaccination: preserve animal handling and injection/proof action
 - feed/shifting: preserve action context and operator narration
+
+Photo proof processing has the same artifact contract as video proof: decode
+the captured image, draw the required audit overlay into the bitmap, write a new
+JPEG/PNG/WebP file in app-owned storage, save that final file to Gallery, and
+upload that final file. A photo pass-through is not accepted.
 
 ## Android Implementation
 
@@ -311,10 +324,12 @@ clip must skip compression/overlay and retry the original-file upload directly.
 Do not loop through compression again for a clip that already entered
 `PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED`.
 
-If upload fails after successful compression, retry the processed file. If upload
-fails after processing fallback, retry the original file. The operator action is
-still just Retry/Record again; the app decides which file to upload from durable
-state.
+If upload fails after successful processing, retry the processed file. If upload
+fails after processing fallback, retry the original file. The Gallery copy and
+upload payload must always point at the same final selected artifact: processed
+on success, original only after a recorded processing failure. The operator
+action is still just Retry/Record again; the app decides which file to upload
+from durable state.
 
 Only dead-letter when both processed/original upload paths are exhausted or the
 backend rejects the proof in a non-retryable way.
@@ -459,6 +474,10 @@ Before enabling this for a module:
 - unit-test bitrate bucket selection
 - unit-test overlay sizing and bottom-right placement
 - unit-test fallback-to-original on processing exception
+- unit-test that a pass-through/no-op processor result is rejected: processed
+  video/photo success must not return the original URI or unchanged output bytes
+- unit-test that Gallery save and upload receive the same final artifact
+  selected by processing/fallback
 - Room migration/schema test for queue state
 - WorkManager retry/process-death test
 - Firebase event test using fake analytics/crash/perf ports
@@ -473,6 +492,9 @@ Before enabling this for a module:
 - physical-device E2E with actual camera capture for the implemented shared
   pipeline: capture -> location -> burned overlay -> compression -> upload ->
   attach, plus processing-exception fallback to original upload
+- physical-device E2E proof that the processed Gallery artifact is the uploaded
+  artifact on success, and that the original artifact is saved/uploaded only for
+  a recorded processing failure
 - product-shaped UI fixtures: screenshots must resemble the actual feature
   screens, not generic cards, unless the actual feature screen itself is a card
   list
@@ -480,6 +502,9 @@ Before enabling this for a module:
   use `AnalyticsPort`, `PerformanceTracer`, and `CrashReporter`
 - CI/static guard that feature screens do not create their own compression or
   upload implementations; they must call the shared proof-video pipeline
+- CI/static guard that the app-layer proof media processor is not a no-op or
+  pass-through and that the final processed/fallback artifact feeds both Gallery
+  save and upload
 - CI/static guard that production UI strings do not expose internal terms such
   as Room, outbox, codec, Media3, GCS, signed URL, idempotency, or bitrate
 - skill/reference docs updated in `.agents/skills/goatos-build/references/`

@@ -12,6 +12,7 @@ data class ProofMediaProcessingRequest(
     val capturedStartMs: Long,
     val capturedEndMs: Long,
     val capturedByPrincipalId: String?,
+    val caption: String? = null,
 )
 
 data class ProofMediaProcessingResult(

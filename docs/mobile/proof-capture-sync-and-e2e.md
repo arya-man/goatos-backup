@@ -109,13 +109,21 @@ The pipeline:
 - stores the original capture in Room/app-owned storage first
 - captures timestamp, logged-in operator, mandatory precise GPS, and
   best-effort Android `Geocoder` address at recording start
-- burns a compact bottom-right audit overlay into the video file itself
+- burns a compact bottom-right audit overlay into the final video/photo file
+  itself
 - applies adaptive WhatsApp-style H.264/AAC compression based on input
   resolution, original bitrate, proof module, and proof readability needs
 - runs only one compression job at a time; uploads may run in parallel with the
   next compression job
 - records Firebase Analytics/Performance/Crashlytics signals at every stage
-- uploads the original uncompressed file if compression/overlay/muxing fails
+- saves the final selected artifact to Gallery and uploads that same artifact:
+  processed video/photo on success, original only after a recorded processing
+  failure
+
+A pass-through processor is not acceptable. Successful processing must create a
+new compressed MP4 with burned overlay for video proof, or a new overlaid image
+for photo proof. Upload success alone is not proof that processing succeeded if
+the uploaded artifact is still the original capture.
 
 Operator UI may show business status such as `Compressing proof...` and
 `Uploading proof...`, but must not expose codec, Room, outbox, GCS, idempotency,
@@ -135,6 +143,10 @@ videos. Nothing is "submitted" straight to the network.
   uploading, uploaded, failed/retrying, or dead-letter. Processing failure does
   not lose proof; it flips the row to upload the original file and records the
   exception through the telemetry ports.
+- The row's final local upload URI is the single artifact handed to both Gallery
+  save and proof upload. On healthy processing this URI is the processed file;
+  on fallback it is the original file with `upload_original=true` and an
+  attached processing-failure event.
 - Every scan and clip creates its own draft outbox record immediately. Shed and
   drive submit buttons only validate/finalize already-synced records; they are
   not bulk-upload triggers.
@@ -224,16 +236,20 @@ in the emulator with **no physical reader and no real camera**:
   KeyEvent → buffer → tag → Room path. Unit/Robolectric tests use `FakeScanSource`.
 - **Video path:** the emulator's virtual camera can record, or the test injects a
   fixture file through `ProofCaptureSource` — proving the Room-first persist +
-  upload-queue + status transitions without a real lens.
+  processing state + Gallery-save selection + upload-queue + status transitions
+  without a real lens. Tests must fail pass-through/no-op processors that mark
+  the original file as successfully processed.
 - **Sync path:** a `MockEngine`/fake backend drives the outbox → upload → response
   round-trip and the Room status transitions (PENDING → IN_FLIGHT → SYNCED /
   FAILED), plus process-death restore (kill + relaunch, drive still present and
   resumable).
 - **What still needs a physical device (final QA only):** real Bluetooth pairing
-  with the actual reader, and real camera capture quality. Everything else —
-  scan→Room, SOP proof min/max, mandatory-permission gate, background
-  upload, role gating, and submit→verify→leadership close is covered by
-  emulator and isolated-backend E2E.
+  with the actual reader, real camera capture quality, and visual inspection
+  that the Gallery/uploaded success artifact is compressed with a burned overlay.
+  Everything else — scan→Room, SOP proof min/max, mandatory-permission gate,
+  background upload, fallback-original upload on processing failure, role
+  gating, and submit→verify→leadership close is covered by emulator and
+  isolated-backend E2E.
 
 ## STG GCS Verification
 
@@ -256,3 +272,6 @@ For staging, verify bucket/env/IAM/signed URL/upload/DB linkage using:
   queues, alerts, or drawers.
 - Server-driven form: field set, labels, descriptions, required/optional, and the
   video cap come from `form_dsl` / `proof_policy`, not hardcoded on the client.
+- Android proof media guard: feature code cannot own compression/upload/Firebase
+  plumbing, and the shared app processor cannot accept pass-through/no-op
+  processing as success.

@@ -6661,6 +6661,40 @@ components:
           type: integer
         has_more:
           type: boolean
+    CreateFeedConfigFeedItemRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_item
+      properties:
+        feed_item:
+          type: string
+          minLength: 1
+        energy_kcal_per_kg:
+          type: number
+          nullable: true
+        dry_matter_factor:
+          type: number
+          nullable: true
+        wastage_factor:
+          type: number
+          nullable: true
+        display_order:
+          type: integer
+          nullable: true
+    SetFeedConfigFeedItemStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_item_id
+        - status
+      properties:
+        feed_item_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [active, retired]
     FeedConfigSessionTemplate:
       type: object
       additionalProperties: false
@@ -7721,6 +7755,94 @@ components:
           type: integer
         has_more:
           type: boolean
+    FeedConfigPen:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - operational_location_display
+        - has_experiment_config
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          description: Raw human partition label. Omitted for non-partitioned sheds.
+        operational_location_display:
+          type: string
+          description: Backend-owned display label for the exact operational location.
+        has_experiment_config:
+          type: boolean
+    FeedConfigPenPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - limit
+        - offset
+        - has_more
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedConfigPen"
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+    UpsertFeedConfigExperimentBatchRow:
+      type: object
+      additionalProperties: false
+      required:
+        - feed_item
+      properties:
+        feed_item:
+          type: string
+          minLength: 1
+        absolute_kg:
+          type: number
+          nullable: true
+          minimum: 0
+    UpsertFeedConfigExperimentBatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - shed_id
+        - partition_label
+        - experiment_category
+        - items
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        partition_label:
+          type: string
+          description: Raw partition label; empty string targets a non-partitioned shed.
+        experiment_category:
+          type: string
+          minLength: 1
+        head_count:
+          type: integer
+          nullable: true
+          minimum: 0
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/UpsertFeedConfigExperimentBatchRow"
     UpsertFeedConfigExperimentRequest:
       type: object
       additionalProperties: false
@@ -10450,6 +10572,7 @@ components:
         - deferred_count
         - review_count
         - shed_labels
+        - shed_partition_labels
         - vaccine_labels
         - protocol_id
         - protocol_version_id
@@ -10572,6 +10695,10 @@ components:
           type: array
           items:
             type: string
+        shed_partition_labels:
+          type: array
+          items:
+            type: string
         vaccine_labels:
           type: array
           items:
@@ -10644,6 +10771,8 @@ components:
         product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
       required:
         - park_name
+        - drive_name
+        - drive_total
         - due_date
         - shed_count
         - sheds_completed
@@ -10658,11 +10787,22 @@ components:
         - total_animals
         - completed_animals
         - submitted_animals
+        - progress_basis
+        - progress_completed
+        - progress_total
+        - progress_pct
         - owner_label
       properties:
         park_name:
           type: string
           description: Park name or code
+        drive_name:
+          type: string
+          description: Shared logical drive name
+        drive_total:
+          type: integer
+          minimum: 0
+          description: Total distinct animals in the shared logical drive
         due_date:
           type: string
           format: date
@@ -10725,6 +10865,25 @@ components:
           type: integer
           minimum: 0
           description: Distinct animals with recorded completion pending verification
+        progress_basis:
+          type: string
+          enum:
+            - animals
+            - doses
+          description: Grain used by the backend-owned progress numerator and denominator
+        progress_completed:
+          type: integer
+          minimum: 0
+          description: Backend-owned progress numerator
+        progress_total:
+          type: integer
+          minimum: 0
+          description: Backend-owned progress denominator
+        progress_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Backend-owned progress percentage
         owner_label:
           type: string
           description: Owner/team label
@@ -15826,6 +15985,172 @@ components:
         projected_at:
           type: string
           format: date-time
+    MilkPreparationSession:
+      type: object
+      additionalProperties: false
+      required:
+        - session_no
+        - active
+        - per_head_ml
+        - required_ml
+      properties:
+        session_no: { type: integer }
+        active: { type: boolean }
+        per_head_ml: { type: integer }
+        required_ml: { type: integer }
+    MilkPreparationRow:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - management_stage
+        - head_count
+        - sessions
+        - daily_required_ml
+        - status
+        - verification_status
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label: { type: string }
+        shed_id:
+          type: string
+          format: uuid
+        shed_label: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
+        management_stage: { type: string }
+        head_count: { type: integer }
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MilkPreparationSession"
+        daily_required_ml: { type: integer }
+        status: { type: string }
+        blocked_reason: { type: string }
+        verification_status: { type: string }
+        completion_id:
+          type: string
+          format: uuid
+        attempt_no: { type: integer }
+        rework_reason: { type: string }
+    MilkPreparationDirectionLine:
+      type: object
+      additionalProperties: false
+      required:
+        - management_stage
+        - head_count
+        - per_head_ml
+        - session_count
+        - required_ml
+      properties:
+        management_stage: { type: string }
+        head_count: { type: integer }
+        per_head_ml: { type: integer }
+        session_count: { type: integer }
+        required_ml: { type: integer }
+    MilkPreparationFarmTask:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - park_label
+        - cohort_count
+        - head_count
+        - total_required_ml
+        - milk_direction
+        - citric_acid_grams_per_litre
+        - citric_acid_grams
+        - verification_status
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label: { type: string }
+        cohort_count: { type: integer }
+        head_count: { type: integer }
+        total_required_ml: { type: integer }
+        milk_direction:
+          type: array
+          items:
+            $ref: "#/components/schemas/MilkPreparationDirectionLine"
+        citric_acid_grams_per_litre: { type: number }
+        citric_acid_grams: { type: number }
+        verification_status: { type: string }
+        completion_id:
+          type: string
+          format: uuid
+        attempt_no: { type: integer }
+        rework_reason: { type: string }
+    MilkPreparationSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - scope
+        - shed_count
+        - cohort_count
+        - head_count
+        - total_required_ml
+        - citric_acid_grams
+        - blocked_row_count
+        - park_count
+        - not_submitted_farm_count
+        - pending_verification_farm_count
+        - completed_farm_count
+        - rework_farm_count
+      properties:
+        scope: { type: string }
+        shed_count: { type: integer }
+        cohort_count: { type: integer }
+        head_count: { type: integer }
+        total_required_ml: { type: integer }
+        citric_acid_grams: { type: number }
+        blocked_row_count: { type: integer }
+        park_count: { type: integer }
+        not_submitted_farm_count: { type: integer }
+        pending_verification_farm_count: { type: integer }
+        completed_farm_count: { type: integer }
+        rework_farm_count: { type: integer }
+    MilkPreparationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - preparation_date
+        - feeding_date
+        - generated_at
+        - items
+        - farm_tasks
+        - summary
+        - limit
+        - offset
+        - has_more
+      properties:
+        preparation_date:
+          type: string
+          format: date
+        feeding_date:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MilkPreparationRow"
+        farm_tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/MilkPreparationFarmTask"
+        summary:
+          $ref: "#/components/schemas/MilkPreparationSummary"
+        limit: { type: integer }
+        offset: { type: integer }
+        has_more: { type: boolean }
     VerificationItemStatus:
       type: string
       enum:
@@ -15995,6 +16320,102 @@ components:
       properties:
         item:
           $ref: "#/components/schemas/VerificationQueueItem"
+        trace_id:
+          type: string
+    VerificationReviewEventPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        video_position_ms:
+          type: integer
+          nullable: true
+        video_duration_ms:
+          type: integer
+          nullable: true
+        seek_from_ms:
+          type: integer
+          nullable: true
+        seek_to_ms:
+          type: integer
+          nullable: true
+        verdict:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        park_id:
+          type: string
+          format: uuid
+          nullable: true
+        shed_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          nullable: true
+    VerificationReviewEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - item_id
+        - session_id
+        - event_type
+        - occurred_at
+        - client_event_id
+      properties:
+        item_id:
+          type: string
+          nullable: true
+          description: Empty for queue-scoped queue_opened events; required by backend for item-scoped events.
+        proof_id:
+          type: string
+        session_id:
+          type: string
+          minLength: 1
+        event_type:
+          type: string
+          enum:
+            - queue_opened
+            - item_opened
+            - video_play
+            - video_pause
+            - video_seek_attempt
+            - video_ended
+            - proof_switched
+            - fullscreen_toggled
+            - verdict_recorded
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          $ref: "#/components/schemas/VerificationReviewEventPayload"
+        client_event_id:
+          type: string
+          format: uuid
+    VerificationReviewEventBatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/VerificationReviewEvent"
+    VerificationReviewEventBatchResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - inserted
+        - trace_id
+      properties:
+        inserted:
+          type: integer
+          minimum: 0
         trace_id:
           type: string
     VerificationCloseRequest:

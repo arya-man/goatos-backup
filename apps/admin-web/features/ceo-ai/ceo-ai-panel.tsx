@@ -390,19 +390,22 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
       const stored = await loadConversationMessages(id).catch(() => []);
-      setMessages(
-        stored.map((m) => ({
+      const restoredMessages: ChatMessage[] = stored.map((m) => {
+        const role: ChatMessage["role"] = m.role === "user" ? "user" : "assistant";
+        const message: ChatMessage = {
           id: m.id ?? m.message_id ?? newId(),
-          role: m.role === "user" ? "user" : "assistant",
-          text: m.role === "user" ? m.content ?? "" : cleanAssistantText(m.content),
-          state: "complete",
+          role,
+          text: role === "user" ? m.content ?? "" : cleanAssistantText(m.content),
+          state: "complete" as const,
           source: m.source,
           mode: m.mode,
           requestId: m.request_id,
           messageId: m.message_id ?? m.id,
           citations: m.citations,
-        })),
-      );
+        };
+        return message;
+      });
+      setMessages(restoredMessages);
     },
     [conversationId, stopGenerating],
   );

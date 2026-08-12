@@ -2485,6 +2485,19 @@ export interface components {
             offset: number;
             has_more: boolean;
         };
+        CreateFeedConfigFeedItemRequest: {
+            feed_item: string;
+            energy_kcal_per_kg?: number | null;
+            dry_matter_factor?: number | null;
+            wastage_factor?: number | null;
+            display_order?: number | null;
+        };
+        SetFeedConfigFeedItemStatusRequest: {
+            /** Format: uuid */
+            feed_item_id: string;
+            /** @enum {string} */
+            status: "active" | "retired";
+        };
         FeedConfigSessionTemplate: {
             /** Format: uuid */
             session_template_id: string;
@@ -2973,6 +2986,39 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+        };
+        FeedConfigPen: {
+            /** Format: uuid */
+            park_id?: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description Raw human partition label. Omitted for non-partitioned sheds. */
+            partition_label?: string;
+            /** @description Backend-owned display label for the exact operational location. */
+            operational_location_display: string;
+            has_experiment_config: boolean;
+        };
+        FeedConfigPenPage: {
+            items: components["schemas"]["FeedConfigPen"][];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        UpsertFeedConfigExperimentBatchRow: {
+            feed_item: string;
+            absolute_kg?: number | null;
+        };
+        UpsertFeedConfigExperimentBatchRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Raw partition label; empty string targets a non-partitioned shed. */
+            partition_label: string;
+            experiment_category: string;
+            head_count?: number | null;
+            items: components["schemas"]["UpsertFeedConfigExperimentBatchRow"][];
         };
         UpsertFeedConfigExperimentRequest: {
             /** Format: uuid */
@@ -3950,6 +3996,7 @@ export interface components {
             deferred_count: number;
             review_count: number;
             shed_labels: string[];
+            shed_partition_labels: string[];
             vaccine_labels: string[];
             /** Format: uuid */
             protocol_id: string | null;
@@ -3976,6 +4023,10 @@ export interface components {
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
+            /** @description Shared logical drive name */
+            drive_name: string;
+            /** @description Total distinct animals in the shared logical drive */
+            drive_total: number;
             /**
              * Format: date
              * @description Drive due date
@@ -4009,6 +4060,17 @@ export interface components {
             completed_animals: number;
             /** @description Distinct animals with recorded completion pending verification */
             submitted_animals: number;
+            /**
+             * @description Grain used by the backend-owned progress numerator and denominator
+             * @enum {string}
+             */
+            progress_basis: "animals" | "doses";
+            /** @description Backend-owned progress numerator */
+            progress_completed: number;
+            /** @description Backend-owned progress denominator */
+            progress_total: number;
+            /** @description Backend-owned progress percentage */
+            progress_pct: number;
             /** @description Owner/team label */
             owner_label: string;
         };
@@ -6018,6 +6080,84 @@ export interface components {
             /** Format: date-time */
             projected_at: string;
         };
+        MilkPreparationSession: {
+            session_no: number;
+            active: boolean;
+            per_head_ml: number;
+            required_ml: number;
+        };
+        MilkPreparationRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            partition_label?: string;
+            operational_location_display?: string;
+            management_stage: string;
+            head_count: number;
+            sessions: components["schemas"]["MilkPreparationSession"][];
+            daily_required_ml: number;
+            status: string;
+            blocked_reason?: string;
+            verification_status: string;
+            /** Format: uuid */
+            completion_id?: string;
+            attempt_no?: number;
+            rework_reason?: string;
+        };
+        MilkPreparationDirectionLine: {
+            management_stage: string;
+            head_count: number;
+            per_head_ml: number;
+            session_count: number;
+            required_ml: number;
+        };
+        MilkPreparationFarmTask: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            cohort_count: number;
+            head_count: number;
+            total_required_ml: number;
+            milk_direction: components["schemas"]["MilkPreparationDirectionLine"][];
+            citric_acid_grams_per_litre: number;
+            citric_acid_grams: number;
+            verification_status: string;
+            /** Format: uuid */
+            completion_id?: string;
+            attempt_no?: number;
+            rework_reason?: string;
+        };
+        MilkPreparationSummary: {
+            scope: string;
+            shed_count: number;
+            cohort_count: number;
+            head_count: number;
+            total_required_ml: number;
+            citric_acid_grams: number;
+            blocked_row_count: number;
+            park_count: number;
+            not_submitted_farm_count: number;
+            pending_verification_farm_count: number;
+            completed_farm_count: number;
+            rework_farm_count: number;
+        };
+        MilkPreparationPage: {
+            /** Format: date */
+            preparation_date: string;
+            /** Format: date */
+            feeding_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["MilkPreparationRow"][];
+            farm_tasks: components["schemas"]["MilkPreparationFarmTask"][];
+            summary: components["schemas"]["MilkPreparationSummary"];
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected";
         VerificationSourceRef: {
@@ -6093,6 +6233,39 @@ export interface components {
         };
         VerificationVerdictResponse: {
             item: components["schemas"]["VerificationQueueItem"];
+            trace_id: string;
+        };
+        VerificationReviewEventPayload: {
+            video_position_ms?: number | null;
+            video_duration_ms?: number | null;
+            seek_from_ms?: number | null;
+            seek_to_ms?: number | null;
+            verdict?: string | null;
+            category?: string | null;
+            /** Format: uuid */
+            park_id?: string | null;
+            /** Format: uuid */
+            shed_id?: string | null;
+            status?: string | null;
+        };
+        VerificationReviewEvent: {
+            /** @description Empty for queue-scoped queue_opened events; required by backend for item-scoped events. */
+            item_id: string | null;
+            proof_id?: string;
+            session_id: string;
+            /** @enum {string} */
+            event_type: "queue_opened" | "item_opened" | "video_play" | "video_pause" | "video_seek_attempt" | "video_ended" | "proof_switched" | "fullscreen_toggled" | "verdict_recorded";
+            /** Format: date-time */
+            occurred_at: string;
+            payload?: components["schemas"]["VerificationReviewEventPayload"];
+            /** Format: uuid */
+            client_event_id: string;
+        };
+        VerificationReviewEventBatchRequest: {
+            events: components["schemas"]["VerificationReviewEvent"][];
+        };
+        VerificationReviewEventBatchResponse: {
+            inserted: number;
             trace_id: string;
         };
         VerificationCloseRequest: {

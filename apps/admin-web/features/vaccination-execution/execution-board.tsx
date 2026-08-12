@@ -82,7 +82,7 @@ function physicalShedName(row: VaccinationExecutionRow): string {
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
-  return row.operational_location_display;
+  return row.operational_location_display || row.shedName;
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {
@@ -452,15 +452,18 @@ export async function VaccinationExecutionBoard({
                         {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
                       </span>
                     </div>
-                    {shedGroup.rows.map((row, idx) => (
-                      <ExecutionRow
-                        key={`${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`}
-                        row={row}
-                        drawerHref={hrefWith({ shed_event: shedEventId(row) })}
-                        pageContract={pageContract}
-                        labels={labels}
-                      />
-                    ))}
+                    {shedGroup.rows.map((row, idx) => {
+                      const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`;
+                      return (
+                        <ExecutionRow
+                          key={partitionAwareKey}
+                          row={row}
+                          drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                          pageContract={pageContract}
+                          labels={labels}
+                        />
+                      );
+                    })}
                   </div>
                 ))}
               </div>
