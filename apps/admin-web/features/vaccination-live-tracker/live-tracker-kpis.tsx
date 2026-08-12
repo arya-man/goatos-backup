@@ -52,11 +52,19 @@ export function LiveTrackerKpis({
       tick: true,
     },
     {
+      // Remaining counts administrations whose OBLIGATION is not closed, not administrations without
+      // a proof. Those are different facts and the gap between them is the whole operational point:
+      // in stg on 2026-08-12 all 298 videos had landed while 9 of 298 obligations were completed, so
+      // a Remaining derived from proof arrival read 0 on a drive that was still open. The proofed-
+      // but-open figure rides on the same tile so the reader can see both without a seventh tile.
       key: "remaining",
       modifier: "k-warn",
       label: copy(pageContract, "kpi.remaining.label"),
       value: kpis.remaining,
-      detail: copy(pageContract, "kpi.remaining.detail"),
+      detail:
+        kpis.awaiting_close > 0
+          ? `${copy(pageContract, "kpi.remaining.detail")} · ${kpis.awaiting_close} ${copy(pageContract, "kpi.remaining.awaiting_prefix")}`
+          : copy(pageContract, "kpi.remaining.detail"),
     },
     {
       key: "combo",

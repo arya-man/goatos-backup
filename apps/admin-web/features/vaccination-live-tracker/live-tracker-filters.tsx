@@ -24,10 +24,12 @@ export type LiveFilterSpec = {
 export function LiveTrackerFilters({
   filters,
   clearAllHref,
+  optionsTruncated,
   pageContract,
 }: {
   filters: LiveFilterSpec[];
   clearAllHref: string | null;
+  optionsTruncated: boolean;
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
@@ -70,9 +72,15 @@ export function LiveTrackerFilters({
       <span className="lt-chips">
         {active.map((filter) => {
           const choice = filter.choices.find((candidate) => candidate.value === filter.selected);
+          // NEVER fall through to the raw value. filter.selected is an internal identifier (a park or
+          // shed uuid, a vaccine family token), and the vocabulary is compiled from the day's OWN
+          // rows — so a selection that has no work on this drive day is simply absent from choices.
+          // The old fallback then printed the uuid in the chip while the <select> beside it, having
+          // no matching <option>, rendered "All parks": two controls contradicting each other while
+          // the data really was narrowed.
           return (
             <span className="achip" key={filter.id}>
-              {choice?.label ?? filter.selected}
+              {choice?.label ?? copy(pageContract, "filter.unlisted_selection")}
               <b
                 role="button"
                 tabIndex={0}
@@ -94,6 +102,9 @@ export function LiveTrackerFilters({
         ) : null}
       </span>
 
+      {optionsTruncated ? (
+        <span className="lt-fnote">{copy(pageContract, "filter.truncated_note")}</span>
+      ) : null}
       <span className="lt-fnote">{copy(pageContract, "filter.apply_note")}</span>
     </div>
   );

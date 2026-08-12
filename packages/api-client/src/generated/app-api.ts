@@ -4787,15 +4787,20 @@ export interface components {
         VaccinationLiveTrackerKPIs: {
             /**
              * @description ADMINISTRATION grain — one obligation is one administration, counted over protocol-category 'vaccination' obligations only, excluding the dead statuses canceled/superseded/waived.
-             *     Reconciliation: equals the sum of the SHED board's scheduled column for the same filter set, provided sheds_truncated and cells_truncated are both false. It equals the OPERATOR board's scheduled column only additionally when every obligation in scope resolved to a drive assignment — administrations in a shed/partition with no vaccination_drive_assignments row for the day have no operator to be attributed to and therefore appear in no operator row. When sheds_truncated, operators_truncated or cells_truncated is true this tile intentionally reads higher than the visible table sums, and the page renders a visible truncation note saying so.
+             *     Aggregated over the WHOLE drive day, independent of the row caps below: it is computed by a window aggregate over the untruncated rollup, not folded from the returned rows, so it stays exact when sheds_truncated / operators_truncated / cells_truncated are true. (Under an explicit status filter it describes the filtered subset instead, because a status filter is a narrowing of the day.)
+             *     Reconciliation: equals the sum of the SHED board's scheduled column for the same filter set, provided sheds_truncated and cells_truncated are both false. The OPERATOR board's scheduled column additionally omits unassigned_administrations — administrations in a shed/partition with no vaccination_drive_assignments row for the day have no operator to be attributed to — so operators sum + unassigned_administrations = this tile. The page renders that residual as a visible note under the operator table.
              */
             scheduled_administrations: number;
             scheduled_by_park: components["schemas"]["VaccinationLiveTrackerParkCount"][];
             /** @description ADMINISTRATION grain — administrations whose animal has a completed vaccination video proof on the drive day. On a combo day ONE uploaded video covers two obligations and contributes 2 here, which is why the tile's caption reads "administrations proofed" and not "videos landed". */
             proof_videos_received: number;
-            /** @description Administrations whose animal has an RFID scan capture on the drive day. */
+            /** @description ADMINISTRATION grain — administrations whose obligation_instances row reached status='completed'. Proof ARRIVAL and obligation CLOSURE are different facts and both are reported: in stg on 2026-08-12 all 298 proof videos had landed while 9 of 298 obligations were completed, so a board deriving progress from proof arrival read as a finished drive on a drive that was still open. */
+            closed_administrations: number;
+            /** @description proof_videos_received minus closed_administrations, floored at zero. */
+            awaiting_close: number;
+            /** @description ADMINISTRATION grain — administrations whose animal has at least one RFID scan capture on the drive day. This is NOT a count of sop_task_scan_captures rows: an animal scanned three times contributes 1, and a combo animal scanned once contributes 2. The tile is labelled "RFID confirmed / administrations with a scan" for exactly that reason; the operator board's scans column is the physical capture count and is a different figure by design. */
             scan_captures: number;
-            /** @description scheduled_administrations minus proofed, floored at zero. */
+            /** @description scheduled_administrations minus closed_administrations, floored at zero — what the drive still owes. It is NOT scheduled minus proofed: that measured proof arrival and let the page read "Remaining 0" while the obligations were still open. */
             remaining: number;
             /** @description ANIMAL grain — animals carrying two or more distinct same-day obligations. */
             combo_animals: number;
@@ -4818,8 +4823,13 @@ export interface components {
             current_partition_label: string;
             current_vaccine_label: string;
             scheduled_administrations: number;
+            /** @description PHYSICAL count of proof_artifacts rows this person uploaded today — display only. On a combo day one video covers two obligations, so this is deliberately NOT the same grain as scheduled_administrations and must never be subtracted from it. */
             proof_videos: number;
+            /** @description PHYSICAL count of sop_task_scan_captures rows this person captured today. */
             scan_captures: number;
+            /** @description This operator's assigned administrations that reached status='completed' — the same OBLIGATION grain as scheduled_administrations, which is what makes remaining a subtraction of like from like. */
+            closed_administrations: number;
+            /** @description scheduled_administrations minus closed_administrations, floored at zero. */
             remaining: number;
             /** Format: date-time */
             last_activity_at: string | null;
@@ -4840,7 +4850,11 @@ export interface components {
             operator_id: string;
             operator_name: string;
             scheduled_administrations: number;
+            /** @description Administrations in this cell whose obligation reached status='completed'. */
+            closed_administrations: number;
+            /** @description Administrations whose animal has a completed video proof today. Proof ARRIVAL, not closure — remaining is derived from closed_administrations. */
             proof_videos_received: number;
+            /** @description scheduled_administrations minus closed_administrations, floored at zero. */
             remaining: number;
             /** Format: date-time */
             last_proof_at: string | null;
@@ -4853,8 +4867,11 @@ export interface components {
             obligation_id: string;
             vaccine_code: string;
             vaccine_label: string;
-            /** @enum {string} */
-            state: "closed" | "awaiting_proof" | "scheduled";
+            /**
+             * @description A pure function of the OBLIGATION's own status, with proof arrival reported separately. verification_pending means a proof landed for this animal today and the obligation is not closed yet — the same fact the sibling execution read model already calls verification_pending. It is never inferred that a proof closed the obligation.
+             * @enum {string}
+             */
+            state: "closed" | "verification_pending" | "awaiting_proof" | "scheduled";
         };
         VaccinationLiveTrackerComboRow: {
             goat_id: string;
@@ -4881,12 +4898,16 @@ export interface components {
             event_id: string;
             /** Format: date-time */
             occurred_at: string;
-            /** @enum {string} */
-            kind: "proof_video" | "scan_capture" | "scan_duplicate" | "scan_unknown" | "administration" | "shed_submitted";
+            /**
+             * @description obligation_closed is one row per obligation_status_events row with event_type='completed' — PER-ANIMAL obligation closure. It was previously labelled shed_submitted, a shed-level name on an animal-grain count; a real shed submission lives in sop_submissions and is not read by this feed.
+             * @enum {string}
+             */
+            kind: "proof_video" | "scan_capture" | "scan_duplicate" | "scan_unknown" | "administration" | "obligation_closed";
             actor_id: string;
             actor_name: string;
             park_name: string;
             shed_label: string;
+            /** @description EVERY same-day dose the animal is on, joined with " + ". A combo animal's single video covers both antigens, so naming only one of them silently dropped the other from the row that reports it. */
             vaccine_label: string;
             goat_id: string;
             goat_display_id: string;
@@ -4934,18 +4955,25 @@ export interface components {
             partition_label: string;
             label: string;
         };
-        /** @description The filter bar's vocabulary, compiled from the day's own rows with only park scope applied. Because it comes from real administrations, an option that matches zero rows cannot be offered, and choosing one operator does not collapse the operator list. */
+        /**
+         * @description The filter bar's vocabulary, compiled from the day's own rows with only the AUTHORIZATION park scope applied (the caller's own park selection is deliberately dropped so the park control cannot self-collapse). Because it comes from real administrations, an option that matches zero rows cannot be offered, and choosing one operator does not collapse the operator list.
+         *     Each kind carries its own server-side cap. A single shared cap across the union was spent in kind-name order, which destroyed the vaccine list entirely before any other list lost a row.
+         */
         VaccinationLiveTrackerFilterOptions: {
             parks: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
             vaccines: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
             operators: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
             sheds: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            /** @description True when any option kind hit its own cap, so the filter bar is incomplete. */
+            truncated: boolean;
         };
         VaccinationLiveTrackerResponse: {
             /** Format: date */
             business_date: string;
             /** Format: date-time */
             generated_at: string;
+            /** @description True only when business_date is today in business time. A past drive day is a legitimate read on this route, and consumers must not render it under a live badge or keep polling it. */
+            is_live_day: boolean;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
             kpis: components["schemas"]["VaccinationLiveTrackerKPIs"];
             operators: components["schemas"]["VaccinationLiveTrackerOperatorRow"][];
@@ -4953,16 +4981,22 @@ export interface components {
             combo: components["schemas"]["VaccinationLiveTrackerCombo"];
             /** @description Operator rows BEFORE the server-side cap. Equals operators.length when operators_truncated is false. */
             operators_total: number;
-            /** @description True when the operator board was cut to its server-side cap. The KPI tiles are folded from the untruncated rollup, so while this is true the Scheduled tile intentionally exceeds the sum of the visible operator table's scheduled column. */
+            /** @description True when the operator board was cut to its server-side cap. The KPI tiles are aggregated over the whole day, so while this is true the Scheduled tile intentionally exceeds the sum of the visible operator table's scheduled column. */
             operators_truncated: boolean;
             /** @description Shed × partition rows BEFORE the server-side cap. Equals sheds.length when sheds_truncated is false. */
             sheds_total: number;
             /** @description True when the shed board was cut to its server-side cap. While true the Scheduled tile intentionally exceeds the sum of the visible shed table's scheduled column. */
             sheds_truncated: boolean;
-            /** @description True when the underlying park × shed × partition × vaccine × operator rollup itself hit its per-read cap. Every KPI tile is folded from that rollup, so while this is true the headline totals UNDER-report the drive day by an unbounded amount and the page says so. */
+            /** @description True when the underlying park × shed × partition × vaccine × operator rollup itself hit its per-read cap, so the two tables list only part of the day. The KPI tiles stay exact — they come from window aggregates over the untruncated rollup, not from the returned rows. */
             cells_truncated: boolean;
+            /** @description Scheduled administrations that resolved to NO drive assignment for the day. They are counted in the tiles and rendered in the shed board, but have no operator to be attributed to and appear in no operator row, so the operator table's scheduled column sums to scheduled_administrations minus this figure. On a partially-planned stg day (2026-08-14) that residual is 95 of 199. */
+            unassigned_administrations: number;
             activity: components["schemas"]["VaccinationLiveTrackerActivity"];
             attention: components["schemas"]["VaccinationLiveTrackerAttentionRow"][];
+            /** @description Attention rows BEFORE the server-side cap. kpis.attention_count equals this. */
+            attention_total: number;
+            /** @description True when the attention rail was cut to its server-side cap. */
+            attention_truncated: boolean;
             verification: components["schemas"]["VaccinationLiveTrackerVerification"];
             filter_options: components["schemas"]["VaccinationLiveTrackerFilterOptions"];
         };
@@ -8434,6 +8468,7 @@ export interface operations {
                 vaccine_code?: string;
                 /** @description Derived row state. Narrows the KPI tiles, the operator board, the shed board and the attention list. It does NOT narrow the combo card or the activity feed, which always describe the whole drive day. */
                 status?: "active" | "done" | "pending" | "review";
+                /** @description Both bounds are enforced with 400 invalid_activity_limit. A value above the maximum is REFUSED, not silently clamped: answering a clamped page with HTTP 200 tells a paging client the limit it asked for was honoured. */
                 activity_limit?: number;
                 /** @description Timestamp half of the activity feed's keyset cursor. Send it together with activity_before_id — occurred_at alone is NOT a key, because burst-written scan captures and scan attempts routinely share a timestamp and a strict comparison skips every event tied with the previous page's last row. */
                 activity_before?: string;

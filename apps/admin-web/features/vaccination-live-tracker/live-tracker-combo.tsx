@@ -30,9 +30,15 @@ export function LiveTrackerComboCard({
       <div className="hd">
         <Syringe className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.combo.title")}</h3>
-        {combo.vaccine_labels.length > 0 ? (
-          <span className="lt-combo-chip">{combo.vaccine_labels.join(" + ")}</span>
-        ) : null}
+        {/* ONE chip per distinct antigen actually present, never their union joined into a single
+            label. The mock's single combo slot describes ONE combo; real combos are variable-N and a
+            day can carry several different ones, so joining every label produced a four-antigen
+            combination no animal received. */}
+        {combo.vaccine_labels.map((label) => (
+          <span className="lt-combo-chip" key={label}>
+            {label}
+          </span>
+        ))}
         <div className="sp" style={{ flex: 1 }} />
         <span className="small muted">
           {combo.animal_count}{" "}

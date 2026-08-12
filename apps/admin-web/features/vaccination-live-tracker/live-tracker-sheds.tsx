@@ -76,7 +76,7 @@ export function LiveTrackerSheds({
             <thead>
               <tr>
                 {cols.map((label, index) => (
-                  <th key={label} className={index >= 3 && index <= 5 ? "num" : undefined} style={index === 6 ? { minWidth: 150 } : undefined}>
+                  <th key={label} className={index >= 3 && index <= 6 ? "num" : undefined} style={index === 7 ? { minWidth: 150 } : undefined}>
                     {label}
                   </th>
                 ))}
@@ -84,8 +84,10 @@ export function LiveTrackerSheds({
             </thead>
             <tbody>
               {rows.map((row) => {
-                const tone = progressTone(row.proof_videos_received, row.scheduled_administrations);
-                const percent = pct(row.proof_videos_received, row.scheduled_administrations);
+                // Closure is what Remaining and the status pill are derived from, so it is what the
+                // bar shows. Proof arrival stays in its own column beside it.
+                const tone = progressTone(row.state);
+                const percent = pct(row.closed_administrations, row.scheduled_administrations);
                 const href = shedHref(row);
                 return (
                   <tr key={`${row.shed_id}|${row.partition_label}|${row.vaccine_code}|${row.operator_id}`} className="lt-shed-row">
@@ -107,6 +109,7 @@ export function LiveTrackerSheds({
                     </td>
                     <td className="num">{row.scheduled_administrations}</td>
                     <td className="num">{row.proof_videos_received}</td>
+                    <td className="num">{row.closed_administrations}</td>
                     <td className="num">{row.remaining}</td>
                     <td>
                       <div className="lt-pcell">

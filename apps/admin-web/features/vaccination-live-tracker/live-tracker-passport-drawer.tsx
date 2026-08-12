@@ -162,6 +162,15 @@ export function LiveTrackerPassportDrawer({
               ) : (
                 <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "drawer.passport.open_obligations")}>
                   <table>
+                    {/* Three unheadered columns is a table the reader has to decode. The sibling
+                        passport drawers in counts and vaccination-sheds both label theirs. */}
+                    <thead>
+                      <tr>
+                        <th>{copy(pageContract, "drawer.passport.col_due")}</th>
+                        <th>{copy(pageContract, "drawer.passport.col_dose")}</th>
+                        <th>{copy(pageContract, "drawer.passport.col_status")}</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
                         <tr key={due.obligation_id}>
@@ -174,6 +183,15 @@ export function LiveTrackerPassportDrawer({
                       ))}
                     </tbody>
                   </table>
+                  {/* The API returns up to 200 open obligations and this drawer shows 6. Dropping the
+                      rest silently is the one thing every sibling drawer in this codebase refuses to
+                      do — and combo animals, the only animals this drawer is ever opened on, are by
+                      definition the ones most likely to carry more than six. */}
+                  {open.length > DRAWER_ROW_LIMIT ? (
+                    <p className="muted small" style={{ marginTop: 6 }}>
+                      +{open.length - DRAWER_ROW_LIMIT} {copy(pageContract, "drawer.passport.more_suffix")}
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>

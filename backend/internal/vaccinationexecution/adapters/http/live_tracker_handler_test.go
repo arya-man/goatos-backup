@@ -144,15 +144,28 @@ func TestLiveTrackerRejectsOverlongTextFilters(t *testing.T) {
 	}
 }
 
-// The feed cap is clamped server-side rather than trusted: an unbounded activity_limit would let one
-// caller pull the whole day's event history in a single poll.
-func TestLiveTrackerClampsActivityLimitToItsServerCeiling(t *testing.T) {
+// TestLiveTrackerRefusesActivityLimitOutsideItsDeclaredBounds pins that BOTH declared bounds behave
+// the same way. The contract declares minimum 1 / maximum 100; the handler used to reject anything
+// below the minimum with 400 and silently clamp anything above the maximum to 100 with HTTP 200 —
+// telling a paging caller that the page size it asked for was honoured when it was not.
+func TestLiveTrackerRefusesActivityLimitOutsideItsDeclaredBounds(t *testing.T) {
+	for _, query := range []string{"?activity_limit=0", "?activity_limit=101", "?activity_limit=100000"} {
+		rec := liveTrackerRequest(t, &fakeReader{}, query)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400 (the declared maximum must be enforced, not clamped)", query, rec.Code)
+			continue
+		}
+		if !strings.Contains(rec.Body.String(), "invalid_activity_limit") {
+			t.Errorf("%s body = %s, want invalid_activity_limit", query, rec.Body.String())
+		}
+	}
+	// The ceiling itself stays accepted.
 	reader := &fakeReader{}
-	if rec := liveTrackerRequest(t, reader, "?activity_limit=100000"); rec.Code != http.StatusOK {
+	if rec := liveTrackerRequest(t, reader, "?activity_limit=100"); rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	if reader.lastLiveTracker.ActivityLimit != vaccexecd.LiveTrackerMaxActivity {
-		t.Fatalf("activity_limit reached the reader as %d, want the ceiling %d",
+		t.Fatalf("activity_limit reached the reader as %d, want %d",
 			reader.lastLiveTracker.ActivityLimit, vaccexecd.LiveTrackerMaxActivity)
 	}
 }

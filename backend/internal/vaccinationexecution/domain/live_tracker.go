@@ -50,10 +50,18 @@ const (
 )
 
 // Per-dose (per obligation) state inside a combo row.
+//
+// `closed` means the OBLIGATION reached status='completed'. It used to be returned whenever the
+// animal had a completed proof, whatever the obligation actually said — so a `scheduled` obligation
+// rendered as "closed by the animal's proof" while obligation_instances.status was still scheduled
+// and completed_at was null. `verification_pending` is the state that situation really is, and it is
+// the same word the sibling execution read model already uses for it
+// (domain.WorkStateVerificationPending: "Mobile proof submitted; awaiting verifier review").
 const (
-	LiveTrackerDoseClosed        = "closed"
-	LiveTrackerDoseAwaitingProof = "awaiting_proof"
-	LiveTrackerDoseScheduled     = "scheduled"
+	LiveTrackerDoseClosed              = "closed"
+	LiveTrackerDoseVerificationPending = "verification_pending"
+	LiveTrackerDoseAwaitingProof       = "awaiting_proof"
+	LiveTrackerDoseScheduled           = "scheduled"
 )
 
 // Activity feed event kinds. Each maps 1:1 to one UNION arm of the feed query.
@@ -63,7 +71,10 @@ const (
 	LiveTrackerActivityScanDuplicate = "scan_duplicate"
 	LiveTrackerActivityScanUnknown   = "scan_unknown"
 	LiveTrackerActivityAdministered  = "administration"
-	LiveTrackerActivityShedSubmitted = "shed_submitted"
+	// One row per obligation_status_events row with event_type='completed' — that is PER-ANIMAL
+	// obligation closure. It was called "shed submitted", a shed-level name on an animal-grain count;
+	// a real shed submission lives in sop_submissions and is not read by this feed at all.
+	LiveTrackerActivityObligationClosed = "obligation_closed"
 )
 
 // Attention row kinds.
@@ -92,10 +103,22 @@ const (
 	LiveTrackerMaxComboRows    = 200
 	LiveTrackerDefaultActivity = 40
 	LiveTrackerMaxActivity     = 100
-	// LiveTrackerMaxFilterOptions caps the filter bar's vocabulary. It is spelled INTO the SQL rather
-	// than declared beside it: a declared cap that the query does not apply is a cap that does not
-	// exist, and the filter bar would lose whole option groups with nothing on screen to say so.
-	LiveTrackerMaxFilterOptions = 1000
+	// LiveTrackerMaxActors caps the per-person evidence rollup. It is a DECLARED constant rather than
+	// a bare literal because the operator board reads its Videos/Scans/last-activity out of that
+	// rollup by member id: an operator missing from it is rendered with zero evidence and state
+	// not_started, which is indistinguishable from someone who genuinely has not started.
+	LiveTrackerMaxActors = 500
+	// LiveTrackerMaxAttention caps the attention rail. It is derived from the PRE-cap cell rollup and
+	// can emit two rows per shed cell plus one per idle operator, so without a cap of its own it is
+	// the one array in the response bounded only by (2 x LiveTrackerMaxCells + operators).
+	LiveTrackerMaxAttention = 200
+	// Filter-bar vocabulary caps. Each kind carries its OWN budget: a single shared cap across the
+	// union was spent in kind-name order, so the last kind alphabetically (vaccine) was starved to
+	// zero before any other list lost a single row.
+	LiveTrackerMaxParkOptions     = 200
+	LiveTrackerMaxVaccineOptions  = 100
+	LiveTrackerMaxOperatorOptions = 500
+	LiveTrackerMaxShedOptions     = 1000
 	// LiveTrackerMaxCells caps the park × shed × partition × vaccine × operator rollup. EVERY KPI tile
 	// is folded from these rows in Go, so hitting this cap does not merely shorten a table — it makes
 	// the headline number itself under-report the day. The response therefore carries
@@ -145,49 +168,67 @@ type LiveTrackerKPIs struct {
 	ScheduledAdministrations int                    `json:"scheduled_administrations"`
 	ScheduledByPark          []LiveTrackerParkCount `json:"scheduled_by_park"`
 	ProofVideosReceived      int                    `json:"proof_videos_received"`
-	ScanCaptures             int                    `json:"scan_captures"`
-	Remaining                int                    `json:"remaining"`
-	ComboAnimals             int                    `json:"combo_animals"`
-	AttentionCount           int                    `json:"attention_count"`
-	ActiveParks              int                    `json:"active_parks"`
+	// ClosedAdministrations is obligation CLOSURE — obligation_instances.status = 'completed'. Proof
+	// arrival and closure are different facts and this page reports both: in stg on 2026-08-12 all
+	// 298 proof videos had landed while 9 of 298 obligations were completed, so a board that derived
+	// Remaining from proof arrival read as a finished drive on a drive that was still open.
+	ClosedAdministrations int `json:"closed_administrations"`
+	// AwaitingClose is proofed-but-not-closed: the field work landed, the obligation has not.
+	AwaitingClose int `json:"awaiting_close"`
+	ScanCaptures  int `json:"scan_captures"`
+	// Remaining is scheduled minus CLOSED, floored at zero — administrations the drive still owes.
+	Remaining      int `json:"remaining"`
+	ComboAnimals   int `json:"combo_animals"`
+	AttentionCount int `json:"attention_count"`
+	ActiveParks    int `json:"active_parks"`
 }
 
 // LiveTrackerOperatorRow is one operator's live board row.
 type LiveTrackerOperatorRow struct {
-	OperatorID            string     `json:"operator_id"`
-	OperatorName          string     `json:"operator_name"`
-	OperatorDisplayCode   string     `json:"operator_display_code"`
-	IdentityResolved      bool       `json:"identity_resolved"`
-	ParkID                string     `json:"park_id"`
-	ParkName              string     `json:"park_name"`
-	ParkCode              string     `json:"park_code"`
-	CurrentShedID         string     `json:"current_shed_id"`
-	CurrentShedLabel      string     `json:"current_shed_label"`
-	CurrentPartitionLabel string     `json:"current_partition_label"`
-	CurrentVaccineLabel   string     `json:"current_vaccine_label"`
-	ScheduledAdmins       int        `json:"scheduled_administrations"`
-	ProofVideos           int        `json:"proof_videos"`
-	ScanCaptures          int        `json:"scan_captures"`
-	Remaining             int        `json:"remaining"`
-	LastActivityAt        *time.Time `json:"last_activity_at"`
-	IdleMinutes           *int       `json:"idle_minutes"`
-	State                 string     `json:"state"`
+	OperatorID            string `json:"operator_id"`
+	OperatorName          string `json:"operator_name"`
+	OperatorDisplayCode   string `json:"operator_display_code"`
+	IdentityResolved      bool   `json:"identity_resolved"`
+	ParkID                string `json:"park_id"`
+	ParkName              string `json:"park_name"`
+	ParkCode              string `json:"park_code"`
+	CurrentShedID         string `json:"current_shed_id"`
+	CurrentShedLabel      string `json:"current_shed_label"`
+	CurrentPartitionLabel string `json:"current_partition_label"`
+	CurrentVaccineLabel   string `json:"current_vaccine_label"`
+	ScheduledAdmins       int    `json:"scheduled_administrations"`
+	// ProofVideos is a PHYSICAL count of proof_artifacts rows this person uploaded — display only.
+	// Subtracting it from ScheduledAdmins mixed two grains: on a combo day one video closes two
+	// obligations, so a finished operator read Remaining = half their workload, never reached `done`,
+	// was dropped by the status=done filter and was emitted as a false idle-operator attention row.
+	ProofVideos  int `json:"proof_videos"`
+	ScanCaptures int `json:"scan_captures"`
+	// ClosedAdmins is this operator's assigned administrations that actually closed — the same
+	// OBLIGATION grain as ScheduledAdmins, so Remaining is a subtraction of like from like.
+	ClosedAdmins   int        `json:"closed_administrations"`
+	Remaining      int        `json:"remaining"`
+	LastActivityAt *time.Time `json:"last_activity_at"`
+	IdleMinutes    *int       `json:"idle_minutes"`
+	State          string     `json:"state"`
 }
 
 // LiveTrackerShedRow is one shed×partition proof-progress row.
 type LiveTrackerShedRow struct {
-	ShedID              string     `json:"shed_id"`
-	ShedName            string     `json:"shed_name"`
-	PhysicalShed        string     `json:"physical_shed"`
-	PartitionLabel      string     `json:"partition_label"`
-	ShedLabel           string     `json:"shed_label"`
-	ParkID              string     `json:"park_id"`
-	ParkName            string     `json:"park_name"`
-	VaccineCode         string     `json:"vaccine_code"`
-	VaccineLabel        string     `json:"vaccine_label"`
-	OperatorID          string     `json:"operator_id"`
-	OperatorName        string     `json:"operator_name"`
-	ScheduledAdmins     int        `json:"scheduled_administrations"`
+	ShedID          string `json:"shed_id"`
+	ShedName        string `json:"shed_name"`
+	PhysicalShed    string `json:"physical_shed"`
+	PartitionLabel  string `json:"partition_label"`
+	ShedLabel       string `json:"shed_label"`
+	ParkID          string `json:"park_id"`
+	ParkName        string `json:"park_name"`
+	VaccineCode     string `json:"vaccine_code"`
+	VaccineLabel    string `json:"vaccine_label"`
+	OperatorID      string `json:"operator_id"`
+	OperatorName    string `json:"operator_name"`
+	ScheduledAdmins int    `json:"scheduled_administrations"`
+	// ProofVideosReceived is proof ARRIVAL; ClosedAdmins is obligation CLOSURE. Remaining is derived
+	// from closure, so a shed only reads `done` once its obligations are actually closed.
+	ClosedAdmins        int        `json:"closed_administrations"`
 	ProofVideosReceived int        `json:"proof_videos_received"`
 	Remaining           int        `json:"remaining"`
 	LastProofAt         *time.Time `json:"last_proof_at"`
@@ -294,17 +335,26 @@ type LiveTrackerFilterOptions struct {
 	Vaccines  []LiveTrackerFilterOption `json:"vaccines"`
 	Operators []LiveTrackerFilterOption `json:"operators"`
 	Sheds     []LiveTrackerFilterOption `json:"sheds"`
+	// Truncated is true when ANY kind hit its own cap. Every other bounded list in this response
+	// declares its truncation; the filter vocabulary was the only one that could lose whole option
+	// groups with nothing on screen to say so.
+	Truncated bool `json:"truncated"`
 }
 
 // LiveTrackerResponse is the whole live drive tracker page in one read.
 type LiveTrackerResponse struct {
-	BusinessDate string                   `json:"business_date"`
-	GeneratedAt  time.Time                `json:"generated_at"`
-	Freshness    *ProjectionFreshness     `json:"freshness,omitempty"`
-	KPIs         LiveTrackerKPIs          `json:"kpis"`
-	Operators    []LiveTrackerOperatorRow `json:"operators"`
-	Sheds        []LiveTrackerShedRow     `json:"sheds"`
-	Combo        LiveTrackerCombo         `json:"combo"`
+	BusinessDate string    `json:"business_date"`
+	GeneratedAt  time.Time `json:"generated_at"`
+	// IsLiveDay is true only when BusinessDate is today in business time. The handler accepts a drive
+	// day up to LiveTrackerBusinessDateLookbackDays back, and every elapsed figure on the page is
+	// already clock-corrected for that; the header's "N parks running" LIVE chip and the client's
+	// poller were not, so a drive that closed days ago rendered as running and kept polling.
+	IsLiveDay bool                     `json:"is_live_day"`
+	Freshness *ProjectionFreshness     `json:"freshness,omitempty"`
+	KPIs      LiveTrackerKPIs          `json:"kpis"`
+	Operators []LiveTrackerOperatorRow `json:"operators"`
+	Sheds     []LiveTrackerShedRow     `json:"sheds"`
+	Combo     LiveTrackerCombo         `json:"combo"`
 	// Truncation is REPORTED, never silent. The combo card already carried rows_truncated; the two
 	// boards did not, so past the caps the Scheduled tile stopped equalling the sum of the visible
 	// table's Scheduled column with nothing on screen to explain the gap.
@@ -314,11 +364,19 @@ type LiveTrackerResponse struct {
 	ShedsTruncated     bool `json:"sheds_truncated"`
 	// CellsTruncated means the underlying rollup itself hit LiveTrackerMaxCells, so the KPI tiles —
 	// which are folded from that rollup — under-report the day by an unbounded amount.
-	CellsTruncated bool                      `json:"cells_truncated"`
-	Activity       LiveTrackerActivity       `json:"activity"`
-	Attention      []LiveTrackerAttentionRow `json:"attention"`
-	Verification   LiveTrackerVerification   `json:"verification"`
-	FilterOptions  LiveTrackerFilterOptions  `json:"filter_options"`
+	CellsTruncated bool `json:"cells_truncated"`
+	// UnassignedAdministrations is the day's scheduled work that resolved to NO drive assignment. It
+	// is counted into the Scheduled tile and rendered in the shed board, but has no operator to be
+	// attributed to and therefore appears in no operator row — so without this figure the Operators
+	// table's Scheduled column simply summed short of the tile above it, with nothing on screen to
+	// explain the gap. On a partially-planned stg day (2026-08-14) that gap is 95 of 199.
+	UnassignedAdministrations int                       `json:"unassigned_administrations"`
+	Activity                  LiveTrackerActivity       `json:"activity"`
+	Attention                 []LiveTrackerAttentionRow `json:"attention"`
+	AttentionTotal            int                       `json:"attention_total"`
+	AttentionTruncated        bool                      `json:"attention_truncated"`
+	Verification              LiveTrackerVerification   `json:"verification"`
+	FilterOptions             LiveTrackerFilterOptions  `json:"filter_options"`
 }
 
 var partitionPartPrefix = regexp.MustCompile(`^part[[:space:]]*`)

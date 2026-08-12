@@ -129,10 +129,14 @@ export async function LiveTrackerBoard({
   if (!result.ok) {
     return (
       <div className="lt-page">
+        {/* activeParks is null, not 0. The read FAILED, so nothing is known about how many parks are
+            running; rendering a hard zero under a pulsing LIVE badge asserts that none are, which is
+            a measurement this branch does not have. */}
         <PageHead
           pageContract={pageContract}
           businessDate={params.businessDate ?? ""}
-          activeParks={0}
+          activeParks={null}
+          isLiveDay={false}
           generatedAt={null}
           scheduleHref={scheduleHref}
           commandHref={commandHref}
@@ -189,12 +193,18 @@ export async function LiveTrackerBoard({
         pageContract={pageContract}
         businessDate={data.business_date}
         activeParks={data.kpis.active_parks}
+        isLiveDay={data.is_live_day}
         generatedAt={data.generated_at}
         scheduleHref={scheduleHref}
         commandHref={commandHref}
       />
 
-      <LiveTrackerFilters filters={filters} clearAllHref={clearAllHref} pageContract={pageContract} />
+      <LiveTrackerFilters
+        filters={filters}
+        clearAllHref={clearAllHref}
+        optionsTruncated={data.filter_options.truncated}
+        pageContract={pageContract}
+      />
 
       {/* The top bar's as_of travels into every nav leaf including this one, but this surface is a
           DRIVE DAY board keyed on business_date — it does not honour as_of, and the sibling
@@ -206,11 +216,20 @@ export async function LiveTrackerBoard({
         </div>
       ) : null}
 
+      {/* The wording turns on hasNarrowing, which INCLUDES the top-bar park. "No vaccination drive
+          work on this day" is a claim about the whole day; with a park selected it is false whenever
+          the other park is running, and the reader is given no hint that a scope is even active. */}
       {isEmpty ? (
         <div className="note lt-emptynote">
-          <b>{copy(pageContract, "state.empty_title")}</b>
+          <b>
+            {params.hasNarrowing
+              ? copy(pageContract, "state.empty_filtered_title")
+              : copy(pageContract, "state.empty_title")}
+          </b>
           <span className="muted small" style={{ display: "block", marginTop: 3, lineHeight: 1.5 }}>
-            {copy(pageContract, "state.empty_body")}
+            {params.hasNarrowing
+              ? copy(pageContract, "state.empty_filtered_body")
+              : copy(pageContract, "state.empty_body")}
           </span>
           {params.hasFilter ? (
             <Link href={resetHref} replace scroll={false} className="btn sm" style={{ marginTop: 8 }}>
@@ -229,6 +248,7 @@ export async function LiveTrackerBoard({
             parkCount={data.kpis.scheduled_by_park.length}
             total={data.operators_total}
             truncated={data.operators_truncated}
+            unassignedAdmins={data.unassigned_administrations}
             hasFilter={params.hasFilter}
             resetHref={resetHref}
             pageContract={pageContract}
@@ -251,6 +271,8 @@ export async function LiveTrackerBoard({
         <LiveTrackerRail
           activity={data.activity}
           attention={data.attention}
+          attentionTotal={data.attention_total}
+          attentionTruncated={data.attention_truncated}
           verification={data.verification}
           verifyHref={verifyHref}
           pageContract={pageContract}
@@ -271,13 +293,16 @@ function PageHead({
   pageContract,
   businessDate,
   activeParks,
+  isLiveDay,
   generatedAt,
   scheduleHref,
   commandHref,
 }: {
   pageContract: AdminUiPageContract;
+  // null = the read failed, so the number is UNKNOWN. It is not zero.
+  activeParks: number | null;
   businessDate: string;
-  activeParks: number;
+  isLiveDay: boolean;
   generatedAt: string | null;
   scheduleHref: string;
   commandHref: string;
@@ -291,13 +316,21 @@ function PageHead({
         </div>
         <h1 style={{ margin: 0, fontSize: 21, letterSpacing: "-.4px" }}>
           {copy(pageContract, "page.heading_prefix")} — {dayLabel}
-          <span className="tag t-live" style={{ verticalAlign: "middle", marginLeft: 6 }}>
-            <i />
-            {activeParks}{" "}
-            {activeParks === 1
-              ? copy(pageContract, "chip.parks_running_one")
-              : copy(pageContract, "chip.parks_running_many")}
-          </span>
+          {/* A past drive day is a legitimate read here, and the rest of the page is already
+              clock-corrected for it. The chip was not: a drive that closed days ago rendered "1 park
+              running" under a pulsing LIVE badge. Past days get a neutral, past-tense chip. */}
+          {activeParks == null ? null : (
+            <span
+              className={`tag ${isLiveDay ? "t-live" : "t-mut"}`}
+              style={{ verticalAlign: "middle", marginLeft: 6 }}
+            >
+              {isLiveDay ? <i /> : null}
+              {activeParks}{" "}
+              {isLiveDay
+                ? copy(pageContract, activeParks === 1 ? "chip.parks_running_one" : "chip.parks_running_many")
+                : copy(pageContract, activeParks === 1 ? "chip.parks_active_one" : "chip.parks_active_many")}
+            </span>
+          )}
         </h1>
         <div className="sub">{copy(pageContract, "page.subtitle")}</div>
       </div>
@@ -306,7 +339,7 @@ function PageHead({
         {/* The mock's own top bar carried the LIVE badge, clock and interval picker. Brand, park
             scope, date scope and theme already live in the app shell, so only the live controls move
             here — every element still appears, just hosted by the surface that owns it. */}
-        {generatedAt ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
+        {generatedAt && isLiveDay ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
         <div className="lt-headbtns">
           <Link href={scheduleHref} className="btn">
             <CalendarDays className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" />

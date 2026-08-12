@@ -65,7 +65,34 @@ func liveTrackerPartitionNormExpr(column string) string {
 //
 // projection-review: membership=obligation_instances for one tenant whose protocol_definitions.category is 'vaccination' (the obligation engine is shared with deworming, biosecurity and the rest) and whose EFFECTIVE drive date (active vaccination_drive_date_overrides else the IST date of due_at) equals the requested business date, excluding the dead statuses canceled/superseded/waived; group_key=(park_id, shed_id, normalized partition_label, vaccine family, assigned operator_id) for the board sections and (goat_id) for the combo/proof sections; join_cardinality=goat/partition/protocol joins are keyed 1:1 by tenant plus stable id, the drive assignment is resolved through a LIMIT 1 LATERAL so a duplicate assignment row cannot fan an obligation out, the proof/scan/attempt day tables are pre-aggregated to one row per goat BEFORE being joined, the per-actor evidence CTEs join a DISTINCT goat set (scoped_goats) rather than the per-obligation set, the goat-keyed feed arms join a one-row-per-goat projection (goat_places) rather than the dose-grain shed_names, and workforce_members is resolved through a status='active' LIMIT 1 LATERAL because only the active row is unique per user_id — so no evidence count and no feed row can multiply on a combo animal or a re-hired person; pagination=every returned array is bounded server-side (cells<=2000 with cells_truncated reported, operators<=100 and sheds<=200 with totals and truncation flags reported, combo rows<=200 with an exact total, filter options<=1000, activity keyset-paginated by occurred_at) and no COUNT(*) runs over per-goat rows outside this date-scoped membership; scope=tenant plus the backend-clamped park filter, then optional shed / normalized partition / operator / vaccine-family narrowing applied inside the CTE so every downstream section inherits it.
 var liveTrackerScopedCTE = `
-WITH day_proofs AS (
+WITH day_window AS (
+  -- Every day boundary on this page is cut ONCE, here, as a half-open timestamptz range.
+  --
+  -- The predicate this replaces was (<ts> AT TIME ZONE 'Asia/Kolkata')::date = $2::date on six
+  -- different event columns. That is a function of the column, so it is not sargable: no index can
+  -- ever drive it and every one of proof_artifacts, sop_task_scan_captures, sop_task_scan_attempts,
+  -- vaccination_completions and obligation_status_events was read in full, for a ONE-DAY answer, on
+  -- a page that polls every 10s per viewer. These tables are append-only and grow with
+  -- herd x doses x years.
+  --
+  -- due_floor is the earliest due_at that can still land on this drive day. A drive-date override is
+  -- constrained to POSTPONE (vaccination_drive_date_overrides_postpone_check: override_date >
+  -- original_drive_date), so an obligation reached through an override always has an IST due date
+  -- STRICTLY BEFORE the requested day, and never later. Taking the minimum original_drive_date of the
+  -- active overrides that land on $2 therefore bounds the scan EXACTLY: no row that could qualify is
+  -- excluded, and with no overrides in play the floor collapses onto the day itself.
+  SELECT
+    ($2::date::timestamp AT TIME ZONE '` + istZone + `') AS day_start,
+    (($2::date + 1)::timestamp AT TIME ZONE '` + istZone + `') AS day_end,
+    (COALESCE(
+       (SELECT min(o.original_drive_date)
+          FROM vaccination_drive_date_overrides o
+         WHERE o.tenant_id = $1::uuid
+           AND o.override_date = $2::date
+           AND o.canceled_at IS NULL),
+       $2::date)::timestamp AT TIME ZONE '` + istZone + `') AS due_floor
+),
+day_proofs AS (
   SELECT
     pa.subject_id AS goat_id,
     count(*) FILTER (WHERE pa.upload_state = 'completed')::int AS completed_count,
@@ -81,7 +108,14 @@ WITH day_proofs AS (
     AND pa.subject_type = 'goat'
     AND pa.subject_id IS NOT NULL
     AND pa.proof_type = 'video'
-    AND (COALESCE(pa.uploaded_at, pa.created_at) AT TIME ZONE '` + istZone + `')::date = $2::date
+    -- COALESCE(uploaded_at, created_at) in one range is still a function of the columns. Split into
+    -- two sargable arms so proof_artifacts_vaccination_day_idx (tenant_id, uploaded_at) can drive the
+    -- normal case and the created_at index the not-yet-uploaded case; the two arms are disjoint and
+    -- their union is exactly the old COALESCE predicate.
+    AND ((pa.uploaded_at >= (SELECT day_start FROM day_window) AND pa.uploaded_at < (SELECT day_end FROM day_window))
+      OR (pa.uploaded_at IS NULL
+          AND pa.created_at >= (SELECT day_start FROM day_window)
+          AND pa.created_at < (SELECT day_end FROM day_window)))
   GROUP BY pa.subject_id
 ),
 day_scans AS (
@@ -96,7 +130,8 @@ day_scans AS (
   WHERE c.tenant_id = $1::uuid
     AND st.task_type = 'vaccination'
     AND c.goat_id IS NOT NULL
-    AND (c.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND c.captured_at >= (SELECT day_start FROM day_window)
+    AND c.captured_at < (SELECT day_end FROM day_window)
   GROUP BY c.goat_id
 ),
 day_attempts AS (
@@ -112,8 +147,27 @@ day_attempts AS (
     AND st.task_type = 'vaccination'
     AND a.goat_id IS NOT NULL
     AND a.outcome IN ('duplicate', 'not_due', 'unknown')
-    AND (a.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND a.captured_at >= (SELECT day_start FROM day_window)
+    AND a.captured_at < (SELECT day_end FROM day_window)
   GROUP BY a.goat_id
+),
+-- day_assignments resolves the day's operator-of-record for each shed x partition ONCE, before the
+-- obligation set is touched. The LEFT JOIN LATERAL this replaces re-executed per OBLIGATION: for
+-- every one of the day's obligations it re-scanned all of that day's assignment rows and evaluated
+-- two regexp_replace() calls on each, with no Memoize applied — a textbook N+1 whose join key is not
+-- sargable, repeated across the five statements that embed this CTE, every poll, per viewer.
+-- DISTINCT ON (shed, normalized partition) ORDER BY assignment_id keeps the exact
+-- ORDER BY assignment_id LIMIT 1 tie-break the LATERAL had, so a duplicate assignment row still
+-- cannot fan an obligation out.
+day_assignments AS (
+  SELECT DISTINCT ON (a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `)
+    a.shed_id,
+    ` + liveTrackerPartitionNormExpr("a.partition_label") + ` AS part_norm,
+    a.operator_id
+  FROM vaccination_drive_assignments a
+  WHERE a.tenant_id = $1::uuid
+    AND a.planned_date = $2::date
+  ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, a.assignment_id
 ),
 scoped AS (
   SELECT
@@ -168,8 +222,21 @@ scoped AS (
     -- into the scheduled count inflates the Scheduled tile and Remaining, and holds the shed row at
     -- not_started for the rest of the day. Same exclusion set as repository.go's execution reads.
     AND oi.status NOT IN ('canceled', 'superseded', 'waived')
+    -- Bounded base scan FIRST (see day_window), exact COALESCE equality SECOND. The COALESCE sits
+    -- over a nullable outer-joined column so it can never be pushed down to obligation_instances;
+    -- without the due_at range the planner read the tenant's ENTIRE obligation history, joined it to
+    -- goats, partitions and the protocol chain, and only then discarded the rows that are not on the
+    -- requested day. No index can fix that while the date predicate keeps this shape.
+    AND oi.due_at >= (SELECT due_floor FROM day_window)
+    AND oi.due_at < (SELECT day_end FROM day_window)
     AND COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date
     AND ($3::text = '' OR g.park_id::text = $3::text)
+    -- $8 is the AUTHORIZATION park set, distinct from $3 (the caller's own park selection). It is
+    -- NULL only for a genuinely tenant-wide capability holder. The filter-bar vocabulary is compiled
+    -- with $3 empty so the park control cannot self-collapse, which means $8 is the ONLY thing
+    -- keeping a park-scoped actor who holds grants in two parks from being handed the whole tenant's
+    -- shed, operator and vaccine vocabulary.
+    AND ($8::text[] IS NULL OR g.park_id::text = ANY($8::text[]))
 ),
 scoped_enriched AS (
   SELECT
@@ -181,18 +248,17 @@ scoped_enriched AS (
     COALESCE(ds.scan_count, 0) AS scan_count,
     ds.last_scan_at,
     COALESCE(da.extra_count, 0) AS extra_count,
-    da.last_attempt_at
+    da.last_attempt_at,
+    -- day_attempts is per-GOAT. scoped_enriched is per-OBLIGATION, so summing extra_count across a
+    -- combo animal's rows charged the SAME physical duplicate scan to every vaccine cell that animal
+    -- appears in — two "Extra attempts" figures, two Attention rows and two sheds pinned to 'review'
+    -- for one re-scan. goat_seq marks exactly one row per animal as the carrier of that animal's
+    -- attempt count; every other row contributes zero.
+    row_number() OVER (PARTITION BY s.goat_id ORDER BY s.dose_code, s.obligation_id) AS goat_seq
   FROM scoped s
-  LEFT JOIN LATERAL (
-    SELECT a.operator_id
-    FROM vaccination_drive_assignments a
-    WHERE a.tenant_id = $1::uuid
-      AND a.planned_date = $2::date
-      AND a.shed_id = s.shed_id
-      AND ` + liveTrackerPartitionNormExpr("a.partition_label") + ` = s.part_norm
-    ORDER BY a.assignment_id
-    LIMIT 1
-  ) asg ON true
+  LEFT JOIN day_assignments asg
+    ON asg.shed_id = s.shed_id
+   AND asg.part_norm = s.part_norm
   LEFT JOIN day_proofs dp ON dp.goat_id = s.goat_id
   LEFT JOIN day_scans ds ON ds.goat_id = s.goat_id
   LEFT JOIN day_attempts da ON da.goat_id = s.goat_id
@@ -206,6 +272,18 @@ scoped_enriched AS (
 // park × shed × partition × vaccine family × assigned operator. Every KPI tile, both tables, the
 // attention list and the park split are folded out of THIS result set in Go, so a tile can never
 // disagree with the table under it.
+//
+// PROOF ARRIVAL AND OBLIGATION CLOSURE ARE TWO DIFFERENT FACTS and this query returns both.
+// `proofed` counts administrations whose animal has a completed video today; `closed` counts
+// administrations whose obligation_instances row actually reached status='completed'. Deriving
+// Remaining from proof arrival made the board read as a finished drive while the drive was still
+// open — in stg on 2026-08-12 all 298 proof videos had landed while only 9 of 298 obligations were
+// completed, and every tile, both tables and every row state said "done".
+//
+// The day_* window aggregates are computed over the FULL rollup, before LIMIT (SQL evaluates window
+// functions after GROUP BY and before ORDER BY/LIMIT). Every KPI tile is folded from this result
+// set, so without them the headline number itself silently under-reported the drive day the moment
+// the rollup hit its cap — a wrong total, not a shortened table.
 var liveTrackerCellsSQL = liveTrackerScopedCTE + `
 SELECT
   se.park_id::text,
@@ -223,11 +301,22 @@ SELECT
   COALESCE(wm.display_code, ''),
   count(*)::int AS scheduled,
   count(*) FILTER (WHERE se.proof_completed_count > 0)::int AS proofed,
+  count(*) FILTER (WHERE se.status = 'completed')::int AS closed,
   count(*) FILTER (WHERE se.proof_completed_count = 0 AND se.proof_pending_count > 0)::int AS uploading,
   count(*) FILTER (WHERE se.scan_count > 0)::int AS scanned,
-  COALESCE(sum(se.extra_count), 0)::int AS extra_attempts,
+  COALESCE(sum(se.extra_count) FILTER (WHERE se.goat_seq = 1), 0)::int AS extra_attempts,
   max(se.last_proof_at) AS last_proof_at,
-  GREATEST(max(se.last_proof_at), max(se.last_scan_at), max(se.last_attempt_at)) AS last_activity_at
+  GREATEST(max(se.last_proof_at), max(se.last_scan_at), max(se.last_attempt_at)) AS last_activity_at,
+  (sum(count(*)) OVER ())::int AS day_scheduled,
+  (sum(count(*) FILTER (WHERE se.proof_completed_count > 0)) OVER ())::int AS day_proofed,
+  (sum(count(*) FILTER (WHERE se.status = 'completed')) OVER ())::int AS day_closed,
+  (sum(count(*) FILTER (WHERE se.scan_count > 0)) OVER ())::int AS day_scanned,
+  -- Administrations that resolved to NO drive assignment for the day. They are counted into the
+  -- Scheduled tile and into the shed board (which is cell-grain and keeps them), but they have no
+  -- operator to be attributed to and so appear in NO operator row. Returned explicitly so the page
+  -- can name the residual instead of leaving the Operators column silently short of its own tile.
+  (sum(count(*) FILTER (WHERE se.operator_id IS NULL)) OVER ())::int AS day_unassigned,
+  (sum(count(*)) OVER (PARTITION BY se.park_id))::int AS park_scheduled
 FROM scoped_enriched se
 LEFT JOIN locations pk
   ON pk.tenant_id = $1::uuid
@@ -240,7 +329,9 @@ LEFT JOIN workforce_members wm
  AND wm.workforce_member_id = se.operator_id
 GROUP BY se.park_id, pk.name, pk.location_code, se.shed_id, sh.name, se.partition_label, se.part_norm,
          se.vaccine_family, se.operator_id, wm.display_name, wm.display_code
-ORDER BY pk.name, sh.name, se.part_norm, se.vaccine_family
+-- The sort key must be the FULL group key, or WHICH cells survive the cap changes between two 10s
+-- polls and the visible table reshuffles under the reader for no reason.
+ORDER BY pk.name, sh.name, se.part_norm, se.vaccine_family, se.shed_id, se.operator_id
 LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxCells)
 
 // liveTrackerActorSQL attributes evidence to the person who actually produced it. Videos and scans
@@ -268,7 +359,10 @@ actor_proofs AS (
     AND pa.proof_type = 'video'
     AND pa.upload_state = 'completed'
     AND pa.uploaded_by IS NOT NULL
-    AND (COALESCE(pa.uploaded_at, pa.created_at) AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND ((pa.uploaded_at >= (SELECT day_start FROM day_window) AND pa.uploaded_at < (SELECT day_end FROM day_window))
+      OR (pa.uploaded_at IS NULL
+          AND pa.created_at >= (SELECT day_start FROM day_window)
+          AND pa.created_at < (SELECT day_end FROM day_window)))
   GROUP BY pa.uploaded_by
 ),
 actor_scans AS (
@@ -279,7 +373,8 @@ actor_scans AS (
   WHERE c.tenant_id = $1::uuid
     AND st.task_type = 'vaccination'
     AND c.captured_by IS NOT NULL
-    AND (c.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND c.captured_at >= (SELECT day_start FROM day_window)
+    AND c.captured_at < (SELECT day_end FROM day_window)
   GROUP BY c.captured_by
 ),
 actors AS (
@@ -311,7 +406,13 @@ LEFT JOIN LATERAL (
   ORDER BY m.workforce_member_id
   LIMIT 1
 ) wm ON true
-LIMIT 500`
+-- A bare LIMIT with no ORDER BY returns whatever the executor happens to emit first, and this cap is
+-- consumed by liveTrackerOperatorRows through byMember: an operator whose actor row fell outside the
+-- arbitrary page silently got Videos=0, Scans=0 and state not_started while they had been working all
+-- morning. Order by most-recent evidence so the cap, if it ever binds, drops the LEAST active actors
+-- and does so deterministically across two consecutive 10s polls.
+ORDER BY GREATEST(ap.last_at, asn.last_at) DESC NULLS LAST, a.actor_id
+LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxActors)
 
 // liveTrackerComboSQL returns the animals carrying two or more DISTINCT same-day vaccination rules —
 // the "one proof, two obligations" case. animal_count is the exact total; rows are capped so a combo
@@ -324,7 +425,7 @@ combo_goats AS (
   HAVING count(DISTINCT rule_id) > 1
 ),
 combo_total AS (SELECT count(*)::int AS animal_count FROM combo_goats),
-combo_page AS (SELECT goat_id FROM combo_goats ORDER BY goat_id LIMIT $8::int)
+combo_page AS (SELECT goat_id FROM combo_goats ORDER BY goat_id LIMIT $9::int)
 SELECT
   (SELECT animal_count FROM combo_total),
   se.goat_id::text,
@@ -362,12 +463,16 @@ ORDER BY se.goat_id, se.vaccine_family, se.dose_code`
 // Identifiers rendered here are the REAL scanned tag or the animal's active primary identifier. No
 // display id is ever synthesised.
 var liveTrackerActivitySQL = liveTrackerScopedCTE + `,
--- shed_names is DOSE grain (one row per goat × dose). It is only safe to join from an arm that is
--- itself dose-keyed, which is why the administration and shed_submitted arms below join on
--- goat_id AND dose_code.
-shed_names AS (
-  SELECT DISTINCT se.goat_id, se.shed_id, se.partition_label, se.vaccine_family, se.dose_code, se.protocol_name, se.park_id
+-- goat_doses carries EVERY same-day dose an animal is on, as one chr(30)-separated list of
+-- protocol||chr(31)||dose pairs. It is joined ONLY to the paged rows at the bottom of this query,
+-- never into the union arms: a goat-keyed event covers the whole handling, so its dose label is a
+-- property of the 40 rows actually rendered, not a join key the event scan has to carry.
+goat_doses AS (
+  SELECT
+    se.goat_id,
+    string_agg(DISTINCT se.protocol_name || chr(31) || se.dose_code, chr(30)) AS dose_labels
   FROM scoped_enriched se
+  GROUP BY se.goat_id
 ),
 -- goat_places is GOAT grain — exactly one row per animal. The proof, scan-capture and scan-attempt
 -- arms are keyed on goat alone, so joining them to the dose-grain CTE emitted TWO feed rows per
@@ -375,34 +480,67 @@ shed_names AS (
 -- LIMIT consumed by duplicates, and an observed_per_min inflated by the multiplicity.
 goat_places AS (
   SELECT DISTINCT ON (se.goat_id)
-    se.goat_id, se.shed_id, se.partition_label, se.park_id, se.dose_code, se.protocol_name
+    se.goat_id, se.shed_id, se.partition_label, se.park_id
   FROM scoped_enriched se
   ORDER BY se.goat_id, se.dose_code
 ),
-events AS (
-  SELECT
-    'proof_video:' || pa.proof_id::text AS event_id,
-    COALESCE(pa.uploaded_at, pa.created_at) AS occurred_at,
-    'proof_video' AS kind,
-    pa.uploaded_by AS actor_id,
-    se.goat_id,
-    se.shed_id,
-    se.partition_label,
-    se.park_id,
-    se.dose_code,
-    se.protocol_name,
-    ''::text AS scanned_identifier,
-    ''::text AS detail_code
+-- The three goat-keyed event sets are read ONCE for the day and then joined to goat_places, and
+-- MATERIALIZED says so explicitly rather than leaving it to the planner's estimate.
+--
+-- Left inlined, the planner reads the day predicate as selective, makes goat_places the outer of a
+-- nested loop and probes the event table once per animal on the board. Where a supporting
+-- (tenant_id, <time>) index exists that is fine; where one does not, it is a full scan of the table
+-- per animal — 768 seq scans of sop_task_scan_attempts for a 40-row page, measured on stg. A live
+-- feed must not have a plan whose cost depends on an index being present.
+day_event_proofs AS MATERIALIZED (
+  SELECT pa.proof_id, COALESCE(pa.uploaded_at, pa.created_at) AS occurred_at, pa.uploaded_by, pa.subject_id
   FROM proof_artifacts pa
   JOIN sop_tasks st ON st.tenant_id = pa.tenant_id AND st.task_id = pa.scope_id
-  JOIN goat_places se ON se.goat_id = pa.subject_id
   WHERE pa.tenant_id = $1::uuid
     AND pa.scope_type = 'task'
     AND st.task_type = 'vaccination'
     AND pa.subject_type = 'goat'
     AND pa.proof_type = 'video'
     AND pa.upload_state = 'completed'
-    AND (COALESCE(pa.uploaded_at, pa.created_at) AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND ((pa.uploaded_at >= (SELECT day_start FROM day_window) AND pa.uploaded_at < (SELECT day_end FROM day_window))
+      OR (pa.uploaded_at IS NULL
+          AND pa.created_at >= (SELECT day_start FROM day_window)
+          AND pa.created_at < (SELECT day_end FROM day_window)))
+),
+day_event_captures AS MATERIALIZED (
+  SELECT c.capture_id, c.captured_at, c.captured_by, c.goat_id, c.tag
+  FROM sop_task_scan_captures c
+  JOIN sop_tasks st ON st.tenant_id = c.tenant_id AND st.task_id = c.task_id
+  WHERE c.tenant_id = $1::uuid
+    AND st.task_type = 'vaccination'
+    AND c.captured_at >= (SELECT day_start FROM day_window)
+    AND c.captured_at < (SELECT day_end FROM day_window)
+),
+day_event_attempts AS MATERIALIZED (
+  SELECT a.attempt_id, a.captured_at, a.captured_by, a.goat_id, a.tag, a.outcome, a.reason
+  FROM sop_task_scan_attempts a
+  JOIN sop_tasks st ON st.tenant_id = a.tenant_id AND st.task_id = a.task_id
+  WHERE a.tenant_id = $1::uuid
+    AND st.task_type = 'vaccination'
+    AND a.outcome IN ('duplicate', 'not_due', 'unknown')
+    AND a.captured_at >= (SELECT day_start FROM day_window)
+    AND a.captured_at < (SELECT day_end FROM day_window)
+),
+events AS (
+  SELECT
+    'proof_video:' || pa.proof_id::text AS event_id,
+    pa.occurred_at,
+    'proof_video' AS kind,
+    pa.uploaded_by AS actor_id,
+    se.goat_id,
+    se.shed_id,
+    se.partition_label,
+    se.park_id,
+    ''::text AS dose_labels,
+    ''::text AS scanned_identifier,
+    ''::text AS detail_code
+  FROM day_event_proofs pa
+  JOIN goat_places se ON se.goat_id = pa.subject_id
 
   UNION ALL
 
@@ -415,16 +553,11 @@ events AS (
     se.shed_id,
     se.partition_label,
     se.park_id,
-    se.dose_code,
-    se.protocol_name,
+    ''::text,
     c.tag,
     ''
-  FROM sop_task_scan_captures c
-  JOIN sop_tasks st ON st.tenant_id = c.tenant_id AND st.task_id = c.task_id
+  FROM day_event_captures c
   JOIN goat_places se ON se.goat_id = c.goat_id
-  WHERE c.tenant_id = $1::uuid
-    AND st.task_type = 'vaccination'
-    AND (c.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
 
   UNION ALL
 
@@ -437,17 +570,11 @@ events AS (
     se.shed_id,
     se.partition_label,
     se.park_id,
-    se.dose_code,
-    se.protocol_name,
+    ''::text,
     a.tag,
     COALESCE(a.reason, a.outcome)
-  FROM sop_task_scan_attempts a
-  JOIN sop_tasks st ON st.tenant_id = a.tenant_id AND st.task_id = a.task_id
+  FROM day_event_attempts a
   JOIN goat_places se ON se.goat_id = a.goat_id
-  WHERE a.tenant_id = $1::uuid
-    AND st.task_type = 'vaccination'
-    AND a.outcome IN ('duplicate', 'not_due', 'unknown')
-    AND (a.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
 
   UNION ALL
 
@@ -465,21 +592,16 @@ events AS (
     ''::text,
     NULL::uuid,
     ''::text,
-    ''::text,
     a.tag,
     COALESCE(a.reason, a.outcome)
-  FROM sop_task_scan_attempts a
-  JOIN sop_tasks st ON st.tenant_id = a.tenant_id AND st.task_id = a.task_id
-  WHERE a.tenant_id = $1::uuid
-    AND st.task_type = 'vaccination'
-    AND a.goat_id IS NULL
+  FROM day_event_attempts a
+  WHERE a.goat_id IS NULL
     AND a.outcome IN ('not_due', 'unknown')
     AND $3::text = '' AND $4::text = '' AND $5::text = '' AND $7::text = ''
     AND ($6::text = '' OR a.captured_by IN (
       SELECT wm.user_id FROM workforce_members wm
       WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id::text = $6::text
     ))
-    AND (a.captured_at AT TIME ZONE '` + istZone + `')::date = $2::date
 
   UNION ALL
 
@@ -488,42 +610,65 @@ events AS (
     vc.administered_at,
     'administration',
     vc.recorded_by,
-    se.goat_id,
-    se.shed_id,
-    se.partition_label,
-    se.park_id,
-    se.dose_code,
-    se.protocol_name,
+    sc.goat_id,
+    sc.shed_id,
+    sc.partition_label,
+    sc.park_id,
+    sc.protocol_name || chr(31) || sc.dose_code,
     ''::text,
     ''::text
+  -- The location and dose come straight off the obligation row this completion belongs to. Routing
+  -- them through a DISTINCT projection re-joined on (goat_id, dose_code) was a self-join that could
+  -- only ever duplicate a row, and the planner costed it as a 768 x 768 nested loop — 589,056 join
+  -- comparisons to decorate a 40-row page. obligation_id is unique in scoped_enriched, so this join
+  -- is 1:1 by construction and no fan-out is possible.
   FROM vaccination_completions vc
   JOIN scoped_enriched sc ON sc.obligation_id = vc.obligation_id
-  JOIN shed_names se ON se.goat_id = sc.goat_id AND se.dose_code = sc.dose_code
   WHERE vc.tenant_id = $1::uuid
     AND vc.status <> 'reversed'
-    AND (vc.administered_at AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND vc.administered_at >= (SELECT day_start FROM day_window)
+    AND vc.administered_at < (SELECT day_end FROM day_window)
 
   UNION ALL
 
+  -- obligation_status_events is PER-ANIMAL obligation closure, not a shed submission. It was labelled
+  -- "shed submitted", which named a shed-level action while counting animals, so the feed's row count
+  -- matched neither the number of shed submissions nor anything else a reader could reconcile. The
+  -- real shed/task submission lives in sop_submissions and is not read here.
   SELECT
-    'shed_submitted:' || ose.obligation_event_id::text,
+    'obligation_closed:' || ose.obligation_event_id::text,
     ose.occurred_at,
-    'shed_submitted',
+    'obligation_closed',
     ose.actor_id,
-    se.goat_id,
-    se.shed_id,
-    se.partition_label,
-    se.park_id,
-    se.dose_code,
-    se.protocol_name,
+    sc.goat_id,
+    sc.shed_id,
+    sc.partition_label,
+    sc.park_id,
+    sc.protocol_name || chr(31) || sc.dose_code,
     ''::text,
     ''::text
   FROM obligation_status_events ose
   JOIN scoped_enriched sc ON sc.obligation_id = ose.obligation_id
-  JOIN shed_names se ON se.goat_id = sc.goat_id AND se.dose_code = sc.dose_code
   WHERE ose.tenant_id = $1::uuid
     AND ose.event_type = 'completed'
-    AND (ose.occurred_at AT TIME ZONE '` + istZone + `')::date = $2::date
+    AND ose.occurred_at >= (SELECT day_start FROM day_window)
+    AND ose.occurred_at < (SELECT day_end FROM day_window)
+),
+-- Page FIRST, decorate SECOND. Every name, location and identifier join below used to run once per
+-- event of the WHOLE drive day before the LIMIT threw all but 40 of them away — measured on stg as
+-- goats x768, goat_identifiers x768 and a per-row Seq Scan of workforce_members x768 for a 40-row
+-- page. Applying the keyset and the limit here caps that decoration at exactly the page limit.
+page AS (
+  SELECT e.*
+  FROM events e
+  -- Keyset on the FULL sort key (occurred_at, event_id), not on occurred_at alone. A strict
+  -- timestamp comparison skips every event tied with the previous page's last row, and burst-written
+  -- scan captures and attempts share a timestamp routinely — that is lost events, not repeated ones.
+  WHERE ($10::timestamptz IS NULL
+      OR e.occurred_at < $10::timestamptz
+      OR (e.occurred_at = $10::timestamptz AND ($11::text = '' OR e.event_id < $11::text)))
+  ORDER BY e.occurred_at DESC, e.event_id DESC
+  LIMIT $9::int
 )
 SELECT
   e.event_id,
@@ -534,13 +679,17 @@ SELECT
   COALESCE(pk.name, ''),
   COALESCE(sh.name, ''),
   e.partition_label,
-  e.dose_code,
-  e.protocol_name,
+  -- A dose-keyed event (an administration, an obligation closing) names the dose it actually
+  -- carries. A goat-keyed event (a video, a scan) covers the animal's whole same-day handling, so it
+  -- names EVERY dose that handling covers: keeping only the alphabetically-first dose rendered the
+  -- one video that closed both FMD and HS as an FMD-only event.
+  COALESCE(NULLIF(e.dose_labels, ''), gd.dose_labels, ''),
   COALESCE(gt.goat_id::text, ''),
   COALESCE(gt.display_id, ''),
   COALESCE(NULLIF(e.scanned_identifier, ''), COALESCE(ident.primary_tag, '')) AS scanned_identifier,
   e.detail_code
-FROM events e
+FROM page e
+LEFT JOIN goat_doses gd ON gd.goat_id = e.goat_id
 -- Same partial-uniqueness trap as the actor query: only the ACTIVE workforce row is unique per
 -- user_id, so a bare join duplicates every feed row belonging to a re-hired person.
 LEFT JOIN LATERAL (
@@ -561,30 +710,31 @@ LEFT JOIN LATERAL (
     AND gi.status = 'active'
     AND gi.is_primary_for_goat
 ) ident ON true
--- Keyset on the FULL sort key (occurred_at, event_id), not on occurred_at alone. A strict
--- timestamp comparison skips every event tied with the previous page's last row, and burst-written
--- scan captures and attempts share a timestamp routinely — that is lost events, not repeated ones.
-WHERE ($9::timestamptz IS NULL
-    OR e.occurred_at < $9::timestamptz
-    OR (e.occurred_at = $9::timestamptz AND ($10::text = '' OR e.event_id < $10::text)))
-ORDER BY e.occurred_at DESC, e.event_id DESC
-LIMIT $8::int`
+ORDER BY e.occurred_at DESC, e.event_id DESC`
 
 // liveTrackerFilterOptionsSQL compiles the filter bar's vocabulary out of the day's OWN rows, with
 // only the backend-clamped park scope applied. It deliberately ignores the shed / operator / vaccine
 // / status narrowing so that choosing one operator does not collapse the operator list to that one
 // operator. Because the vocabulary comes from real rows, an option that matches zero administrations
 // cannot be offered — the mock's "FMD + HS (combo)" dead option is structurally impossible here.
+// Each kind carries its OWN cap and its OWN total. A single shared `ORDER BY 1, 5 LIMIT 1000` over
+// the union spent the whole budget in kind-name order (operator < park < shed < vaccine), so past the
+// cap the LAST kind — vaccine, the smallest and most useful list — was destroyed ENTIRELY, then sheds
+// partially, with no flag anywhere: the one list in this whole response that could vanish silently.
+// It is also the exact control the truncation note tells the reader to reach for.
 var liveTrackerFilterOptionsSQL = liveTrackerScopedCTE + `
-SELECT
+(SELECT
   'park' AS kind,
   se.park_id::text AS id,
   '' AS code,
   '' AS partition_label,
-  COALESCE(pk.name, '') AS label
+  COALESCE(pk.name, '') AS label,
+  (count(*) OVER ())::int AS kind_total
 FROM scoped_enriched se
 LEFT JOIN locations pk ON pk.tenant_id = $1::uuid AND pk.location_id = se.park_id
 GROUP BY se.park_id, pk.name
+ORDER BY 5
+LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxParkOptions) + `)
 
 UNION ALL
 
@@ -592,42 +742,64 @@ UNION ALL
 -- standard-conforming Postgres string literal produces four ordinary characters instead, and
 -- nothing errors: the Go side simply never finds its delimiter and every vaccine and shed option
 -- renders its raw internal tokens straight into the filter bar.
-SELECT 'vaccine', '', se.vaccine_family, '', min(se.protocol_name) || chr(31) || min(se.dose_code)
+(SELECT 'vaccine', '', se.vaccine_family, '', min(se.protocol_name) || chr(31) || min(se.dose_code),
+  (count(*) OVER ())::int
 FROM scoped_enriched se
 GROUP BY se.vaccine_family
+ORDER BY 5
+LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxVaccineOptions) + `)
 
 UNION ALL
 
-SELECT 'operator', se.operator_id::text, '', '', COALESCE(wm.display_name, '')
+(SELECT 'operator', se.operator_id::text, '', '', COALESCE(wm.display_name, ''),
+  (count(*) OVER ())::int
 FROM scoped_enriched se
 JOIN workforce_members wm ON wm.tenant_id = $1::uuid AND wm.workforce_member_id = se.operator_id
 WHERE se.operator_id IS NOT NULL
 GROUP BY se.operator_id, wm.display_name
+ORDER BY 5
+LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxOperatorOptions) + `)
 
 UNION ALL
 
-SELECT 'shed', se.shed_id::text, '', se.part_norm, COALESCE(sh.name, '') || chr(31) || se.partition_label
+(SELECT 'shed', se.shed_id::text, '', se.part_norm, COALESCE(sh.name, '') || chr(31) || se.partition_label,
+  (count(*) OVER ())::int
 FROM scoped_enriched se
 LEFT JOIN locations sh ON sh.tenant_id = $1::uuid AND sh.location_id = se.shed_id
 GROUP BY se.shed_id, sh.name, se.part_norm, se.partition_label
-ORDER BY 1, 5
-LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxFilterOptions)
+ORDER BY 5
+LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxShedOptions) + `)`
 
 // liveTrackerVerificationSQL is the post-drive verification block. Pending is the standing queue (it
 // is not day-scoped: an item captured yesterday is still awaiting review today); verified and rework
 // are day-scoped through verified_at.
 const liveTrackerVerificationSQL = `
 -- projection-review: membership=verification_items for one tenant whose module or source_module is vaccination, optionally narrowed to one park/shed; group_key=none (five scalar aggregates); join_cardinality=no joins, single-table scan; pagination=not applicable, aggregates only, no row list is returned; scope=tenant plus the backend-clamped park filter and the optional shed filter.
+--
+-- The 'pending' counters are the STANDING queue and carry no date predicate on purpose — an item
+-- captured yesterday is still awaiting review today. The card labels them as the standing queue for
+-- exactly that reason; they are NOT a drive-day figure and must not be read beside "Verified today"
+-- as if they were.
+--
+-- verified_at is compared as a half-open timestamptz range, not as
+-- (verified_at AT TIME ZONE 'Asia/Kolkata')::date. The cast form is a function of the column, so no
+-- index can drive it and this append-only table is read in full on every 10s poll.
+WITH day_window AS (
+  SELECT
+    ($2::date::timestamp AT TIME ZONE '` + istZone + `') AS day_start,
+    (($2::date + 1)::timestamp AT TIME ZONE '` + istZone + `') AS day_end
+)
 SELECT
   count(*) FILTER (WHERE vi.status = 'pending')::int,
   count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'pending')::int,
-  count(*) FILTER (WHERE vi.status = 'approved' AND (vi.verified_at AT TIME ZONE '` + istZone + `')::date = $2::date)::int,
-  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'approved' AND (vi.verified_at AT TIME ZONE '` + istZone + `')::date = $2::date)::int,
+  count(*) FILTER (WHERE vi.status = 'approved' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
+  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'approved' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
   -- Day-scoped through verified_at, exactly like the two 'approved' counters above. Without the date
   -- predicate this was an all-time, tenant-wide rejected total rendered directly beneath a
   -- today-only "Verified today" figure, on a page headed "Drive Day — <date>".
-  count(*) FILTER (WHERE vi.status = 'rejected' AND (vi.verified_at AT TIME ZONE '` + istZone + `')::date = $2::date)::int
+  count(*) FILTER (WHERE vi.status = 'rejected' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int
 FROM verification_items vi
+CROSS JOIN day_window w
 WHERE vi.tenant_id = $1::uuid
   AND (vi.module = 'vaccination' OR vi.source_module = 'vaccination')
   AND ($3::text = '' OR vi.park_id::text = $3::text)
@@ -650,11 +822,50 @@ type liveTrackerCell struct {
 	operatorCode   string
 	scheduled      int
 	proofed        int
+	closed         int
 	uploading      int
 	scanned        int
 	extraAttempts  int
 	lastProofAt    *time.Time
 	lastActivityAt *time.Time
+	// day* are window aggregates over the FULL rollup, identical on every returned row. They are what
+	// keeps the headline tiles exact when the rollup itself is cut to LiveTrackerMaxCells.
+	dayScheduled  int
+	dayProofed    int
+	dayClosed     int
+	dayScanned    int
+	dayUnassigned int
+	parkScheduled int
+}
+
+// liveTrackerDayTotals are the UNTRUNCATED day figures carried on every cell by the rollup's window
+// aggregates. They are used for the tiles whenever no status filter is active; a status filter is an
+// explicit narrowing, so under one the tiles are folded from the surviving cells instead.
+type liveTrackerDayTotals struct {
+	scheduled  int
+	proofed    int
+	closed     int
+	scanned    int
+	unassigned int
+	byPark     map[string]int
+}
+
+func liveTrackerTotals(cells []liveTrackerCell) *liveTrackerDayTotals {
+	if len(cells) == 0 {
+		return nil
+	}
+	totals := &liveTrackerDayTotals{
+		scheduled:  cells[0].dayScheduled,
+		proofed:    cells[0].dayProofed,
+		closed:     cells[0].dayClosed,
+		scanned:    cells[0].dayScanned,
+		unassigned: cells[0].dayUnassigned,
+		byPark:     map[string]int{},
+	}
+	for _, c := range cells {
+		totals.byPark[c.parkID] = c.parkScheduled
+	}
+	return totals
 }
 
 type liveTrackerActor struct {
@@ -692,7 +903,11 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 		activityLimit = domain.LiveTrackerMaxActivity
 	}
 
-	base := []any{q.TenantID, businessDate, parkFilter, shedFilter, partitionFilter, operatorFilter, vaccineFilter}
+	// $8 is the AUTHORIZATION park set (NULL = tenant-wide capability), carried separately from $3 so
+	// the filter-bar vocabulary — which deliberately drops $3 to keep the park control from
+	// self-collapsing — still cannot span parks the actor holds no grant in.
+	base := []any{q.TenantID, businessDate, parkFilter, shedFilter, partitionFilter, operatorFilter, vaccineFilter,
+		liveTrackerAuthorizedParkScope(ctx, q.TenantID)}
 
 	cells, err := r.liveTrackerCells(ctx, base)
 	if err != nil {
@@ -715,7 +930,12 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	// chosen the dropdown offered only that park and the user could not switch back, and on a park
 	// with no administrations that day the list came back empty and the active chip fell through to
 	// rendering a raw park UUID. The other four controls already deliberately ignore the narrowing.
-	options, err := r.liveTrackerFilterOptions(ctx, q.TenantID, businessDate, liveTrackerAuthorizedParkClamp(ctx, q.TenantID))
+	//
+	// The AUTHORIZATION clamp is the park SET, not a single-park special case. Returning "" whenever
+	// the actor held more than one park grant compiled this vocabulary TENANT-WIDE, handing a
+	// two-park director every other park's shed names, partition labels, operator names and vaccine
+	// codes — and this query is the only authorization gate that applies to it.
+	options, err := r.liveTrackerFilterOptions(ctx, q.TenantID, businessDate, liveTrackerAuthorizedParkScope(ctx, q.TenantID))
 	if err != nil {
 		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker filter options: %w", err)
 	}
@@ -740,8 +960,13 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	// what keeps "Scheduled" equal to the sum of the shed table's Scheduled column under every filter.
 	// Leaving the tiles unfiltered here is precisely the defect the mock shipped: a headline that no
 	// longer described the rows beneath it, with no way to tell which number was wrong.
+	// With no status filter the tiles describe the whole drive day and come from the rollup's own
+	// untruncated window totals; a status filter is an explicit narrowing, so under one they are
+	// folded from the surviving cells instead.
 	kpiCells := cells
+	totals := liveTrackerTotals(cells)
 	if q.Status != nil {
+		totals = nil
 		kept := make([]liveTrackerCell, 0, len(cells))
 		survivors := make([]domain.LiveTrackerShedRow, 0, len(sheds))
 		for i, row := range sheds {
@@ -772,23 +997,35 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 		sheds = sheds[:domain.LiveTrackerMaxSheds]
 	}
 
-	kpis := liveTrackerKPIs(kpiCells, combo.AnimalCount, len(attention))
+	// Attention is the last array on this page without a bound of its own, and it is derived from the
+	// PRE-cap cell rollup — up to two rows per cell plus one per idle operator. The tile must keep
+	// counting the real total, so it is captured BEFORE the slice.
+	attentionTotal := len(attention)
+	if len(attention) > domain.LiveTrackerMaxAttention {
+		attention = attention[:domain.LiveTrackerMaxAttention]
+	}
+
+	kpis, unassigned := liveTrackerKPIs(kpiCells, totals, combo.AnimalCount, attentionTotal)
 	return domain.LiveTrackerResponse{
-		BusinessDate:       businessDate,
-		GeneratedAt:        now,
-		KPIs:               kpis,
-		Operators:          operators,
-		Sheds:              sheds,
-		Combo:              combo,
-		OperatorsTotal:     operatorsTotal,
-		OperatorsTruncated: operatorsTotal > len(operators),
-		ShedsTotal:         shedsTotal,
-		ShedsTruncated:     shedsTotal > len(sheds),
-		CellsTruncated:     len(cells) >= domain.LiveTrackerMaxCells,
-		Activity:           activity,
-		Attention:          attention,
-		Verification:       verification,
-		FilterOptions:      options,
+		BusinessDate:              businessDate,
+		GeneratedAt:               now,
+		IsLiveDay:                 q.BusinessDate.In(loc).Format("2006-01-02") == now.Format("2006-01-02"),
+		KPIs:                      kpis,
+		Operators:                 operators,
+		Sheds:                     sheds,
+		Combo:                     combo,
+		OperatorsTotal:            operatorsTotal,
+		OperatorsTruncated:        operatorsTotal > len(operators),
+		ShedsTotal:                shedsTotal,
+		ShedsTruncated:            shedsTotal > len(sheds),
+		CellsTruncated:            len(cells) >= domain.LiveTrackerMaxCells,
+		UnassignedAdministrations: unassigned,
+		Activity:                  activity,
+		Attention:                 attention,
+		AttentionTotal:            attentionTotal,
+		AttentionTruncated:        attentionTotal > len(attention),
+		Verification:              verification,
+		FilterOptions:             options,
 	}, nil
 }
 
@@ -803,14 +1040,20 @@ func liveTrackerStateClock(businessDate time.Time, loc *time.Location, now time.
 	return now
 }
 
-// liveTrackerAuthorizedParkClamp is the park narrowing that authorization forces, independent of any
-// park the caller selected. The filter bar's own vocabulary is compiled under THIS clamp so the park
-// control cannot collapse to the one park already chosen.
-func liveTrackerAuthorizedParkClamp(ctx context.Context, tenantID string) string {
-	if parks := authorizedParkFilter(ctx, tenantID); len(parks) == 1 {
-		return parks[0]
+// liveTrackerAuthorizedParkScope is the park narrowing AUTHORIZATION forces, independent of any park
+// the caller selected. nil means a genuinely tenant-wide capability holder; anything else is the
+// exact set of parks the actor holds a vaccination grant in.
+//
+// It is a SET, not a single-park special case. The previous form returned "" — no narrowing at all —
+// whenever the actor held grants in anything other than exactly one park, which for the filter
+// vocabulary (compiled with the caller's own park selection deliberately dropped) meant a two-park
+// director was handed the whole tenant's shed, operator and vaccine vocabulary.
+func liveTrackerAuthorizedParkScope(ctx context.Context, tenantID string) any {
+	parks := authorizedParkFilter(ctx, tenantID)
+	if parks == nil {
+		return nil
 	}
-	return ""
+	return parks
 }
 
 // liveTrackerParkFilter narrows the read to one park. The HTTP handler has already clamped the
@@ -839,8 +1082,9 @@ func (r *Repository) liveTrackerCells(ctx context.Context, base []any) ([]liveTr
 		var c liveTrackerCell
 		if err := rows.Scan(&c.parkID, &c.parkName, &c.parkCode, &c.shedID, &c.shedName, &c.partitionLabel,
 			&c.partNorm, &c.vaccineFamily, &c.doseCode, &c.protocolName, &c.operatorID, &c.operatorName,
-			&c.operatorCode, &c.scheduled, &c.proofed, &c.uploading, &c.scanned, &c.extraAttempts,
-			&c.lastProofAt, &c.lastActivityAt); err != nil {
+			&c.operatorCode, &c.scheduled, &c.proofed, &c.closed, &c.uploading, &c.scanned, &c.extraAttempts,
+			&c.lastProofAt, &c.lastActivityAt, &c.dayScheduled, &c.dayProofed, &c.dayClosed, &c.dayScanned,
+			&c.dayUnassigned, &c.parkScheduled); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -941,20 +1185,18 @@ func (r *Repository) liveTrackerActivity(ctx context.Context, base []any, limit 
 	out := domain.LiveTrackerActivity{Items: []domain.LiveTrackerActivityItem{}}
 	for rows.Next() {
 		var (
-			item                   domain.LiveTrackerActivityItem
-			partitionLabel         string
-			shedName               string
-			doseCode, protocolName string
+			item           domain.LiveTrackerActivityItem
+			partitionLabel string
+			shedName       string
+			doseLabels     string
 		)
 		if err := rows.Scan(&item.EventID, &item.OccurredAt, &item.Kind, &item.ActorID, &item.ActorName,
-			&item.ParkName, &shedName, &partitionLabel, &doseCode, &protocolName, &item.GoatID,
+			&item.ParkName, &shedName, &partitionLabel, &doseLabels, &item.GoatID,
 			&item.GoatDisplayID, &item.ScannedIdentifier, &item.DetailCode); err != nil {
 			return domain.LiveTrackerActivity{}, err
 		}
 		item.ShedLabel = domain.ShedDisplayLabel(shedName, partitionLabel)
-		if doseCode != "" || protocolName != "" {
-			item.VaccineLabel = vaccinatdomain.DoseDisplayLabel(protocolName, doseCode)
-		}
+		item.VaccineLabel = liveTrackerDoseLabels(doseLabels)
 		out.Items = append(out.Items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -983,8 +1225,10 @@ func (r *Repository) liveTrackerActivity(ctx context.Context, base []any, limit 
 	return out, nil
 }
 
-func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, businessDate, parkFilter string) (domain.LiveTrackerFilterOptions, error) {
-	rows, err := r.pool.Query(ctx, liveTrackerFilterOptionsSQL, tenantID, businessDate, parkFilter, "", "", "", "")
+func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, businessDate string, parkScope any) (domain.LiveTrackerFilterOptions, error) {
+	// $3 (the caller's own park selection) is deliberately empty so the park control cannot
+	// self-collapse; $8 (the authorization park set) is the narrowing that must never be dropped.
+	rows, err := r.pool.Query(ctx, liveTrackerFilterOptionsSQL, tenantID, businessDate, "", "", "", "", "", parkScope)
 	if err != nil {
 		return domain.LiveTrackerFilterOptions{}, err
 	}
@@ -996,11 +1240,14 @@ func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, bus
 		Operators: []domain.LiveTrackerFilterOption{},
 		Sheds:     []domain.LiveTrackerFilterOption{},
 	}
+	kindTotals := map[string]int{}
 	for rows.Next() {
 		var kind, id, code, partition, label string
-		if err := rows.Scan(&kind, &id, &code, &partition, &label); err != nil {
+		var kindTotal int
+		if err := rows.Scan(&kind, &id, &code, &partition, &label, &kindTotal); err != nil {
 			return domain.LiveTrackerFilterOptions{}, err
 		}
+		kindTotals[kind] = kindTotal
 		switch kind {
 		case "park":
 			out.Parks = append(out.Parks, domain.LiveTrackerFilterOption{ID: id, Label: label})
@@ -1028,7 +1275,31 @@ func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, bus
 	sortOptions(out.Vaccines)
 	sortOptions(out.Operators)
 	sortOptions(out.Sheds)
+	// Each kind reports its own pre-cap total, so a starved list can never be presented as complete.
+	out.Truncated = kindTotals["park"] > len(out.Parks) ||
+		kindTotals["vaccine"] > len(out.Vaccines) ||
+		kindTotals["operator"] > len(out.Operators) ||
+		kindTotals["shed"] > len(out.Sheds)
 	return out, nil
+}
+
+// liveTrackerDoseLabels renders the feed's chr(30)-separated protocol/dose pairs as one human label.
+// A combo animal's single video covers every antigen in that handling, so the row that reports it
+// must name them all instead of picking the alphabetically-first one and dropping the rest.
+func liveTrackerDoseLabels(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, "\x1e")
+	labels := make([]string, 0, len(parts))
+	for _, part := range parts {
+		protocolName, doseCode, _ := strings.Cut(part, "\x1f")
+		if label := vaccinatdomain.DoseDisplayLabel(protocolName, doseCode); label != "" {
+			labels = append(labels, label)
+		}
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, " + ")
 }
 
 func (r *Repository) liveTrackerVerification(ctx context.Context, tenantID, businessDate, parkFilter, shedFilter string) (domain.LiveTrackerVerification, error) {
@@ -1056,18 +1327,29 @@ func liveTrackerProofState(completed, pending int) string {
 	}
 }
 
+// liveTrackerDoseState is a pure function of the OBLIGATION's own status, with proof arrival reported
+// as its own adjacent state rather than allowed to overwrite it.
+//
+// Every branch used to return `closed` as soon as the animal had a completed proof — including the
+// default branch, so a `scheduled`, `deferred` or `missed` obligation rendered as "closed by the
+// animal's proof" while obligation_instances.status said otherwise and completed_at was null. This is
+// the ONE place on the whole board where obligation status is actually read, and it was overwritten.
+//
+// completedProofs is a per-ANIMAL, per-DAY count (day_proofs groups by goat), so it can only ever say
+// "a proof landed for this animal today" — never "this dose was administered". verification_pending
+// says exactly that and nothing more.
 func liveTrackerDoseState(status string, completedProofs int) string {
 	switch status {
 	case "completed":
 		return domain.LiveTrackerDoseClosed
 	case "in_progress", "due":
 		if completedProofs > 0 {
-			return domain.LiveTrackerDoseClosed
+			return domain.LiveTrackerDoseVerificationPending
 		}
 		return domain.LiveTrackerDoseAwaitingProof
 	default:
 		if completedProofs > 0 {
-			return domain.LiveTrackerDoseClosed
+			return domain.LiveTrackerDoseVerificationPending
 		}
 		return domain.LiveTrackerDoseScheduled
 	}
@@ -1077,7 +1359,9 @@ func liveTrackerDoseState(status string, completedProofs int) string {
 func liveTrackerShedRows(cells []liveTrackerCell, now time.Time) []domain.LiveTrackerShedRow {
 	out := make([]domain.LiveTrackerShedRow, 0, len(cells))
 	for _, c := range cells {
-		remaining := c.scheduled - c.proofed
+		// Closure, not proof arrival. A shed whose videos have all landed but whose obligations are
+		// still open is NOT done, and the row must not say so.
+		remaining := c.scheduled - c.closed
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -1094,6 +1378,7 @@ func liveTrackerShedRows(cells []liveTrackerCell, now time.Time) []domain.LiveTr
 			OperatorID:          c.operatorID,
 			OperatorName:        c.operatorName,
 			ScheduledAdmins:     c.scheduled,
+			ClosedAdmins:        c.closed,
 			ProofVideosReceived: c.proofed,
 			Remaining:           remaining,
 			LastProofAt:         c.lastProofAt,
@@ -1158,6 +1443,7 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 			order = append(order, c.operatorID)
 		}
 		entry.row.ScheduledAdmins += c.scheduled
+		entry.row.ClosedAdmins += c.closed
 		// "Now at" is the cell this operator most recently produced evidence in; with no evidence yet
 		// it stays on the first assigned cell so the row still names where the work is.
 		if entry.row.CurrentShedID == "" || (c.lastActivityAt != nil && (entry.bestSeen == nil || c.lastActivityAt.After(*entry.bestSeen))) {
@@ -1214,7 +1500,12 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 	for _, id := range order {
 		entry := byOperator[id]
 		row := entry.row
-		row.Remaining = row.ScheduledAdmins - row.ProofVideos
+		// OBLIGATION grain on both sides. ProofVideos is a physical count of proof_artifacts rows, so
+		// subtracting it from an obligation count mixed two grains: on a combo day one video closes two
+		// obligations, and a finished operator read Remaining = half their workload, never reached
+		// `done`, was dropped by the status=done filter and was then emitted as a false idle-operator
+		// attention row — while the shed rows covering that identical work read Remaining = 0 / done.
+		row.Remaining = row.ScheduledAdmins - row.ClosedAdmins
 		if row.Remaining < 0 {
 			row.Remaining = 0
 		}
@@ -1313,15 +1604,20 @@ func liveTrackerAttention(sheds []domain.LiveTrackerShedRow, operators []domain.
 	return out
 }
 
-func liveTrackerKPIs(cells []liveTrackerCell, comboAnimals, attentionCount int) domain.LiveTrackerKPIs {
+func liveTrackerKPIs(cells []liveTrackerCell, totals *liveTrackerDayTotals, comboAnimals, attentionCount int) (domain.LiveTrackerKPIs, int) {
 	kpis := domain.LiveTrackerKPIs{ScheduledByPark: []domain.LiveTrackerParkCount{}}
 	byPark := map[string]*domain.LiveTrackerParkCount{}
 	parkOrder := make([]string, 0, 4)
 	activeParks := map[string]bool{}
+	unassigned := 0
 	for _, c := range cells {
 		kpis.ScheduledAdministrations += c.scheduled
 		kpis.ProofVideosReceived += c.proofed
+		kpis.ClosedAdministrations += c.closed
 		kpis.ScanCaptures += c.scanned
+		if c.operatorID == "" {
+			unassigned += c.scheduled
+		}
 		entry, ok := byPark[c.parkID]
 		if !ok {
 			entry = &domain.LiveTrackerParkCount{ParkID: c.parkID, ParkName: c.parkName, ParkCode: c.parkCode}
@@ -1333,17 +1629,40 @@ func liveTrackerKPIs(cells []liveTrackerCell, comboAnimals, attentionCount int) 
 			activeParks[c.parkID] = true
 		}
 	}
+	// With no status filter the tiles describe the WHOLE drive day, so they come from the rollup's own
+	// untruncated window totals rather than from the capped row list they sit above. Folding them from
+	// the capped list is what made the headline number itself under-report past LiveTrackerMaxCells.
+	if totals != nil {
+		kpis.ScheduledAdministrations = totals.scheduled
+		kpis.ProofVideosReceived = totals.proofed
+		kpis.ClosedAdministrations = totals.closed
+		kpis.ScanCaptures = totals.scanned
+		unassigned = totals.unassigned
+		for _, id := range parkOrder {
+			if count, ok := totals.byPark[id]; ok {
+				byPark[id].Count = count
+			}
+		}
+	}
 	for _, id := range parkOrder {
 		kpis.ScheduledByPark = append(kpis.ScheduledByPark, *byPark[id])
 	}
-	kpis.Remaining = kpis.ScheduledAdministrations - kpis.ProofVideosReceived
+	// Remaining is scheduled minus CLOSED, never minus proofs received. Proof arrival is field work
+	// landing; closure is the obligation actually being discharged. Deriving Remaining from proof
+	// arrival let the board read "Remaining 0 / done" on a day where 298 videos had landed against 9
+	// completed obligations.
+	kpis.Remaining = kpis.ScheduledAdministrations - kpis.ClosedAdministrations
 	if kpis.Remaining < 0 {
 		kpis.Remaining = 0
+	}
+	kpis.AwaitingClose = kpis.ProofVideosReceived - kpis.ClosedAdministrations
+	if kpis.AwaitingClose < 0 {
+		kpis.AwaitingClose = 0
 	}
 	kpis.ComboAnimals = comboAnimals
 	kpis.AttentionCount = attentionCount
 	kpis.ActiveParks = len(activeParks)
-	return kpis
+	return kpis, unassigned
 }
 
 func filterOperatorRows(rows []domain.LiveTrackerOperatorRow, status domain.LiveTrackerStatus) []domain.LiveTrackerOperatorRow {

@@ -23,6 +23,13 @@ export type LiveTrackerParams = {
   activityBefore?: string;
   activityBeforeId?: string;
   hasFilter: boolean;
+  // hasNarrowing includes the top-bar PARK scope; hasFilter does not.
+  //
+  // They are different questions. "Is anything narrowing this board?" decides whether the empty
+  // state may say "No vaccination drive work on this day" — which is a claim about the whole day and
+  // is false when the other park is running. "Is there a page-local filter to clear?" decides whether
+  // a clear-all control does anything, and clearing must not silently drop the shared top-bar scope.
+  hasNarrowing: boolean;
 };
 
 const ACTIVITY_LIMIT_DEFAULT = 40;
@@ -74,6 +81,7 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
     activityBefore,
     activityBeforeId,
     hasFilter: Boolean(shedId || partitionLabel || operatorId || vaccineCode || status),
+    hasNarrowing: Boolean(parkId || shedId || partitionLabel || operatorId || vaccineCode || status),
   };
 }
 
