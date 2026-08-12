@@ -1,192 +1,679 @@
-# Gemini Video Verification Rubric
+# Gemini Proof Media Verification Registry
 
-Status: proposed production rubric for AI-assisted verifier review.
+Status: proposed production registry for AI-assisted verifier review.
 
-This document defines what Gemini must check when Goat OS sends proof videos for
-Feed Direction, Weighing, and Vaccination verification. Gemini is an assistant
-to the generic verification module; it does not approve work by itself. The
-human Verifier role still owns the final approve/reject decision, and authority
-roles own follow-up action.
+This document defines what Gemini must check when Goat OS sends proof videos or images for verification. Gemini is an assistant to the generic verification module; it does not approve work by itself. The human Verifier role owns approve/reject, and authority roles own follow-up action.
 
-## Source Sample
+## Coverage Rule
 
-The rubric is based on a `goatos-stg` GCS review from
-`gs://goatos-stg-media` on 2026-08-12. GCS object paths identify Feed Direction
-legacy media directly, but the UUID proof stream does not encode the app
-category in the object name. For Weighing and Vaccination, category grouping was
-done by visual content from the latest visible clusters:
+Any action that captures video or image proof must have a registry entry before it is sent to Gemini. The entry must state the feature purpose, required app claim properties, allowed media type, and category-specific verification checks. If a new producer has no entry, route it to human review and add the category first.
 
-- Vaccination: latest injection/medical-action clips around 13:15-14:22 UTC.
-- Weighing: latest scale-display and weighing-platform clips around 05:18-05:20 UTC.
-- Feed Direction: latest MP4 clips under `legacy/slack/feed/2026/08/12/`.
+Active verifier categories covered now:
+- `vaccination_proof` (`vaccination` alias)
+- `weighing_proof` (`weighing` alias)
+- `birth_evidence`
+- `death_evidence`
+- `shifting_move` (`shifting` alias)
+- `milk_preparation` (`milk_prep` alias)
+- `milk_feeding`
+- `feed_distribution`
+- `feed_packing`
+- `feed_transport`
+- `health_adults`
+- `health_kids`
 
-## Verification Principles
+Note: this registry follows the active verifier queue category keys. Older design notes may refer to shorthand names such as `vaccination`, `weighing`, `shifting`, or `milk_prep`, and may group Milk under Counts; use the active keys above for Gemini requests.
 
-- Check proof against the expected category and app-recorded claim, not as a
-  generic video summary.
-- Require visible evidence for the critical action. A video that only shows the
-  operator before or after the action is not enough.
-- Prefer `needs_human_review` when the clip is dark, shaky, occluded, cropped,
-  or missing the app claim needed for comparison.
-- Report specific reasons; do not hide uncertainty behind a pass.
-- Never infer goat identity, shed, weight, vaccine, batch, or feed quantity if
-  it is not visible in video or supplied in metadata.
-- Treat the model verdict as advisory. The verifier queue must preserve the raw
-  model output, confidence, and evidence timestamps for human review.
+Known future/cross-cutting proof producers covered as placeholders:
+- `procurement_load`
+- `transit_handoff`
+- `arrival_intake`
+- `dispatch_exit`
+- `attendance_checkin`
+- `breeding_pregnancy`
+- `abortion_evidence`
+- `inventory_stock_proof`
 
 ## Required Input Envelope
 
-Every Gemini request should include:
+Every Gemini request should include `verification_item_id`, `category`, media file/reference, `captured_at`, tenant/park/shed/operator context, and the category-specific `app_claim` from the JSON registry. Video/image alone is not enough for claim comparison.
 
+Common verifier item properties expected by the registry:
 - `verification_item_id`
-- `category`: `feed_direction`, `weighing`, or `vaccination`
-- `video_uri` or uploaded Gemini file reference
-- `tenant_id`, `park_id`, `shed_id`, and operator identity if available
-- capture timestamp and expected business date
-- category-specific app claim:
-  - Feed Direction: expected proof stage, feed type, target shed/pen, target
-    quantity, and whether this is packing, distribution, water, or leftover
-    proof.
-  - Weighing: subject type, animal/RFID if available, operator-entered weight,
-    unit, and whether tare/container weight is expected.
-  - Vaccination: goat/RFID if available, vaccine name, dose/stage, route/site
-    expectation if configured, and whether vial/batch proof is required.
+- `category`, `vertical`, `module`, `status`, `row_version`
+- `captured_at`
+- `media[]`
+- `source`
+- `subject_label`, `subject_note`
+- `context_rows`
+- `operator_id`, `operator_name`
+- `park_id`, `park_label`
+- `shed_id`, `shed_label`, `op_location_label`
+- `verdict`
 
-## Feed Direction Checks
+Common media properties expected inside `media[]`:
+- `proof_id`
+- `download_url`
+- `label`
+- `answer`
+- `mime_type`
+- `duration_ms`
 
-Feed Direction proof is about whether the feed/water work happened for the
-right location and expected stage. The reviewed samples showed troughs, shed
-context, goats near feeding areas, and feed/water containers rather than a
-single numeric scale claim.
+## Shared Verification Principles
 
-Gemini must check:
+- Verify the expected category and app claim, not a casual video summary.
+- Require visible evidence for the critical action or state.
+- Use `needs_human_review` when media is dark, shaky, cropped, occluded, ambiguous, or missing metadata.
+- Never invent goat identity, shed, weight, vaccine, batch, feed quantity, person identity, count, or action completion.
+- AI output is advisory evidence; it must not close a workflow directly.
 
-- correct category: clip is feed, water, packing, distribution, or leftover
-  evidence, not vaccination/weighing/random shed footage.
-- location context: shed/pen/trough or animals are visible enough to support the
-  claimed target.
-- material evidence: feed, water, bag, container, trough, or distribution setup
-  is visible as expected for the stage.
-- action evidence: operator is visibly placing, showing, or completing the feed
-  or water proof when the stage requires action, not only an empty trough.
-- quantity plausibility: visible amount roughly matches the app claim when a
-  quantity is provided; otherwise mark `quantity_unverifiable`.
-- freshness: the clip is not a static, reused, or obviously unrelated scene.
-- failure conditions: empty/unclear trough, wrong category, no feed/water
-  visible, no shed context, unreadable/cropped proof, or only goats with no
-  feed-work evidence.
+## Category Instructions
 
-## Weighing Checks
+### `vaccination_proof`
 
-Weighing proof is about whether the measured value is real and matches the
-operator-entered number.
+Alias: `vaccination`.
 
-Gemini must check:
+Module/page: `Vaccination` / `Vaccination`. Status: `active`. Media: `video, image_optional`.
 
-- correct category: weighing platform, scale, display, animal, feed/container,
-  or weighed item is visible.
-- subject evidence: the goat/feed/container being weighed is visible and
-  plausibly matches the app claim.
-- scale evidence: the scale display is visible and readable enough to extract a
-  number.
-- stable reading: reading is not mid-change, blurred, blocked, or flickering.
-- claim comparison: extracted scale number matches `operator_entered_weight`
-  within configured tolerance.
-- tamper check: no hand, foot, rope, body pressure, leaning, or partial
-  placement is visibly affecting the scale.
-- tare/container check: if a bag/container is weighed, the expected tare rule or
-  gross/net claim must be supplied; otherwise mark `tare_unverifiable`.
-- failure conditions: no visible display, unreadable number, unstable reading,
-  subject not on scale, obvious pressure/tampering, or mismatch with app value.
+Purpose: Prove the operator administered the claimed vaccine/medical dose to the right animal.
 
-## Vaccination Checks
+Required app claim properties:
+- `goat_id`: `string|null`
+- `rfid`: `string|null`
+- `vaccine_name`: `string`
+- `dose_or_stage`: `string`
+- `route_site_expected`: `string|null`
+- `vial_or_batch_required`: `boolean`
 
-Vaccination proof is about whether the operator actually administered the
-proper vaccine action to the goat.
+Gemini must verify:
+- goat visible
+- syringe/needle/applicator visible
+- restraint adequate
+- administration contact/injection moment visible
+- clip continuity proves dose not setup only
+- route/site plausible when supplied
+- vial/batch visible when required
 
-Gemini must check:
+Failure/review reasons include:
+- `wrong_category`
+- `goat_not_visible`
+- `instrument_not_visible`
+- `administration_contact_not_visible`
+- `setup_only_no_dose`
+- `action_hidden`
+- `ambiguous_multiple_animals`
+- `route_site_contradiction`
 
-- correct category: syringe/needle/applicator, goat body, and medical action are
-  visible.
-- goat evidence: goat is visible enough to verify that the action is on an
-  animal, not only on a handler's hands or ground.
-- restraint evidence: goat is restrained well enough for a real dose.
-- instrument evidence: syringe/needle/applicator is visible before or during
-  contact.
-- administration evidence: contact or injection moment is visible on the goat;
-  merely showing a syringe near the goat is not enough.
-- dose continuity: clip is not cut before contact or after setup only.
-- site plausibility: contact point is plausible for the configured route/site
-  when route/site metadata is provided.
-- vial/batch evidence: only required when the input says it is required; if not
-  visible, report `vial_or_batch_not_visible` without failing solely on that
-  field.
-- failure conditions: syringe not visible, no contact, action hidden by hand,
-  wrong category, clip too dark, ambiguous multiple animals, or no complete
-  administration moment.
+### `weighing_proof`
 
-## Top-10 Sample Observations
+Alias: `weighing`.
 
-### Feed Direction
+Module/page: `Weighing` / `Weighing`. Status: `active`. Media: `video, image_optional`.
 
-Sample path set: latest 10 MP4s under
-`legacy/slack/feed/2026/08/12/`.
+Purpose: Prove the measured value is real and matches the operator-entered number.
 
-Observed patterns:
+Required app claim properties:
+- `subject_type`: `goat|feed|container|other`
+- `subject_id`: `string|null`
+- `operator_entered_weight`: `number`
+- `unit`: `kg`
+- `tolerance_kg`: `number`
+- `tare_expected`: `boolean`
+- `tare_or_container_weight`: `number|null`
 
-- Some clips show empty or filled trough areas with shed context.
-- Some clips show goats near troughs or inside the feed area.
-- Several clips provide location/context proof but do not by themselves prove a
-  numeric feed quantity.
-- Gemini should identify stage and visible evidence, then mark quantity claims
-  unverifiable unless the app supplies expected quantity and video shows enough
-  material evidence.
+Gemini must verify:
+- subject on scale/platform
+- scale display visible
+- numeric reading readable
+- reading stable
+- visible reading matches app value within tolerance
+- no hand/foot/body/rope pressure affecting scale
+- tare/gross/net supported when applicable
 
-### Weighing
+Failure/review reasons include:
+- `wrong_category`
+- `subject_not_on_scale`
+- `display_not_visible`
+- `reading_unreadable`
+- `reading_unstable`
+- `weight_mismatch`
+- `tamper_or_pressure_visible`
+- `tare_rule_contradiction`
 
-Sample path set: latest visually identified weighing cluster around
-`2026-08-12T05:18Z-05:20Z`.
+### `birth_evidence`
 
-Observed patterns:
+Module/page: `Counts` / `Birth`. Status: `active`. Media: `video`.
 
-- Several clips show a digital scale display and weighing platform.
-- Some clips show animals on a platform; others show feed/container material on
-  a scale.
-- Display readability varies. Gemini must extract the visible value only when
-  readable, and compare it to the app value supplied in metadata.
-- If the display is visible but cropped, overexposed, or unstable, the correct
-  verdict is `needs_human_review`.
+Purpose: Prove one mother or child birth workflow task was actually performed with live-camera evidence.
 
-### Vaccination
+Required app claim properties:
+- `workflow_id`: `string`
+- `subject_type`: `mother|kid`
+- `subject_goat_id`: `string`
+- `birth_event_id`: `string`
+- `action_key`: `string`
+- `action_title`: `string`
+- `operator_answer`: `string|null`
 
-Sample path set: latest visually identified vaccination cluster around
-`2026-08-12T13:15Z-14:22Z`.
+Gemini must verify:
+- mother/kid subject visible
+- specific action_title visibly performed
+- operator answer not contradicted
+- live-camera proof usable
+- for tag task RFID/tag visible
+- for kid weight scale/reading visible
+- for colostrum/milk feeding actual feeding visible
 
-Observed patterns:
+Failure/review reasons include:
+- `wrong_category`
+- `subject_not_visible`
+- `task_action_not_visible`
+- `operator_answer_contradicted`
+- `tag_or_weight_unreadable`
+- `static_or_unrelated_clip`
 
-- Many clips show goat restraint and syringe/injection handling.
-- Several clips are dark, close-up, or partially occluded by hands.
-- Gemini should focus on the actual administration moment, not only the presence
-  of a syringe.
-- If the needle/contact point is hidden, report the reason and use
-  `needs_human_review` unless the clip clearly proves administration elsewhere.
+### `death_evidence`
+
+Module/page: `Counts` / `Death`. Status: `active`. Media: `video, video_bundle`.
+
+Purpose: Prove the ordered death video and post-mortem video are acceptable evidence after admin acceptance.
+
+Required app claim properties:
+- `workflow_id`: `string`
+- `goat_id`: `string`
+- `proof_sequence`: `death_video|post_mortem_video|bundle`
+- `expected_video_count`: `2`
+
+Gemini must verify:
+- reported animal visible
+- death condition supported, not merely resting ambiguously
+- post-mortem evidence visible
+- both videos present and distinguishable for bundle review
+- animal/location context avoids wrong-animal review
+
+Failure/review reasons include:
+- `wrong_category`
+- `goat_not_visible`
+- `death_condition_not_supported`
+- `post_mortem_not_visible`
+- `ordered_pair_incomplete`
+- `wrong_or_ambiguous_animal`
+- `clip_too_dark_or_cropped`
+
+### `shifting_move`
+
+Alias: `shifting`.
+
+Module/page: `Counts` / `Shifting`. Status: `active`. Media: `video, image_optional`.
+
+Purpose: Prove directed movement happened between claimed source and destination and the visible count/cohort is plausible.
+
+Required app claim properties:
+- `shifting_event_id`: `string`
+- `source_location_id`: `string`
+- `destination_location_id`: `string`
+- `subject_type`: `goat|cohort|shed_group`
+- `subject_ids`: `array|null`
+- `claimed_count`: `number|null`
+- `movement_type`: `normal|quarantine|icu|pregnant|lactating|warmup|other`
+
+Gemini must verify:
+- source/destination context visible
+- moved animals/cohort visible
+- movement/loading/unloading/arrival/final placement visible
+- destination supports claim
+- visible count plausible when claimed
+- high-risk movement handled safely without obvious mixing risk
+
+Failure/review reasons include:
+- `wrong_category`
+- `no_movement_or_arrival_visible`
+- `animals_not_visible`
+- `source_destination_context_missing`
+- `destination_contradicts_claim`
+- `visible_count_contradicts_claim`
+- `unsafe_high_risk_handling_visible`
+
+### `milk_preparation`
+
+Alias: `milk_prep`.
+
+Module/page: `Milk` / `Milk Prep`. Status: `active`. Media: `video, image_optional`.
+
+Purpose: Prove milk/colostrum preparation was done for the claimed subject/session with the right material and hygiene.
+
+Required app claim properties:
+- `workflow_id`: `string|null`
+- `subject_id`: `string|null`
+- `session_label`: `string`
+- `claimed_volume`: `number|null`
+- `unit`: `ml|l|null`
+- `prep_material`: `colostrum|milk|ors|other`
+
+Gemini must verify:
+- milk/colostrum/ORS material visible
+- preparation container visible
+- claimed subject/session context supplied
+- quantity plausible if visible
+- hygiene not obviously unsafe
+- not reused/unrelated footage
+
+Failure/review reasons include:
+- `wrong_category`
+- `prep_material_not_visible`
+- `container_not_visible`
+- `quantity_contradicts_claim`
+- `unsafe_hygiene_visible`
+- `unrelated_clip`
+
+### `milk_feeding`
+
+Module/page: `Milk` / `Milk Feeding`. Status: `active`. Media: `video`.
+
+Purpose: Prove the claimed kid/subject actually received milk/colostrum/ORS feeding.
+
+Required app claim properties:
+- `workflow_id`: `string|null`
+- `subject_id`: `string`
+- `session_label`: `string`
+- `claimed_volume`: `number|null`
+- `unit`: `ml|l|null`
+
+Gemini must verify:
+- kid/subject visible
+- feeding vessel/udder/bottle visible
+- actual feeding/suckling/contact visible
+- session timing/subject context supports claim
+- volume plausible if visible
+
+Failure/review reasons include:
+- `wrong_category`
+- `subject_not_visible`
+- `feeding_not_visible`
+- `vessel_or_udder_not_visible`
+- `wrong_or_ambiguous_subject`
+- `volume_contradicts_claim`
+
+### `feed_distribution`
+
+Module/page: `Feed` / `Feed Distribution`. Status: `active`. Media: `video, image`.
+
+Purpose: Prove feed was distributed to the claimed shed/pen/trough and not merely shown elsewhere.
+
+Required app claim properties:
+- `target_location_id`: `string`
+- `feed_type`: `string|null`
+- `claimed_quantity`: `number|null`
+- `unit`: `kg|bags|null`
+- `session`: `morning|afternoon|other`
+
+Gemini must verify:
+- shed/pen/trough context visible
+- feed visible in trough/container
+- operator distribution or completed distribution visible
+- animals/context match target
+- quantity plausible if claimed
+- trough not empty when claim says fed
+
+Failure/review reasons include:
+- `wrong_category`
+- `no_feed_visible`
+- `target_context_missing`
+- `distribution_not_visible`
+- `empty_trough_after_claim`
+- `quantity_contradicts_claim`
+
+### `feed_packing`
+
+Module/page: `Feed` / `Feed Packing`. Status: `active`. Media: `video, image`.
+
+Purpose: Prove feed was packed/prepared for the claimed direction before transport/distribution.
+
+Required app claim properties:
+- `feed_type`: `string|null`
+- `claimed_quantity`: `number|null`
+- `unit`: `kg|bags|null`
+- `batch_or_session`: `string|null`
+
+Gemini must verify:
+- feed bags/container/material visible
+- packing action or final packed state visible
+- quantity/count plausible
+- label/batch/session visible when required
+- not an unrelated trough/distribution-only clip
+
+Failure/review reasons include:
+- `wrong_category`
+- `feed_material_not_visible`
+- `packing_not_visible`
+- `quantity_contradicts_claim`
+- `batch_or_label_missing_when_required`
+
+### `feed_transport`
+
+Module/page: `Feed` / `Feed Transport`. Status: `active`. Media: `video, image`.
+
+Purpose: Prove packed feed moved from packing point to target location or handoff point.
+
+Required app claim properties:
+- `source_location_id`: `string|null`
+- `destination_location_id`: `string`
+- `claimed_quantity`: `number|null`
+- `unit`: `kg|bags|null`
+
+Gemini must verify:
+- packed feed visible
+- transport/loading/unloading/handoff visible
+- destination or vehicle/cart context supports claim
+- quantity plausible
+- not only feed already in trough without transport proof
+
+Failure/review reasons include:
+- `wrong_category`
+- `packed_feed_not_visible`
+- `transport_or_handoff_not_visible`
+- `destination_context_missing`
+- `quantity_contradicts_claim`
+
+### `health_adults`
+
+Module/page: `Health` / `Adults`. Status: `active`. Media: `video, image`.
+
+Purpose: Prove adult health diagnosis/treatment/follow-up evidence for the claimed animal/action.
+
+Required app claim properties:
+- `goat_id`: `string|null`
+- `rfid`: `string|null`
+- `health_action`: `diagnosis|treatment|follow_up|medicine|quarantine|icu|closeout|other`
+- `operator_answer`: `string|null`
+- `medicine_or_symptom`: `string|null`
+
+Gemini must verify:
+- adult animal visible
+- claimed symptom/treatment/follow-up action visible
+- medicine/instrument visible when treatment claimed
+- operator answer not contradicted
+- condition severity/lameness/wound/sign visible when diagnosis claimed
+- route/site plausible when supplied
+
+Failure/review reasons include:
+- `wrong_category`
+- `animal_not_visible`
+- `claimed_health_action_not_visible`
+- `medicine_or_instrument_missing`
+- `operator_answer_contradicted`
+- `wrong_or_ambiguous_animal`
+
+### `health_kids`
+
+Module/page: `Health` / `Kids`. Status: `active`. Media: `video, image`.
+
+Purpose: Prove kid health diagnosis/treatment/follow-up evidence for the claimed animal/action.
+
+Required app claim properties:
+- `goat_id`: `string|null`
+- `rfid`: `string|null`
+- `health_action`: `diagnosis|treatment|follow_up|medicine|quarantine|icu|closeout|other`
+- `operator_answer`: `string|null`
+- `medicine_or_symptom`: `string|null`
+
+Gemini must verify:
+- kid visible
+- claimed symptom/treatment/follow-up action visible
+- medicine/instrument visible when treatment claimed
+- operator answer not contradicted
+- condition/feeding/standing/alertness visible when relevant
+- safe handling visible
+
+Failure/review reasons include:
+- `wrong_category`
+- `kid_not_visible`
+- `claimed_health_action_not_visible`
+- `medicine_or_instrument_missing`
+- `operator_answer_contradicted`
+- `unsafe_handling_visible`
+
+### `procurement_load`
+
+Module/page: `Procurement` / `Load/Source`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove source loading, animal identity/count, health/source evidence, or holding-farm vaccination evidence for procurement.
+
+Required app claim properties:
+- `load_id`: `string`
+- `source_party`: `string|null`
+- `claimed_count`: `number|null`
+- `proof_stage`: `source_entry|health_check|hf_vaccination|loading|other`
+
+Gemini must verify:
+- animals/load context visible
+- claimed stage visible
+- count plausible
+- source/truck/location context supports claim
+- health/vaccination proof visible when claimed
+
+Failure/review reasons include:
+- `wrong_category`
+- `load_context_missing`
+- `animals_not_visible`
+- `stage_action_not_visible`
+- `count_contradicts_claim`
+
+### `transit_handoff`
+
+Module/page: `Procurement` / `Transit`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove transit handoff, truck loading/unloading, or custody transfer evidence.
+
+Required app claim properties:
+- `load_id`: `string`
+- `from_location_id`: `string|null`
+- `to_location_id`: `string|null`
+- `claimed_count`: `number|null`
+
+Gemini must verify:
+- vehicle/load visible
+- handoff/loading/unloading visible
+- animals or sealed cargo/feed/material visible as claimed
+- location/custody context supports claim
+- count plausible
+
+Failure/review reasons include:
+- `wrong_category`
+- `vehicle_or_load_missing`
+- `handoff_not_visible`
+- `location_context_missing`
+- `count_contradicts_claim`
+
+### `arrival_intake`
+
+Module/page: `Procurement` / `Arrival`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove arrival intake, accepted/rejected animals, discrepancy, health, or ownership evidence.
+
+Required app claim properties:
+- `load_id`: `string`
+- `arrival_location_id`: `string`
+- `claimed_count`: `number|null`
+- `review_stage`: `arrival|intake|rejection|discrepancy|health|ownership`
+
+Gemini must verify:
+- arrival location/context visible
+- animals visible
+- review stage visible
+- accepted/rejected/discrepancy evidence supports claim
+- count plausible
+
+Failure/review reasons include:
+- `wrong_category`
+- `arrival_context_missing`
+- `animals_not_visible`
+- `review_stage_not_visible`
+- `count_contradicts_claim`
+
+### `dispatch_exit`
+
+Module/page: `Sales/Dispatch` / `Dispatch/Exit`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove sale/dispatch/exit loading, animal identity, readiness, and handoff evidence.
+
+Required app claim properties:
+- `dispatch_id`: `string|null`
+- `goat_ids`: `array|null`
+- `claimed_count`: `number|null`
+- `destination`: `string|null`
+
+Gemini must verify:
+- animals visible
+- dispatch/loading/handoff visible
+- vehicle/destination context supports claim
+- identity tags visible when required
+- count plausible
+- animal not visibly unfit/dead when claimed dispatch-ready
+
+Failure/review reasons include:
+- `wrong_category`
+- `animals_not_visible`
+- `dispatch_not_visible`
+- `identity_unreadable_when_required`
+- `count_contradicts_claim`
+- `visible_unfit_animal`
+
+### `attendance_checkin`
+
+Module/page: `Workforce` / `Attendance`. Status: `future_known`. Media: `image, video_optional`.
+
+Purpose: Prove operator attendance/check-in/location/shift evidence.
+
+Required app claim properties:
+- `workforce_member_id`: `string`
+- `shift_id`: `string|null`
+- `location_id`: `string|null`
+- `captured_at`: `string`
+
+Gemini must verify:
+- person/selfie or required attendance evidence visible
+- location/shift context supports claim when visible
+- timestamp metadata supplied
+- not a reused/static unrelated image
+- face/person match must be human-reviewed unless a separate identity model is approved
+
+Failure/review reasons include:
+- `wrong_category`
+- `person_not_visible`
+- `location_context_missing_when_required`
+- `reused_or_unrelated_media`
+- `timestamp_missing`
+
+### `breeding_pregnancy`
+
+Module/page: `Breeding` / `Breeding/Pregnancy`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove breeding, heat, pregnancy, ultrasound, kidding-prep, or reproductive treatment evidence.
+
+Required app claim properties:
+- `goat_id`: `string|null`
+- `action`: `heat|breeding|pregnancy_check|ultrasound|kidding_prep|reproductive_treatment|other`
+- `operator_answer`: `string|null`
+
+Gemini must verify:
+- animal visible
+- claimed reproductive action/evidence visible
+- instrument/screen visible for ultrasound or treatment
+- operator answer not contradicted
+- identity/context sufficient
+
+Failure/review reasons include:
+- `wrong_category`
+- `animal_not_visible`
+- `claimed_reproductive_action_not_visible`
+- `instrument_or_screen_missing`
+- `operator_answer_contradicted`
+
+### `abortion_evidence`
+
+Module/page: `Counts/Breeding` / `Abortion`. Status: `future_known`. Media: `video, image`.
+
+Purpose: Prove abortion/miscarriage evidence and mother condition for review.
+
+Required app claim properties:
+- `mother_goat_id`: `string|null`
+- `event_id`: `string|null`
+- `operator_answer`: `string|null`
+
+Gemini must verify:
+- mother visible when required
+- abortion/event evidence visible enough for human review
+- location/context supports claim
+- operator answer not contradicted
+- clip is not generic birth/death footage
+
+Failure/review reasons include:
+- `wrong_category`
+- `mother_not_visible`
+- `event_evidence_not_visible`
+- `operator_answer_contradicted`
+- `ambiguous_birth_death_or_abortion`
+
+### `inventory_stock_proof`
+
+Module/page: `Inventory` / `Stock`. Status: `future_known`. Media: `image, video_optional`.
+
+Purpose: Prove feed/medicine/vaccine/equipment stock, batch, expiry, or cold-chain evidence.
+
+Required app claim properties:
+- `item_type`: `feed|medicine|vaccine|equipment|other`
+- `batch_or_lot`: `string|null`
+- `expiry_date`: `string|null`
+- `quantity`: `number|null`
+- `unit`: `string|null`
+
+Gemini must verify:
+- item visible
+- label/batch/lot visible when required
+- expiry visible when required
+- quantity/count plausible
+- cold-chain/container visible when required
+
+Failure/review reasons include:
+- `wrong_category`
+- `item_not_visible`
+- `batch_or_lot_missing`
+- `expiry_missing_when_required`
+- `quantity_contradicts_claim`
+- `cold_chain_not_visible_when_required`
+
+## Vaccination Instruction Snapshot
+
+Purpose: Prove the operator administered the claimed vaccine/medical dose to the right animal.
+
+Properties Gemini needs:
+- `goat_id`: `string|null`
+- `rfid`: `string|null`
+- `vaccine_name`: `string`
+- `dose_or_stage`: `string`
+- `route_site_expected`: `string|null`
+- `vial_or_batch_required`: `boolean`
+
+Checks written for vaccination:
+- goat visible
+- syringe/needle/applicator visible
+- restraint adequate
+- administration contact/injection moment visible
+- clip continuity proves dose not setup only
+- route/site plausible when supplied
+- vial/batch visible when required
+
+It should fail or route to human review for:
+- `wrong_category`
+- `goat_not_visible`
+- `instrument_not_visible`
+- `administration_contact_not_visible`
+- `setup_only_no_dose`
+- `action_hidden`
+- `ambiguous_multiple_animals`
+- `route_site_contradiction`
 
 ## Output Contract
 
-Gemini must emit JSON only, matching
-`docs/proof/gemini-video-verification-rubrics.json`. Use:
-
-- `pass` only when the critical action and claim comparison are visible enough.
-- `fail` when visible evidence contradicts the claim or proves the action did
-  not happen properly.
-- `needs_human_review` for dark, shaky, incomplete, ambiguous, cropped,
-  metadata-missing, or low-confidence clips.
-
-Suggested confidence policy:
-
-- `>= 0.85`: strong model confidence.
-- `0.65-0.84`: usable but should be sampled by human QA.
-- `< 0.65`: route to human review.
-
-The model output must not close a workflow directly. It should be stored as
-AI evidence on the verification item and shown to the human Verifier.
+Gemini must emit JSON only, matching `docs/proof/gemini-video-verification-rubrics.json`. Use `pass`, `fail`, or `needs_human_review`, with confidence, purpose checked, observations, claim comparison, issues, and evidence timestamps.
