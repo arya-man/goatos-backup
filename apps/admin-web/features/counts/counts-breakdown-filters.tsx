@@ -23,6 +23,12 @@ export type BreakdownFilterOption = {
    * two same-named entries never collapse. Falls back to `value` when absent.
    */
   key?: string;
+  /**
+   * Optional <optgroup> heading. Consecutive options sharing a group render inside one heading;
+   * options with no group render loose. Used by the Shed vocabulary to file a subdivided shed's
+   * pens under the shed itself instead of listing 148 flat rows.
+   */
+  group?: string;
 };
 
 export type BreakdownFilterField = {
@@ -34,6 +40,24 @@ export type BreakdownFilterField = {
   /** When set, the control renders disabled and shows this as its reason. */
   disabledReason?: string;
 };
+
+/**
+ * Split an option list into consecutive same-group runs, preserving order.
+ *
+ * Deliberately CONSECUTIVE rather than gathered by name: the option order is the vocabulary's own
+ * (sheds arrive grouped already), and re-gathering would silently reorder the list and merge two
+ * same-named groups from different parks — the exact name-keyed merge the operational-location
+ * convention bans. Two runs may therefore share a heading; they stay separate groups.
+ */
+function groupRuns(options: BreakdownFilterOption[]): { group: string | undefined; options: BreakdownFilterOption[] }[] {
+  const runs: { group: string | undefined; options: BreakdownFilterOption[] }[] = [];
+  for (const option of options) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === option.group) last.options.push(option);
+    else runs.push({ group: option.group, options: [option] });
+  }
+  return runs;
+}
 
 export function CountsBreakdownFilters({
   fields,
@@ -120,11 +144,23 @@ export function CountsBreakdownFilters({
             onChange={(event) => applyFilter(field.param, event.target.value)}
           >
             <option value="">{allLabel}</option>
-            {field.options.map((option) => (
-              <option key={option.key ?? option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            {groupRuns(field.options).map((run) =>
+              run.group === undefined ? (
+                run.options.map((option) => (
+                  <option key={option.key ?? option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))
+              ) : (
+                <optgroup key={`g:${run.group}:${run.options[0]?.key ?? run.options[0]?.value}`} label={run.group}>
+                  {run.options.map((option) => (
+                    <option key={option.key ?? option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ),
+            )}
           </select>
         </label>
       ))}

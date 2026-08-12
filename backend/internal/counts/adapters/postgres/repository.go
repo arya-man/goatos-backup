@@ -2722,36 +2722,69 @@ LIMIT $9 OFFSET $10`
 //
 // projection-review: membership=identical to countsBreakdownPageSQL by construction (shared CTE const), re-rolled into four one-dimensional series; group_key=one of breed | management_stage | sex | shed_id per UNION branch; join_cardinality=only the shed branch joins locations, on the (tenant_id, location_id) primary key, so 1:{0,1} with no fan-out, the other three branches join nothing; pagination=every series is a whole-result rollup of the full grouped set, independent of the detail table limit/offset; scope=same tenant plus farm/park/shed/stage/breed/sex predicates as the page query
 //
-// The shed branch is capped at the top 12 by count for chart legibility. That cap is a DISPLAY
-// bound on one chart only and is never the source of total_count, which comes from the page
-// query's window function over the full grouped set.
+// GRAIN (maintainer decision 2026-08-12), SUPERSEDING the parent-shed roll-up this branch used to
+// carry ("rolled up ACROSS partitions so the chart never fragments one physical shed into N tiny
+// bars"). The bars are ONE PER PEN. Two reasons the old grain was wrong on real data: a pen is
+// where animals actually live, so a shed bar answered a question nobody asks; and rolling up hid
+// the defect underneath it — the chart printed "Gandhi", "Godel 1", "Godel 2" and "Mandela 2" TWICE
+// each, once per park, with nothing on screen to tell the pairs apart (OL-1). The park now travels
+// with every bar, so a repeated shed name can never be ambiguous again.
+//
+// EVERY PEN, no top-N display cap (maintainer decision 2026-08-12, same day, replacing the LIMIT 12
+// this branch had carried since it was a shed chart). The series must PARTITION the herd — summing
+// to the same total_count the KPI above it reports — which is what TestCountsBreakdownChartSeries-
+// ReconcileToTotalCount has always asserted and what a 12-row cap quietly broke on real data. At the
+// shed grain the breach was invisible (12 of 18 sheds is nearly the whole estate); at the pen grain
+// 12 of 130 pens showed 560 of 1,670 animals, a third of the herd, sitting under a headline reading
+// 1,670. The chart's own scroll window bounds what a reader SEES; the query no longer bounds what
+// the number MEANS.
+//
+// The 500 below is a safety bound, NOT a display bound, and it is deliberately far above the real
+// vocabulary: pens are sheds x partitions (130 today, low hundreds at the 5k-50k envelope), a
+// bounded catalog that grows with buildings rather than with animals — so this cannot become a
+// per-animal scan. If it is ever hit the series stops partitioning the herd, so it is asserted
+// against in TestCountsBreakdownShedChartCoversEveryPen rather than left to be discovered on a
+// screen.
 const countsBreakdownChartsSQL = countsBreakdownGroupedCTE + `
-SELECT 'breed' AS dimension, gr.breed AS series_key, gr.breed AS series_label, sum(gr.animal_count) AS series_count
+SELECT 'breed' AS dimension, gr.breed AS series_key, gr.breed AS series_label, sum(gr.animal_count) AS series_count,
+       '' AS park_label, '' AS partition_label
 FROM grouped gr GROUP BY gr.breed
 UNION ALL
-SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count)
+SELECT 'stage', gr.management_stage, gr.management_stage, sum(gr.animal_count), '', ''
 FROM grouped gr GROUP BY gr.management_stage
 UNION ALL
-SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count)
+SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count), '', ''
 FROM grouped gr GROUP BY gr.sex
 UNION ALL
 SELECT * FROM (
-  -- Parent-shed aggregate bars for the chart: rolled up ACROSS partitions so the chart never
-  -- fragments one physical shed into N tiny bars. Partition drill-down lives in the page rows and
-  -- the facets list below, not in this display-capped chart.
-  -- partition-review: membership=same canonical goats rows as the grouped CTE; group_key=(shed_id, park_id) mapped from denormalized goats columns; aggregation=rolled up ACROSS partition_key to show parent sheds only on chart; join_cardinality=locations joined once per shed on (tenant_id, location_id) for label only; pagination=whole-result rollup capped at 12 for chart legibility; scope=same tenant plus predicates as the page query
+  -- One bar PER PEN. The label is NOT composed here: this returns the shed name, the raw partition
+  -- label and the park separately, and Go composes them with oploc.OperationalLocation.Display().
+  -- Composing in SQL is
+  -- the sql-display-drift defect the operational-location guard blocks, and OL-7 is the worked
+  -- example — six SQL paths, six different renderings of the same location.
+  -- partition-review: membership=same canonical goats rows as the grouped CTE; group_key=(shed_id, park_id, partition_key) — the pen, mapped from denormalized goats columns plus the normalized partition key; aggregation=summed within the pen, NOT rolled up across partitions (maintainer decision 2026-08-12); join_cardinality=locations joined once per shed and once per park on (tenant_id, location_id) for labels only; pagination=whole-result rollup capped at 12 PENS for chart legibility; scope=same tenant plus predicates as the page query
   SELECT 'shed' AS dimension,
-         COALESCE(gr.shed_id::text, '') AS series_key,
+         -- oploc.Key() convention: bare shed uuid for an undivided shed, "<uuid>#<normalized>" for a
+         -- pen. Same key shape the facets branch emits, so the two describe locations identically.
+         COALESCE(gr.shed_id::text, '') ||
+           CASE WHEN gr.partition_key = 'whole' THEN '' ELSE '#' || gr.partition_key END AS series_key,
          COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
-         sum(gr.animal_count) AS series_count
+         sum(gr.animal_count) AS series_count,
+         COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
+         -- partition_label_raw, never partition_key: the key is a scrubbed MATCHING value ('3') and
+         -- the label is the human one ('Part 3'). Rendering the key shipped "Mandela 2 - 3" once and
+         -- survived six review rounds.
+         COALESCE(CASE WHEN gr.partition_key = 'whole' THEN '' ELSE min(gr.partition_label_raw) END, '') AS partition_label
   FROM grouped gr
   LEFT JOIN locations shed
          ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
-  -- projection-review: membership=the same grouped CTE the page query uses, re-rolled to parent-shed grain; group_key=(shed_id, park_id) DELIBERATELY without the partition, because this series is the chart's parent-shed aggregate and partition drill-down lives in the page rows and facets; join_cardinality=locations joined once on its (tenant_id, location_id) primary key, 1:{0,1}, no fan-out; pagination=whole-result rollup capped to the top 12 sheds for display only, never the source of a business total; scope=identical tenant/park/shed/stage/breed/sex predicates as the page query
-  GROUP BY gr.shed_id, gr.park_id, shed.name, shed.location_code -- partition-grain-guard:ignore: parent aggregate — rolled up ACROSS partitions for chart display (partition drill-down lives in page rows and facets)
+  LEFT JOIN locations park
+         ON park.tenant_id = $1::uuid AND park.location_id = gr.park_id
+  -- projection-review: membership=the same grouped CTE the page query uses, re-rolled to PEN grain; group_key=(shed_id, park_id, partition_key), the pen — partitions are no longer collapsed (maintainer decision 2026-08-12); join_cardinality=locations joined twice on its (tenant_id, location_id) primary key, 1:{0,1} each, label-only, no fan-out; pagination=whole-result rollup capped to the top 12 PENS for display only, never the source of a business total; scope=identical tenant/park/shed/stage/breed/sex predicates as the page query
+  GROUP BY gr.shed_id, gr.park_id, gr.partition_key, shed.name, shed.location_code, park.location_code, park.name
   ORDER BY series_count DESC, series_key
-  LIMIT 12
-) top_sheds`
+  LIMIT 500
+) every_pen`
 
 // scale-guard:ignore: 5k-50k-envelope — indexed aggregate on goats_tenant_management_idx /
 // goats_breed_text_sex_idx / goats_tenant_lifecycle_shed_idx, each output bounded by distinct
@@ -3046,9 +3079,23 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	for chartRows.Next() {
 		var dimension, key, label string
 		var count int64
-		if err := chartRows.Scan(&dimension, &key, &label, &count); err != nil {
+		// parkLabel and partitionLabel are populated only by the shed branch; every other dimension
+		// selects ''. Scanned as their own columns rather than a pre-joined string so the DISPLAY is
+		// composed once, by the canonical helper, below.
+		var parkLabel, partitionLabel string
+		if err := chartRows.Scan(&dimension, &key, &label, &count, &parkLabel, &partitionLabel); err != nil {
 			chartRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
+		}
+		if dimension == "shed" {
+			// The pen's own name, via the one helper that owns this composition (shed alone when the
+			// shed is undivided, "Shed - Pen" when it is not), then the park in front of it. Both
+			// halves always travel together: a bar reading just "Gandhi" cannot say which park's
+			// Gandhi it is, and 66 of 154 real shed names exist in both.
+			label = oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display()
+			if parkLabel != "" && label != "" {
+				label = parkLabel + " · " + label
+			}
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {

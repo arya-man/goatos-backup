@@ -172,7 +172,7 @@ func (s *Service) compile(ctx context.Context, input BootstrapInput, families Re
 	resp = compileRequestContext(resp, input, families)
 	resp = applyConfigEntries(resp, families.UIConfig)
 	// The verifier-only workspace narrows the fully-compiled contract instead of building a
-	// parallel one, so /actions keeps the same controls/copy/options every other principal gets.
+	// parallel one, so /verify keeps the same controls/copy/options every other principal gets.
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
@@ -860,7 +860,7 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 	})
 }
 
-// compileVerificationReviewControls splits /actions by duty (verifier-app-and-flow.md §Roles):
+// compileVerificationReviewControls splits /verify by duty (verifier-app-and-flow.md §Roles):
 // the VERIFIER records the verdict, the AUTHORITY acts on the source task. One page serves both
 // personas, so the backend contract -- not the renderer -- decides which half each principal gets.
 //

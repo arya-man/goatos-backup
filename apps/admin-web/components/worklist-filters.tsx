@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } f
 import { ChevronDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
@@ -85,6 +86,36 @@ export type WorklistFilterField =
       min?: string;
       max?: string;
       disabledReason?: string;
+    }
+  | {
+      /**
+       * An inclusive business-day span, picked from a calendar.
+       *
+       * Replaces the fixed-window select a worklist would otherwise carry ("Last 4 weeks", "Last 12
+       * weeks"), which can only answer the questions someone thought of in advance — a reader
+       * comparing one drive week against another had no way to ask.
+       *
+       * Both ends are ONE filter and travel together, like `compare`: a read that takes from/to
+       * rejects half a window rather than inventing the other half.
+       */
+      kind: "daterange";
+      /** Start parameter, e.g. `wt_from`. */
+      param: string;
+      /** End parameter, e.g. `wt_to`. */
+      toParam: string;
+      label: string;
+      from: string;
+      to: string;
+      /** Today's business day (Asia/Kolkata), resolved on the server. Future days are unpickable. */
+      today: string;
+      /**
+       * The window the page falls back to when neither parameter is present. Selecting exactly this
+       * span CLEARS both parameters, so a bookmark keeps meaning "the last 30 days" rather than
+       * freezing on the span it was taken in.
+       */
+      defaultFrom: string;
+      defaultTo: string;
+      labels: DateRangePickerLabels;
     };
 
 // Shared mock-shaped filter bar for backend-filtered operational worklists. Applying rewrites the
@@ -171,7 +202,8 @@ export function WorklistFilters({
     (field) =>
       (field.kind === "select" && field.allowAll !== false) ||
       field.kind === "multiselect" ||
-      field.kind === "compare",
+      field.kind === "compare" ||
+      field.kind === "daterange",
   );
   const hasAnyFilter = clearable.some((field) => {
     if (field.kind === "multiselect") return activeParams.getAll(field.param).length > 0;
@@ -179,6 +211,9 @@ export function WorklistFilters({
     // cleared — the backend rejects half a comparison, and a control the operator cannot reset
     // would leave the page stuck on an error.
     if (field.kind === "compare") return activeParams.get(field.param) !== null || activeParams.get(field.valueParam) !== null;
+    // Same rule for a span, and for the same reason: its default window is expressed by ABSENCE, so
+    // a present parameter is exactly what "the reader moved this off its default" means.
+    if (field.kind === "daterange") return activeParams.get(field.param) !== null || activeParams.get(field.toParam) !== null;
     return field.kind === "select" && activeParams.get(field.param) !== null;
   });
   if (pendingSearch !== null && current === pendingSearch) {
@@ -264,11 +299,31 @@ export function WorklistFilters({
     write(next);
   }
 
+  /**
+   * Writes both ends of a span at once, or clears both when the reader lands back on the default.
+   *
+   * Never one end at a time: a read that takes from/to rejects half a window, so setting them in two
+   * pushes would send the page through a guaranteed error state on the way to a valid one — the same
+   * reasoning as applyCompare.
+   */
+  function applyRange(field: Extract<WorklistFilterField, { kind: "daterange" }>, from: string, to: string) {
+    const next = new URLSearchParams(activeSearch);
+    if (from === field.defaultFrom && to === field.defaultTo) {
+      next.delete(field.param);
+      next.delete(field.toParam);
+    } else {
+      next.set(field.param, from);
+      next.set(field.toParam, to);
+    }
+    write(next);
+  }
+
   function clearAll() {
     const next = new URLSearchParams(activeSearch);
     for (const field of clearable) {
       next.delete(field.param);
       if (field.kind === "compare") next.delete(field.valueParam);
+      if (field.kind === "daterange") next.delete(field.toParam);
     }
     // Staged like every other edit on a deferred bar, rather than applying at once. Mixing the two
     // is what makes a filter bar unpredictable: on this bar NOTHING reaches the server until Apply,
@@ -290,6 +345,28 @@ export function WorklistFilters({
       aria-busy={busy || undefined}
     >
       {fields.map((field) => {
+        // Handled ahead of the shared `effectiveField` shaping below, which assumes a single
+        // `value` — a span has two ends and no meaningful single value.
+        if (field.kind === "daterange") {
+          return (
+            <label
+              key={field.param}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+            >
+              <span className="muted">{field.label}</span>
+              <DateRangePicker
+                labels={field.labels}
+                // Falls back to the default window when the parameter is absent, which is how the
+                // cleared state is expressed.
+                from={shownValue(field.param, field.from, true) || field.defaultFrom}
+                to={shownValue(field.toParam, field.to, true) || field.defaultTo}
+                today={field.today}
+                busy={busy}
+                onChange={(from, to) => applyRange(field, from, to)}
+              />
+            </label>
+          );
+        }
         const effectiveField =
           field.kind === "multiselect"
             ? { ...field, values: activeParams.getAll(field.param) }

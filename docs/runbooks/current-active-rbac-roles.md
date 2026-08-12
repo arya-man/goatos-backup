@@ -300,7 +300,7 @@ not each other's business rules.
 Since 2026-08-03 the `verifier` role also holds `admin_web.bootstrap` so the same
 review can be done on a laptop. That grant opens the shell ONLY: a principal with
 `verification.review` and without `verification.act` receives the verifier lens —
-five registry-composed evidence modules and `/actions` — and every other admin-web
+five registry-composed evidence modules and `/verify` — and every other admin-web
 page contract is withheld, so a typed URL fails closed. See
 `context/architecture/verifier-app-and-flow.md` → "Verifier WEB workspace".
 

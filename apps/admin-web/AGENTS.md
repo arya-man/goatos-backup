@@ -584,8 +584,9 @@ Only these routes are current implemented product routes:
 /config
 /sops
 /goats/{goat_id}
-/actions                    Actions — cross-module verification evidence (Admin / Data Ops)
-/verification               Compatibility redirect to /actions
+/verify                     Verify — cross-module verification evidence (top-level, below Approvals)
+/actions                    Compatibility redirect to /verify (route renamed 2026-08-12)
+/verification               Compatibility redirect to /verify
 /approvals                  Approvals — birth/death/shifting decision queue (top-level; RBAC:
                             director/head/manager/am + admin + ceo_internal + counts_approver)
 ```
@@ -603,7 +604,7 @@ grow its own private business truth. The queue response now carries backend-comp
 `raised_by_name` / `summary_line`; this page still builds its own readable subject from resolved
 location names, and may adopt the shared line later.
 
-`/actions` is the AUTHORITY act screen for the generic Verification vertical
+`/verify` is the AUTHORITY act screen for the generic Verification vertical
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
 authorized reviewers browse the standalone Verifier's due/approved/rejected media queue and
 act on the linked SOP task (rework / re-assign; penalty note is honestly
@@ -613,8 +614,9 @@ types in `lib/api/server.ts`, no hand-typed shapes) and acts through the EXISTIN
 `/admin/tasks/{task_id}` `/rework` `/assign` routes.
 The backend `verification-review` page contract owns its title, table, drawer
 copy, and disabled reasons; the Verification registry owns the action-type and
-status filter options. It appears as Actions in the backend-composed Admin / Data
-Ops navigation and sends park plus top-bar date filters to the backend.
+status filter options. It appears as Verify — a TOP-LEVEL primary nav item directly below
+Approvals, not inside any group — and sends park plus its own capture-date filter to the backend.
+Named to match the phone, which has always called this Verify (workforce `nav.verify`).
 
 Implemented top-level command route:
 
