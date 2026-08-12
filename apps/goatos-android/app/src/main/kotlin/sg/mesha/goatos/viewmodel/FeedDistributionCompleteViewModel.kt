@@ -203,32 +203,33 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingWeight = false) }
                 return@launch
             }
-            val request = ProofUploadRequestDto(
-                proofType = "photo",
-                mimeType = captured.mimeType,
-                scopeType = "shed",
-                scopeId = shedId,
-                subjectType = "shed",
-                subjectId = shedId,
-                // No capture window: a photo is an instant, and the backend requires start/end only
-                // for videos. capture_source IS required here -- see the KDoc above.
-                metadata = mapOf(
-                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
-                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                ),
-            )
             when (
-                val result = syncRepository.enqueueProofUpload(
-                    groupKey = groupKey,
-                    idempotencyKey = weightKey.current(),
-                    request = request,
-                    localFilePath = captured.localUri,
-                    durationMs = null,
+                val result = proofCaptureRepository.capture(
+                    taskId = groupKey,
+                    fieldKey = FIELD_FEED_DISTRIBUTION_WEIGHT_PHOTO,
+                    subject = ProofSubject.SHED,
+                    subjectId = shedId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = "Feed weight photo session $sessionNo",
+                    scopeType = "shed",
+                    scopeId = shedId,
+                    capturedStartMs = captured.capturedAtMs,
+                    capturedEndMs = captured.capturedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = feedShedProofPolicy(captured.captureSource),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = groupKey,
                 )
             ) {
                 is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        _state.update { it.copy(isCapturingWeight = false, weightMessage = PROOF_FAILED) }
+                        return@launch
+                    }
                     // Durable BEFORE the UI flips: a process death here must not lose the photo.
-                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_WEIGHT, result.value)
+                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_WEIGHT, proofOutboxId)
                     draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_WEIGHT_PHOTO_CAPTURED)
                     _state.update { it.copy(isCapturingWeight = false, weightCaptured = true, weightMessage = WEIGHT_QUEUED) }
@@ -488,8 +489,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val KEY_WEIGHT_IDEMPOTENCY = "feedDistribution.weightKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"
         private const val KEY_WATER_IDEMPOTENCY = "feedDistribution.waterKey"
-        private const val META_SESSION_NO = "session_no"
-        private const val META_CAPTURE_SOURCE = "capture_source"
+        private const val FIELD_FEED_DISTRIBUTION_WEIGHT_PHOTO = "feed_distribution_weight_photo"
         private const val FIELD_FEED_DISTRIBUTION_VIDEO = "feed_distribution_video"
         private const val FIELD_FEED_DISTRIBUTION_WATER_VIDEO = "feed_distribution_water_video"
         private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the weight photo, feed video and water video."
