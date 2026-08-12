@@ -22,11 +22,14 @@ import sg.mesha.goatos.core.data.executionPartitionKey
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.database.capture.ScanUpsertResult
+import sg.mesha.goatos.core.database.capture.ProofProcessingState
+import sg.mesha.goatos.core.data.sync.GalleryProofSaver
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.syncJson
@@ -521,6 +524,9 @@ class DefaultProofCaptureRepository(
     private val syncRepository: SyncRepository,
     private val appScope: CoroutineScope,
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
+    private val mediaProcessor: ProofMediaProcessor = ProofMediaProcessor.Noop,
+    private val galleryProofSaver: GalleryProofSaver = GalleryProofSaver.Noop,
+    private val telemetry: ProofCaptureTelemetry = ProofCaptureTelemetry.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     // Production always reconciles orphan uploads on construction. Tests set this false to drive
@@ -801,45 +807,242 @@ class DefaultProofCaptureRepository(
         scopeType: String,
         scopeId: String,
     ) {
+        val uploadEntity = prepareFinalArtifact(entity)
         val request = ProofUploadRequestDto(
             proofType = "video",
-            mimeType = entity.mimeType,
+            mimeType = uploadEntity.mimeType,
             scopeType = scopeType,
             scopeId = scopeId,
-            subjectType = entity.proofSubject,
-            subjectId = entity.subjectId,
+            subjectType = uploadEntity.proofSubject,
+            subjectId = uploadEntity.subjectId,
             metadata = buildMap {
-                put("field_key", JsonPrimitive(entity.fieldKey))
+                put("field_key", JsonPrimitive(uploadEntity.fieldKey))
                 // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
                 // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
                 // Default fallback that would silently rewrite a non-camera source.
-                put("capture_source", JsonPrimitive(entity.captureSource))
-                entity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
+                put("capture_source", JsonPrimitive(uploadEntity.captureSource))
+                put("upload_original", JsonPrimitive(uploadEntity.uploadOriginal))
+                uploadEntity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
                 // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
                 // "Camera-only capture"): the verifier can see this was a live, timed,
                 // attributable in-app recording, not an imported file.
-                put("captured_start_ms", JsonPrimitive(entity.capturedStartMs))
-                put("captured_end_ms", JsonPrimitive(entity.capturedEndMs))
-                put("duration_ms", JsonPrimitive((entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
-                entity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
+                put("captured_start_ms", JsonPrimitive(uploadEntity.capturedStartMs))
+                put("captured_end_ms", JsonPrimitive(uploadEntity.capturedEndMs))
+                put("duration_ms", JsonPrimitive((uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0)))
+                uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },
         )
+        saveFinalArtifactToGallery(uploadEntity, request)
         when (
             val result = syncRepository.enqueueProofUpload(
-                groupKey = proofUploadGroupKey(entity, scopeId),
-                idempotencyKey = entity.idempotencyKey,
+                groupKey = proofUploadGroupKey(uploadEntity, scopeId),
+                idempotencyKey = uploadEntity.idempotencyKey,
                 request = request,
-                localFilePath = entity.localUri,
-                durationMs = (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0),
+                localFilePath = uploadEntity.localUri,
+                durationMs = (uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0),
             )
         ) {
             is AppResult.Ok -> {
-                dao.setOutboxItemId(entity.id, result.value)
-                followOutboxItem(entity.id, result.value)
+                dao.updateProcessingState(
+                    id = uploadEntity.id,
+                    processingState = ProofProcessingState.REGISTERING_UPLOAD.name,
+                    attempt = uploadEntity.stateAttempt,
+                    processingAttempted = uploadEntity.processingAttempted,
+                    uploadOriginal = uploadEntity.uploadOriginal,
+                    lastErrorStage = null,
+                    lastErrorClass = null,
+                    lastErrorRetryable = null,
+                    lastErrorMessageHash = null,
+                    updatedAtMs = clock(),
+                )
+                recordProofEvent(uploadEntity, "upload_enqueued", uploadEntity.processingState, uploadEntity.stateAttempt)
+                telemetry.track(proofUploadRegisteredEvent, proofAnalyticsProps(uploadEntity))
+                dao.setOutboxItemId(uploadEntity.id, result.value)
+                followOutboxItem(uploadEntity.id, result.value)
             }
-            is AppResult.Err -> dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, result.message)
+            is AppResult.Err -> dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
         }
+    }
+
+    private suspend fun prepareFinalArtifact(entity: ProofCaptureEntity): ProofCaptureEntity {
+        if (entity.processingAttempted) return entity
+        val startedAtMs = clock()
+        val attempt = entity.stateAttempt + 1
+        dao.updateProcessingState(
+            id = entity.id,
+            processingState = ProofProcessingState.PROCESSING_MEDIA.name,
+            attempt = attempt,
+            processingAttempted = true,
+            uploadOriginal = false,
+            lastErrorStage = null,
+            lastErrorClass = null,
+            lastErrorRetryable = null,
+            lastErrorMessageHash = null,
+            updatedAtMs = startedAtMs,
+        )
+        recordProofEvent(entity, "processing_started", ProofProcessingState.PROCESSING_MEDIA.name, attempt)
+        telemetry.track(proofProcessingStartedEvent, proofAnalyticsProps(entity, attempt = attempt))
+
+        return try {
+            val processed = mediaProcessor.process(
+                ProofMediaProcessingRequest(
+                    proofId = entity.id,
+                    taskId = entity.taskId,
+                    fieldKey = entity.fieldKey,
+                    subjectType = entity.proofSubject,
+                    subjectId = entity.subjectId,
+                    originalUri = entity.originalUri ?: entity.localUri,
+                    mimeType = entity.mimeType,
+                    capturedStartMs = entity.capturedStartMs,
+                    capturedEndMs = entity.capturedEndMs,
+                    capturedByPrincipalId = entity.capturedByPrincipalId,
+                ),
+            )
+            dao.updateProcessingArtifact(
+                id = entity.id,
+                localUri = processed.outputUri,
+                mimeType = processed.outputMimeType,
+                processingState = ProofProcessingState.PROCESSED.name,
+                processingAttempted = true,
+                uploadOriginal = false,
+                processedUri = processed.outputUri,
+                originalBytes = processed.originalBytes,
+                processedBytes = processed.processedBytes,
+                inputWidth = processed.inputWidth,
+                inputHeight = processed.inputHeight,
+                targetVideoBitrate = processed.targetVideoBitrate,
+                targetAudioBitrate = processed.targetAudioBitrate,
+                updatedAtMs = clock(),
+            )
+            recordProofEvent(
+                entity,
+                "processing_completed",
+                ProofProcessingState.PROCESSED.name,
+                attempt,
+                durationMs = clock() - startedAtMs,
+                bytesIn = processed.originalBytes,
+                bytesOut = processed.processedBytes,
+            )
+            telemetry.track(proofProcessingCompletedEvent, proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = false))
+            dao.findById(entity.id) ?: entity.copy(
+                localUri = processed.outputUri,
+                mimeType = processed.outputMimeType,
+                processingState = ProofProcessingState.PROCESSED.name,
+                processingAttempted = true,
+                stateAttempt = attempt,
+                uploadOriginal = false,
+                processedUri = processed.outputUri,
+                originalBytes = processed.originalBytes,
+                processedBytes = processed.processedBytes,
+            )
+        } catch (error: Throwable) {
+            val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+            dao.updateProcessingArtifact(
+                id = entity.id,
+                localUri = entity.originalUri ?: entity.localUri,
+                mimeType = entity.mimeType,
+                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                processingAttempted = true,
+                uploadOriginal = true,
+                processedUri = null,
+                originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
+                processedBytes = null,
+                inputWidth = entity.inputWidth,
+                inputHeight = entity.inputHeight,
+                targetVideoBitrate = entity.targetVideoBitrate,
+                targetAudioBitrate = entity.targetAudioBitrate,
+                updatedAtMs = clock(),
+            )
+            dao.updateProcessingState(
+                id = entity.id,
+                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                attempt = attempt,
+                processingAttempted = true,
+                uploadOriginal = true,
+                lastErrorStage = "processing",
+                lastErrorClass = errorClass,
+                lastErrorRetryable = false,
+                lastErrorMessageHash = error.message?.hashCode()?.toString(),
+                updatedAtMs = clock(),
+            )
+            recordProofEvent(
+                entity,
+                "processing_failed_original_upload_queued",
+                ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                attempt,
+                durationMs = clock() - startedAtMs,
+                bytesIn = localFileBytes(entity.originalUri ?: entity.localUri),
+                errorClass = errorClass,
+                retryable = false,
+            )
+            telemetry.track(proofProcessingFailedEvent, proofAnalyticsProps(entity, attempt = attempt, uploadOriginal = true) + ("error_class" to errorClass))
+            dao.findById(entity.id) ?: entity.copy(
+                localUri = entity.originalUri ?: entity.localUri,
+                processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                processingAttempted = true,
+                stateAttempt = attempt,
+                uploadOriginal = true,
+            )
+        }
+    }
+
+    private suspend fun saveFinalArtifactToGallery(entity: ProofCaptureEntity, request: ProofUploadRequestDto) {
+        val startedAtMs = clock()
+        telemetry.track(proofGallerySaveStartedEvent, proofAnalyticsProps(entity))
+        try {
+            galleryProofSaver.saveProofCopy(entity.localUri, request, entity.idempotencyKey)
+            recordProofEvent(
+                entity,
+                "gallery_save_completed",
+                entity.processingState,
+                entity.stateAttempt,
+                durationMs = clock() - startedAtMs,
+                bytesIn = entity.processedBytes ?: entity.originalBytes ?: localFileBytes(entity.localUri),
+            )
+            telemetry.track(proofGallerySaveCompletedEvent, proofAnalyticsProps(entity) + ("duration_ms" to (clock() - startedAtMs).toString()))
+        } catch (error: Throwable) {
+            val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+            recordProofEvent(
+                entity,
+                "gallery_save_failed_upload_continues",
+                entity.processingState,
+                entity.stateAttempt,
+                durationMs = clock() - startedAtMs,
+                errorClass = errorClass,
+                retryable = false,
+            )
+            telemetry.track(proofGallerySaveFailedEvent, proofAnalyticsProps(entity) + ("error_class" to errorClass))
+        }
+    }
+
+    private suspend fun recordProofEvent(
+        entity: ProofCaptureEntity,
+        stage: String,
+        toState: String,
+        attempt: Int,
+        durationMs: Long? = null,
+        bytesIn: Long? = null,
+        bytesOut: Long? = null,
+        errorClass: String? = null,
+        retryable: Boolean? = null,
+    ) {
+        dao.insertStateEvent(
+            ProofCaptureStateEventEntity(
+                id = idGenerator(),
+                proofId = entity.id,
+                fromState = entity.processingState,
+                toState = toState,
+                stage = stage,
+                attempt = attempt,
+                occurredAtMs = clock(),
+                durationMs = durationMs,
+                bytesIn = bytesIn,
+                bytesOut = bytesOut,
+                errorClass = errorClass,
+                retryable = retryable,
+            ),
+        )
     }
 
     private fun proofUploadGroupKey(entity: ProofCaptureEntity, scopeId: String): String =
@@ -980,6 +1183,66 @@ private fun decodeServerProofId(resultJson: String?): String? {
 }
 
 private const val corruptProofUploadResultMessage = "Proof upload finished without a server proof id. Record this video again."
+
+private const val proofProcessingStartedEvent = "proof_processing_started"
+private const val proofProcessingCompletedEvent = "proof_processing_completed"
+private const val proofProcessingFailedEvent = "proof_processing_failed"
+private const val proofGallerySaveStartedEvent = "proof_gallery_save_started"
+private const val proofGallerySaveCompletedEvent = "proof_gallery_save_completed"
+private const val proofGallerySaveFailedEvent = "proof_gallery_save_failed"
+private const val proofUploadRegisteredEvent = "proof_upload_registered"
+
+private fun proofAnalyticsProps(
+    entity: ProofCaptureEntity,
+    attempt: Int = entity.stateAttempt,
+    uploadOriginal: Boolean = entity.uploadOriginal,
+): Map<String, String> = buildMap {
+    put("proof_id", entity.id)
+    put("task_id", entity.taskId)
+    put("partition_key", entity.partitionKey)
+    put("field_key", entity.fieldKey)
+    put("proof_subject", entity.proofSubject)
+    entity.subjectId?.takeIf { it.isNotBlank() }?.let { put("subject_id", it) }
+    entity.featureSurface?.takeIf { it.isNotBlank() }?.let { put("feature_surface", it) }
+    entity.proofMode?.takeIf { it.isNotBlank() }?.let { put("proof_mode", it) }
+    entity.slotIndex?.let { put("slot_index", it.toString()) }
+    put("slot_required", entity.slotRequired.toString())
+    put("capture_source", entity.captureSource)
+    entity.capturedByPrincipalId?.takeIf { it.isNotBlank() }?.let { put("operator_principal_id", it) }
+    put("mime_type", entity.mimeType)
+    put("processing_state", entity.processingState)
+    put("processing_attempt", attempt.toString())
+    put("upload_original", uploadOriginal.toString())
+    put("duration_bucket", durationBucket(entity.durationMs ?: (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0)))
+    entity.originalBytes?.let { put("original_size_bucket", byteBucket(it)) }
+    entity.processedBytes?.let { put("processed_size_bucket", byteBucket(it)) }
+    entity.inputWidth?.let { put("input_width", it.toString()) }
+    entity.inputHeight?.let { put("input_height", it.toString()) }
+    entity.targetVideoBitrate?.let { put("target_video_bitrate", it.toString()) }
+    entity.targetAudioBitrate?.let { put("target_audio_bitrate", it.toString()) }
+    entity.locationStatus?.takeIf { it.isNotBlank() }?.let { put("location_status", it) }
+    entity.geocoderStatus?.takeIf { it.isNotBlank() }?.let { put("geocoder_status", it) }
+}
+
+private fun localFileBytes(localUri: String): Long? = runCatching {
+    val file = if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)
+    file.takeIf { it.exists() }?.length()
+}.getOrNull()
+
+private fun byteBucket(bytes: Long): String = when {
+    bytes < 1_000_000 -> "lt_1mb"
+    bytes < 5_000_000 -> "1_5mb"
+    bytes < 20_000_000 -> "5_20mb"
+    bytes < 100_000_000 -> "20_100mb"
+    else -> "gte_100mb"
+}
+
+private fun durationBucket(durationMs: Long): String = when {
+    durationMs < 15_000 -> "lt_15s"
+    durationMs < 60_000 -> "15_60s"
+    durationMs < 180_000 -> "1_3m"
+    else -> "gte_3m"
+}
 
 private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     id = id,

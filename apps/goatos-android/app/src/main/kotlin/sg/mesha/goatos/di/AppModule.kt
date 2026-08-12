@@ -21,6 +21,8 @@ import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
+import sg.mesha.goatos.core.data.capture.ProofMediaProcessor
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
@@ -590,13 +592,18 @@ object AppModule {
     @Provides
     @Singleton
     fun provideProofCaptureRepository(
+        @ApplicationContext context: Context,
         dao: ProofCaptureDao,
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
+        analytics: AnalyticsPort,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
         dao = dao,
         syncRepository = syncRepository,
         appScope = appScope,
+        mediaProcessor = ProofMediaProcessor.Noop,
+        galleryProofSaver = MediaStoreGalleryProofSaver(context),
+        telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
 
     // --- Offline sync engine (outbox) --------------------------------------------------
@@ -754,7 +761,6 @@ object AppModule {
         appScope = appScope,
         foregroundSyncController = foregroundSyncController,
         telemetry = outboxTelemetry,
-        galleryProofSaver = MediaStoreGalleryProofSaver(context),
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned
