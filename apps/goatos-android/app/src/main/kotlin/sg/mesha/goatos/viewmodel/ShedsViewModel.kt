@@ -544,7 +544,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = protocolAdherenceSummary(rowsForSelectedDay, totals),
+            adherence = protocolAdherenceSummary(rowsForSelectedDay, totals, isComplete = pageComplete),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
@@ -636,6 +636,7 @@ internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenc
 internal fun protocolAdherenceSummary(
     rows: List<VaccinationExecutionRowDto>,
     counts: ExecutionCounts = executionCounts(rows),
+    isComplete: Boolean = true,
 ): ProtocolAdherenceSummary? {
     if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
     val accepted = rows.sumOf { row -> row.acceptedAnimalCount() }
@@ -652,6 +653,7 @@ internal fun protocolAdherenceSummary(
         sentBackCount = rows.filter { it.needsRedo() }.sumOf { it.openCount.coerceAtLeast(0) },
         deferredCount = 0,
         acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
+        isComplete = isComplete,
     )
 }
 

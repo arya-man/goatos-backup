@@ -186,6 +186,28 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `overview adherence marks multi page data incomplete instead of presenting page totals as final`() {
+        val firstPageRows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 20,
+                openCount = 10,
+                doneCount = 10,
+                acceptedCount = 8,
+                reviewCount = 2,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+        val summary = protocolAdherenceSummary(
+            rows = firstPageRows,
+            counts = executionCounts(firstPageRows),
+            isComplete = false,
+        )
+
+        assertEquals(false, summary?.isComplete)
+    }
+
+    @Test
     fun `all animals done but draft shed proof still opens execution`() {
         val godelOne = listOf(
             VaccinationExecutionRowDto(
