@@ -2658,6 +2658,44 @@ WITH operator_scope_member AS (
            wm.workforce_member_id DESC
   LIMIT 1
 ),
+current_assignment AS (
+  SELECT assignment.batch_id, assignment.park_id, assignment.physical_shed
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND assignment.batch_id = $4::uuid
+    AND assignment.shed_id = $2::uuid
+    AND (
+      $7::text = ''
+      OR assignment.partition_label = 'whole'
+      OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($7::text)), '^part[[:space:]]+', '')
+    )
+  ORDER BY CASE WHEN assignment.partition_label = 'whole' THEN 1 ELSE 0 END,
+           assignment.assignment_id
+  LIMIT 1
+),
+eligible_assignment_sheds AS (
+  SELECT DISTINCT assignment.shed_id
+  FROM vaccination_drive_assignments assignment
+  JOIN current_assignment current
+    ON current.park_id = assignment.park_id
+   AND current.physical_shed = assignment.physical_shed
+  WHERE assignment.tenant_id = $1::uuid
+    AND (
+      $6::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+),
+tag_candidates AS (
+  SELECT $8::text AS tag
+  UNION ALL SELECT 'GD2-' || $8::text
+  UNION ALL SELECT 'G1-' || $8::text
+  UNION ALL SELECT 'G2-' || $8::text
+  UNION ALL SELECT 'M2-' || $8::text
+  UNION ALL SELECT 'C1-' || $8::text
+  UNION ALL SELECT 'C2-' || $8::text
+  UNION ALL SELECT 'C3-' || $8::text
+),
 matched_goat AS (
   SELECT g.goat_id, g.shed_id, g.park_id
   FROM goats g
@@ -2674,15 +2712,19 @@ matched_goat AS (
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
-    AND g.shed_id = $2::uuid
+    AND g.shed_id IN (SELECT shed_id FROM eligible_assignment_sheds)
     AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
     AND (
-      regexp_replace(lower(btrim(COALESCE(aid1.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
-        = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
-      OR regexp_replace(lower(btrim(COALESCE(aid2.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
-        = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
+      EXISTS (
+        SELECT 1
+        FROM tag_candidates candidate
+        WHERE regexp_replace(lower(btrim(COALESCE(aid1.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+            = regexp_replace(lower(btrim(candidate.tag)), '[^a-z0-9]+', '', 'g')
+           OR regexp_replace(lower(btrim(COALESCE(aid2.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+            = regexp_replace(lower(btrim(candidate.tag)), '[^a-z0-9]+', '', 'g')
+      )
     )
-  ORDER BY g.goat_id ASC
+  ORDER BY CASE WHEN g.shed_id = $2::uuid THEN 0 ELSE 1 END, g.goat_id ASC
   LIMIT 1
 )
 SELECT
