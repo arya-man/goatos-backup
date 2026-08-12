@@ -134,7 +134,7 @@ layer2() {
 
   # (i) RED: one injected failing step must exit non-zero AND write no receipt.
   harness "$tmp/repo/tools/ci/run-local-ci.sh" 'step "INJECTED FAILURE" false;'
-  ( cd "$tmp/repo" && bash tools/ci/run-local-ci.sh all ) >"$tmp/red.log" 2>&1
+  ( cd "$tmp/repo" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY bash tools/ci/run-local-ci.sh all ) >"$tmp/red.log" 2>&1
   status=$?
   [ "$status" -ne 0 ] && ok "injected failure => non-zero exit" || bad "injected failure exited 0"
   [ ! -e "$receipt" ] && ok "injected failure => NO receipt" || bad "RECEIPT WRITTEN ON A RED RUN"
@@ -143,7 +143,7 @@ layer2() {
   # (ii) POSITIVE CONTROL: all-green must exit 0 AND write a receipt. Without
   #      this, layer 2 would pass even if the script were broken to always fail.
   harness "$tmp/repo/tools/ci/run-local-ci.sh" 'step "stub common" true;'
-  ( cd "$tmp/repo" && bash tools/ci/run-local-ci.sh all ) >"$tmp/green.log" 2>&1
+  ( cd "$tmp/repo" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY bash tools/ci/run-local-ci.sh all ) >"$tmp/green.log" 2>&1
   status=$?
   [ "$status" -eq 0 ] && ok "all-green => exit 0" || { bad "all-green exited ${status} (test would be vacuous)"; tail -25 "$tmp/green.log" >&2; }
   [ -e "$receipt" ] && ok "all-green => receipt written" || bad "all-green wrote no receipt (test would be vacuous)"
