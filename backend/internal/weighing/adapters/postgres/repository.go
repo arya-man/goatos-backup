@@ -1085,15 +1085,20 @@ WITH taken AS (
    AND stored_shed.location_id IS NOT NULL
    AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
    AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
-   AND NULLIF(
-     regexp_replace(
-       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
-       '^\s*-?\s*',
-       '',
-       'g'
+   AND BTRIM(regexp_replace(
+     NULLIF(
+       regexp_replace(
+         BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+         '^\s*-?\s*',
+         '',
+         'g'
+       ),
+       ''
      ),
-     ''
-   ) = BTRIM(cs.partition_label)
+     '^\s*part\s*',
+     '',
+     'i'
+   )) = BTRIM(regexp_replace(BTRIM(cs.partition_label), '^\s*part\s*', '', 'i'))
   WHERE cs.tenant_id=$1::uuid
     AND cs.park_id=$2::uuid
     AND cs.start_business_date=$3::date
@@ -1139,7 +1144,7 @@ bucket_catalog AS (
            'g'
          ),
          ''
-       ) = BTRIM(sp.normalized_label)
+       ) IN (BTRIM(sp.partition_label), BTRIM(sp.normalized_label))
    )
   WHERE shed.tenant_id=$1::uuid
     AND shed.parent_location_id=$2::uuid
@@ -1165,7 +1170,7 @@ bucket_catalog AS (
            'g'
          ),
          ''
-       ) = BTRIM(represented_partition.normalized_label)
+       ) IN (BTRIM(represented_partition.partition_label), BTRIM(represented_partition.normalized_label))
       WHERE represented_partition.tenant_id=shed.tenant_id
         AND represented_partition.shed_id=shed.location_id
         AND represented_partition.status='active'
@@ -3107,15 +3112,20 @@ WITH open_claims AS (
    AND stored_shed.location_id IS NOT NULL
    AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
    AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
-   AND NULLIF(
-     regexp_replace(
-       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
-       '^\s*-?\s*',
-       '',
-       'g'
+   AND BTRIM(regexp_replace(
+     NULLIF(
+       regexp_replace(
+         BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+         '^\s*-?\s*',
+         '',
+         'g'
+       ),
+       ''
      ),
-     ''
-   ) = BTRIM(cs.partition_label)
+     '^\s*part\s*',
+     '',
+     'i'
+   )) = BTRIM(regexp_replace(BTRIM(cs.partition_label), '^\s*part\s*', '', 'i'))
   WHERE cs.tenant_id=$1::uuid
     AND cs.park_id=$2::uuid
     AND cs.start_business_date=$3::date
@@ -3172,15 +3182,20 @@ WITH open_claims AS (
    AND stored_shed.location_id IS NOT NULL
    AND NULLIF(BTRIM(cs.partition_label), '') IS NOT NULL
    AND starts_with(BTRIM(represented_shed.name), BTRIM(stored_shed.name))
-   AND NULLIF(
-     regexp_replace(
-       BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
-       '^\s*-?\s*',
-       '',
-       'g'
+   AND BTRIM(regexp_replace(
+     NULLIF(
+       regexp_replace(
+         BTRIM(replace(BTRIM(represented_shed.name), BTRIM(stored_shed.name), '')),
+         '^\s*-?\s*',
+         '',
+         'g'
+       ),
+       ''
      ),
-     ''
-   ) = BTRIM(cs.partition_label)
+     '^\s*part\s*',
+     '',
+     'i'
+   )) = BTRIM(regexp_replace(BTRIM(cs.partition_label), '^\s*part\s*', '', 'i'))
   WHERE cs.tenant_id=$1::uuid
     AND cs.status NOT IN ('canceled', 'closed', 'completed')
 ),

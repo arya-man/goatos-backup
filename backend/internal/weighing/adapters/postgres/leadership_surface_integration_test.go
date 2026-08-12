@@ -252,6 +252,48 @@ SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXC
 	}
 }
 
+func TestPlannerParkBucketsCollapsesPartLabelPartitionsWhenPhysicalPartShedsExist(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21301)
+	partOne := lcpUUID(21302)
+	partTwo := lcpUUID(21303)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 720)
+	lsInsertShed(t, ctx, pool, partOne, repoPark, "Alias Parent - Part 1", 721)
+	lsInsertShed(t, ctx, pool, partTwo, repoPark, "Alias Parent - Part 2", 722)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES
+  ($1::uuid, $2::uuid, 'Part 1', '1', 'goat_attested', 1),
+  ($1::uuid, $2::uuid, 'Part 2', '2', 'goat_attested', 2)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+
+	buckets := drainAllParkBuckets(t, ctx, repo, "2026-09-03", "")
+	names := map[string]int{}
+	for _, bucketList := range buckets {
+		for _, bucket := range bucketList {
+			names[bucket.Name]++
+		}
+	}
+	for _, want := range []string{"Alias Parent - Part 1", "Alias Parent - Part 2"} {
+		if names[want] != 1 {
+			t.Fatalf("bucket %q appears %d times, want exactly once in %#v", want, names[want], names)
+		}
+	}
+	for _, wrong := range []string{"Alias Parent", "Alias Parent - Part 1 - Part 1", "Alias Parent - Part 2 - Part 2"} {
+		if names[wrong] != 0 {
+			t.Fatalf("wrong bucket %q leaked into planner buckets: %#v", wrong, names)
+		}
+	}
+}
+
 func TestPlannerParkBucketsMarksOldParentPartitionTaskScheduledOnNumberedShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -501,6 +543,62 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 	}
 }
 
+func TestCreateCampaignBlocksPartShedWhenLegacyNormalizedPartitionIsOpen(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21501)
+	partOne := lcpUUID(21502)
+	legacyCampaignID := lcpUUID(21503)
+	legacyBucketID := lcpUUID(21504)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 740)
+	lsInsertShed(t, ctx, pool, partOne, repoPark, "Alias Parent - Part 1", 741)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'goat_attested', 1)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+	lcpInsertCampaign(t, ctx, pool, legacyCampaignID, repoPark, "2027-01-11", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, legacyCampaignID, "2027-01-11")
+	lcpInsertBucket(t, ctx, pool, legacyBucketID, legacyCampaignID, parent, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds
+SET partition_label='1'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
+		repoTenant, legacyBucketID)
+
+	_, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2027-01-11",
+		PeriodEndDate:     "2027-01-11",
+		StartBusinessDate: "2027-01-11",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "legacy-parent-part-label-conflict",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       partOne,
+			LocationType:     "shed",
+			DisplayName:      "Alias Parent - Part 1",
+			WeighingCategory: domain.CategoryIndividualAnimal,
+			OperatorUserID:   repoOperator,
+		}},
+	})
+	if !errors.Is(err, ports.ErrShedAlreadyScheduled) {
+		t.Fatalf("part shed create err=%v, want ErrShedAlreadyScheduled", err)
+	}
+	conflict := &ports.ShedScheduleConflict{}
+	if !errors.As(err, &conflict) || len(conflict.Sheds) != 1 {
+		t.Fatalf("err=%v, want one shed schedule conflict", err)
+	}
+}
+
 // A shed whose weighing is DONE is finished work, not an occupied slot: the CEO
 // may schedule it again on the SAME date, in the same week, exactly as they may
 // schedule a shed nobody ever touched. Only work still OWED blocks (maintainer
@@ -592,6 +690,68 @@ func TestPublishStillSucceedsWithTheDuplicateRecheckInPlace(t *testing.T) {
 	}
 	if published.Status != domain.StatusPublished {
 		t.Fatalf("status=%s, want published", published.Status)
+	}
+}
+
+func TestPublishBlocksPartShedWhenLegacyNormalizedPartitionAppearsAfterCreate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21601)
+	partOne := lcpUUID(21602)
+	legacyCampaignID := lcpUUID(21603)
+	legacyBucketID := lcpUUID(21604)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Alias Parent", 750)
+	lsInsertShed(t, ctx, pool, partOne, repoPark, "Alias Parent - Part 1", 751)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'goat_attested', 1)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+
+	draft, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2027-01-18",
+		PeriodEndDate:     "2027-01-18",
+		StartBusinessDate: "2027-01-18",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "part-label-publish-draft",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       partOne,
+			LocationType:     "shed",
+			DisplayName:      "Alias Parent - Part 1",
+			WeighingCategory: domain.CategoryIndividualAnimal,
+			OperatorUserID:   repoOperator,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+
+	lcpInsertCampaign(t, ctx, pool, legacyCampaignID, repoPark, "2027-01-18", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, legacyCampaignID, "2027-01-18")
+	lcpInsertBucket(t, ctx, pool, legacyBucketID, legacyCampaignID, parent, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds
+SET partition_label='1'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
+		repoTenant, legacyBucketID)
+
+	_, err = repo.PublishCampaign(ctx, repoTenant, draft.CampaignID, repoOperator, "part-label-publish-conflict")
+	if !errors.Is(err, ports.ErrShedAlreadyScheduled) {
+		t.Fatalf("publish err=%v, want ErrShedAlreadyScheduled", err)
+	}
+	conflict := &ports.ShedScheduleConflict{}
+	if !errors.As(err, &conflict) || len(conflict.Sheds) != 1 {
+		t.Fatalf("err=%v, want one shed schedule conflict", err)
 	}
 }
 
