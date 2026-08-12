@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -850,9 +851,10 @@ private fun VerifyVideoPlayer(
         // hand the verifier a seek bar. This is a label, so she can see how long the clip is and
         // how far in she is, and still cannot skip through it.
         VideoTimeReadout(player = player, modifier = Modifier.align(Alignment.BottomStart))
-        PlayPauseButton(
-            isPlaying = isPlaying,
-            onClick = {
+        if (!isPlaying) {
+            PlayPauseButton(
+                isPlaying = false,
+                onClick = {
                 // INTENT half of the intent/outcome pair (docs/observability/
                 // TELEMETRY_GUARDRAILS.md): recorded BEFORE pause()/play() is even called, so a
                 // tap is proven to have happened whether or not the player responds. The matching
@@ -892,9 +894,10 @@ private fun VerifyVideoPlayer(
                     }
                     player.play()
                 }
-            },
-            modifier = Modifier.align(Alignment.Center),
-        )
+                },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
         // Maintainer decision 2026-08-04 SUPERSEDES 2026-08-02: the verifier keeps NO SCRUBBING
         // (useController stays false, so there is no seek bar) but now gets FULLSCREEN and a
         // read-only elapsed/total readout.
@@ -1213,9 +1216,10 @@ private fun FullscreenVideoDialog(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            PlayPauseButton(
-                isPlaying = isPlaying,
-                onClick = {
+            if (!isPlaying) {
+                PlayPauseButton(
+                    isPlaying = false,
+                    onClick = {
                     // INTENT half — see the inline player's identical click handler above for the
                     // full rationale. The fullscreen player is always prepared eagerly on
                     // creation, so `armed` is always true here.
@@ -1242,9 +1246,10 @@ private fun FullscreenVideoDialog(
                         }
                         player.play()
                     }
-                },
-                modifier = Modifier.align(Alignment.Center),
-            )
+                    },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -1394,21 +1399,37 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         rows.forEachIndexed { index, row ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
-            ) {
-                // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
-                // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
-                Text(text = contextRowLabel(row), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                val displayValue = remember(row.value, row.kind, locale) {
-                    if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                        formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
-                    } else {
-                        row.value
-                    }
+            val label = contextRowLabel(row)
+            val displayValue = remember(row.value, row.kind, locale) {
+                if (row.kind == VerifyContextKind.CAPTURED_AT) {
+                    formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
+                } else {
+                    row.value
                 }
-                Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
+            }
+            val stacked = row.backendLabel?.isNotBlank() == true || displayValue.length > 32
+            if (stacked) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp)) {
+                    // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                    // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
+                    Text(text = label, color = MeshaColors.Muted, fontSize = 13.sp)
+                    Text(
+                        text = displayValue,
+                        color = MeshaColors.Ink,
+                        style = MeshaType.listTitle,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
+                ) {
+                    // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                    // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
+                    Text(text = label, color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.widthIn(max = 120.dp).weight(1f))
+                    Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
+                }
             }
             if (index != rows.lastIndex) {
                 HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)

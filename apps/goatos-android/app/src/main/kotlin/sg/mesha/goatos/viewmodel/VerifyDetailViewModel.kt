@@ -196,7 +196,7 @@ class VerifyDetailViewModel @Inject constructor(
             .onEach { resource -> if (resource.data != null) _hasLoadedOnce.value = true }
             .scan(emptyList<VerificationQueueItem>()) { previous, resource ->
                 val answered = resource.data ?: return@scan previous
-                val matching = answered.items.filter { it.verificationGroupKey() == itemId }
+                val matching = answered.items.filter { it.verificationGroupKey() == itemId || it.itemId == itemId }
                 if (
                     matching.isEmpty() &&
                     previous.isNotEmpty() &&
