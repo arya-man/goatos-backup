@@ -108,12 +108,11 @@ paths:
       tags:
         - Operator App Bootstrap
       operationId: recordAppAnalyticsEvent
-      summary: Mirror one Android analytics event into backend audit storage.
+      summary: Mirror one Android analytics event into backend analytics storage.
       description: >-
         Authenticated app clients call this for every analytics event in parallel
-        with Firebase. The backend stores the event in audit_log with
-        action=app.analytics.event so scan/proof journeys can be queried even
-        when Firebase UI is delayed.
+        with Firebase. The backend stores the event in analytics.app_events so
+        scan/proof journeys can be queried even when Firebase UI is delayed.
       requestBody:
         required: true
         content:

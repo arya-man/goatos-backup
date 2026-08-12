@@ -56,6 +56,43 @@ func TestWeighingExecutorCanUploadProof(t *testing.T) {
 	}
 }
 
+func TestFeedExecutorCanUploadProof(t *testing.T) {
+	proofWriteOperations := []string{
+		"createProofUpload",
+		"uploadProofLocal",
+		"completeProofUpload",
+		"deleteUnattachedProofUpload",
+	}
+
+	byOperation := map[string]Route{}
+	for _, route := range ProtectedRoutes() {
+		byOperation[route.OperationID] = route
+	}
+
+	for _, operation := range proofWriteOperations {
+		route, ok := byOperation[operation]
+		if !ok {
+			t.Fatalf("proof route %s is not registered in protectedRoutes", operation)
+		}
+		if !RoleHasPermission(RoleParkHead, FeedDirectionComplete) {
+			t.Fatal("test premise broken: park_head must hold feed_direction.complete")
+		}
+		if !AuthorizeRoute(route, []string{RoleParkHead}) {
+			t.Errorf("park_head holds feed_direction.complete but is not authorized for %s", operation)
+		}
+	}
+}
+
+func TestAppAnalyticsRouteIsRegisteredForAuthenticatedAppClients(t *testing.T) {
+	route, ok := Match("POST", "/app/analytics/events")
+	if !ok {
+		t.Fatal("POST /app/analytics/events must be a protected route")
+	}
+	if !AuthorizeRoute(route, []string{RoleOperator}) {
+		t.Fatal("operator app clients must be authorized to mirror analytics events")
+	}
+}
+
 // TestWeighingExecuteIsNotTaskExecuteEscalation is the privilege-escalation guard on the fix
 // above, and it must pass BOTH before and after it. The tempting one-line "fix" was to add
 // TaskExecute to growth_director; TaskExecute is the OPERATOR's broad task-execution grant and
@@ -108,8 +145,8 @@ func TestProofUploadStaysClosedToNonExecutors(t *testing.T) {
 	// pc_director is deliberately absent: it already holds task.execute today, so it could
 	// always create proof uploads. The guard is on roles that execute NEITHER kind of work.
 	for _, role := range []string{RoleFeedDirector, RoleHealthDirector} {
-		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) {
-			t.Fatalf("test premise broken: %s must hold neither task.execute nor weighing.execute", role)
+		if RoleHasPermission(role, TaskExecute) || RoleHasPermission(role, WeighingExecute) || RoleHasPermission(role, FeedDirectionComplete) {
+			t.Fatalf("test premise broken: %s must hold no proof-producing execute permission", role)
 		}
 		if AuthorizeRoute(route, []string{role}) {
 			t.Errorf("%s executes no weighing or task work and must not create proof uploads", role)

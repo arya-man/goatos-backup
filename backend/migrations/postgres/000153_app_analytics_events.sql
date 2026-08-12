@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE SCHEMA IF NOT EXISTS analytics;
 
 CREATE TABLE IF NOT EXISTS analytics.app_events (
@@ -26,3 +27,6 @@ CREATE INDEX IF NOT EXISTS app_events_tenant_event_received_idx
 
 CREATE INDEX IF NOT EXISTS app_events_device_received_idx
   ON analytics.app_events (device_id, received_at DESC);
+
+-- +goose Down
+DROP TABLE IF EXISTS analytics.app_events;
