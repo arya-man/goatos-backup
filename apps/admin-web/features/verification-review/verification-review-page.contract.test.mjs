@@ -24,11 +24,23 @@ test("the oversight filters flag is read from the page contract's oversight_filt
   );
 });
 
+// Two independent gates guard this row and BOTH must survive. `module_filter` is the backend's
+// per-principal offer (it is withdrawn from the verifier, whose sidebar already carries one leaf
+// per evidence module), and `oversight_filters` is the leadership capability that introduced the
+// row's cross-module reach. Asserting only on the pair as a whole would let a later edit drop
+// either one silently, so the test names each flag.
 test("the module-chip row is gated on oversightFiltersEnabled", () => {
+  const chipRow = source.match(/\{[^\n]*modules\.length > 1 \? \(/);
+  assert.ok(chipRow, "expected a module chip row conditioned on modules.length > 1");
   assert.match(
-    source,
-    /\{oversightFiltersEnabled && modules\.length > 1 \? \(/,
+    chipRow[0],
+    /oversightFiltersEnabled/,
     "the module chip row must require oversightFiltersEnabled in addition to having more than one module option",
+  );
+  assert.match(
+    chipRow[0],
+    /moduleFilterOffered/,
+    "the module chip row must also honour the backend's module_filter offer, which is withdrawn for the verifier",
   );
 });
 
