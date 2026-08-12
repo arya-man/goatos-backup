@@ -58,6 +58,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -720,7 +721,7 @@ private fun ModuleDrawer(
         modifier = Modifier.width(288.dp).fillMaxHeight(),
     ) {
         Column(Modifier.fillMaxSize()) {
-            DrawerHeader(profile)
+            DrawerHeader(profile, appVersionLabel = appVersionLabel())
             Column(
                 Modifier
                     .weight(1f)
@@ -756,7 +757,7 @@ private fun ModuleDrawer(
 }
 
 @Composable
-private fun DrawerHeader(profile: DrawerProfile?) {
+private fun DrawerHeader(profile: DrawerProfile?, appVersionLabel: String? = null) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -790,10 +791,15 @@ private fun DrawerHeader(profile: DrawerProfile?) {
                 // is W600, which would bolden this sub-label.
                 Text(sub, color = MeshaColors.Muted, fontSize = 11.5.sp)
             }
+            appVersionLabel?.takeIf { it.isNotBlank() }?.let {
+                Text(it, color = MeshaColors.Faint, style = MeshaType.overline)
+            }
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(MeshaColors.Hair))
 }
+
+private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 
 @Composable
 private fun DrawerGroupLabel(text: String) {

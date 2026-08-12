@@ -167,6 +167,7 @@ class MainActivity : ComponentActivity() {
                         onSignInEmail = sessionViewModel::signInWithEmail,
                         onGoogle = { sessionViewModel.signInWithGoogle(this@MainActivity) },
                         onForgotPassword = sessionViewModel::sendPasswordReset,
+                        appVersionLabel = appVersionLabel(),
                         isLoading = uiState.isLoading,
                         errorReason = uiState.errorReason,
                         errorDetail = uiState.errorDetail,
@@ -336,6 +337,8 @@ internal fun dispatchRfidFirst(
     rfidConsumes: () -> Boolean,
     dispatchNormally: () -> Boolean,
 ): Boolean = if (rfidConsumes()) true else dispatchNormally()
+
+private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 
 @Composable
 private fun BootstrapLoading() {
