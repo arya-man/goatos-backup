@@ -21,7 +21,7 @@ test("the period control is a calendar, not a fixed-window select", () => {
 
 test("the page lands on the 30 days before today, inclusive", () => {
   assert.match(source, /const DEFAULT_WINDOW_DAYS = 30;/);
-  assert.match(source, /return \{ from: istDayPlus\(today, -DEFAULT_WINDOW_DAYS\), to: today \};/);
+  assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
   assert.match(source, /import \{ istDayPlus, todayIso \} from "@\/lib\/format";/);
