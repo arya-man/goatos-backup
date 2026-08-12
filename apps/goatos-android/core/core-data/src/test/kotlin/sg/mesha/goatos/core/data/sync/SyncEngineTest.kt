@@ -33,6 +33,10 @@ import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import java.io.IOException
@@ -719,6 +723,51 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals(VerificationDecision.APPROVED, seenDecision)
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-v1")!!.status)
+    }
+
+    @Test
+    fun `dispatches VERIFICATION_REVIEW_EVENTS through the backend audit endpoint`() = runBlocking {
+        val store = FakeOutboxStore()
+        val request = VerificationReviewEventBatchRequestDto(
+            events = listOf(
+                VerificationReviewEventRequestDto(
+                    itemId = "item-1",
+                    proofId = "proof-1",
+                    sessionId = "session-1",
+                    eventType = "video_play",
+                    occurredAt = "2026-08-12T05:30:00Z",
+                    payload = VerificationReviewEventPayloadDto(videoDurationMs = 25_000L),
+                    clientEventId = "client-event-1",
+                ),
+            ),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "row-review-1",
+                opType = OutboxOpType.VERIFICATION_REVIEW_EVENTS.name,
+                groupKey = "verification-review:item-1",
+                idempotencyKey = "verification-review:client-event-1",
+                payloadJson = syncJson.encodeToString(VerificationReviewEventsPayload(request = request)),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi().apply {
+            recordVerificationReviewEventsFn = { VerificationReviewEventBatchResponseDto(inserted = it.events.size) }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf(request), api.reviewEventCalls)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-review-1")!!.status)
     }
 
     @Test

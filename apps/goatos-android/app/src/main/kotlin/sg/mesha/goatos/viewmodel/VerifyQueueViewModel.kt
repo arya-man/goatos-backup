@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
 import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -486,6 +487,7 @@ class VerifyQueueViewModel @Inject constructor(
 
     private fun recordBackendQueueOpened(scope: VerifyQueueScope) {
         val category = scope.category ?: return
+        val clientEventId = UUID.randomUUID().toString()
         val event = VerificationReviewEventRequestDto(
             itemId = null,
             sessionId = reviewQueueSessionId,
@@ -497,11 +499,18 @@ class VerifyQueueViewModel @Inject constructor(
                 shedId = scope.shedId,
                 status = scope.status,
             ),
-            clientEventId = UUID.randomUUID().toString(),
+            clientEventId = clientEventId,
         )
         viewModelScope.launch {
-            repo.recordReviewEvents(listOf(event)).onFailure { error ->
-                runCatching { crashReporter.recordException(error, "verification queue review event upload failed") }
+            val result = syncRepo.enqueueVerificationReviewEvents(
+                groupKey = "verification-review-queue:$category",
+                idempotencyKey = "verification-review:$clientEventId",
+                request = VerificationReviewEventBatchRequestDto(events = listOf(event)),
+            )
+            if (result is AppResult.Err) {
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification queue review event enqueue failed") }
+                }
             }
         }
     }

@@ -20,6 +20,8 @@ enum class OutboxOpType {
     VERIFICATION_CLOSE,
     VERIFICATION_CLOSE_SUBMISSION,
     VERIFICATION_CLOSE_BATCH,
+    /** Raw verifier journey audit rows (`POST /verification/review-events`). */
+    VERIFICATION_REVIEW_EVENTS,
 
     /**
      * Counts vertical writes (`POST /app/counts/…-events`). Adding an op type needs NO Room
