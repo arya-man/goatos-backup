@@ -109,7 +109,7 @@ WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 	AND ($4::text='' OR t.park_id=$4::uuid)
-	AND (cardinality($9::uuid[]) = 0 OR t.park_id = ANY($9::uuid[]))
+	AND (coalesce(cardinality($9::uuid[]), 0) = 0 OR t.park_id = ANY($9::uuid[]))
 	-- Shed, not shed+pen. There is no partition filter because there is no partition grain: one
 	-- shed is one task, so narrowing further could only hide part of a shed's own work.
 	AND ($5::text='' OR t.shed_id=$5::uuid)
@@ -155,7 +155,7 @@ JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
-  AND (cardinality($5::uuid[]) = 0 OR t.park_id = ANY($5::uuid[]))
+  AND (coalesce(cardinality($5::uuid[]), 0) = 0 OR t.park_id = ANY($5::uuid[]))
 GROUP BY t.park_id, p.name
 UNION ALL
 -- The shed option ID is the shed UUID, plainly. It was briefly an opaque
@@ -172,7 +172,7 @@ WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
   AND ($4::text='' OR t.park_id=$4::uuid)
-  AND (cardinality($5::uuid[]) = 0 OR t.park_id = ANY($5::uuid[]))
+  AND (coalesce(cardinality($5::uuid[]), 0) = 0 OR t.park_id = ANY($5::uuid[]))
 GROUP BY t.shed_id, s.name
 ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.AuthorizedParkIDs)
 	if err != nil {
