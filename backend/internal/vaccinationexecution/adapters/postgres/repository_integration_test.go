@@ -1228,6 +1228,105 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 	}
 }
 
+func TestClassifyScanTagFindsNeighborPartitionFutureTargetObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		part2Goat    = "70000000-0000-4000-8000-000000000194"
+		targetBatch  = "70000000-0000-4000-8000-000000000195"
+		targetTask   = "70000000-0000-4000-8000-000000000196"
+		targetOblET  = "70000000-0000-4000-8000-000000000197"
+		targetOblSP  = "70000000-0000-4000-8000-000000000198"
+		sheepPoxRule = "70000000-0000-4000-8000-000000000199"
+	)
+	execProjectionSQL(t, ctx, pool, "current Part 1 task", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Part 1 current drive','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`,
+		testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link current task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "link current task obligation", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, testObl)
+	execProjectionSQL(t, ctx, pool, "current Part 1 assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'Part 1', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
+	execProjectionSQL(t, ctx, pool, "current goat Part 1",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 1', 'K1 Shed')`,
+		testTenant, testGoat, testShed)
+
+	insertProjectionGoat(t, ctx, pool, part2Goat, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "neighbor Part 2 tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','GD2-RFID-200','gd2-rfid-200','active','global','v1',now())`,
+		testTenant, part2Goat)
+	execProjectionSQL(t, ctx, pool, "neighbor goat Part 2",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed')`,
+		testTenant, part2Goat, testShed)
+	execProjectionSQL(t, ctx, pool, "part catalog",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+		 VALUES ($1, $2, 'Part 1', '1', 'active', 'manual'), ($1, $2, 'Part 2', '2', 'active', 'manual')
+		 ON CONFLICT DO NOTHING`,
+		testTenant, testShed)
+	execProjectionSQL(t, ctx, pool, "sheep pox rule", `
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy)
+VALUES ($1, $2, $3, 'sheep_pox_adult_w1', 2, 'birth_age', '{}'::jsonb, '{}'::jsonb)`,
+		sheepPoxRule, testTenant, testVersion)
+	execProjectionSQL(t, ctx, pool, "future target batch",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'planned', DATE '2026-06-25', $5)`,
+		targetBatch, testTenant, testVersion, testShed, testOperator)
+	execProjectionSQL(t, ctx, pool, "future Part 2 target task", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Part 2 future drive','assigned',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`,
+		targetTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, targetBatch)
+	execProjectionSQL(t, ctx, pool, "link target task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, targetTask, testTenant, targetBatch)
+	execProjectionSQL(t, ctx, pool, "future ET obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+   target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key, sequence)
+VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-25 00:00:00+00','scheduled',$8,'neighbor-future-et',1)`,
+		targetOblET, testTenant, testVersion, testRule, targetBatch, part2Goat, testShed, targetTask)
+	execProjectionSQL(t, ctx, pool, "future Sheep Pox obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+   target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key, sequence)
+VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-25 00:00:00+00','scheduled',$8,'neighbor-future-sp',2)`,
+		targetOblSP, testTenant, testVersion, sheepPoxRule, targetBatch, part2Goat, testShed, targetTask)
+	execProjectionSQL(t, ctx, pool, "future Part 2 assignment",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-25', $3, $4, $5, 'K1 Shed', 'Part 2', 1)`,
+		testTenant, targetBatch, testOperator, testPark, testShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	got, err := repo.ClassifyScanTag(ctx, domain.ScanTagClassificationQuery{
+		TenantID:             testTenant,
+		ShedID:               testShed,
+		TaskID:               testTask,
+		PartitionLabel:       "Part 1",
+		Tag:                  "GD2-RFID-200",
+		OperatorScopeActorID: testOperator,
+	})
+	if err != nil {
+		t.Fatalf("ClassifyScanTag: %v", err)
+	}
+	if got.Outcome != "neighbor_partition" || got.GoatID != part2Goat || got.TargetTaskID != targetTask || got.BatchID != targetBatch {
+		t.Fatalf("classification=%#v, want Part 2 future target task/batch", got)
+	}
+	if got.PartitionLabel != "Part 2" || got.SourceShedName != "K1 Shed" || got.OperationalLocationDisplay != "K1 Shed - Part 2" {
+		t.Fatalf("location classification=%#v", got)
+	}
+	if !sameStringSet(got.ObligationIDs, []string{targetOblET, targetOblSP}) {
+		t.Fatalf("obligation ids=%#v, want target future obligations only", got.ObligationIDs)
+	}
+}
+
 func TestScanRosterOneToManyPageBoundaryExecutionDateParkScopeStatusBucketsReturnsScannedAt(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -2210,6 +2309,23 @@ func execProjectionSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, la
 
 func strPtr(value string) *string {
 	return &value
+}
+
+func sameStringSet(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]int, len(got))
+	for _, value := range got {
+		seen[value]++
+	}
+	for _, value := range want {
+		if seen[value] == 0 {
+			return false
+		}
+		seen[value]--
+	}
+	return true
 }
 
 func shedStatusPtr(value domain.ShedStatus) *domain.ShedStatus {

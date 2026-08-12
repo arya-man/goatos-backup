@@ -2657,6 +2657,33 @@ WITH operator_scope_member AS (
            wm.updated_at DESC,
            wm.workforce_member_id DESC
   LIMIT 1
+),
+matched_goat AS (
+  SELECT g.goat_id, g.shed_id, g.park_id
+  FROM goats g
+  LEFT JOIN goat_identifiers aid1
+    ON aid1.tenant_id = g.tenant_id
+   AND aid1.goat_id = g.goat_id
+   AND aid1.identifier_type = 'animal_identifier_1'
+   AND aid1.status = 'active'
+  LEFT JOIN goat_identifiers aid2
+    ON aid2.tenant_id = g.tenant_id
+   AND aid2.goat_id = g.goat_id
+   AND aid2.identifier_type = 'animal_identifier_2'
+   AND aid2.status = 'active'
+  WHERE g.tenant_id = $1::uuid
+    AND g.merged_into_goat_id IS NULL
+    AND g.lifecycle_status = 'alive'
+    AND g.shed_id = $2::uuid
+    AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
+    AND (
+      regexp_replace(lower(btrim(COALESCE(aid1.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+        = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
+      OR regexp_replace(lower(btrim(COALESCE(aid2.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+        = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
+    )
+  ORDER BY g.goat_id ASC
+  LIMIT 1
 )
 SELECT
   g.goat_id::text,
@@ -2736,23 +2763,13 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) vda ON true
 WHERE oi.tenant_id = $1::uuid
-  AND g.shed_id = $2::uuid
-  AND (
-    oi.sop_task_id = NULLIF($3, '')::uuid
-    OR ($4 <> '' AND oi.batch_id = NULLIF($4, '')::uuid)
-  )
-  AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
-  AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+  AND g.goat_id = (SELECT goat_id FROM matched_goat)
+  AND g.shed_id = (SELECT shed_id FROM matched_goat)
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'missed')
   AND vda.assigned IS NOT NULL
   AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
-  AND (
-    regexp_replace(lower(btrim(COALESCE(aid1.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
-      = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
-    OR regexp_replace(lower(btrim(COALESCE(aid2.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
-      = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
-  )
 GROUP BY g.goat_id, aid1.identifier_value, aid2.identifier_value, loc.name, gsp.partition_label, gsp.source_shed_name, COALESCE(oi.sop_task_id, ob.sop_task_id), oi.batch_id
-ORDER BY g.goat_id ASC
+ORDER BY min(oi.due_at) ASC, g.goat_id ASC
 LIMIT 1;
 `
 
