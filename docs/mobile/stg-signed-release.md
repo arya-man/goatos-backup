@@ -302,13 +302,21 @@ attachment; filename="Mesha-<versionName>-code-<versionCode>.apk"
 For example:
 
 ```text
-attachment; filename="Mesha-0.1.17-stg-code-17.apk"
+attachment; filename="Mesha-0.1.19-stg-code-20.apk"
 ```
 
 Verify the local website copy is byte-for-byte the Android release APK:
 
 ```bash
 shasum -a 256 "$APK" /Users/ravi/mesha/website/public/app.apk /Users/ravi/mesha/website/dist/app.apk
+```
+
+Then run the release identity guard. It reads `versionName`/`versionCode` from
+the APK manifest, checks the website `Content-Disposition` filename, and proves
+the Android build, website `public`, and website `dist` APK bytes are identical:
+
+```bash
+tools/ci/check-android-stg-release-version.sh
 ```
 
 After deploy, verify the URL returns an APK response instead of the website:
@@ -335,6 +343,17 @@ https://mesha.sg/app.apk?v=<versionCode>
 
 Chrome must start an APK download. Seeing the Mesha website means the release is
 not done, even if `curl` already returns APK headers.
+
+After deploy, run the same guard against the live URL:
+
+```bash
+LIVE_URL="https://mesha.sg/app.apk?v=<versionCode>" tools/ci/check-android-stg-release-version.sh
+```
+
+Do not report the Android release as complete unless this guard prints one
+release identity and the same identity is visible in Firebase App Distribution
+and Google Play Internal Testing. If Play upload or Play Console access is not
+available, say Play is not verified instead of guessing a version.
 
 Do not use a dirty upload to answer whether a production-like phone APK contains
 a feature. If `-PallowDirtyFirebaseDistribution=true` is used, mark the Firebase
