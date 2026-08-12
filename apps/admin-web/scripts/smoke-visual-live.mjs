@@ -87,6 +87,7 @@ const routes = [
     viewports: ["desktop"],
   },
   { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
+  { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
   { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
   { name: "config", path: "/config?scope_mode=company&category=vaccination" },
   { name: "sops", path: "/sops?scope_mode=company" },

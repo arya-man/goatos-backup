@@ -91,6 +91,10 @@ export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]
 
 // Shed-wise vaccination read model (the main /vaccination table + shed detail + capacity planner).
 export type VaccinationShedSummaryResponse = AppApiComponents["schemas"]["VaccinationShedSummaryResponse"];
+export type VaccinationLiveTrackerResponse = AppApiComponents["schemas"]["VaccinationLiveTrackerResponse"];
+export type VaccinationLiveTrackerStatus = NonNullable<
+  AppApiPaths["/vaccination/live-tracker"]["get"]["parameters"]["query"]
+>["status"];
 export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"];
 export type VaccinationShedDetail = AppApiComponents["schemas"]["VaccinationShedDetail"];
 export type VaccinationShedVaccineRow = AppApiComponents["schemas"]["VaccinationShedVaccineRow"];
@@ -1702,6 +1706,47 @@ export async function getVaccinationCommandBoard(params: {
         drive_park_id: params.driveParkId,
       }),
     }),
+  );
+}
+
+// Live drive-day tracker. ONE read backs the whole page: KPI tiles, operator board, shed proof
+// progress, combo doses, activity feed, attention and verification. It is one call rather than six
+// because a single filter set has to narrow every section at once — and because this page polls, so
+// each extra endpoint would multiply the refresh cost.
+export async function getVaccinationLiveTracker(
+  params: {
+    businessDate?: string;
+    parkId?: string;
+    shedId?: string;
+    partitionLabel?: string;
+    operatorId?: string;
+    vaccineCode?: string;
+    status?: VaccinationLiveTrackerStatus;
+    activityLimit?: number;
+    activityBefore?: string;
+  } = {},
+): Promise<ApiResult<VaccinationLiveTrackerResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationLiveTrackerResponse>("/vaccination/live-tracker", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          business_date: params.businessDate,
+          park_id: params.parkId,
+          shed_id: params.shedId,
+          partition_label: params.partitionLabel,
+          operator_id: params.operatorId,
+          vaccine_code: params.vaccineCode,
+          status: params.status,
+          activity_limit: params.activityLimit,
+          activity_before: params.activityBefore,
+        }),
+      }),
+    ),
   );
 }
 

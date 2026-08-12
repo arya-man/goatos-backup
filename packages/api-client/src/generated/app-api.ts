@@ -803,6 +803,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/live-tracker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live drive-day tracker — KPIs, operator board, shed proof progress, combo doses, activity feed, attention, verification.
+         * @description One read backing the whole live drive tracker. Every section derives from a single membership set (the day's vaccination obligations at ADMINISTRATION grain), so the KPI tiles reconcile with the tables beneath them and one filter set narrows tiles, tables and feed together.
+         */
+        get: operations["getVaccinationLiveTracker"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/operations": {
         parameters: {
             query?: never;
@@ -4754,6 +4774,177 @@ export interface components {
             /** Format: date-time */
             windowEnd?: string;
         };
+        VaccinationLiveTrackerParkCount: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** @description Scheduled ADMINISTRATIONS in this park on the drive day. */
+            count: number;
+        };
+        VaccinationLiveTrackerKPIs: {
+            /** @description ADMINISTRATION grain — one obligation is one administration. Equals the sum of the operator board's scheduled column and of the shed board's scheduled column for the same filter set. */
+            scheduled_administrations: number;
+            scheduled_by_park: components["schemas"]["VaccinationLiveTrackerParkCount"][];
+            /** @description Administrations whose animal has a completed vaccination video proof on the drive day. */
+            proof_videos_received: number;
+            /** @description Administrations whose animal has an RFID scan capture on the drive day. */
+            scan_captures: number;
+            /** @description scheduled_administrations minus proofed, floored at zero. */
+            remaining: number;
+            /** @description ANIMAL grain — animals carrying two or more distinct same-day obligations. */
+            combo_animals: number;
+            /** @description Exactly len(attention). Never a constant. */
+            attention_count: number;
+            /** @description Distinct parks that produced proof or scan evidence on the drive day. */
+            active_parks: number;
+        };
+        VaccinationLiveTrackerOperatorRow: {
+            operator_id: string;
+            operator_name: string;
+            /** @description Seeded workforce display code. May be an "auth:<uuid>" placeholder in environments where operator identity is only partially seeded; identity_resolved reports which. */
+            operator_display_code: string;
+            identity_resolved: boolean;
+            park_id: string;
+            park_name: string;
+            park_code: string;
+            current_shed_id: string;
+            current_shed_label: string;
+            current_partition_label: string;
+            current_vaccine_label: string;
+            scheduled_administrations: number;
+            proof_videos: number;
+            scan_captures: number;
+            remaining: number;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            idle_minutes: number | null;
+            /** @enum {string} */
+            state: "active" | "done" | "not_started" | "idle";
+        };
+        VaccinationLiveTrackerShedRow: {
+            shed_id: string;
+            shed_name: string;
+            physical_shed: string;
+            partition_label: string;
+            shed_label: string;
+            park_id: string;
+            park_name: string;
+            vaccine_code: string;
+            vaccine_label: string;
+            operator_id: string;
+            operator_name: string;
+            scheduled_administrations: number;
+            proof_videos_received: number;
+            remaining: number;
+            /** Format: date-time */
+            last_proof_at: string | null;
+            /** @description Duplicate / not-due / unknown scan attempts recorded against this shed's animals today. */
+            extra_attempt_count: number;
+            /** @enum {string} */
+            state: "receiving" | "slow" | "done" | "not_started" | "review";
+        };
+        VaccinationLiveTrackerComboDose: {
+            obligation_id: string;
+            vaccine_code: string;
+            vaccine_label: string;
+            /** @enum {string} */
+            state: "closed" | "awaiting_proof" | "scheduled";
+        };
+        VaccinationLiveTrackerComboRow: {
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's REAL active primary identifier. No synthetic id is ever generated. */
+            primary_tag: string;
+            /** @description Second active tag where the animal is dual-tagged; empty otherwise. */
+            secondary_tag: string;
+            shed_label: string;
+            /** @enum {string} */
+            proof_state: "video" | "uploading" | "none";
+            proof_count: number;
+            doses: components["schemas"]["VaccinationLiveTrackerComboDose"][];
+        };
+        VaccinationLiveTrackerCombo: {
+            /** @description Exact total combo ANIMALS, computed before the row cap. */
+            animal_count: number;
+            vaccine_labels: string[];
+            rows: components["schemas"]["VaccinationLiveTrackerComboRow"][];
+            rows_truncated: boolean;
+        };
+        VaccinationLiveTrackerActivityItem: {
+            /** @description <kind>:<primary key> — stable dedupe key across polls. */
+            event_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string} */
+            kind: "proof_video" | "scan_capture" | "scan_duplicate" | "scan_unknown" | "administration" | "shed_submitted";
+            actor_id: string;
+            actor_name: string;
+            park_name: string;
+            shed_label: string;
+            vaccine_label: string;
+            goat_id: string;
+            goat_display_id: string;
+            /** @description The tag actually scanned, or the animal's active primary identifier. Never generated. */
+            scanned_identifier: string;
+            detail_code: string;
+        };
+        VaccinationLiveTrackerActivity: {
+            items: components["schemas"]["VaccinationLiveTrackerActivityItem"][];
+            /** Format: date-time */
+            next_cursor: string | null;
+            /** @description Events per minute OBSERVED over the returned window. Null when fewer than two events were returned — the rate is measured, never assumed. */
+            observed_per_min: number | null;
+            window_minutes: number;
+        };
+        VaccinationLiveTrackerAttentionRow: {
+            /** @enum {string} */
+            kind: "extra_attempts" | "idle_operator" | "slow_shed";
+            subject_label: string;
+            operator_id: string;
+            shed_id: string;
+            metric_count: number;
+            total_count: number;
+            elapsed_minutes: number;
+            /** Format: date-time */
+            since_at: string | null;
+            /** @enum {string} */
+            severity: "warn" | "dng";
+        };
+        VaccinationLiveTrackerVerification: {
+            awaiting_review_items: number;
+            awaiting_review_sheds: number;
+            verified_today_items: number;
+            verified_today_sheds: number;
+            rework_requested: number;
+        };
+        VaccinationLiveTrackerFilterOption: {
+            id: string;
+            code: string;
+            partition_label: string;
+            label: string;
+        };
+        /** @description The filter bar's vocabulary, compiled from the day's own rows with only park scope applied. Because it comes from real administrations, an option that matches zero rows cannot be offered, and choosing one operator does not collapse the operator list. */
+        VaccinationLiveTrackerFilterOptions: {
+            parks: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            vaccines: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            operators: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            sheds: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+        };
+        VaccinationLiveTrackerResponse: {
+            /** Format: date */
+            business_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+            kpis: components["schemas"]["VaccinationLiveTrackerKPIs"];
+            operators: components["schemas"]["VaccinationLiveTrackerOperatorRow"][];
+            sheds: components["schemas"]["VaccinationLiveTrackerShedRow"][];
+            combo: components["schemas"]["VaccinationLiveTrackerCombo"];
+            activity: components["schemas"]["VaccinationLiveTrackerActivity"];
+            attention: components["schemas"]["VaccinationLiveTrackerAttentionRow"][];
+            verification: components["schemas"]["VaccinationLiveTrackerVerification"];
+            filter_options: components["schemas"]["VaccinationLiveTrackerFilterOptions"];
+        };
         VaccinationCommandBoardResponse: {
             /** @enum {string} */
             source: "api";
@@ -8198,6 +8389,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationCommandBoardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationLiveTracker: {
+        parameters: {
+            query?: {
+                /** @description Drive day in the business timezone (defaults to today). This is a BUSINESS DATE, not a projection as_of: the response is always reconstructed from canonical rows, so a past drive day is a supported read. Bounded to the last seven days. */
+                business_date?: string;
+                /** @description Optional park narrowing. Clamped server-side to the caller's vaccination park grants. */
+                park_id?: string;
+                shed_id?: string;
+                /** @description Partition within the shed. Normalised server-side ("Part 3" and "3" are the same partition) because the goat-side and assignment-side tables spell them differently. */
+                partition_label?: string;
+                /** @description workforce_members.workforce_member_id of the drive operator. */
+                operator_id?: string;
+                /** @description Antigen family code from filter_options.vaccines (for example goat_pox). */
+                vaccine_code?: string;
+                status?: "active" | "done" | "pending" | "review";
+                activity_limit?: number;
+                /** @description Keyset cursor for the activity feed — return events strictly older than this instant. */
+                activity_before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The live drive tracker for one business date. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationLiveTrackerResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
