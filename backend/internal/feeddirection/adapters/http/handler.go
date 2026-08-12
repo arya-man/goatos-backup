@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -105,15 +106,21 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(r.Context(), tenant, strings.TrimSpace(r.URL.Query().Get("park_id")), permissions.FeedTransportRead)
+	if !scope.Allowed {
+		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
+		return
+	}
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
-		TenantID: tenant,
-		ActorID:  actor,
-		Date:     r.URL.Query().Get("business_date"),
-		ParkID:   r.URL.Query().Get("park_id"),
-		ShedID:   r.URL.Query().Get("shed_id"),
-		Status:   r.URL.Query().Get("status"),
-		Cursor:   r.URL.Query().Get("cursor"),
-		Limit:    int(limit),
+		TenantID:          tenant,
+		ActorID:           actor,
+		Date:              r.URL.Query().Get("business_date"),
+		ParkID:            scope.ParkID,
+		ShedID:            r.URL.Query().Get("shed_id"),
+		Status:            r.URL.Query().Get("status"),
+		Cursor:            r.URL.Query().Get("cursor"),
+		Limit:             int(limit),
+		AuthorizedParkIDs: scope.ParkIDs,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "list feed transport tasks", err)
@@ -172,7 +179,12 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
 		return
 	}
-	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(r.Context(), tenant, "", permissions.FeedDirectionComplete)
+	if !scope.Allowed {
+		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
+		return
+	}
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: scope.ParkIDs})
 	if err != nil {
 		h.writeServiceError(w, r, "submit feed transport", err)
 		return
