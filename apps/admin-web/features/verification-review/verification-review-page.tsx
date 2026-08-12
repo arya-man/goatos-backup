@@ -89,9 +89,27 @@ export async function VerificationReviewPage({
   // from ?nav_module AND from a single ?category, so the chip row reflects a nav-leaf selection
   // without the frontend re-deriving which module owns that category.
   const selectedModuleKey = (queue.ok ? queue.data.filter_options.module_key : undefined) ?? navModule ?? "";
+  // Whether the module chip row is offered at all. Withdrawn for the verifier lens, whose sidebar
+  // already lists the same modules; defaults to offered so leadership — and an older backend that
+  // declares no such control — keeps it.
+  const moduleFilterOffered = controlEnabled(pageContract, "module_filter", true);
   const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
   const statuses = queue.ok ? queue.data.filter_options.statuses : [];
   const sheds = queue.ok ? queue.data.filter_options.sheds : [];
+  // Park grouping for the shed picker. The backend already returns the options park-first, so this
+  // preserves arrival order instead of re-sorting: the park order and the shed order inside it are
+  // the backend's, and re-sorting here would be a second opinion about a list it already ordered.
+  // An option carrying no park keeps its place in a plain list rendered before the groups — the
+  // backend omits the park only when it genuinely cannot say which one, and dropping such a shed
+  // would hide a filter that still works.
+  const shedsWithoutPark = sheds.filter((option) => !option.park_label);
+  const shedsByPark = sheds.reduce<Array<[string, typeof sheds]>>((groups, option) => {
+    if (!option.park_label) return groups;
+    const existing = groups.find(([parkLabel]) => parkLabel === option.park_label);
+    if (existing) existing[1].push(option);
+    else groups.push([option.park_label, [option]]);
+    return groups;
+  }, []);
   // "Vaccination · Vaccination" and "Weighing · Weighing" were what this produced for every row in
   // those two modules: the category registry gives a module label and a page label, and for a
   // module with a single page they are the same word (bootstrap/api.go). Joining them
@@ -172,8 +190,15 @@ export async function VerificationReviewPage({
 
             Each chip clears `category`: it is a WIDER selection than one page, and leaving a
             sibling module's category behind would ask the backend for a contradiction it answers
-            400 (module_category_conflict). */}
-        {modules.length > 1 ? (
+            400 (module_category_conflict).
+
+            Whether the row is OFFERED is the backend's call, not this renderer's: the verifier lens
+            puts one sidebar leaf per evidence module in front of exactly the principal who would
+            otherwise see the same choice twice, so it withdraws `module_filter` for her and leaves
+            it enabled for leadership, whose single nav item makes this row their only module
+            picker. Defaulting to true keeps a backend one release behind — which declares no such
+            control — showing the row. */}
+        {moduleFilterOffered && modules.length > 1 ? (
           <div className="vr-legend" role="group" aria-label={copy(pageContract, "filter.module")}>
             <Link
               href={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
@@ -240,12 +265,32 @@ export async function VerificationReviewPage({
               {category ? <input type="hidden" name="category" value={category} /> : null}
               <div className="vr-fld fld" style={{ marginBottom: 0 }}>
                 <label htmlFor="verification-shed">{copy(pageContract, "filter.shed")}</label>
+                {/* Grouped by park, because a shed NAME is not unique across the farm: Castro,
+                    Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH
+                    parks, so nine of the sixty-seven options on a real STG day were exact duplicate
+                    labels sitting next to each other. The value was always the right shed — the id
+                    is a UUID — but a reader could not tell which one she was picking, and the park
+                    holding more pens read as the only park present.
+
+                    The park comes from the option's own park_label; it is NOT concatenated into the
+                    shed's display, which belongs to oploc. Options with no park (the backend sends
+                    none when an option's rows disagree) stay in a plain ungrouped list ABOVE the
+                    groups rather than being dropped or filed under a guess. */}
                 <select id="verification-shed" name="shed_id" className="vr-selbtn" defaultValue={shedId ?? ""}>
                   <option value="">{copy(pageContract, "filter.all_sheds")}</option>
-                  {sheds.map((option) => (
+                  {shedsWithoutPark.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.operational_location_display || option.label}
                     </option>
+                  ))}
+                  {shedsByPark.map(([parkLabel, parkSheds]) => (
+                    <optgroup key={parkLabel} label={parkLabel}>
+                      {parkSheds.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.operational_location_display || option.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>

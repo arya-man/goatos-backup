@@ -2678,6 +2678,19 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: drive_park_id
+          in: query
+          required: false
+          description: >-
+            Park of the drive named by `drive_batch_id`. Narrows the board SECTIONS to that park's
+            share of the drive — a batch can span parks, so a selected drive is one park's operator
+            day — while `driveOptions` stays at `park_id`'s scope so the other parks' drives remain
+            selectable. Without it a caller wanting both had to send two requests, one purely to
+            keep its picker. Ignored unless `drive_batch_id` is present; authorized exactly like
+            `park_id`.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: CEO vaccination command board — KPIs, matrices, charts, and queue.
@@ -4014,10 +4027,6 @@ paths:
           name: shed_id
           schema: { type: string, format: uuid }
           description: Optional physical-shed filter; must remain shed-grain and never imply a feed session.
-        - in: query
-          name: partition_label
-          schema: { type: string }
-          description: Optional operational partition filter within the selected shed.
         - in: query
           name: status
           schema: { type: string, enum: [due, verification_due, rework, completed] }
@@ -10011,7 +10020,13 @@ components:
         park_label: { type: string }
         shed_id: { type: string, format: uuid }
         shed_label: { type: string }
-        partition_label: { type: string }
+        partition_label:
+          type: string
+          description: >-
+            Empty on every task created since the shed-grain repair. Transport is one task per
+            physical shed -- the feed for all of a shed's pens leaves on one trip -- so there is no
+            pen to name. Older rows created while the task was briefly per-pen keep their label so
+            their recorded video still says where it was filmed.
         operational_location_display: { type: string }
         business_date: { type: string, format: date }
         status: { type: string, enum: [due, verification_due, rework, completed] }
@@ -10033,9 +10048,13 @@ components:
       properties:
         id:
           type: string
-          description: Opaque partition-grain option key. For sheds this is not guaranteed to be a UUID because one physical shed can expose multiple partition options.
+          description: >-
+            A park UUID for a park option, a shed UUID for a shed option. Never a composite pen
+            key: transport is one task per physical shed, so one shed is exactly one option.
         label: { type: string }
-        partition_label: { type: string }
+        partition_label:
+          type: string
+          description: Always empty for transport options; kept so older clients stay decodable.
     FeedTransportFilterOptions:
       type: object
       additionalProperties: false
@@ -22209,6 +22228,19 @@ components:
             `<shed UUID>#<normalized partition>`.
         label:
           type: string
+        park_id:
+          type: string
+          description: >-
+            Park the shed belongs to. Set on shed options only, and omitted when the option's rows
+            disagree about the park rather than guessing one. Never folded into `label`.
+        park_label:
+          type: string
+          description: >-
+            Display name of `park_id`, for grouping the shed list by park. A shed NAME is not
+            unique across the farm — Castro, Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and
+            Yashoda each exist in both parks — so without this two different sheds render as
+            identical adjacent options. Clients group by it; they must not concatenate it into
+            the shed's operational-location display.
         partition_label:
           type: string
           description: Raw backend-owned partition label; omitted for an undivided shed.

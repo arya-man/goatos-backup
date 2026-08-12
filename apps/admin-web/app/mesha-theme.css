@@ -2238,6 +2238,14 @@ select:disabled { opacity: .45; }
 /* The bar list keeps its own right gutter for the scrollbar, so the card's own right
    padding would otherwise read as double. */
 .wchart .wbars{padding-right:2px}
+/* Air between a chart's header block and its bars. The title row (`.h`) and the
+   caption under it sat directly on the first bar, so the heading read as part of the
+   series rather than above it. Applied to the bar list itself — not to the heading —
+   so a chart with no caption (sex, stage) gets the same gap as one with a caption
+   (shed, breed, load), and the empty state keeps the same box position as the
+   populated list so toggling weight/gain never shifts the card. */
+.wchart .wbars,
+.wchart .wbars-empty{margin-top:12px}
 /* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
    against the bars above it. */
 .wchart .wbars + .muted,
