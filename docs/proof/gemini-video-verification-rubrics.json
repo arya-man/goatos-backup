@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goatos.mesha.sg/schemas/proof/gemini-video-verification-rubrics.schema.json",
+  "title": "Goat OS Gemini Video Verification Rubrics",
+  "version": "2026-08-12",
+  "model_role": "advisory_ai_verifier",
+  "authority_boundary": "Gemini output is advisory evidence only. Human Verifier approval or rejection remains authoritative.",
+  "prompt_contract": {
+    "system_instruction": "You are an advisory proof-video verifier for Goat OS. Verify only the supplied category and app claim. Do not summarize casually. Return JSON only. If evidence is incomplete, dark, shaky, occluded, cropped, ambiguous, or missing required app metadata, use needs_human_review with precise reasons. Never invent weight, vaccine, batch, goat identity, shed identity, feed quantity, or action completion.",
+    "user_instruction_template": "Audit this proof video for category {{category}}. Compare the visible video evidence against the supplied metadata and app claim. Return JSON matching output_schema. Focus on whether the required operational action is actually proven.",
+    "minimum_input": [
+      "verification_item_id",
+      "category",
+      "video",
+      "captured_at",
+      "tenant_id",
+      "park_id",
+      "shed_id",
+      "operator_id",
+      "app_claim"
+    ],
+    "recommended_model_settings": {
+      "temperature": 0,
+      "response_mime_type": "application/json"
+    }
+  },
+  "verdict_policy": {
+    "allowed_verdicts": [
+      "pass",
+      "fail",
+      "needs_human_review"
+    ],
+    "pass": "Critical action is visible, category is correct, and app claim is supported within tolerance.",
+    "fail": "Visible evidence contradicts the app claim, proves wrong category, or proves required action did not happen properly.",
+    "needs_human_review": "Evidence is insufficient, dark, shaky, occluded, cropped, ambiguous, low-confidence, or missing required metadata for comparison.",
+    "confidence_thresholds": {
+      "strong": 0.85,
+      "human_review_below": 0.65
+    }
+  },
+  "shared_checks": [
+    {
+      "id": "category_match",
+      "question": "Does the clip match the expected verification category?",
+      "fail_if": [
+        "wrong operational category is visible",
+        "only unrelated shed/animal footage is visible"
+      ]
+    },
+    {
+      "id": "video_quality",
+      "question": "Is the clip clear enough to verify the required action?",
+      "human_review_if": [
+        "too dark",
+        "too shaky",
+        "critical action cropped",
+        "critical action hidden by hand or body",
+        "clip ends before required action",
+        "ambiguous multiple animals or subjects"
+      ]
+    },
+    {
+      "id": "metadata_sufficiency",
+      "question": "Is the supplied app metadata sufficient for claim comparison?",
+      "human_review_if": [
+        "missing operator-entered weight for weighing",
+        "missing expected proof stage for feed direction",
+        "missing expected vaccine action for vaccination",
+        "missing tare/gross/net rule when container weight is claimed"
+      ]
+    }
+  ],
+  "categories": {
+    "feed_direction": {
+      "description": "Verifies feed, water, packing, distribution, or leftover proof for the claimed shed/pen/stage.",
+      "required_app_claim": {
+        "proof_stage": "packing|distribution|water|leftover|feed_weight|other",
+        "target_location_id": "string",
+        "feed_type": "string|null",
+        "claimed_quantity": "number|null",
+        "claimed_quantity_unit": "kg|bags|liters|null",
+        "expected_subject": "shed|pen|trough|feed_bag|water_container|goats"
+      },
+      "checks": [
+        {
+          "id": "feed_material_visible",
+          "question": "Is feed, water, bag, container, trough, or distribution setup visible as expected?",
+          "critical": true
+        },
+        {
+          "id": "target_context_visible",
+          "question": "Is enough shed, pen, trough, or animal context visible to support the target location claim?",
+          "critical": true
+        },
+        {
+          "id": "stage_action_visible",
+          "question": "Does the visible action match the proof stage: packing, distribution, water, leftover, or feed weight?",
+          "critical": true
+        },
+        {
+          "id": "quantity_plausibility",
+          "question": "If a quantity is claimed, is the visible quantity plausible?",
+          "critical": false,
+          "human_review_if": [
+            "quantity cannot be estimated from video",
+            "material is too cropped or hidden"
+          ]
+        }
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "no_feed_or_water_visible",
+        "no_target_context",
+        "empty_or_unclear_trough",
+        "stage_action_not_visible",
+        "visible_quantity_contradicts_claim"
+      ]
+    },
+    "weighing": {
+      "description": "Verifies that the subject was placed on a scale and the visible stable reading matches the operator-entered value.",
+      "required_app_claim": {
+        "subject_type": "goat|feed|container|other",
+        "subject_id": "string|null",
+        "operator_entered_weight": "number",
+        "unit": "kg",
+        "tolerance_kg": "number",
+        "tare_expected": "boolean",
+        "tare_or_container_weight": "number|null"
+      },
+      "checks": [
+        {
+          "id": "subject_on_scale",
+          "question": "Is the claimed subject visibly on the scale or weighing platform?",
+          "critical": true
+        },
+        {
+          "id": "scale_display_visible",
+          "question": "Is the scale display visible?",
+          "critical": true
+        },
+        {
+          "id": "scale_reading_readable",
+          "question": "Can a numeric scale reading be extracted?",
+          "critical": true
+        },
+        {
+          "id": "reading_stable",
+          "question": "Does the reading appear stable rather than changing, blurred, or blocked?",
+          "critical": true
+        },
+        {
+          "id": "weight_matches_claim",
+          "question": "Does the extracted visible reading match operator_entered_weight within tolerance_kg?",
+          "critical": true
+        },
+        {
+          "id": "tamper_pressure_absent",
+          "question": "Is there no visible hand, foot, rope, body pressure, leaning, or partial placement affecting the scale?",
+          "critical": true
+        },
+        {
+          "id": "tare_rule_check",
+          "question": "If tare/container logic is required, is it supported by the supplied metadata and visible proof?",
+          "critical": false
+        }
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "subject_not_on_scale",
+        "scale_display_not_visible",
+        "scale_reading_unreadable",
+        "reading_unstable",
+        "weight_mismatch",
+        "tamper_or_pressure_visible",
+        "tare_rule_contradiction"
+      ]
+    },
+    "vaccination": {
+      "description": "Verifies that the operator actually administers the claimed vaccination or medical dose to the goat.",
+      "required_app_claim": {
+        "goat_id": "string|null",
+        "rfid": "string|null",
+        "vaccine_name": "string",
+        "dose_or_stage": "string",
+        "route_site_expected": "string|null",
+        "vial_or_batch_required": "boolean"
+      },
+      "checks": [
+        {
+          "id": "goat_visible",
+          "question": "Is the goat visible enough to confirm the action is on an animal?",
+          "critical": true
+        },
+        {
+          "id": "restraint_visible",
+          "question": "Is the goat restrained well enough for a real administration action?",
+          "critical": true
+        },
+        {
+          "id": "instrument_visible",
+          "question": "Is syringe, needle, or applicator visible before or during the action?",
+          "critical": true
+        },
+        {
+          "id": "administration_contact_visible",
+          "question": "Is the contact or injection moment visible on the goat?",
+          "critical": true
+        },
+        {
+          "id": "dose_continuity",
+          "question": "Does the clip show enough before/during/after continuity to prove administration rather than setup only?",
+          "critical": true
+        },
+        {
+          "id": "site_plausible",
+          "question": "If route/site metadata is supplied, is the visible contact point plausible?",
+          "critical": false
+        },
+        {
+          "id": "vial_or_batch_visible_when_required",
+          "question": "If vial/batch proof is required, is it visible or otherwise supplied in metadata?",
+          "critical": false
+        }
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "goat_not_visible",
+        "syringe_or_applicator_not_visible",
+        "administration_contact_not_visible",
+        "setup_only_no_dose",
+        "action_hidden_by_hand",
+        "ambiguous_multiple_animals",
+        "route_site_contradiction"
+      ]
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "verification_item_id",
+      "category",
+      "verdict",
+      "confidence",
+      "summary",
+      "observations",
+      "claim_comparison",
+      "issues",
+      "evidence_timestamps",
+      "human_review_recommended"
+    ],
+    "properties": {
+      "verification_item_id": {
+        "type": "string"
+      },
+      "category": {
+        "enum": [
+          "feed_direction",
+          "weighing",
+          "vaccination"
+        ]
+      },
+      "verdict": {
+        "enum": [
+          "pass",
+          "fail",
+          "needs_human_review"
+        ]
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "summary": {
+        "type": "string"
+      },
+      "observations": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "claim_comparison": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "evidence_timestamps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "time_sec",
+            "evidence"
+          ],
+          "properties": {
+            "time_sec": {
+              "type": "number",
+              "minimum": 0
+            },
+            "evidence": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "human_review_recommended": {
+        "type": "boolean"
+      }
+    }
+  },
+  "sample_sets": {
+    "feed_direction_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/b3b54976-a8ef-3d1e-ba75-450af95240cb.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/b48ed443-0dff-3f4f-98b9-847894561469.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/9bc969a4-695b-34a1-8ed3-aeee39071ce9.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/1b03f3a1-f177-3718-a30b-2b184ca97ca7.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/e925ee49-e84a-3277-a909-c58c4c89c9f0.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/a6d5db78-8ba1-3687-97d1-060a8ec89071.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/16696cd7-023c-3158-a373-4fdf5bd74c57.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/6bf58af2-6b4d-39f5-a77e-26a826ca57cc.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/1d4010df-57c2-3f7a-b1d8-efbd8f8bf96b.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/06b0e6c5-2236-3e21-9244-05769e555119.mp4"
+    ],
+    "weighing_visual_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/23b9a345-f726-40c3-a860-99af20d01023",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/62baa5b0-90b9-40fe-84bf-f21daf564e0d",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/b479ee27-9146-4221-a7ba-9987ea1d57db",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/8f2ee9d1-dac0-4e46-ab9a-d3a48bb7340e",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/cfdc129d-6f2e-46ee-9242-f893f46af02b",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/bfcba31f-f29d-44d0-9b9d-13a071c06885",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/5943f157-0474-49cb-a112-81b0889f4499",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/91d83ad1-a565-4e89-b502-170470f12fb8",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/7cd7da96-958c-4032-8d98-8361c5da361d",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/717c12a2-12da-46e2-ba79-c0f412d9840c"
+    ],
+    "vaccination_visual_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/447100b8-7929-4d52-a811-1366a20c09be",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/6a5b94b1-2de6-4b15-b1b2-dc5c64214cfc",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/754162d8-b575-4c65-b9b8-b7d30c917673",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/7896bb34-9f98-4ef3-9de6-0df75f1a2e24",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/75222140-9476-4e8a-b692-f79163bd953f",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/458e9254-f6d1-4fd3-a60e-61a7545902f5",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/4ffb3dbc-51b1-4eeb-815a-5a0646652c1e",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/c7fa5853-3b0f-4d3d-888e-fc85a38e16d1",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/c24d7556-6ef4-4a40-b86a-49205ac3a764",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/37c087f7-379d-4fb9-b949-954e43d4856b"
+    ]
+  }
+}
