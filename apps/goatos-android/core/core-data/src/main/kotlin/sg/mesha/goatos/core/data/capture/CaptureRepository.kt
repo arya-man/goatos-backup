@@ -950,6 +950,8 @@ class DefaultProofCaptureRepository(
                 originalBytes = processed.originalBytes,
                 processedBytes = processed.processedBytes,
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
             dao.updateProcessingArtifact(
