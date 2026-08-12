@@ -158,11 +158,12 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
+	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},
 	{OperationID: "submitAppTask", Method: "POST", Pattern: "/app/tasks/{task_id}/submissions", Permissions: []string{TaskExecute}},
