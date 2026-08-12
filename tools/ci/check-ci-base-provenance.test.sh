@@ -188,7 +188,7 @@ echo "── (d) an unresolvable base must be FATAL on a receipt-writing run"
 #   2. `guarded` — a hard deadline regardless, so no future edit here can hang.
 # "before any job ran" is now asserted directly rather than implied: under trace
 # every executed gate prints a CI-TRACE line, so ZERO such lines is the proof.
-guarded 60 "(d)" env GOATOS_CI_BASE=refs/heads/goatos-no-such-base-ref \
+guarded 60 "(d)" env -u GOATOS_FAST_LOCAL_CI GOATOS_CI_BASE=refs/heads/goatos-no-such-base-ref \
   GOATOS_CI_TRACE_ONLY=1 tools/ci/run-local-ci.sh auto
 status=$g_status
 out="$g_out"
