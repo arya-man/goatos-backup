@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Scale, TrendingDown, Warehouse } from "lucide-react";
 
 import { WeightBars } from "./weight-bars";
+import { GrowthDirectorSection } from "./growth-director";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
@@ -9,6 +10,7 @@ import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/
 import { istDayPlus, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
+  getGrowthDirector,
   getShedWeights,
   getWeighingGrowth,
   getWeightDemographics,
@@ -150,13 +152,15 @@ export async function WeighingWeightsPage({
   const today = todayIso();
   const window = selectedWindow(params, today);
 
-  const [weights, growth, demographics] = await Promise.all([
+  const [weights, growth, demographics, growthDirector] = await Promise.all([
     getShedWeights({ park_id: parkFilter || undefined, ...window }),
     getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
     getWeightDemographics({ park_id: parkFilter || undefined, ...window }),
+    getGrowthDirector({ park_id: parkFilter || undefined, ...window }),
   ]);
 
-  if (firstAuthRequiredError(weights, growth, demographics)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics, growthDirector))
+    redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return (
@@ -750,6 +754,7 @@ export async function WeighingWeightsPage({
           </>
         )}
       </section>
+      <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
     </div>
   );
 }
