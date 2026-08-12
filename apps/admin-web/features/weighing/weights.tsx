@@ -6,6 +6,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { istDayPlus, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
   getShedWeights,
@@ -17,6 +18,8 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 const PAGE_PATH = "/weighing/weights";
+const WINDOW_FROM_PARAM = "wt_from";
+const WINDOW_TO_PARAM = "wt_to";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 10;
 
@@ -46,13 +49,32 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// Inclusive Asia/Kolkata business dates, which is what the API's from/to expect.
-function businessDayWindow(days: number): { from: string; to: string } {
-  const now = new Date();
-  const istToday = new Date(now.getTime() + (5.5 * 60 - now.getTimezoneOffset()) * 60_000);
-  const to = istToday.toISOString().slice(0, 10);
-  const fromDate = new Date(istToday.getTime() - (days - 1) * 86_400_000);
-  return { from: fromDate.toISOString().slice(0, 10), to };
+// The window the page lands on: the 30 days before today, inclusive of both ends (maintainer,
+// 2026-08-12). It replaces the fixed "Last 4 weeks / Last 12 weeks" select, which could only answer
+// the two questions someone thought of in advance — a reader comparing one drive week against
+// another had no way to ask.
+const DEFAULT_WINDOW_DAYS = 30;
+const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The selected inclusive window, both ends "YYYY-MM-DD" Asia/Kolkata business dates, which is what
+ * the API's from/to expect.
+ *
+ * Malformed, inverted or absent parameters fall back to the default window rather than throwing: a
+ * hand-edited URL must not take the page down. A future end is clamped to today, because a weigh
+ * cannot have happened tomorrow and the reads would return an empty span for it.
+ */
+function selectedWindow(params: RouteSearchParams, today: string): { from: string; to: string } {
+  const rawFrom = one(params, WINDOW_FROM_PARAM)?.trim();
+  const rawTo = one(params, WINDOW_TO_PARAM)?.trim();
+  if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
+    return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
+  }
+  return defaultWindow(today);
+}
+
+function defaultWindow(today: string): { from: string; to: string } {
+  return { from: istDayPlus(today, -DEFAULT_WINDOW_DAYS), to: today };
 }
 
 function kg(value: number, fractionDigits = 1): string {
@@ -123,10 +145,10 @@ export async function WeighingWeightsPage({
   const stageMetric = metric("stage_metric");
   const loadMetric = metric("load_metric");
 
-  // Period is a business-day window, not a clock offset: a weigh belongs to the
-  // Asia/Kolkata day it happened on.
-  const periodDays = one(params, "period") === "84" ? 84 : 28;
-  const window = businessDayWindow(periodDays);
+  // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
+  // happened on.
+  const today = todayIso();
+  const window = selectedWindow(params, today);
 
   const [weights, growth, demographics] = await Promise.all([
     getShedWeights({ park_id: parkFilter || undefined, ...window }),
@@ -215,6 +237,10 @@ export async function WeighingWeightsPage({
     );
   const losingSlice = losingAll.slice(losingOffset, losingOffset + DEFAULT_LIMIT);
 
+  // The gain card's own scope label. Never the raw park id — that would put an internal identifier
+  // in front of a CEO; an unresolvable filter simply falls back to the all-parks wording.
+  const selectedParkName = parks.find((park) => park.park_id === parkFilter)?.name ?? "";
+
   const modeOptions = optionGroup(pageContract, "weighing_mode");
   const filterFields: WorklistFilterField[] = [
     {
@@ -226,14 +252,31 @@ export async function WeighingWeightsPage({
       options: parks.map((park) => ({ value: park.park_id, label: park.name })),
     },
     {
-      kind: "select",
-      param: "period",
+      kind: "daterange",
+      param: WINDOW_FROM_PARAM,
+      toParam: WINDOW_TO_PARAM,
       label: copy(pageContract, "filter.period.label"),
-      value: String(periodDays),
-      options: optionGroup(pageContract, "weighing_period").map((option) => ({
-        value: option.key,
-        label: option.label,
-      })),
+      from: window.from,
+      to: window.to,
+      today,
+      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 30
+      // days" rather than freezing on the month it was copied in. Named fields, never a spread of
+      // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
+      // the default and pin the page to 30 days whatever the reader picked.
+      defaultFrom: defaultWindow(today).from,
+      defaultTo: defaultWindow(today).to,
+      labels: {
+        field: copy(pageContract, "filter.period.label"),
+        today: copy(pageContract, "filter.period.today"),
+        single: copy(pageContract, "filter.period.single"),
+        range: copy(pageContract, "filter.period.range"),
+        aria: copy(pageContract, "filter.period.aria"),
+        previousMonth: copy(pageContract, "filter.period.previous_month"),
+        nextMonth: copy(pageContract, "filter.period.next_month"),
+        rangeStartHint: copy(pageContract, "filter.period.range_start_hint"),
+        rangeEndHint: copy(pageContract, "filter.period.range_end_hint"),
+        rangeSeparator: copy(pageContract, "filter.period.range_separator"),
+      },
     },
     {
       kind: "select",
@@ -373,7 +416,12 @@ export async function WeighingWeightsPage({
         {periodStart} – {periodEnd}
       </p>
 
-      <section className="grid g6 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
+      {/* Five cards, not six (maintainer, 2026-08-12). The sixth was Median daily gain, which
+          printed the SAME number, the same denominator and the same sub-line as the "All parks —
+          daily gain" card in the row below it — one figure stated twice, costing a sixth of the
+          headline row. The gain row below is now unconditional so removing it here loses nothing in
+          any scope. */}
+      <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.kids.label")}</div>
           <div className="val">{summary.animals_weighed.toLocaleString("en-IN")}</div>
@@ -413,12 +461,25 @@ export async function WeighingWeightsPage({
             {copy(pageContract, "kpi.threshold.basis")}
           </div>
         </div>
+      </section>
+
+      {/* Daily gain, ALWAYS rendered — it used to appear only when the page was showing more than
+          one park, because the headline card above carried it in every other scope. With that card
+          gone, keeping the condition would have deleted the growth figure entirely from a
+          park-scoped page: the one number this screen exists to answer. Its first card names the
+          CURRENT scope, so the all-parks wording appears only when it really is all of them. */}
+      <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
         <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.gain.label")}</div>
+          <div className="lab">
+            {selectedParkName || copy(pageContract, "kpi.park_gain.all")}{" "}
+            {copy(pageContract, "kpi.park_gain.suffix")}
+          </div>
           {/* insufficient_data is a real state: a park where nothing was weighed twice has NO
               gain, and printing 0 g/day would read as a herd that stopped growing. */}
           <div className="val">
-            {headlineGain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(headlineGain)} g`}
+            {headlineGain == null
+              ? copy(pageContract, "empty.no_data.title")
+              : `${Math.round(headlineGain)} g`}
           </div>
           <div className="dl">
             {headlineGain == null
@@ -426,44 +487,24 @@ export async function WeighingWeightsPage({
               : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
           </div>
         </div>
-      </section>
-
-      {perParkGain.length > 0 ? (
-        <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
-          <div className="kpi">
+        {perParkGain.map((park) => (
+          <div className="kpi" key={park.name}>
             <div className="lab">
-              {copy(pageContract, "kpi.park_gain.all")} {copy(pageContract, "kpi.park_gain.suffix")}
+              {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
             </div>
             <div className="val">
-              {headlineGain == null
+              {park.median == null
                 ? copy(pageContract, "empty.no_data.title")
-                : `${Math.round(headlineGain)} g`}
+                : `${Math.round(park.median)} g`}
             </div>
             <div className="dl">
-              {headlineGain == null
+              {park.median == null
                 ? copy(pageContract, "kpi.gain.none")
-                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
+                : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
             </div>
           </div>
-          {perParkGain.map((park) => (
-            <div className="kpi" key={park.name}>
-              <div className="lab">
-                {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
-              </div>
-              <div className="val">
-                {park.median == null
-                  ? copy(pageContract, "empty.no_data.title")
-                  : `${Math.round(park.median)} g`}
-              </div>
-              <div className="dl">
-                {park.median == null
-                  ? copy(pageContract, "kpi.gain.none")
-                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
-              </div>
-            </div>
-          ))}
-        </section>
-      ) : null}
+        ))}
+      </section>
 
       {/* Row 1 — shed and breed side by side, equal width, fixed height with the
           list scrolling inside so neither card grows with its row count. */}
@@ -575,7 +616,7 @@ export async function WeighingWeightsPage({
         </p>
       ) : null}
 
-      <section className="card" aria-label={copy(pageContract, "section.sheds.aria")}>
+      <section className="card wtable" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">
           <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
         </h2>
@@ -651,7 +692,7 @@ export async function WeighingWeightsPage({
         <p className="muted small">{copy(pageContract, "note.threshold_basis")}</p>
       </section>
 
-      <section className="card" aria-label={copy(pageContract, "section.losing.aria")}>
+      <section className="card wtable" aria-label={copy(pageContract, "section.losing.aria")}>
         <h2 className="h">
           <TrendingDown className="ic" size={15} aria-hidden />{" "}
           {copy(pageContract, "section.losing.title")}

@@ -173,14 +173,20 @@ func TestActionsPageContractAndNavigation(t *testing.T) {
 		}
 	}
 	page := pageByRouteID(t, bootstrap.Pages, "verification-review")
-	if page.Href != "/actions" || page.Title != "Actions" {
-		t.Fatalf("actions page = %#v", page)
+	if page.Href != "/verify" || page.Title != "Verify" {
+		t.Fatalf("verify page = %#v", page)
 	}
 	if got := page.Tables[0]; got.ID != "verification-actions" || got.DataSource != "/verification/queue" || got.RowClick.Param != "vi_row" {
 		t.Fatalf("actions table = %#v", got)
 	}
-	if page.Copy["crumb"] != "Approvals" {
-		t.Fatalf("Actions breadcrumb must be owned by Approvals, got %q", page.Copy["crumb"])
+	// The breadcrumb names the VERTICAL this screen belongs to. It said "Approvals" — a DIFFERENT
+	// top-level module that merely sits next to it in the nav — so the screen advertised itself as
+	// living somewhere it does not (maintainer, 2026-08-12).
+	if page.Copy["crumb"] != "Verification" {
+		t.Fatalf("Verify breadcrumb must name its own vertical, got %q", page.Copy["crumb"])
+	}
+	if page.Copy["crumb"] == "Approvals" {
+		t.Fatalf("the breadcrumb must never name a sibling module")
 	}
 	for _, key := range []string{
 		"state.empty",
@@ -206,8 +212,9 @@ func TestActionsPageContractAndNavigation(t *testing.T) {
 		}
 	}
 	actions := primaryNavByID(t, bootstrap.Navigation.Primary, "verification-actions")
-	if actions.Href != "/actions" || actions.Label != "Actions" {
-		t.Fatalf("actions nav = %#v", actions)
+	// "Verify" is what the PHONE calls this (workforce nav.verify), so one word covers both surfaces.
+	if actions.Href != "/verify" || actions.Label != "Verify" {
+		t.Fatalf("verify nav = %#v", actions)
 	}
 	approvalsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "approvals")
 	actionsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "verification-actions")

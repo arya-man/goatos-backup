@@ -13492,6 +13492,10 @@ export interface operations {
                 status?: "all" | "pending" | "approved" | "rejected";
                 /** @description Asia/Kolkata capture date. Defaults to today's business date for the verifier queue. */
                 business_date?: string;
+                /** @description Inclusive start of an Asia/Kolkata capture-date range. Must be sent together with business_date_to (400 invalid_business_date_range otherwise), and cannot be combined with business_date or missed (400 invalid_date_scope). */
+                business_date_from?: string;
+                /** @description Inclusive end of an Asia/Kolkata capture-date range. Cannot be earlier than business_date_from (400 invalid_business_date_range) or in the future (400 future_business_date). */
+                business_date_to?: string;
                 /** @description When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status. */
                 missed?: boolean;
                 park_id?: string;

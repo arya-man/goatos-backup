@@ -46,6 +46,26 @@ const VALUE_GUTTER = 40;
 const NARROW_VIEW_WIDTH = 280;
 const WIDE_VIEW_WIDTH = 1100;
 
+/**
+ * How many bars stand in the card before the rest scroll (maintainer, 2026-08-12).
+ *
+ * The window is sized by ASPECT RATIO, not a pixel height, and that is not a stylistic choice: the
+ * SVG carries no height attribute, so its rendered height is `containerWidth × viewBoxHeight /
+ * viewBoxWidth`. A fixed `max-height` would therefore show ten rows at one card width and six at
+ * another. Ratio `viewWidth : barsHeight(VISIBLE_BARS)` holds exactly ten rows at every width, and
+ * because the two scales have different viewBox widths each needs its own ratio — both are exported
+ * so mesha-theme.css cannot drift from the geometry that produced them.
+ */
+export const VISIBLE_BARS = 10;
+
+/** Height of the SVG viewBox for `count` rows — the one place row geometry is turned into height. */
+export function barsViewHeight(count: number): number {
+  return count * (ROW_HEIGHT + ROW_GAP) + 4;
+}
+
+export const SCROLL_ASPECT_WIDE = `${WIDE_VIEW_WIDTH} / ${barsViewHeight(VISIBLE_BARS)}`;
+export const SCROLL_ASPECT_NARROW = `${NARROW_VIEW_WIDTH} / ${barsViewHeight(VISIBLE_BARS)}`;
+
 // Label gutter tracks the viewBox so long shed names get proportionally more room on a wide card
 // instead of being clipped at the narrow card's 78px.
 function labelGutterFor(viewWidth: number): number {
@@ -75,7 +95,7 @@ function BarsSvg({
 }) {
   const labelGutter = labelGutterFor(viewWidth);
   const barMaxWidth = viewWidth - labelGutter - VALUE_GUTTER;
-  const height = bars.length * (ROW_HEIGHT + ROW_GAP) + 4;
+  const height = barsViewHeight(bars.length);
 
   return (
     // No height attribute: the viewBox aspect ratio sizes it, so the box never leaves dead
@@ -144,9 +164,20 @@ export function SvgBars({
   }
 
   const max = Math.max(...bars.map((d) => d.value)) || 1;
+  // The window only appears once there is something to scroll to. Applied unconditionally it would
+  // stretch a three-bar chart to ten rows of empty card.
+  const scrolls = bars.length > VISIBLE_BARS;
 
   return (
-    <div className="svgbars" role="img" aria-label={chartLabel}>
+    <div
+      className={`svgbars${scrolls ? " svgbars-scroll" : ""}`}
+      role="img"
+      aria-label={chartLabel}
+      // Keyboard-reachable when it scrolls: a scroll region a keyboard user cannot focus is one they
+      // cannot read past row ten. Left alone when everything fits, so a short chart does not add a
+      // pointless tab stop.
+      tabIndex={scrolls ? 0 : undefined}
+    >
       <BarsSvg bars={bars} max={max} viewWidth={WIDE_VIEW_WIDTH} className="svgbars-wide" valueNoun={valueNoun} />
       <BarsSvg bars={bars} max={max} viewWidth={NARROW_VIEW_WIDTH} className="svgbars-narrow" valueNoun={valueNoun} />
     </div>

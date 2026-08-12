@@ -20,14 +20,19 @@ test("Verification review records open and close locally without route navigatio
   assert.match(drawerSource, /action=\{recordVerificationVerdictAction\}/);
   assert.doesNotMatch(drawerSource, /action=\{reworkVerificationItemAction\}/);
   assert.doesNotMatch(drawerSource, /action=\{reassignVerificationItemAction\}/);
-  assert.match(pageSource, /const PATHNAME = "\/actions"/);
-  assert.match(drawerSource, /const PATHNAME = "\/actions"/);
+  // Renamed Actions -> Verify (maintainer, 2026-08-12). /actions and /verification stay as
+  // redirects, so a link minted before the rename still lands here.
+  assert.match(pageSource, /const PATHNAME = "\/verify"/);
+  assert.match(drawerSource, /const PATHNAME = "\/verify"/);
 });
 
 test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /filter_options\.action_types/);
   assert.match(pageSource, /filter_options\.statuses/);
-  assert.match(pageSource, /businessDate: scope\.asOf/);
+  // The date scope now comes from the page's own capture-date picker, not from the removed
+  // top-bar as-of control. One day collapses to `business_date`; a span uses the range pair.
+  assert.match(pageSource, /businessDate: dateRange\.from/);
+  assert.match(pageSource, /businessDateFrom: dateRange\.from, businessDateTo: dateRange\.to/);
   assert.match(pageSource, /parkId: scope\.parkId/);
   assert.match(pageSource, /option\.operational_location_display \|\| option\.label/);
   // The mock has no "Open video" link and no verdict explainer card: the proof is the video player the

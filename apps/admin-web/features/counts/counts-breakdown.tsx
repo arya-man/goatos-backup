@@ -120,6 +120,13 @@ export async function CountsBreakdownPage({
   // mirroring the park facet (and the Android CountsViewModel, which narrows sheds by parkId).
   const selectedParkId = parkId || farmParkId || "";
 
+  // park_id -> park code, from this response's own park facet.
+  const parkLabelsById = new Map(
+    (breakdown?.facets.parks ?? [])
+      .filter((point) => point.key && point.label)
+      .map((point) => [point.key, point.label] as const),
+  );
+
   // Filter vocabularies come from the response's own facets so an option can never match zero
   // rows. Sheds specifically use `facets.sheds` (the backend's live-herd, park-scoped shed
   // vocabulary), NOT the locations master: shed NAMES repeat across parks (two thirds of them in
@@ -171,7 +178,12 @@ export async function CountsBreakdownPage({
       // correctly filtered while the dropdown claimed nothing was selected. The split into
       // shedId/partitionLabel for the API call happens separately above.
       value: shedIdParam ?? "",
-      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId),
+      // The park vocabulary is handed over so same-named sheds can be told apart. `park_label` on
+      // the shed facet is a field nothing has ever filled — the Go struct and the OpenAPI schema
+      // both lack it — so without this the disambiguation was dead code and the dropdown listed
+      // "Castro" twice, "Mandela 1 - Part 3" twice, and so on. `facets.parks` is keyed by park id
+      // and labelled with the park code, in the SAME response, so no extra read is involved.
+      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId, parkLabelsById),
     },
     {
       param: "bd_sex",
@@ -388,12 +400,17 @@ export async function CountsBreakdownPage({
           <div className="chartcard" key={chart.id} style={{ cursor: "default" }}>
             <h4>{chart.title}</h4>
             <div className="cap">{chart.caption}</div>
+            {/* No maxBars: the series must PARTITION the herd, so the chart sums to the same total
+                the KPI above it reports. Truncating here would reintroduce the gap the backend cap
+                just lost (12 of 130 pens showed 560 of 1,670 animals). The scroll window bounds
+                what a reader SEES — ten bars stand, the rest scroll — which is a different job from
+                bounding what the number MEANS. */}
             <SvgBars
               data={chart.data}
               emptyLabel={emptyChartLabel}
               valueNoun={animalsNoun}
               chartLabel={chart.title}
-              maxBars={12}
+              maxBars={chart.data.length}
             />
           </div>
         ))}

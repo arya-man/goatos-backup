@@ -102,6 +102,8 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.Module = strings.TrimSpace(params.Module)
 	params.Status = strings.TrimSpace(params.Status)
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
+	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
+	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
 	if err := s.applyNavigationModuleFilter(&params); err != nil {
 		return QueueResult{}, err
 	}
@@ -115,8 +117,9 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	}
 	todayStart := biztime.BusinessDayStart(s.now())
 	params.MissedBefore = &todayStart
+	hasRange := params.BusinessDateFrom != "" || params.BusinessDateTo != ""
 	if params.MissedOnly {
-		if params.BusinessDate != "" {
+		if params.BusinessDate != "" || hasRange {
 			return QueueResult{}, BadRequest("invalid_date_scope", "business_date and missed cannot be combined")
 		}
 		if params.Status != "" && params.Status != domain.StatusPending {
@@ -124,13 +127,16 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		}
 		params.Status = domain.StatusPending
 		params.CapturedBefore = &todayStart
-	} else if params.BusinessDate == "" && !params.IncludeAllStatuses && !params.IsVerifierQueueRead {
+	} else if params.BusinessDate == "" && !hasRange && !params.IncludeAllStatuses && !params.IsVerifierQueueRead {
 		// For non-verifier queue reads, default BusinessDate to today. For verifier queue reads
 		// (verification.review path), do NOT clamp to today — return the full pending backlog
 		// ordered oldest-first.
 		params.BusinessDate = biztime.BusinessDate(s.now())
 	}
 	if params.BusinessDate != "" {
+		if hasRange {
+			return QueueResult{}, BadRequest("invalid_date_scope", "business_date and a business date range cannot be combined")
+		}
 		parsed, err := time.ParseInLocation("2006-01-02", params.BusinessDate, biztime.DefaultLocation())
 		if err != nil {
 			return QueueResult{}, BadRequest("invalid_business_date", "business_date must be YYYY-MM-DD")
@@ -140,6 +146,29 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		}
 		before := parsed.AddDate(0, 0, 1)
 		params.CapturedFrom = &parsed
+		params.CapturedBefore = &before
+	} else if hasRange {
+		if params.BusinessDateFrom == "" || params.BusinessDateTo == "" {
+			return QueueResult{}, BadRequest("invalid_business_date_range", "business_date_from and business_date_to must be provided together")
+		}
+		from, err := time.ParseInLocation("2006-01-02", params.BusinessDateFrom, biztime.DefaultLocation())
+		if err != nil {
+			return QueueResult{}, BadRequest("invalid_business_date", "business_date_from must be YYYY-MM-DD")
+		}
+		to, err := time.ParseInLocation("2006-01-02", params.BusinessDateTo, biztime.DefaultLocation())
+		if err != nil {
+			return QueueResult{}, BadRequest("invalid_business_date", "business_date_to must be YYYY-MM-DD")
+		}
+		if to.Before(from) {
+			return QueueResult{}, BadRequest("invalid_business_date_range", "business_date_to cannot be before business_date_from")
+		}
+		if to.After(todayStart) {
+			return QueueResult{}, BadRequest("future_business_date", "business_date_to cannot be in the future")
+		}
+		// Inclusive on both ends: the range [from, to] covers whole business days, so the upper
+		// bound the repository sees is the START of the day AFTER `to`.
+		before := to.AddDate(0, 0, 1)
+		params.CapturedFrom = &from
 		params.CapturedBefore = &before
 	}
 	if params.Status == "" && !params.IncludeAllStatuses {

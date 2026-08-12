@@ -261,7 +261,7 @@ func (h *Handler) listQueue(
 		// multi-category set. resolveVerifierCategories returns a NIL slice for CEO/CxO to mean
 		// "no AUTHORIZATION narrowing is needed" -- it does not mean "ignore what the caller
 		// asked for". Clearing unconditionally destroyed the caller's own filter in that case, so
-		// leadership opening /actions?category=vaccination_proof from the Vaccination nav leaf got
+		// leadership opening /verify?category=vaccination_proof from the Vaccination nav leaf got
 		// every module's queue: the sidebar selection silently did nothing and the status pill
 		// counted the whole tenant (52) instead of the module (19). A real verifier was never
 		// affected -- the resolver hands her back []string{category} -- which is why this only
@@ -316,6 +316,8 @@ func (h *Handler) listQueue(
 		NavigationModule:     q.Get("nav_module"),
 		Status:               status,
 		BusinessDate:         q.Get("business_date"),
+		BusinessDateFrom:     q.Get("business_date_from"),
+		BusinessDateTo:       q.Get("business_date_to"),
 		MissedOnly:           missedOnly,
 		ParkID:               q.Get("park_id"),
 		ShedID:               q.Get("shed_id"),

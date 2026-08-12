@@ -150,6 +150,28 @@
   .top-date-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
   .top-date-footer button{border:0;background:transparent;color:var(--brand);font-size:12px;font-weight:800;cursor:pointer}
   .pscope.date-scope.stale{border-color:color-mix(in srgb,var(--warn) 48%,var(--line));background:color-mix(in srgb,var(--warn) 9%,var(--bg))}
+  /* Page-body variant of the same calendar (Actions board capture-date filter). The top-bar copy
+     hangs off the right edge of the shell; a filter row grows left-to-right, so the popover
+     anchors to the control's left edge instead. */
+  .top-date-picker.inline .top-date-popover{left:0;right:auto}
+  /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
+     inside the radius, but it also amputated the capture-date popover: with an empty board the card
+     is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off
+     at the card's edge. Two class names on purpose — `.card` and `.vr-board` are equally specific
+     and `.card` is declared LATER in this file, so a single-class rule loses and the clip survives
+     (which is exactly how the first attempt at this fix failed). Nothing else in the board needs the
+     clip; the wide table scrolls inside its own overflow-x container. */
+  .card.vr-board{overflow:visible}
+  .top-date-modes{display:flex;gap:4px;margin-bottom:10px;padding:3px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
+  .top-date-mode{flex:1;padding:5px 8px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:11.5px;font-weight:800;cursor:pointer}
+  .top-date-mode:hover{color:var(--brand)}
+  .top-date-mode.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
+     the eye lands on — those are the dates the verifier actually chose. */
+  .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:4px}
+  .top-date-day:disabled{opacity:.32;cursor:not-allowed}
+  .top-date-day:disabled:hover{border-color:transparent;background:transparent;color:var(--ink)}
+  .top-date-hint{margin-right:auto;color:var(--muted);font-size:11px;font-weight:650}
   .scope-reset{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:1px 7px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--info);font-weight:800;font-size:11px;text-decoration:none}
   .scope-reset:hover{border-color:var(--info);text-decoration:none}
   #pscopeMenu{position:fixed;top:auto;right:auto}
@@ -504,6 +526,11 @@
      .board/.bt/.frow/.fld/.sel/.selbtn/.legend/.lg/.secthd) — layout/CSS only, no visible copy.
      th/td values below are the mock's real tokens, confirmed against the live console at
      127.0.0.1:13300: th 12px/700, NO uppercase, NO letter-spacing; td 11.5px, padding 11px 12px. ===== */
+  /* overflow:visible undoes the generic `.card{overflow:hidden}` for THIS card only. That clip is
+     there to keep table corners inside the radius, but it also amputated the capture-date popover:
+     with an empty board the card is ~350px tall and the calendar is ~416px, so the bottom third —
+     the last two weeks and the Today button — was cut off at the card's edge. Nothing else in this
+     board relies on the clip; the wide table scrolls inside its own overflow-x container. */
   .vr-board{padding:13px 16px;margin-bottom:16px}
   .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
   .vr-frow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
@@ -583,6 +610,12 @@
   /* Six-across KPI row, as the mock lays out a compact metric strip. Steps down rather
      than reflowing into a ragged row with an empty slot. */
   .g6{grid-template-columns:repeat(6,minmax(0,1fr))}
+  /* Same responsive ladder as .g6, one column narrower — the weighing headline row dropped its
+     duplicated gain card and the remaining five share that width. */
+  .g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+  @media(max-width:1400px){.g5{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:1080px){.g5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:640px){.g5{grid-template-columns:1fr}}
   @media(max-width:1400px){.g6{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}.g6{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media(max-width:640px){.g6{grid-template-columns:1fr}}
@@ -979,9 +1012,20 @@
      card renders 20px rows at ~6px). Show whichever scale matches the container. */
   .main .svgbars-wide{display:block}
   .main .svgbars-narrow{display:none}
+  /* Ten bars stand in the card; the rest scroll (maintainer, 2026-08-12).
+     The window is sized by ASPECT RATIO rather than a pixel height because the SVG carries no
+     height attribute — it is scaled by its viewBox, so its rendered height is
+     `containerWidth × viewBoxHeight / viewBoxWidth`. A fixed max-height would hold ten rows at one
+     card width and six at another. 1100 : 264 is WIDE_VIEW_WIDTH : barsViewHeight(10) from
+     components/svg-bars.tsx, and svg-bars.test.mjs fails if the two ever disagree.
+     scrollbar-gutter keeps the bars from reflowing by a scrollbar's width when the window appears. */
+  .main .svgbars-scroll{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;aspect-ratio:1100 / 264}
   @media(max-width:1080px){
     .main .svgbars-wide{display:none}
     .main .svgbars-narrow{display:block}
+    /* The narrow scale draws the same ten rows in a 280-wide viewBox, so the window needs its own
+       ratio — reusing the wide one here would show three bars on a phone. */
+    .main .svgbars-scroll{aspect-ratio:280 / 264}
   }
   @media(max-width:600px){
     .main .counts-breakdown-kpis .kpi .kpiic{display:none}
@@ -2196,3 +2240,25 @@ select:disabled { opacity: .45; }
    against the bars above it. */
 .wchart .wbars + .muted,
 .wchart .wbars-empty + .muted{margin-top:10px}
+/* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
+   their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
+   top border and the pager touching the bottom-left corner.
+   The inset is deliberately NOT put on the card: the TABLE stays full-bleed so its header rule and
+   row separators still run edge to edge, which is the mock's table anatomy and the reason these
+   cards were left unpadded in the first place. So the card gets vertical padding only, and every
+   direct child EXCEPT the table wrapper gets the horizontal inset. `:not(.tablewrap)` rather than a
+   list of child classes, so a future row added to these cards is inset by default instead of
+   silently reintroducing the defect. */
+.wtable{padding:14px 0}
+.wtable > :not(.tablewrap){padding-left:16px;padding-right:16px}
+/* The table needs air from the caption above it and the pager below it, which the card's own
+   padding no longer provides now that the wrapper is excluded from it. */
+.wtable > .tablewrap{margin:12px 0}
+/* Line the outer columns up with the card's own text (17px from the frame). The cells' default
+   12px left them 4px adrift of the title and the pager, which reads as a wobble down the left edge
+   of the card. Padding on the CELL, never a margin or inset on the table: the header rule and row
+   separators must still reach the frame. */
+.wtable table.tbl th:first-child,
+.wtable table.tbl td:first-child{padding-left:16px}
+.wtable table.tbl th:last-child,
+.wtable table.tbl td:last-child{padding-right:16px}

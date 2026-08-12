@@ -12,7 +12,6 @@ import {
   listFeedConfigRationRates,
   listFeedConfigSchedule,
   listFeedConfigSessionTemplates,
-  listFeedConfigShedFactors,
   listFeedConfigShedTags,
   type ApiResult,
 } from "@/lib/api/server";
@@ -31,7 +30,6 @@ import {
   saveFeedItem,
   saveRationRate,
   saveSchedule,
-  saveShedFactor,
   setExperimentShedStatus,
   setFeedItemStatus,
 } from "./feed-config-actions";
@@ -44,7 +42,6 @@ import {
   FeedItemStatusSwitch,
   RationRateEditor,
   ScheduleEditor,
-  ShedFactorEditor,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 
@@ -324,7 +321,6 @@ export async function FeedConfigPage({
   // any of them: each is one bounded page.
   const [
     ratesResult,
-    factorsResult,
     sessionsResult,
     scheduleResult,
     experimentResult,
@@ -348,7 +344,6 @@ export async function FeedConfigPage({
           offset: gridOffset,
         })
       : Promise.resolve(null),
-    scope.parkId ? listFeedConfigShedFactors({ park_id: scope.parkId, limit: SECONDARY_PAGE_SIZE }) : Promise.resolve(null),
     scope.parkId ? listFeedConfigSessionTemplates({ park_id: scope.parkId, limit: SECONDARY_PAGE_SIZE }) : Promise.resolve(null),
     scope.parkId ? listFeedConfigSchedule({ park_id: scope.parkId, limit: SECONDARY_PAGE_SIZE }) : Promise.resolve(null),
     // No `status` filter: retired rows must stay visible so a withdrawn shed's authored quantities
@@ -401,7 +396,6 @@ export async function FeedConfigPage({
 
   const authError = firstAuthRequiredError(
     ratesResult,
-    factorsResult,
     sessionsResult,
     scheduleResult,
     experimentResult,
@@ -413,7 +407,6 @@ export async function FeedConfigPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const rates = ratesResult && ratesResult.ok ? ratesResult.data : null;
-  const factors = factorsResult && factorsResult.ok ? factorsResult.data : null;
   const sessions = sessionsResult && sessionsResult.ok ? sessionsResult.data : null;
   const schedule = scheduleResult && scheduleResult.ok ? scheduleResult.data : null;
   const experiment = experimentResult && experimentResult.ok ? experimentResult.data : null;
@@ -455,7 +448,6 @@ export async function FeedConfigPage({
     .map((item) => item.feed_item);
 
   const gridCols = tableLabels(pageContract, "ration-grid");
-  const factorCols = tableLabels(pageContract, "shed-factors");
   const sessionCols = tableLabels(pageContract, "session-template");
   const scheduleCols = tableLabels(pageContract, "schedule-config");
   const experimentCols = tableLabels(pageContract, "experiment-config");
@@ -855,12 +847,6 @@ export async function FeedConfigPage({
         </FeedFilters>
       </section>
 
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.ration_grid.note")}</div>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.park_scoped_note")}</div>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.kid_group_note")}</div>
-      {/* Spelled out rather than implied: this is the difference between an unconfigured cell and an
-          authored zero, and it is the one thing an author on this screen must not get wrong. */}
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.blocked_note")}</div>
 
       {/* ------------------------------------------------------------------- feed items (catalog) */}
       {/* The vocabulary the grid above is indexed by, directly under it. Two things separate this
@@ -968,72 +954,6 @@ export async function FeedConfigPage({
           </table>
         </div>
       </section>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.feed_items.note")}</div>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.feed_item_attributes_note")}</div>
-
-      {/* ---------------------------------------------------------------- shed factors (editable) */}
-      <SectionError result={factorsResult} titleKey="state.shed_factors_unavailable" pageContract={pageContract} />
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.shed_factors.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.shed_factors.caption")}</span>
-        </div>
-        <div
-          className="bd feed-scroll"
-          style={{ padding: 0, overflowX: "auto" }}
-          tabIndex={0}
-          role="group"
-          aria-label={copy(pageContract, "section.shed_factors.aria")}
-        >
-          <table className="feed-table" aria-label={copy(pageContract, "table.shed_factors.aria")}>
-            <thead>
-              <tr>
-                {factorCols.map((col) => (
-                  <th key={col}>{col}</th>
-                ))}
-                <th>{copy(pageContract, "action.edit_shed_factor")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(factors?.items ?? []).length === 0 ? (
-                <tr>
-                  <td colSpan={factorCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {/* Only AUTHORED factors are returned. An empty table means every shed is
-                          treated as 1.0 — a real, safe default, not a missing read. */}
-                      {!factorsResult || factorsResult.ok
-                        ? copy(pageContract, "empty.shed_factors")
-                        : copy(pageContract, "state.shed_factors_unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                (factors?.items ?? []).map((row) => (
-                  <tr key={row.shed_factor_id}>
-                    <td>{shedNameById.get(row.shed_id) ?? row.shed_id}</td>
-                    <td>{row.feed_item}</td>
-                    <td style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{row.multiplier}</td>
-                    <td colSpan={2}>
-                      <EffectiveWindow validFrom={row.valid_from} validTo={row.valid_to} pageContract={pageContract} />
-                    </td>
-                    <td>
-                      <ShedFactorEditor
-                        pageContract={pageContract}
-                        action={saveShedFactor}
-                        parkId={row.park_id}
-                        shedId={row.shed_id}
-                        feedItem={row.feed_item}
-                        multiplier={row.multiplier}
-                      />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.shed_factors.note")}</div>
 
       {/* ------------------------------------------------------------ experiment sheds (editable) */}
       {/* Its OWN section, deliberately separated from the ration grid above rather than mixed into
@@ -1309,11 +1229,6 @@ export async function FeedConfigPage({
         />
         </FeedFilters>
       </section>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.experiment.note")}</div>
-      {/* Spelled out rather than implied, for the same reason the blocked-vs-zero note is above:
-          this is the one thing an author on this section must not get wrong. */}
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.experiment.switch_note")}</div>
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.experiment_not_dated_note")}</div>
 
       {/* -------------------------------------------------- session template (read-only: no writer) */}
       <SectionError result={sessionsResult} titleKey="state.session_template_unavailable" pageContract={pageContract} />
@@ -1375,7 +1290,6 @@ export async function FeedConfigPage({
           <div>{copy(pageContract, "state.split_mismatch")}</div>
         </div>
       ) : null}
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.session_template.note")}</div>
 
       {/* -------------------------------------------------------------- feeding schedule (editable) */}
       <SectionError result={scheduleResult} titleKey="state.schedule_unavailable" pageContract={pageContract} />
@@ -1468,7 +1382,6 @@ export async function FeedConfigPage({
           </table>
         </div>
       </section>
-      <div className="note">{copy(pageContract, "section.schedule.note")}</div>
     </div>
   );
 }
