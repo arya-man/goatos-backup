@@ -326,6 +326,7 @@ var protectedRoutes = []Route{
 	{OperationID: "appListVaccinationExecution", Method: "GET", Pattern: "/app/vaccination/execution", Permissions: []string{AppBootstrap}},
 	{OperationID: "appGetVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}", Permissions: []string{AppBootstrap}},
 	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{AppBootstrap}},
+	{OperationID: "appClassifyScanTag", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/scan-tag", Permissions: []string{AppBootstrap}},
 	{OperationID: "appTaskOptionValues", Method: "GET", Pattern: "/app/vaccination/tasks/{task_id}/option-values", Permissions: []string{AppBootstrap}},
 	{OperationID: "appRescheduleObligation", Method: "POST", Pattern: "/app/vaccination/obligations/{obligation_id}/reschedule", Permissions: []string{AppBootstrap}},
 	// App-tier data-gaps + coverage-rollup overlays: same AppBootstrap "any authenticated app
