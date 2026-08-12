@@ -6,8 +6,9 @@
 //
 // Display rule (maintainer contract):
 //   no partition               -> bare shed name, e.g. "Yashoda"
-//   numeric convention  ('2')  -> "<shed> <label>", e.g. "Castro 2"
-//   prefixed convention ('Part 3') -> "<shed> - <label>", e.g. "Godel 1 - Part 3"
+//   shed name present -> exact shed name as-is. `partition_label` is compatibility metadata and
+//                        must not be appended. The backend must send "Castro 2" or
+//                        "Mandela 2 Part 1" as the shed/display string when that is the real shed.
 //
 // null / "" / the literal string "whole" (case-insensitive) are all treated as
 // "non-partitioned" and must NEVER themselves appear in the rendered label — a
@@ -30,7 +31,8 @@ function isPartitioned(rawPartitionLabel: string | null | undefined): rawPartiti
  * Renders the user-facing operational location label for a shed (optionally partitioned).
  * If the backend already provides `operational_location_display`, prefer that field
  * directly instead of calling this helper — it exists for surfaces that only receive
- * the raw shed_name/partition_label pair (e.g. a locally composed row).
+ * the raw shed_name/partition_label pair. The partition field is compatibility metadata and must
+ * not alter a present shed name.
  */
 export function operationalLocationLabel({ shedName, partitionLabel, sourceShedName }: OperationalLocationInput): string {
   const shed = (shedName ?? "").trim();
@@ -50,11 +52,7 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   // (" - Part 3") and made admin-web render this edge case differently from Android for the same
   // animal. Matches PartitionLabel.kt and oploc.Display().
   if (!shed) return rawPartition;
-  // Numeric labels are exact numbered shed names ("Castro 2"). Worded labels already carry the
-  // partition noun, so keep the explicit separator ("Godel 1 - Part 3"). Keep identical to
-  // oploc.Display() (Go) and PartitionLabel.kt (Android).
-  if (/^\d+$/.test(rawPartition)) return `${shed} ${rawPartition}`;
-  return `${shed} - ${rawPartition}`;
+  return shed;
 }
 
 /** True when the given partition label represents a real (non-whole) partition. */

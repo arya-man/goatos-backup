@@ -22,14 +22,16 @@ func (f fakeRow) Scan(dest ...any) error {
 
 // The resolver's contract is the OUTPUT STRING an operator reads, so these assert Display()
 // rather than field presence -- a field-presence test passed while real output was wrong.
-func TestResolveShedLocationComposesOperatorFacingDisplay(t *testing.T) {
+func TestResolveShedLocationUsesExactShedNameForDisplay(t *testing.T) {
 	for _, tc := range []struct {
 		name, shed, partition, want string
 	}{
-		{"partitioned renders both halves", "Godel 1", "Part 3", "Godel 1 - Part 3"},
+		{"compatibility partition does not change shed name", "Godel 1", "Part 3", "Godel 1"},
+		{"exact shed name renders as itself", "Godel 1 - Part 3", "Part 3", "Godel 1 - Part 3"},
 		{"unpartitioned renders bare, no trailing separator", "Yashoda", "", "Yashoda"},
 		{"whole sentinel never reaches a screen", "Yashoda", "whole", "Yashoda"},
-		{"numeric partition reads as numbered shed", "Castro", "2", "Castro 2"},
+		{"numeric compatibility partition does not change shed name", "Castro", "2", "Castro"},
+		{"exact numbered shed renders as itself", "Castro 2", "2", "Castro 2"},
 		{"unresolvable shed degrades to empty, never a uuid", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

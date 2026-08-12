@@ -1,12 +1,12 @@
 package sg.mesha.goatos.core.ui
 
 /**
- * Shed-partition display rules, shared by every surface that shows a drive's shed/partition so the
- * same label can never render two different ways.
+ * Exact shed display rules, shared by every surface that shows a shed so the same label can never
+ * render two different ways.
  *
- * A drive covers either a WHOLE shed or one partition of it. The backend's raw `partition_label` is
- * not display copy: fixtures emit `whole`, bare ordinals (`1`, `2`, `3`), and already-worded labels
- * (`Part 3`, `Parts 1-3`). Blindly prefixing "Part " produced "Part whole" and "Part Parts 1-3".
+ * The backend's raw `partition_label` is compatibility metadata, not display copy: fixtures emit
+ * `whole`, bare ordinals (`1`, `2`, `3`), and already-worded labels (`Part 3`, `Parts 1-3`).
+ * Blindly prefixing "Part " produced "Part whole" and "Part Parts 1-3".
  *
  * Rules:
  *  - blank or `whole` -> null. The drive covers the shed; the shed name alone is the label and no
@@ -25,8 +25,9 @@ fun partitionDisplayLabel(partition: String, format: (String) -> String): String
  *
  * Rules:
  *  - null/blank shed name or null/blank/whole partition → bare shed name only, e.g. "Yashoda"
- *  - numeric partition → "<shed> <label>": "Castro 2"
- *  - worded partition → "<shed> - <label>": "Godel 1 - Part 3"
+ *  - if a shed name exists, return that exact string. `partitionLabel` is compatibility metadata
+ *    and must not be appended. The backend must send `Castro 2` or `Mandela 2 Part 1` as the shed
+ *    name/display string when that is the real shed.
  *  - if shed name is null/blank, fall back to partition label or empty string
  *
  * Never produces "Yashoda whole" — the literal string "whole" is treated as non-partitioned.
@@ -48,10 +49,7 @@ fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String
         return normalizedPartition
     }
 
-    if (normalizedPartition.all { it.isDigit() }) {
-        return "$normalizedShed $normalizedPartition"
-    }
-    return "$normalizedShed - $normalizedPartition"
+    return normalizedShed
 }
 
 /**

@@ -56,7 +56,7 @@ func TestDisplayUsesExactShedName(t *testing.T) {
 		{"Castro 1", "1", "Castro 1"},
 		{"Castro 2", "2", "Castro 2"},
 		{"Gandhi 3", "3", "Gandhi 3"},
-		{"Godel 1", "Part 3", "Godel 1 - Part 3"},
+		{"Godel 1", "Part 3", "Godel 1"},
 		{"Mandela 1 - Part 10", "Part 10", "Mandela 1 - Part 10"},
 		{"Ho Chi Minh", "1", "Ho Chi Minh"},
 		{"Yashoda", "", "Yashoda"},

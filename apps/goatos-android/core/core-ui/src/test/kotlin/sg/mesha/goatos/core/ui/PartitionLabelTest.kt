@@ -64,26 +64,35 @@ class OperationalLocationLabelTest {
     }
 
     @Test
-    fun `numeric partition uses exact numbered shed format`() {
-        assertEquals("Castro 2", operationalLocationLabel("Castro", "2"))
-        assertEquals("Castro 1", operationalLocationLabel("Castro", "1"))
-        assertEquals("Godel 1 5", operationalLocationLabel("Godel 1", "5"))
+    fun `numeric partition metadata does not change a shed name`() {
+        assertEquals("Castro", operationalLocationLabel("Castro", "2"))
+        assertEquals("Castro 1", operationalLocationLabel("Castro 1", "1"))
+        assertEquals("Godel 1", operationalLocationLabel("Godel 1", "5"))
     }
 
     @Test
-    fun `bare numeric labels use numbered shed spelling`() {
-        assertEquals("Godel 1 1", operationalLocationLabel("Godel 1", "1"))
-        assertEquals("Godel 1 10", operationalLocationLabel("Godel 1", "10"))
-        assertEquals("Sumathi 2 7", operationalLocationLabel("Sumathi 2", "7"))
+    fun `bare numeric labels are ignored when shed name is present`() {
+        assertEquals("Godel 1", operationalLocationLabel("Godel 1", "1"))
+        assertEquals("Godel 1", operationalLocationLabel("Godel 1", "10"))
+        assertEquals("Sumathi 2", operationalLocationLabel("Sumathi 2", "7"))
     }
 
     @Test
-    fun `partition starting with Part uses dash format`() {
-        assertEquals("Godel 1 - Part 3", operationalLocationLabel("Godel 1", "Part 3"))
-        assertEquals("Yashoda - Part 1", operationalLocationLabel("Yashoda", "Part 1"))
-        assertEquals("Yashoda - Parts 1-3", operationalLocationLabel("Yashoda", "Parts 1-3"))
-        // Case-insensitive
-        assertEquals("Yashoda - part 2", operationalLocationLabel("Yashoda", "part 2"))
+    fun `exact shed names never re-append stale compatibility partition`() {
+        assertEquals("Castro 2", operationalLocationLabel("Castro 2", "2"))
+        assertEquals("Castro 3", operationalLocationLabel("Castro 3", "3"))
+        assertEquals("Gandhi 1", operationalLocationLabel("Gandhi 1", "1"))
+        assertEquals("Godel 2 - Part 1", operationalLocationLabel("Godel 2 - Part 1", "Part 1"))
+        assertEquals("Godel 2 - Part 1", operationalLocationLabel("Godel 2 - Part 1", "1"))
+    }
+
+    @Test
+    fun `worded partition metadata does not change a shed name`() {
+        assertEquals("Godel 1", operationalLocationLabel("Godel 1", "Part 3"))
+        assertEquals("Yashoda", operationalLocationLabel("Yashoda", "Part 1"))
+        assertEquals("Yashoda", operationalLocationLabel("Yashoda", "Parts 1-3"))
+        assertEquals("Yashoda", operationalLocationLabel("Yashoda", "part 2"))
+        assertEquals("Mandela 2 Part 1", operationalLocationLabel("Mandela 2 Part 1", "Part 1"))
     }
 
     @Test
@@ -114,8 +123,8 @@ class OperationalLocationLabelTest {
         // right either way -- the FIXTURE implied a partitioned Yashoda, which is how a
         // reader comes to believe `Yashoda - 2` is a real label. It is not; `Yashoda 2`
         // is simply that shed's whole name.
-        assertEquals("Godel 1 2", operationalLocationLabel("  Godel 1  ", "  2  "))
-        assertEquals("Godel 1 - Part 3", operationalLocationLabel("  Godel 1  ", "  Part 3  "))
+        assertEquals("Godel 1", operationalLocationLabel("  Godel 1  ", "  2  "))
+        assertEquals("Godel 1", operationalLocationLabel("  Godel 1  ", "  Part 3  "))
     }
 
     @Test
@@ -155,23 +164,23 @@ private data class GoldenFixtureRow(
 
 private val goldenFixture = listOf(
     GoldenFixtureRow(
-        name = "subdivided shed, numeric-suffixed name, worded partition",
+        name = "exact partition shed, worded compatibility partition",
         shedId = "shed-godel-1",
-        shedName = "Godel 1",
+        shedName = "Godel 1 - Part 3",
         partitionLabel = "Part 3",
         want = "Godel 1 - Part 3",
     ),
     GoldenFixtureRow(
-        name = "subdivided shed, numeric-suffixed name, two-digit worded partition",
+        name = "exact partition shed, two-digit worded compatibility partition",
         shedId = "shed-godel-1",
-        shedName = "Godel 1",
+        shedName = "Godel 1 - Part 10",
         partitionLabel = "Part 10",
         want = "Godel 1 - Part 10",
     ),
     GoldenFixtureRow(
-        name = "subdivided shed, plain name, bare numeric partition",
+        name = "exact numbered shed, bare numeric compatibility partition",
         shedId = "shed-castro-cbe",
-        shedName = "Castro",
+        shedName = "Castro 2",
         partitionLabel = "2",
         want = "Castro 2",
     ),
@@ -206,14 +215,14 @@ private val goldenFixture = listOf(
     GoldenFixtureRow(
         name = "two same-named sheds, different parks -- CBE",
         shedId = "shed-castro-cbe",
-        shedName = "Castro",
+        shedName = "Castro 1",
         partitionLabel = "1",
         want = "Castro 1",
     ),
     GoldenFixtureRow(
         name = "two same-named sheds, different parks -- CPT",
         shedId = "shed-castro-cpt",
-        shedName = "Castro",
+        shedName = "Castro 1",
         partitionLabel = "1",
         want = "Castro 1",
     ),
