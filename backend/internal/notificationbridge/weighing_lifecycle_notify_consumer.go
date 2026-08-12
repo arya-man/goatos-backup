@@ -106,6 +106,8 @@ const (
 	roleLabelOperator       = "operator"
 	roleLabelGrowthDirector = "growth_director"
 	roleLabelCEO            = "ceo"
+
+	campaignClosedOperatorLabelSampleLimit = 5
 )
 
 type weighingPublishedBucketPayload struct {
@@ -187,15 +189,22 @@ type weighingClosedBucketPayload struct {
 	PreviousStatus string `json:"previous_status"`
 }
 
+type weighingClosedOperatorPayload struct {
+	OperatorID  string   `json:"operator_id"`
+	BucketCount int      `json:"bucket_count"`
+	ShedLabels  []string `json:"shed_labels"`
+}
+
 type weighingCampaignClosedPayload struct {
-	TenantID         string                        `json:"tenant_id"`
-	CampaignID       string                        `json:"campaign_id"`
-	ParkID           string                        `json:"park_id"`
-	ClosedBy         string                        `json:"closed_by"`
-	Reason           string                        `json:"reason"`
-	NotAcceptedCount int                           `json:"not_accepted_count"`
-	Buckets          []weighingClosedBucketPayload `json:"buckets"`
-	ClosedAt         string                        `json:"closed_at"`
+	TenantID         string                          `json:"tenant_id"`
+	CampaignID       string                          `json:"campaign_id"`
+	ParkID           string                          `json:"park_id"`
+	ClosedBy         string                          `json:"closed_by"`
+	Reason           string                          `json:"reason"`
+	NotAcceptedCount int                             `json:"not_accepted_count"`
+	Operators        []weighingClosedOperatorPayload `json:"operators"`
+	Buckets          []weighingClosedBucketPayload   `json:"buckets"`
+	ClosedAt         string                          `json:"closed_at"`
 }
 
 // WeighingLifecycleEventConsumer turns weighing publish/verdict/close events into
@@ -684,6 +693,62 @@ func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Conte
 	return err
 }
 
+func campaignClosedOperatorsFromLegacyBuckets(buckets []weighingClosedBucketPayload) []weighingClosedOperatorPayload {
+	byOperator := map[string]*weighingClosedOperatorPayload{}
+	for _, bucket := range buckets {
+		operatorID := strings.TrimSpace(bucket.OperatorID)
+		if operatorID == "" {
+			continue
+		}
+		summary := byOperator[operatorID]
+		if summary == nil {
+			summary = &weighingClosedOperatorPayload{OperatorID: operatorID}
+			byOperator[operatorID] = summary
+		}
+		summary.BucketCount++
+		if label := strings.TrimSpace(bucket.ShedLabel); label != "" && len(summary.ShedLabels) < campaignClosedOperatorLabelSampleLimit {
+			summary.ShedLabels = append(summary.ShedLabels, label)
+		}
+	}
+	operatorIDs := sortedClosedOperatorKeys(byOperator)
+	operators := make([]weighingClosedOperatorPayload, 0, len(operatorIDs))
+	for _, operatorID := range operatorIDs {
+		operator := *byOperator[operatorID]
+		sort.Strings(operator.ShedLabels)
+		operators = append(operators, operator)
+	}
+	return operators
+}
+
+func trimmedNonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			if len(out) >= campaignClosedOperatorLabelSampleLimit {
+				break
+			}
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func campaignClosedOperatorBody(bucketCount int, labels []string) string {
+	if bucketCount <= 0 {
+		bucketCount = len(labels)
+	}
+	if bucketCount <= 0 {
+		return "Weighing was closed before you finished."
+	}
+	if len(labels) == 0 {
+		return fmt.Sprintf("Weighing was closed before you finished %d sheds.", bucketCount)
+	}
+	if bucketCount > len(labels) {
+		return fmt.Sprintf("Weighing was closed before you finished %d sheds, including %s.", bucketCount, strings.Join(labels, ", "))
+	}
+	return "Weighing was closed before you finished: " + strings.Join(labels, ", ") + "."
+}
+
 // handleCampaignClosed tells leadership the whole task ended, and tells each
 // operator whose bucket was closed without acceptance -- one message per operator,
 // naming only their own buckets.
@@ -698,29 +763,32 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 		return nil
 	}
 
-	byOperator := map[string][]string{}
-	for _, bucket := range payload.Buckets {
-		operatorID := strings.TrimSpace(bucket.OperatorID)
-		label := strings.TrimSpace(bucket.ShedLabel)
-		if operatorID == "" || label == "" {
+	operators := payload.Operators
+	if len(operators) == 0 && len(payload.Buckets) > 0 {
+		operators = campaignClosedOperatorsFromLegacyBuckets(payload.Buckets)
+	}
+	for _, operator := range operators {
+		operatorID := strings.TrimSpace(operator.OperatorID)
+		if operatorID == "" {
 			continue
 		}
-		byOperator[operatorID] = append(byOperator[operatorID], label)
-	}
-	for _, operatorID := range sortedKeys(byOperator) {
-		labels := byOperator[operatorID]
+		labels := trimmedNonEmpty(operator.ShedLabels)
 		sort.Strings(labels)
-		// scale-guard:ignore: bounded fan-out over the DISTINCT operators whose buckets this campaign close ended (capped by the producer at domain.CloseNotAcceptedSampleLimit); each operator must be told only about their own buckets
+		bucketCount := operator.BucketCount
+		if bucketCount < len(labels) {
+			bucketCount = len(labels)
+		}
+		// scale-guard:ignore: fan-out is one bounded notification per affected operator. Producer sends exact per-operator bucket_count plus a capped shed-label sample, never every bucket label.
 		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
 		if err != nil {
 			return fmt.Errorf("weighing campaign close notification: resolve operator %s recipients: %w", operatorID, err)
 		}
 		eventKey := EventWeighingCampaignClosed + ":" + campaignID + ":" + operatorID
-		body := "Weighing was closed before you finished: " + strings.Join(labels, ", ") + "."
+		body := campaignClosedOperatorBody(bucketCount, labels)
 		if reason := strings.TrimSpace(payload.Reason); reason != "" {
 			body += " Reason: " + reason
 		}
-		// scale-guard:ignore: bounded per-operator write over the DISTINCT operators whose buckets this close ended (producer caps the bucket list at domain.CloseNotAcceptedSampleLimit). Each message names only that operator's own buckets, so it cannot be collapsed into one batched write.
+		// scale-guard:ignore: bounded per-operator write. Each message targets exactly one operator and uses a capped shed-label sample with an exact count.
 		if _, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 			TenantID:         tenantID,
 			CalendarEventID:  "weighing:" + campaignID,
@@ -820,6 +888,15 @@ func (c *WeighingLifecycleEventConsumer) warnIfNoRecipients(ctx context.Context,
 // sortedKeys keeps the per-operator fan-out deterministic so a redelivery produces
 // the same message order (and the same idempotency keys) every time.
 func sortedKeys(byOperator map[string][]string) []string {
+	keys := make([]string, 0, len(byOperator))
+	for key := range byOperator {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedClosedOperatorKeys(byOperator map[string]*weighingClosedOperatorPayload) []string {
 	keys := make([]string, 0, len(byOperator))
 	for key := range byOperator {
 		keys = append(keys, key)

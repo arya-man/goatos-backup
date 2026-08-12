@@ -245,18 +245,18 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoShedSco
 	// And the stranded roster row is still stranded, not accepted.
 	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
 
-	var bucketCount int
-	var bucketOperator, bucketShed string
+	var operatorCount, operatorBucketCount int
+	var bucketOperator string
 	if err := pool.QueryRow(ctx, `
-SELECT jsonb_array_length(payload->'payload'->'buckets'),
-  payload->'payload'->'buckets'->0->>'operator_id',
-  payload->'payload'->'buckets'->0->>'campaign_shed_id'
+SELECT jsonb_array_length(payload->'payload'->'operators'),
+  payload->'payload'->'operators'->0->>'operator_id',
+  (payload->'payload'->'operators'->0->>'bucket_count')::int
 FROM outbox_messages
-WHERE tenant_id=$1::uuid AND event_type='weighing.campaign.closed'`, repoTenant).Scan(&bucketCount, &bucketOperator, &bucketShed); err != nil {
+WHERE tenant_id=$1::uuid AND event_type='weighing.campaign.closed'`, repoTenant).Scan(&operatorCount, &bucketOperator, &operatorBucketCount); err != nil {
 		t.Fatalf("read campaign close payload: %v", err)
 	}
-	if bucketCount != 1 || bucketOperator != repoOperator || bucketShed != repoAnimalScope {
-		t.Fatalf("campaign close buckets=%d operator=%q shed=%q, want the one open bucket and its assigned operator", bucketCount, bucketOperator, bucketShed)
+	if operatorCount != 1 || bucketOperator != repoOperator || operatorBucketCount != 1 {
+		t.Fatalf("campaign close operators=%d operator=%q bucket_count=%d, want the one open bucket's assigned operator", operatorCount, bucketOperator, operatorBucketCount)
 	}
 	if got := countAudit(t, ctx, pool, "weighing.campaign_closed"); got != 1 {
 		t.Fatalf("weighing.campaign_closed audit rows=%d, want 1", got)
