@@ -3,6 +3,7 @@ package sg.mesha.goatos.feature.feed
 // telemetry:exempt pure stateless renderer; FeedDirectionViewModel (in :app) owns the feed_*
 // AnalyticsEvents + CrashReporter wiring for every read refresh and filter change.
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
@@ -61,11 +63,9 @@ data class FeedDirectionRowUi(
     // the completion request without re-parsing grainKey.
     val parkId: String,
     val shedId: String,
+    val partitionLabel: String = "",
     val sessionNo: Int,
     val shedLabel: String,
-    /** The PEN, "" for an undivided shed. Separate from the composed [shedLabel] because the
-     *  completion needs the raw pen — a shed-only completion closes every pen at once. */
-    val partitionLabel: String,
     val shedTag: String,
     val breed: String,
     val rationGroup: String,
@@ -82,7 +82,10 @@ data class FeedDirectionRowUi(
     /** Verification-lifecycle bucket: "pending", "pending_verification", or "completed" (empty =
      *  pending). Drives the 3-state status chip. */
     val lifecycleStatus: String,
-)
+) {
+    val canOpenCapture: Boolean
+        get() = lifecycleStatus.isBlank() || lifecycleStatus == FeedStatus.PENDING
+}
 
 /** One feed item's whole-scope total. */
 @Immutable
@@ -136,8 +139,8 @@ data class FeedDirectionUiState(
     // Today's business date (Asia/Kolkata) — the bound the date bar's next-day arrow and DatePicker
     // clamp to, computed once by the ViewModel so the feature module never re-derives "today" itself.
     val today: String = "",
-    // True only when this actor may execute Feed Direction and targetDateLabel == today. Feed
-    // director / CEO read users stay view-only: rows must not open the capture flow.
+    // True only when targetDateLabel == today: a past day is VIEW ONLY, so rows must not open the
+    // capture flow while this is false.
     val canCapture: Boolean = true,
     val filters: FeedFilterUi = FeedFilterUi(),
     val summary: FeedDirectionSummaryUi = FeedDirectionSummaryUi(),
@@ -147,6 +150,7 @@ data class FeedDirectionUiState(
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    val locallySubmittedDistributionKeys: Set<String> = emptySet(),
 )
 
 sealed interface FeedDirectionEvent {
@@ -166,18 +170,25 @@ sealed interface FeedDirectionEvent {
     /** The feed day to view; never applied by the ViewModel when it is in the future. */
     data class SelectDate(val date: LocalDate) : FeedDirectionEvent
 
+    /** A row tap was blocked because the shed-session is already submitted or awaiting review. */
+    data class AlreadySubmittedRow(
+        val parkId: String,
+        val shedId: String,
+        val sessionNo: Int,
+        val workflow: String,
+        val lifecycleStatus: String,
+    ) : FeedDirectionEvent
+
     /** Tap a row to open its shed-session completion detail. */
     data class OpenRow(
         val parkId: String,
-        /** The row's backend-owned lifecycle bucket, so the capture screen knows the session is
-         *  already submitted without re-reading it. */
-        val lifecycleStatus: String,
         val shedId: String,
         val sessionNo: Int,
         val workflow: String,
         val shedLabel: String,
-        val partitionLabel: String,
         val sessionLabel: String,
+        val partitionLabel: String,
+        val lifecycleStatus: String,
     ) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
 }
@@ -191,8 +202,11 @@ fun FeedDirectionScreen(
     state: FeedDirectionUiState,
     rows: LazyPagingItems<FeedDirectionRowUi>,
     onEvent: (FeedDirectionEvent) -> Unit = {},
+    canOpenRows: Boolean = state.canCapture,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val alreadySubmittedText = stringResource(R.string.feed_direction_already_submitted)
     // Refresh-on-open (docs/decisions/android-offline-first.md): cached Room rows show
     // instantly and a background refresh fires on every resume, including when the
     // operator pops back here after submitting a feed-distribution session.
@@ -245,28 +259,43 @@ fun FeedDirectionScreen(
 
             items(count = rows.itemCount, key = rows.itemKey { it.grainKey }) { index ->
                 rows[index]?.let { row ->
-                    // Read-only rows disable the card's clickable modifier below, so a tap never
-                    // reaches this lambda and OpenRow — hence the verifier-gated capture screen —
-                    // is never dispatched for directors/CEO or a non-today day.
-                    FeedDirectionRowCard(row, canCapture = state.canCapture) {
-                        onEvent(
-                            FeedDirectionEvent.OpenRow(
-                                parkId = row.parkId,
-                                lifecycleStatus = row.lifecycleStatus,
-                                shedId = row.shedId,
-                                sessionNo = row.sessionNo,
-                                workflow = row.workflow,
-                                shedLabel = row.shedLabel,
-                                partitionLabel = row.partitionLabel,
-                                sessionLabel = row.sessionLabel,
-                            ),
-                        )
+                    val locallySubmitted = state.locallySubmittedDistributionKeys.contains(row.distributionSubmissionKey())
+                    // Past-day rows are view-only. Today's in-review/submitted rows remain tappable
+                    // so operators get feedback instead of reopening capture.
+                    FeedDirectionRowCard(row, canCapture = state.canCapture && canOpenRows) {
+                        if (row.canOpenCapture && !locallySubmitted) {
+                            onEvent(
+                                FeedDirectionEvent.OpenRow(
+                                    parkId = row.parkId,
+                                    shedId = row.shedId,
+                                    sessionNo = row.sessionNo,
+                                    workflow = row.workflow,
+                                    shedLabel = row.shedLabel,
+                                    sessionLabel = row.sessionLabel,
+                                    partitionLabel = row.partitionLabel,
+                                    lifecycleStatus = row.lifecycleStatus,
+                                ),
+                            )
+                        } else {
+                            onEvent(
+                                FeedDirectionEvent.AlreadySubmittedRow(
+                                    parkId = row.parkId,
+                                    shedId = row.shedId,
+                                    sessionNo = row.sessionNo,
+                                    workflow = row.workflow,
+                                    lifecycleStatus = if (locallySubmitted) FeedStatus.AWAITING else row.lifecycleStatus,
+                                ),
+                            )
+                            Toast.makeText(context, alreadySubmittedText, Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
         }
     }
 }
+
+private fun FeedDirectionRowUi.distributionSubmissionKey(): String = "$shedId:$sessionNo:$workflow"
 
 @Composable
 internal fun FeedHeader(
@@ -333,14 +362,14 @@ private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectio
             Text(
                 text = stringResource(R.string.feed_filters_title),
                 color = MeshaColors.Muted,
-                style = MeshaType.pillStrong,
+                style = MeshaType.cta,
                 modifier = Modifier.weight(1f),
             )
             if (hasActive) {
                 Text(
                     text = stringResource(R.string.feed_filters_clear),
                     color = MeshaColors.BrandD,
-                    style = MeshaType.pillStrong,
+                    style = MeshaType.cta,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onEvent(FeedDirectionEvent.ClearFilters) }
@@ -492,7 +521,7 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi, canCapture: Boolean, o
             add(row.sessionLabel)
         }.joinToString(" · ")
         if (subtitle.isNotBlank()) {
-            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.caption)
+            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
         }
     }
 }
@@ -512,7 +541,7 @@ internal fun FeedLifecycleChip(status: String, completedLabel: String) {
     Text(
         text = chip.label,
         color = chip.fg,
-        style = MeshaType.pillStrong,
+        style = MeshaType.pill,
         modifier = Modifier
             .padding(end = 6.dp)
             .clip(RoundedCornerShape(999.dp))
@@ -530,23 +559,23 @@ internal fun FeedDirectionStatusChip(status: String) {
 @Composable
 internal fun FeedItemQtyRow(item: FeedItemQtyUi) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = item.feedItem, color = MeshaColors.Ink, style = MeshaType.body, modifier = Modifier.weight(1f))
+        Text(text = item.feedItem, color = MeshaColors.Ink, style = MeshaType.rowLabel, modifier = Modifier.weight(1f))
         if (item.blocked) {
             Text(
                 text = stringResource(R.string.feed_blocked_label),
                 color = MeshaColors.Danger,
-                style = MeshaType.pillStrong,
+                style = MeshaType.cta,
             )
         } else {
             Text(
                 text = stringResource(R.string.feed_kg_fmt, item.quantityKg ?: "0"),
                 color = MeshaColors.Ink,
-                style = MeshaType.bodyStrong,
+                style = MeshaType.rowValue,
             )
         }
     }
     if (item.blocked && item.blockedReason.isNotBlank()) {
-        Text(text = item.blockedReason, color = MeshaColors.Warn, style = MeshaType.caption)
+        Text(text = item.blockedReason, color = MeshaColors.Warn, style = MeshaType.rowCaption)
     }
 }
 
@@ -559,7 +588,7 @@ internal fun FeedWorkflowChip(workflow: String) {
     Text(
         text = label,
         color = fg,
-        style = MeshaType.pillStrong,
+        style = MeshaType.pill,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)

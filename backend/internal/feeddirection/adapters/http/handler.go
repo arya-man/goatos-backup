@@ -1,7 +1,7 @@
-// Package http exposes the feed-direction generation read API plus the VERIFIER-GATED write paths the
-// module owns: distribution completion, packing completion, and transport submission. Each of those
-// flips a session to pending_verification and is completed only by a verifier's approval; the
-// pre-gate instant route POST /feed-direction/complete is no longer registered.
+// Package http exposes the feed-direction generation read API plus the ONE write path the module now
+// owns: recording that a shed-session's feed direction was carried out (POST /feed-direction/complete).
+// The two GET routes remain pure reads; the completion route is idempotent (Idempotency-Key header)
+// and is the client-facing edge of the feed.direction.completed producer.
 package http
 
 import (
@@ -19,7 +19,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
-	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -29,8 +28,9 @@ import (
 type Service interface {
 	Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error)
 	PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error)
+	CompleteSession(ctx context.Context, in app.CompleteSessionInput) (ports.CompleteSessionResult, error)
 	// CompleteDistribution is the verifier-gated feed DISTRIBUTION completion, entirely separate from
-	// CompleteSession (the old instant path). It requires two mandatory proofs and flips the session to
+	// CompleteSession (the old instant path). It requires three mandatory proofs and flips the session to
 	// pending_verification (maintainer decision, 2026-07-26).
 	CompleteDistribution(ctx context.Context, in app.CompleteDistributionInput) (ports.CompleteDistributionResult, error)
 	// CompletePacking is the verifier-gated feed PACKING completion (maintainer decision, 2026-07-26,
@@ -40,9 +40,6 @@ type Service interface {
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
 	ListTransportTasks(ctx context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error)
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
-	// ListAlerts serves the feed module's own lifecycle alerts feed, the twin of
-	// GET /app/weighing/alerts and GET /app/vaccination/alerts. See app/alerts.go.
-	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 }
 
 type Handler struct {
@@ -57,103 +54,32 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
-	// POST /feed-direction/complete (the pre-gate INSTANT completion) is deliberately NOT registered.
-	// It wrote 'completed' at operator submit, which walks around the ratified verification gate
-	// (submit -> pending_verification -> verifier approve -> completed). Its service dependency is
-	// unwired too, so the app path fails closed with ports.ErrCompletionUnavailable even if a caller
-	// reaches it another way. See docs/decisions/feed-distribution-verification.md.
+	mux.HandleFunc("POST /feed-direction/complete", h.PostComplete)
+	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
+	// (the old instant path).
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
-	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26).
+	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26). Separate route from
+	// both POST /feed-direction/complete (old instant path) and the distribution route.
 	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
 	mux.HandleFunc("GET /feed-transport/tasks", h.GetTransportTasks)
 	mux.HandleFunc("POST /feed-transport/tasks/{task_id}/submit", h.PostTransportSubmit)
-	mux.HandleFunc("GET /app/feed/alerts", h.ListAlerts)
-}
-
-// ListAlerts serves GET /app/feed/alerts -- the feed module's OWN alerts feed, the twin of
-// GET /app/weighing/alerts and GET /app/vaccination/alerts.
-//
-// WHY IT EXISTS: backend/internal/notificationbridge/verification_notify_consumer.go has been
-// queuing feed.proof.* / feed.record.closed notifications for the verifier, feed_director,
-// park_head and CEO since the feed verification gates shipped (2026-07-26), and there was no route
-// to read them back.
-//
-// SCOPE: the query filters on context->>'member_id' = the caller, so the feed is already "my own
-// alerts" and cannot leak another person's row. Park scope is therefore passed WIDE here (tenantWide
-// = true, parkIDs = nil) rather than re-deriving a capability park list: a narrower park filter
-// could only ever HIDE alerts that were addressed to this caller on purpose -- it can never widen
-// what is visible, because the audience predicate above already pins the caller's identity. This
-// mirrors vaccinationexecution's handler and is the fix for the "recipient vs reader" defect class:
-// deriving tenantWide/parkIDs from the caller's FEED capabilities (as the route-level permission
-// check does) would leave a verifier -- who holds VerificationReview but no feed_direction.*
-// capability -- with tenantWide=false and an EMPTY park list, so the SQL predicate
-// ($4::bool OR context->>'park_id' = ANY($5)) would silently exclude every row addressed to them.
-func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
-	limit := domain.AlertPageSize
-	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed <= 0 {
-			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "limit must be a positive integer", nil)
-			return
-		}
-		limit = parsed
-	}
-	if limit > domain.MaxAlertPageSize {
-		limit = domain.MaxAlertPageSize
-	}
-
-	tenant := httpmiddleware.TenantIDFromContext(r.Context())
-	actor := httpmiddleware.ActorIDFromContext(r.Context())
-	if tenant == "" || actor == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
-		return
-	}
-
-	page, err := h.service.ListAlerts(
-		r.Context(), tenant, actor,
-		true, nil,
-		strings.TrimSpace(r.URL.Query().Get("cursor")), limit,
-	)
-	if err != nil {
-		if errors.Is(err, ports.ErrInvalidArgument) {
-			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "the paging cursor is not valid", nil)
-			return
-		}
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "list feed alerts", err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 type transportTaskDTO struct {
-	TaskID                     string    `json:"task_id"`
-	ParkID                     string    `json:"park_id"`
-	ParkLabel                  string    `json:"park_label"`
-	ShedID                     string    `json:"shed_id"`
-	ShedLabel                  string    `json:"shed_label"`
-	PartitionLabel             string    `json:"partition_label"`
-	OperationalLocationDisplay string    `json:"operational_location_display"`
-	BusinessDate               string    `json:"business_date"`
-	Status                     string    `json:"status"`
-	OperatorID                 string    `json:"operator_id,omitempty"`
-	ReworkReason               string    `json:"rework_reason,omitempty"`
-	ScheduledAt                time.Time `json:"scheduled_at"`
+	TaskID       string    `json:"task_id"`
+	ParkID       string    `json:"park_id"`
+	ParkLabel    string    `json:"park_label"`
+	ShedID       string    `json:"shed_id"`
+	ShedLabel    string    `json:"shed_label"`
+	BusinessDate string    `json:"business_date"`
+	Status       string    `json:"status"`
+	OperatorID   string    `json:"operator_id,omitempty"`
+	ReworkReason string    `json:"rework_reason,omitempty"`
+	ScheduledAt  time.Time `json:"scheduled_at"`
 }
 type transportListResponse struct {
-	Items      []transportTaskDTO  `json:"items"`
-	NextCursor string              `json:"next_cursor,omitempty"`
-	Filters    transportFiltersDTO `json:"filters"`
-}
-
-type transportFilterOptionDTO struct {
-	ID             string `json:"id"`
-	Label          string `json:"label"`
-	PartitionLabel string `json:"partition_label,omitempty"`
-}
-
-type transportFiltersDTO struct {
-	Parks []transportFilterOptionDTO `json:"parks"`
-	Sheds []transportFilterOptionDTO `json:"sheds"`
+	Items      []transportTaskDTO `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
 }
 
 func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
@@ -163,36 +89,16 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
 		return
 	}
-	// Park scope is CLAMPED to the caller's own grant before anything is read or written. This is
-	// the precondition for admitting a park-scoped grant on this route in
-	// httpmiddleware.routeAllowsScopedGrants: without it a CPT operator could name a CBE park_id.
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenant, strings.TrimSpace(r.URL.Query().Get("park_id")), permissions.FeedTransportRead,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
-			"code": parkScope.Code, "message": parkScope.Message,
-		}, nil)
-		return
-	}
-
 	limit, err := boundedIntParam(r.URL.Query(), "limit", 20, 1, 100)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	actorFilter := actor
-	if httpmiddleware.HasTenantWideCapability(httpmiddleware.AuthGrantsFromContext(r.Context()), tenant, permissions.FeedTransportRead) {
-		actorFilter = ""
-	}
-	// No partition_label filter: transport is one task per physical shed, so shed_id is the
-	// finest location this list can be narrowed to. An older phone build may still send the
-	// param; it is ignored rather than hiding part of a shed's own work.
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
 		TenantID: tenant,
-		ActorID:  actorFilter,
+		ActorID:  actor,
 		Date:     r.URL.Query().Get("business_date"),
-		ParkID:   parkScope.ParkID,
+		ParkID:   r.URL.Query().Get("park_id"),
 		ShedID:   r.URL.Query().Get("shed_id"),
 		Status:   r.URL.Query().Get("status"),
 		Cursor:   r.URL.Query().Get("cursor"),
@@ -204,21 +110,9 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]transportTaskDTO, 0, len(page.Items))
 	for _, x := range page.Items {
-		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, PartitionLabel: x.PartitionLabel, OperationalLocationDisplay: x.OperationalLocationDisplay, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
+		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
 	}
-	parks := make([]transportFilterOptionDTO, 0, len(page.Filters.Parks))
-	for _, option := range page.Filters.Parks {
-		parks = append(parks, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
-	}
-	sheds := make([]transportFilterOptionDTO, 0, len(page.Filters.Sheds))
-	for _, option := range page.Filters.Sheds {
-		sheds = append(sheds, transportFilterOptionDTO{ID: option.ID, Label: option.Label, PartitionLabel: option.PartitionLabel})
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{
-		Items:      out,
-		NextCursor: page.NextCursor,
-		Filters:    transportFiltersDTO{Parks: parks, Sheds: sheds},
-	})
+	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: page.NextCursor})
 }
 
 type transportSubmitRequest struct {
@@ -253,24 +147,7 @@ func (h *Handler) PostTransportSubmit(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: "a live feed-transport video proof (proof_ref) is required"}, nil)
 		return
 	}
-	// This route names no park -- the task id in the path is the only input -- so the caller's OWN
-	// scope is resolved here and checked against the TASK's park in the service. That check is the
-	// precondition for httpmiddleware.routeAllowsScopedGrants admitting a park-scoped grant on this
-	// route; without it a CBE operator holding a CPT task id could submit CPT work.
-	//
-	// A blank requested park asks the resolver for the caller's own authorized set rather than
-	// validating a named one, so a tenant-wide principal comes back unrestricted (empty ParkIDs) and
-	// a park-scoped operator comes back with exactly his park.
-	transportScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenant, "", permissions.FeedDirectionComplete,
-	)
-	if !transportScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, transportScope.Status, map[string]string{
-			"code": transportScope.Code, "message": transportScope.Message,
-		}, nil)
-		return
-	}
-	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context()), AuthorizedParkIDs: transportScope.ParkIDs})
+	res, err := h.service.SubmitTransport(r.Context(), app.SubmitTransportInput{TenantID: tenant, TaskID: r.PathValue("task_id"), ProofRef: body.ProofRef, OperatorID: actor, IdempotencyKey: key, ActorID: actor, ActorType: "operator", TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
 	if err != nil {
 		h.writeServiceError(w, r, "submit feed transport", err)
 		return
@@ -305,21 +182,86 @@ type completeSessionResponse struct {
 	Applied bool `json:"applied"`
 }
 
+// PostComplete records that one shed-session's feed direction was carried out. Idempotent: the same
+// Idempotency-Key returns the original result and runs no new side effects.
+func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key header is required", nil)
+		return
+	}
+	if len(key) < 8 || len(key) > 200 {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key must be between 8 and 200 characters", nil)
+		return
+	}
+
+	var body completeSessionRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	targetDate, err := businessDateFromString(body.TargetDate)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+
+	proofRefs := make([]domain.ProofRef, 0, len(body.ProofRefs))
+	for _, ref := range body.ProofRefs {
+		proofRefs = append(proofRefs, domain.ProofRef{
+			ProofID:     strings.TrimSpace(ref.ProofID),
+			ProofType:   strings.TrimSpace(ref.ProofType),
+			SubjectType: strings.TrimSpace(ref.SubjectType),
+			SubjectID:   strings.TrimSpace(ref.SubjectID),
+			UploadState: strings.TrimSpace(ref.UploadState),
+		})
+	}
+
+	res, err := h.service.CompleteSession(r.Context(), app.CompleteSessionInput{
+		TenantID:       tenantID,
+		ParkID:         strings.TrimSpace(body.ParkID),
+		ShedID:         strings.TrimSpace(body.ShedID),
+		SessionNo:      body.SessionNo,
+		TargetDate:     targetDate,
+		Workflow:       strings.TrimSpace(body.Workflow),
+		ProofRefs:      proofRefs,
+		CompletedBy:    actorID,
+		IdempotencyKey: key,
+		ActorID:        actorID,
+		ActorType:      "operator",
+		TraceID:        httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "feed direction complete", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, completeSessionResponse{
+		CompletionID: res.CompletionID,
+		Status:       res.Status,
+		Applied:      res.Applied,
+	})
+}
+
 // completeDistributionRequest is the verifier-gated distribution completion body: which shed-session,
-// on which feed day and workflow, plus the TWO mandatory proof references (a feed-distribution video
-// and a water proof). The Idempotency-Key header, not the body, carries the replay key.
+// on which feed day and workflow, plus the three mandatory proof references (feed weight photo,
+// feed-distribution video, and water-distribution video). The Idempotency-Key header, not the body,
+// carries the replay key.
 type completeDistributionRequest struct {
-	ParkID string `json:"park_id"`
-	ShedID string `json:"shed_id"`
-	// PartitionLabel names the PEN the operator worked ("2", "Part 3"); omit or send "" for an
-	// undivided shed. It is part of the completion's identity: without it one pen's video closed
-	// out every pen of the shed (STG 2026-08-08). See migration 000137.
-	PartitionLabel string `json:"partition_label"`
-	SessionNo      int32  `json:"session_no"`
-	TargetDate     string `json:"target_date"`
-	Workflow       string `json:"workflow"`
-	// The three mandatory proofs, in capture order. FeedWeightProofRef is a PHOTO of the weighed feed;
-	// the other two are VIDEOS. Water became video-only on 2026-08-11 -- see migration 000151.
+	ParkID               string `json:"park_id"`
+	ShedID               string `json:"shed_id"`
+	SessionNo            int32  `json:"session_no"`
+	TargetDate           string `json:"target_date"`
+	Workflow             string `json:"workflow"`
 	FeedWeightProofRef   string `json:"feed_weight_proof_ref"`
 	DistributionProofRef string `json:"distribution_proof_ref"`
 	WaterProofRef        string `json:"water_proof_ref"`
@@ -342,7 +284,7 @@ type codedError struct {
 	Message string `json:"message"`
 }
 
-// PostCompleteDistribution records a shed-session's two mandatory proofs and flips it to
+// PostCompleteDistribution records a shed-session's three mandatory proofs and flips it to
 // pending_verification (maintainer decision, 2026-07-26). Nothing is completed here: the session is
 // completed only when a verifier approves the video. Idempotent: the same Idempotency-Key returns the
 // original result and runs no new side effects. Entirely separate from PostComplete (packing).
@@ -378,12 +320,11 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// All three proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the
-	// service, mirroring the shifting complete route, so a proofless request never reaches the write
-	// path. Checked in CAPTURE ORDER so the message names the earliest missing step.
+	// All proofs are mandatory. Reject a blank one with 422 proof_required BEFORE calling the service,
+	// mirroring the shifting complete route, so a proofless request never reaches the write path.
 	if strings.TrimSpace(body.FeedWeightProofRef) == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: "a feed-weight photo proof (feed_weight_proof_ref) is required"}, nil)
+			codedError{Code: "proof_required", Message: "a feed weight photo proof (feed_weight_proof_ref) is required"}, nil)
 		return
 	}
 	if strings.TrimSpace(body.DistributionProofRef) == "" {
@@ -397,24 +338,10 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Park scope is CLAMPED to the caller's own grant before the write. Precondition for admitting a
-	// park-scoped grant on this route (httpmiddleware.routeAllowsScopedGrants): a CPT operator must
-	// not be able to record CBE work by naming another park in the body.
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(body.ParkID), permissions.FeedDirectionComplete,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
-			"code": parkScope.Code, "message": parkScope.Message,
-		}, nil)
-		return
-	}
-
 	res, err := h.service.CompleteDistribution(r.Context(), app.CompleteDistributionInput{
 		TenantID:             tenantID,
-		ParkID:               parkScope.ParkID,
+		ParkID:               strings.TrimSpace(body.ParkID),
 		ShedID:               strings.TrimSpace(body.ShedID),
-		PartitionLabel:       strings.TrimSpace(body.PartitionLabel),
 		SessionNo:            body.SessionNo,
 		TargetDate:           targetDate,
 		Workflow:             strings.TrimSpace(body.Workflow),
@@ -438,19 +365,12 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// completePackingRequest is the verifier-gated packing completion body: which PEN and which feeding
-// SESSION, on which feed day and workflow, plus the ONE mandatory packing video reference. The
-// Idempotency-Key header, not the body, carries the replay key.
-//
-// session_no is REQUIRED again (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day
-// grain). A pen's morning and evening bags are packed and filmed separately, so a completion that
-// does not say which one it proves cannot be recorded against the right line -- the service rejects
-// a missing or zero value with ErrInvalidSession rather than guessing.
+// completePackingRequest is the verifier-gated packing completion body: which shed-session, on which
+// feed day and workflow, plus the ONE mandatory packing video reference. The Idempotency-Key header,
+// not the body, carries the replay key.
 type completePackingRequest struct {
-	ParkID string `json:"park_id"`
-	ShedID string `json:"shed_id"`
-	// PartitionLabel names the PEN the operator worked; see completeDistributionRequest.
-	PartitionLabel  string `json:"partition_label"`
+	ParkID          string `json:"park_id"`
+	ShedID          string `json:"shed_id"`
 	SessionNo       int32  `json:"session_no"`
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
@@ -462,7 +382,7 @@ type completePackingResponse struct {
 	// Status is 'pending_verification' on a fresh submit or a rework re-submit, or 'completed' when the
 	// shed-session was already verifier-approved.
 	Status string `json:"status"`
-	// NewlyPending is true when this call flipped the shed-session into pending_verification (a verification
+	// NewlyPending is true when this call flipped the session into pending_verification (a verification
 	// item was enqueued). False on an idempotent replay or an already-pending/already-completed no-op.
 	NewlyPending bool `json:"newly_pending"`
 }
@@ -494,13 +414,7 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body completePackingRequest
-	packingDecoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	// Unknown fields are REFUSED rather than dropped. A body carrying a field this server does not
-	// understand is a client disagreeing with the contract about what it just submitted, and on a
-	// write that consumes an operator's video the honest answer is a 400 they can see, not a 200 that
-	// silently ignores half of what they sent.
-	packingDecoder.DisallowUnknownFields()
-	if err := packingDecoder.Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
 		return
 	}
@@ -518,24 +432,10 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Park scope is CLAMPED to the caller's own grant before the write. Precondition for admitting a
-	// park-scoped grant on this route (httpmiddleware.routeAllowsScopedGrants): a CPT operator must
-	// not be able to record CBE work by naming another park in the body.
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(body.ParkID), permissions.FeedDirectionComplete,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
-			"code": parkScope.Code, "message": parkScope.Message,
-		}, nil)
-		return
-	}
-
 	res, err := h.service.CompletePacking(r.Context(), app.CompletePackingInput{
 		TenantID:        tenantID,
-		ParkID:          parkScope.ParkID,
+		ParkID:          strings.TrimSpace(body.ParkID),
 		ShedID:          strings.TrimSpace(body.ShedID),
-		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		SessionNo:       body.SessionNo,
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),
@@ -579,15 +479,6 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedDirectionRead,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
-			"code": parkScope.Code, "message": parkScope.Message,
-		}, nil)
-		return
-	}
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
@@ -621,7 +512,7 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.service.Preview(r.Context(), domain.PreviewQuery{
 		TenantID:   tenantID,
-		ParkID:     parkScope.ParkID,
+		ParkID:     strings.TrimSpace(query.Get("park_id")),
 		TargetDate: targetDate,
 		ShedID:     strings.TrimSpace(query.Get("shed_id")),
 		SessionNo:  sessionNo,
@@ -630,10 +521,6 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
-		// The caller's own park set, so the FILTER VOCABULARY is scoped the same way the read is.
-		// The clamp above already refuses a park outside this set; passing it down stops the response
-		// from advertising those parks as choices in the first place. Nil for a tenant-wide principal.
-		AuthorizedParkIDs: parkScope.ParkIDs,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed direction preview", err)
@@ -650,18 +537,6 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	// Park scope is CLAMPED to the caller's own grant before anything is read or written. This is
-	// the precondition for admitting a park-scoped grant on this route in
-	// httpmiddleware.routeAllowsScopedGrants: without it a CPT operator could name a CBE park_id.
-	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
-		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedPackingRead,
-	)
-	if !parkScope.Allowed {
-		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
-			"code": parkScope.Code, "message": parkScope.Message,
-		}, nil)
-		return
-	}
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
@@ -694,7 +569,7 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.service.PackingWorklist(r.Context(), domain.PackingQuery{
 		TenantID:   tenantID,
-		ParkID:     parkScope.ParkID,
+		ParkID:     strings.TrimSpace(query.Get("park_id")),
 		TargetDate: targetDate,
 		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),
@@ -702,9 +577,6 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		Draft:      parseDraft(query),
 		Limit:      limit,
 		Offset:     offset,
-		// Same scoping contract as the preview above: the packing farm dropdown offers only the parks
-		// this caller may open. Nil for a tenant-wide principal.
-		AuthorizedParkIDs: parkScope.ParkIDs,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed packing worklist", err)
@@ -722,7 +594,6 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound, err.Error(), nil)
 	case errors.Is(err, ports.ErrParkRequired),
 		errors.Is(err, ports.ErrInvalidTargetDate),
-		errors.Is(err, ports.ErrInvalidTransportStatus),
 		errors.Is(err, ports.ErrInvalidWorkflow),
 		errors.Is(err, ports.ErrInvalidPaging),
 		errors.Is(err, ports.ErrShedRequired),
@@ -733,38 +604,17 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
-	case errors.Is(err, ports.ErrFeedWeightProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrDistributionProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrProofMediaKind):
-		// 422 with the same coded envelope: the reference is real, it is simply the wrong capture kind
-		// for its step, and the fix is the operator re-taking that one proof. A 400 would read as a
-		// malformed request and invite the client to retry the identical body.
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrPackingAlreadyRecorded):
-		// 409 and CODED, so the client can tell it apart from a transient failure and stop retrying.
-		// A packing line accepts exactly one video; a second, different one cannot be stored, so it
-		// must not be answered with success. Answering 200 here silently discarded an operator's
-		// recording.
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
-			codedError{Code: "packing_already_recorded", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrTransportParkForbidden):
-		// 403, not 409: the task is fine, the CALLER is out of scope. Coded so the client can tell
-		// this apart from a task-state conflict and show the operator something true.
-		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
-			codedError{Code: "park_scope_forbidden", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, ports.ErrDistributionStoreUnavailable),

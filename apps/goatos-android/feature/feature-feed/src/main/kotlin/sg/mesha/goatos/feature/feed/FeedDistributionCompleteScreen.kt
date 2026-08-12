@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package sg.mesha.goatos.feature.feed
 
 // telemetry:exempt presentational screen — analytics (AnalyticsPort.track) and Crashlytics
@@ -7,54 +9,63 @@ package sg.mesha.goatos.feature.feed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import android.graphics.BitmapFactory
+import android.net.Uri
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
  * Feed-DISTRIBUTION completion detail (L2), reached by tapping a shed-session row on Feed DIRECTION.
- *
- * The verifier-gated flow (docs/decisions/feed-distribution-verification.md) is THREE mandatory
- * captures, each unlocking the next:
- *
- *  1. the feed-weight PHOTO, taken while the feed is still on the scale;
- *  2. the feed-distribution VIDEO;
- *  3. the water-distribution VIDEO.
- *
- * All three are required before Submit enables (client-side gate; the backend also rejects a blank or
- * wrong-kind proof `422 proof_required`). Submitting flips the shed-session to `pending_verification`
- * — NOTHING is completed until a verifier approves the set.
- *
- * WHY THE ORDER IS ENFORCED rather than suggested: the weight photo can only be taken before the feed
- * is given out, so a screen that let the operator shoot it last would be asking for a staged photo of
- * a scale that no longer holds that pen's feed.
- *
- * Water is VIDEO-ONLY since 2026-08-11 (maintainer decision). The photo affordance is deliberately
- * gone rather than hidden: a still of a full trough proves a trough is full, not that this operator
- * filled it today.
+ * The operator records a feed weight photo, feed-distribution video, and water-distribution video
+ * in any order. Each saved proof shows a preview and can be replaced before final submit. The
+ * final verifier-gated completion becomes available only after all three proof uploads sync.
  *
  * This is separate from the packing-proof flow.
  */
 
 enum class FeedDistributionStatus { QUEUED, SYNCED, FAILED }
+enum class FeedDistributionProofStatus { EMPTY, QUEUED, UPLOADING, SYNCED, FAILED }
 
 @androidx.compose.runtime.Immutable
 data class FeedDistributionResultUi(val status: FeedDistributionStatus, val message: String)
@@ -64,71 +75,51 @@ data class FeedDistributionUiState(
     val shedLabel: String = "",
     val sessionLabel: String = "",
     val workflowLabel: String = "",
-    val isCapturingWeight: Boolean = false,
-    val weightCaptured: Boolean = false,
-    val weightMessage: String? = null,
+    val isCapturingFeedWeightPhoto: Boolean = false,
+    val feedWeightPhotoCaptured: Boolean = false,
+    val feedWeightPhotoMessage: String? = null,
+    val feedWeightPhotoPreviewPath: String? = null,
+    val feedWeightPhotoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
     val isCapturingVideo: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
-    val isCapturingWater: Boolean = false,
-    val waterCaptured: Boolean = false,
-    val waterMessage: String? = null,
+    val videoPreviewPath: String? = null,
+    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val isCapturingWaterVideo: Boolean = false,
+    val waterVideoCaptured: Boolean = false,
+    val waterVideoMessage: String? = null,
+    val waterVideoPreviewPath: String? = null,
+    val waterVideoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
     val canComplete: Boolean = false,
+    val isSyncing: Boolean = false,
     val result: FeedDistributionResultUi? = null,
-    /**
-     * The session already went to the verifier (or was approved), so there is nothing to record.
-     *
-     * Backend-owned: from the row's lifecycle bucket, NOT the local capture draft. The draft was
-     * the only signal this screen had and a reinstall wipes it, which is how an operator was shown
-     * an empty form for work already queued (STG 2026-08-09).
-     */
-    val alreadySubmitted: Boolean = false,
 ) {
-    /** True once the write is committed (queued or synced) — every capture affordance closes. */
-    private val committed: Boolean
+    val feedWeightPhotoCaptureEnabled: Boolean
+        get() = !isCapturingFeedWeightPhoto && !isFinalSubmitted
+
+    val waterVideoCaptureEnabled: Boolean
+        get() = !isCapturingWaterVideo && !isFinalSubmitted
+
+    val isFinalSubmitted: Boolean
         get() = result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
-    /** No capture may start while another is in flight, or after the write is committed. */
-    private val captureIdle: Boolean
-        get() = !alreadySubmitted && !committed && !isCapturingWeight && !isCapturingVideo && !isCapturingWater
-
-    /** Step 1. The weight photo opens the flow — nothing gates it but the screen being actionable. */
-    val weightCaptureEnabled: Boolean
-        get() = captureIdle && !weightCaptured
-
-    /** Step 2. The distribution video is actionable only after the weight photo exists. */
-    val videoCaptureEnabled: Boolean
-        get() = captureIdle && weightCaptured && !videoCaptured
-
-    /** Step 3. The water video is actionable only after the distribution video exists. */
-    val waterCaptureEnabled: Boolean
-        get() = captureIdle && videoCaptured && !waterCaptured
-
-    /** ALL THREE mandatory proofs are recorded and the write is not already committed. */
+    /** All three proof uploads reached the server and the final write is not already committed. */
     val submitEnabled: Boolean
-        get() = canComplete && weightCaptured && videoCaptured && waterCaptured &&
-            !isCapturingWeight && !isCapturingVideo && !isCapturingWater && !committed
+        get() = canComplete &&
+            feedWeightPhotoStatus == FeedDistributionProofStatus.SYNCED &&
+            videoStatus == FeedDistributionProofStatus.SYNCED &&
+            waterVideoStatus == FeedDistributionProofStatus.SYNCED &&
+            !isFinalSubmitted
 }
 
 sealed interface FeedDistributionEvent {
-    /** Step 1: photograph the weighed feed with the LIVE in-app camera. */
-    data object TakeFeedWeightPhoto : FeedDistributionEvent
-
-    /** Step 2: record the feed-distribution video with the LIVE in-app camera. */
+    /** Record the feed video with the LIVE in-app camera. */
     data object RecordFeedVideo : FeedDistributionEvent
 
-    /** Step 3: record the water-distribution video. Video-only since 2026-08-11. */
+    data object TakeFeedWeightPhoto : FeedDistributionEvent
     data object RecordWaterVideo : FeedDistributionEvent
-
-    /**
-     * Replace an already-captured proof. Distinct from the Record/Take events so the ViewModel can
-     * DROP the queued upload of the take being discarded — a re-record must not leave the verifier
-     * two proofs for one step.
-     */
-    data object ReTakeFeedWeightPhoto : FeedDistributionEvent
-    data object ReRecordFeedVideo : FeedDistributionEvent
-    data object ReRecordWaterVideo : FeedDistributionEvent
     data object MarkDone : FeedDistributionEvent
+    data object SyncNow : FeedDistributionEvent
     data object Back : FeedDistributionEvent
 }
 
@@ -139,209 +130,318 @@ fun FeedDistributionCompleteScreen(
 ) {
     val committed = state.result?.status == FeedDistributionStatus.SYNCED ||
         state.result?.status == FeedDistributionStatus.QUEUED
-    FeedCaptureScaffold(
-        title = state.shedLabel,
-        subtitle = listOf(state.sessionLabel, state.workflowLabel).filter { it.isNotBlank() }.joinToString(" \u00b7 "),
-        instruction = stringResource(R.string.feed_dist_caption),
-        onBack = { onEvent(FeedDistributionEvent.Back) },
-    ) {
-        // ALREADY SUBMITTED: both proofs went to the verifier, so there is nothing to record. The
-        // operator still reaches this screen — a tapped row must open — but sees the state rather
-        // than an empty form, which is what let a second set of proofs be shot for queued work.
-        if (state.alreadySubmitted) {
-            FeedProofCard(title = stringResource(R.string.feed_complete_already_submitted_title)) {
-                Text(
-                    text = stringResource(R.string.feed_complete_already_submitted_body),
-                    color = MeshaColors.Muted,
-                    fontSize = 13.sp,
+    val subtitle = listOf(state.sessionLabel, state.workflowLabel)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+
+    Scaffold(
+        containerColor = MeshaColors.PageBg,
+        topBar = {
+            MeshaScreenHeader(
+                title = state.shedLabel.ifBlank { "Feed distribution" },
+                eyebrow = "FEED DISTRIBUTION",
+                eyebrowColor = MeshaColors.BrandD,
+                subtitle = subtitle,
+                onBack = { onEvent(FeedDistributionEvent.Back) },
+                actions = {
+                    SyncIconButton(
+                        isSyncing = state.isSyncing,
+                        onSync = { onEvent(FeedDistributionEvent.SyncNow) },
+                    )
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                FeedDistStatusCard(
+                    state = state,
+                    committed = committed,
+                    onRetrySubmit = { onEvent(FeedDistributionEvent.MarkDone) },
                 )
             }
-            return@FeedCaptureScaffold
-        }
-
-        // Step 1 — MANDATORY live feed-weight PHOTO, taken while the feed is still on the scale.
-        FeedProofCard(
-            title = stringResource(R.string.feed_dist_weight_title),
-            hint = stringResource(R.string.feed_dist_weight_hint),
-        ) {
-            when {
-                state.weightCaptured -> FeedVerificationCaptured(
-                    label = stringResource(R.string.feed_dist_weight_captured),
-                    reRecordLabel = stringResource(R.string.feed_proof_recapture),
-                    onReRecord = { onEvent(FeedDistributionEvent.ReTakeFeedWeightPhoto) },
-                    enabled = !committed,
-                )
-                state.isCapturingWeight -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_weight_uploading),
-                    enabled = false,
-                    primary = false,
-                    loading = true,
-                    onClick = {},
-                )
-                else -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_take_weight_photo),
-                    enabled = state.weightCaptureEnabled,
-                    primary = false,
+            item {
+                FeedDistProofAction(
+                    title = stringResource(R.string.feed_dist_take_feed_weight_photo),
+                    subtitle = stringResource(R.string.feed_dist_feed_weight_title),
+                    icon = MeshaIcons.Plus,
+                    captured = state.feedWeightPhotoCaptured,
+                    status = state.feedWeightPhotoStatus,
+                    previewPath = state.feedWeightPhotoPreviewPath,
+                    previewKind = FeedDistPreviewKind.Photo,
+                    capturedLabel = proofLabel(state.feedWeightPhotoStatus, stringResource(R.string.feed_dist_feed_weight_photo_captured)),
+                    loading = state.isCapturingFeedWeightPhoto,
+                    loadingLabel = stringResource(R.string.feed_dist_water_uploading),
+                    retryLabel = stringResource(R.string.feed_dist_retry_feed_weight_photo),
+                    enabled = state.feedWeightPhotoCaptureEnabled,
+                    message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
                 )
             }
-            state.weightMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-        }
-
-        // Step 2 — MANDATORY live feed-distribution video. Disabled until step 1 exists.
-        FeedProofCard(title = stringResource(R.string.feed_dist_video_title)) {
-            when {
-                state.videoCaptured -> FeedVerificationCaptured(
-                    label = stringResource(R.string.feed_dist_video_recorded),
-                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
-                    onReRecord = { onEvent(FeedDistributionEvent.ReRecordFeedVideo) },
-                    enabled = !committed,
-                )
-                state.isCapturingVideo -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_video_uploading),
-                    enabled = false,
-                    primary = false,
-                    loading = true,
-                    onClick = {},
-                )
-                else -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_record_video),
-                    enabled = state.videoCaptureEnabled,
-                    primary = false,
+            item {
+                FeedDistProofAction(
+                    title = stringResource(R.string.feed_dist_record_video),
+                    subtitle = stringResource(R.string.feed_dist_video_title),
+                    icon = MeshaIcons.Video,
+                    captured = state.videoCaptured,
+                    status = state.videoStatus,
+                    previewPath = state.videoPreviewPath,
+                    previewKind = FeedDistPreviewKind.Video,
+                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_dist_video_recorded)),
+                    loading = state.isCapturingVideo,
+                    loadingLabel = stringResource(R.string.feed_dist_video_uploading),
+                    retryLabel = stringResource(R.string.feed_dist_retry_feed_video),
+                    enabled = !state.isCapturingVideo && !committed,
+                    message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                 )
             }
-            state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-        }
-
-        // Step 3 — MANDATORY live water-distribution VIDEO. Disabled until step 2 exists.
-        FeedProofCard(
-            title = stringResource(R.string.feed_dist_water_title),
-            hint = stringResource(R.string.feed_dist_water_hint),
-        ) {
-            when {
-                state.waterCaptured -> FeedVerificationCaptured(
-                    label = stringResource(R.string.feed_dist_water_captured),
-                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
-                    onReRecord = { onEvent(FeedDistributionEvent.ReRecordWaterVideo) },
-                    enabled = !committed,
-                )
-                state.isCapturingWater -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_water_uploading),
-                    enabled = false,
-                    primary = false,
-                    loading = true,
-                    onClick = {},
-                )
-                // ONE button. The photo affordance was removed with the 2026-08-11 video-only rule;
-                // do not restore it as a second option here.
-                else -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_dist_record_water_video),
-                    enabled = state.waterCaptureEnabled,
-                    primary = false,
+            item {
+                FeedDistProofAction(
+                    title = stringResource(R.string.feed_dist_record_water_video),
+                    subtitle = stringResource(R.string.feed_dist_water_hint),
+                    icon = MeshaIcons.Video,
+                    captured = state.waterVideoCaptured,
+                    status = state.waterVideoStatus,
+                    previewPath = state.waterVideoPreviewPath,
+                    previewKind = FeedDistPreviewKind.Video,
+                    capturedLabel = proofLabel(state.waterVideoStatus, stringResource(R.string.feed_dist_water_video_captured)),
+                    loading = state.isCapturingWaterVideo,
+                    loadingLabel = stringResource(R.string.feed_dist_water_uploading),
+                    retryLabel = stringResource(R.string.feed_dist_retry_water_video),
+                    enabled = state.waterVideoCaptureEnabled,
+                    message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
                 )
             }
-            state.waterMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-        }
-
-        FeedVerificationActionButton(
-            label = stringResource(R.string.feed_dist_submit),
-            enabled = state.submitEnabled,
-            primary = true,
-            onClick = { onEvent(FeedDistributionEvent.MarkDone) },
-        )
-        if (!state.submitEnabled && !committed &&
-            !(state.weightCaptured && state.videoCaptured && state.waterCaptured)
-        ) {
-            Text(text = stringResource(R.string.feed_dist_need_all), color = MeshaColors.Faint, fontSize = 12.sp)
-        }
-
-        state.result?.let { result ->
-            val tone = when (result.status) {
-                FeedDistributionStatus.FAILED -> MeshaColors.Danger
-                else -> MeshaColors.Ok
-            }
-            Text(text = result.message, color = tone, fontSize = 13.sp, fontWeight = FontWeight.W700)
         }
     }
 }
 
-/**
- * Shared "proof captured" confirmation, with the re-capture affordance beside it.
- *
- * A captured step used to be a dead end: the operator saw a green tick and no way to replace a clip
- * that was unusable (shaky, wrong shed, cut short) — the only escape was to submit bad evidence and
- * wait for the verifier to reject it (maintainer request 2026-07-30). [onReRecord] discards the
- * queued upload and re-opens the camera; omit it for a step that genuinely cannot be redone.
- */
 @Composable
-internal fun FeedVerificationCaptured(
-    label: String,
-    reRecordLabel: String? = null,
-    onReRecord: (() -> Unit)? = null,
-    enabled: Boolean = true,
+private fun FeedDistStatusCard(
+    state: FeedDistributionUiState,
+    committed: Boolean,
+    onRetrySubmit: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(text = "✓", color = MeshaColors.Ok, fontSize = 14.sp, fontWeight = FontWeight.W800)
-            Text(text = label, color = MeshaColors.Ok, fontSize = 13.sp, fontWeight = FontWeight.W700)
-        }
-        if (onReRecord != null && reRecordLabel != null) {
-            FeedVerificationActionButton(
-                label = reRecordLabel,
-                enabled = enabled,
-                primary = false,
-                onClick = onReRecord,
-            )
+    val completionFailed = state.result?.status == FeedDistributionStatus.FAILED
+    val statusText = when {
+        committed -> stringResource(R.string.feed_dist_submitted)
+        completionFailed -> state.result.message
+        state.submitEnabled -> stringResource(R.string.feed_dist_ready_to_submit)
+        state.feedWeightPhotoCaptured || state.videoCaptured || state.waterVideoCaptured -> stringResource(R.string.feed_dist_waiting_sync)
+        else -> stringResource(R.string.feed_dist_need_both)
+    }
+    val tone = when {
+        committed -> MeshaColors.Ok
+        completionFailed -> MeshaColors.Danger
+        state.feedWeightPhotoCaptured && state.videoCaptured && state.waterVideoCaptured -> MeshaColors.BrandD
+        else -> MeshaColors.Muted
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(text = stringResource(R.string.feed_dist_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(text = statusText, color = tone, style = MeshaType.caption)
+        if (state.submitEnabled) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_dist_submit), onClick = onRetrySubmit)
+        } else if (completionFailed) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_dist_retry_submit), onClick = onRetrySubmit)
         }
     }
 }
 
 @Composable
-internal fun FeedVerificationActionButton(
-    label: String,
+internal fun proofLabel(status: FeedDistributionProofStatus, recordedLabel: String): String = when (status) {
+    FeedDistributionProofStatus.SYNCED -> stringResource(R.string.feed_dist_proof_synced)
+    FeedDistributionProofStatus.UPLOADING -> stringResource(R.string.feed_dist_proof_uploading)
+    FeedDistributionProofStatus.QUEUED -> stringResource(R.string.feed_dist_proof_waiting)
+    FeedDistributionProofStatus.FAILED -> stringResource(R.string.feed_dist_proof_failed)
+    FeedDistributionProofStatus.EMPTY -> recordedLabel
+}
+
+internal enum class FeedDistPreviewKind { Photo, Video }
+
+@Composable
+internal fun FeedDistProofAction(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    captured: Boolean,
+    status: FeedDistributionProofStatus,
+    previewPath: String?,
+    previewKind: FeedDistPreviewKind,
+    capturedLabel: String,
+    loading: Boolean,
+    loadingLabel: String,
+    retryLabel: String,
     enabled: Boolean,
-    primary: Boolean,
+    message: String?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    loading: Boolean = false,
 ) {
-    val bg = when {
-        !enabled -> MeshaColors.Hair
-        primary -> MeshaColors.Brand
-        // Surf2, not Surf: these buttons now sit INSIDE a Surf proof card (FeedProofCard), so a
-        // Surf button would read as a flat panel rather than a control.
+    val failed = status == FeedDistributionProofStatus.FAILED
+    val synced = status == FeedDistributionProofStatus.SYNCED
+    val uploading = loading || status == FeedDistributionProofStatus.UPLOADING
+    val border = when {
+        failed -> MeshaColors.Danger
+        synced -> MeshaColors.Ok
+        captured -> MeshaColors.Brand.copy(alpha = 0.5f)
+        else -> MeshaColors.Hair
+    }
+    val iconBg = when {
+        failed -> MeshaColors.Danger.copy(alpha = 0.14f)
+        synced -> MeshaColors.Ok.copy(alpha = 0.14f)
+        captured -> MeshaColors.Brand.copy(alpha = 0.14f)
         else -> MeshaColors.Surf2
     }
-    val fg = when {
-        !enabled -> MeshaColors.Faint
-        primary -> MeshaColors.Surf
-        else -> MeshaColors.Ink
-    }
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .then(if (primary) Modifier else Modifier.border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp)))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 14.dp),
-        horizontalArrangement = Arrangement.Center,
+            .heightIn(min = 82.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = MeshaColors.Muted,
-            )
-            Spacer(modifier = Modifier.size(10.dp))
+        Box(
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(iconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                uploading -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+                failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
+                synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
+                captured -> Icon(icon, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
+                else -> Icon(icon, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
+            }
         }
-        Text(text = label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = when {
+                    uploading -> loadingLabel
+                    failed -> retryLabel
+                    captured -> capturedLabel
+                    else -> title
+                },
+                color = if (failed) MeshaColors.Danger else if (enabled || captured || uploading) MeshaColors.Ink else MeshaColors.Faint,
+                style = MeshaType.cardTitle,
+            )
+            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            if (!previewPath.isNullOrBlank()) {
+                FeedDistPreview(path = previewPath, kind = previewKind)
+                Text(text = stringResource(R.string.feed_dist_reupload_hint), color = MeshaColors.Muted, style = MeshaType.caption)
+            }
+            if (!message.isNullOrBlank()) {
+                Text(text = message, color = MeshaColors.Faint, style = MeshaType.caption)
+            }
+        }
     }
+}
+
+@Composable
+private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind) {
+    when (kind) {
+        FeedDistPreviewKind.Photo -> FeedDistPhotoPreview(path)
+        FeedDistPreviewKind.Video -> FeedDistVideoPreview(path)
+    }
+}
+
+@Composable
+private fun FeedDistPhotoPreview(path: String) {
+    val context = LocalContext.current
+    val bitmap = remember(path) {
+        runCatching {
+            val uri = Uri.parse(path)
+            when (uri.scheme) {
+                "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                "file" -> BitmapFactory.decodeFile(uri.path)
+                null, "" -> BitmapFactory.decodeFile(path)
+                else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
+            }
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
+        )
+    }
+}
+
+@Composable
+private fun FeedDistVideoPreview(path: String) {
+    val context = LocalContext.current
+    var isPlaying by remember(path) { mutableStateOf(false) }
+    val player = remember(path) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(Uri.parse(path)))
+            prepare()
+            playWhenReady = false
+        }
+    }
+    DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    Box(
+        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Bg),
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    this.player = player
+                    useController = false
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        Text(
+            text = if (isPlaying) stringResource(R.string.feed_dist_pause_preview) else stringResource(R.string.feed_dist_play_preview),
+            color = MeshaColors.OnBrand,
+            style = MeshaType.cta,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(MeshaColors.Brand)
+                .clickable {
+                    if (player.isPlaying) {
+                        player.pause()
+                        isPlaying = false
+                    } else {
+                        player.play()
+                        isPlaying = true
+                    }
+                }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
+}
+
+@Composable
+internal fun FeedDistRetryButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = MeshaColors.OnBrand,
+        style = MeshaType.cta,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Brand)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 13.dp),
+    )
 }

@@ -38,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -46,7 +45,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -55,23 +53,25 @@ import kotlinx.coroutines.channels.Channel
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import java.io.File
 
 /**
  * Binds [source] to a real, LIVE in-app camera PHOTO capture for as long as the calling composable
  * is part of the composition, and unbinds on dispose — the photo sibling of [BindVideoCaptureSource].
  * [PhotoCaptureSource.capturePhoto] then works from the ViewModel without it ever touching
- * camera/composition APIs directly. Used by the feed-distribution water-proof capture, where the
- * operator may take a photo OR record a video (the video option reuses [BindVideoCaptureSource]).
+ * camera/composition APIs directly. Used by feed proof captures that need a still image.
  */
 @Composable
 fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
     var captureRequested by remember { mutableStateOf(false) }
+    var captureContext by remember { mutableStateOf(PhotoCaptureContext()) }
     val resultChannel = remember { Channel<CapturedPhoto?>(capacity = 1) }
 
     DisposableEffect(source) {
         val bindToken = source.bind(
-            capture = {
+            capture = { context ->
+                captureContext = context
                 captureRequested = true
                 resultChannel.receive()
             },
@@ -92,6 +92,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
             ),
         ) {
             InAppPhotoCaptureOverlay(
+                photoContext = captureContext,
                 onResult = { result ->
                     if (captureRequested) {
                         captureRequested = false
@@ -110,7 +111,7 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
  * ([DisposableEffect]) — no leaked camera session once the operator backs out or the shot completes.
  */
 @Composable
-private fun InAppPhotoCaptureOverlay(onResult: (CapturedPhoto?) -> Unit) {
+private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult: (CapturedPhoto?) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { PhotoCameraSession() }
@@ -171,7 +172,7 @@ private fun InAppPhotoCaptureOverlay(onResult: (CapturedPhoto?) -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(MeshaColors.ViewfinderBackdrop)
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         androidx.compose.ui.viewinterop.AndroidView(
@@ -205,21 +206,20 @@ private fun InAppPhotoCaptureOverlay(onResult: (CapturedPhoto?) -> Unit) {
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.68f))
+                .background(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.68f))
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = stringResource(R.string.proof_photo_title),
+                text = photoContext.title.ifBlank { stringResource(R.string.proof_photo_title) },
                 color = MeshaColors.Ink,
-                fontSize = 18.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                style = MeshaType.avatarInitials,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = cameraError ?: stringResource(R.string.proof_photo_instruction),
+                text = cameraError ?: photoContext.instruction.ifBlank { stringResource(R.string.proof_photo_instruction) },
                 color = if (cameraError != null) MeshaColors.Danger else MeshaColors.Ink,
-                fontSize = 13.sp,
+                style = MeshaType.rowLabel,
             )
         }
         Row(
@@ -257,7 +257,7 @@ private fun ShutterButton(enabled: Boolean, onClick: () -> Unit) {
             .minimumInteractiveComponentSize()
             .size(72.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.56f))
+            .background(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.56f))
             .border(3.dp, if (enabled) MeshaColors.Ink else MeshaColors.Muted, CircleShape)
             .semantics {
                 contentDescription = actionDescription

@@ -127,7 +127,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/weighing/campaigns/{campaign_id}/export": {
+    "/weighing/export.csv": {
         parameters: {
             query?: never;
             header?: never;
@@ -135,10 +135,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export one Weighing campaign's observations as CSV.
-         * @description Streams a CSV attachment (one row per shed/observation) for the campaign, requiring WeighingMonitor and enforcing the same park scoping as every other leadership-tier weighing read. The response is NOT JSON: once the first row has been written the status is already 200 and a mid-stream failure truncates the body rather than appending an error envelope, so a client must treat a short/invalid CSV as a failed export.
+         * Download leadership-visible Weighing CSV for individual and lump-sum rows.
+         * @description Returns all weighing observations in the requested business-date window, including rows whose proof video verification is still pending. Verification state is exposed as a CSV column instead of filtering rows out, so CEO exports do not go blank while today's videos are awaiting review.
          */
-        get: operations["exportWeighingCampaignCsv"];
+        get: operations["exportWeighingCsv"];
         put?: never;
         post?: never;
         delete?: never;
@@ -154,74 +154,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Weighing campaigns for one weighing surface.
-         * @description The three weighing surfaces are separate destinations with separate authority, so the caller names the one it wants instead of the server inferring it from the actor's roles. `mine` is the caller's own assigned sheds and is the only executable list (`weighing.execute`); `all` is the planner's flat all-tasks list across parks (`weighing.plan` or `weighing.monitor`); `operators` is read-only oversight of other people's weighing work (`weighing.oversee_operators`) and carries no scan action. Omitting the parameter means `mine`. No scope widens the write: recording a weight still requires the caller to be the shed's assignee.
-         */
+        /** List operator-visible Weighing campaigns. */
         get: operations["appListWeighingCampaigns"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/campaigns/{campaign_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Resolve ONE Weighing task by id.
-         * @description The single-task read behind a notification deep link. The task list is a keyset page with no id filter, so a cold tap on a task further down the keyset could not be resolved: the client walked a few pages and then reported "not found" for work that exists.
-         *
-         *     Authority is the SAME split the task's bucket page applies, and the two branches are bounded differently on purpose. A planner or monitor (`weighing.plan` or `weighing.monitor`) resolves the task UNFILTERED, so the task's own park is resolved first and the caller must hold plan or monitor IN THAT PARK -- naming another park's task id returns 404, not that park's task. An assignee (`weighing.execute`) is instead bounded by their OWN assignment: the task must carry a live bucket assigned to them, and they see only their own buckets on it. That branch runs NO park check and needs none, because an assignment is already park-bound -- nobody is assigned work in a park they do not work in.
-         *     Both misses are 404, so neither branch confirms that a task it refused exists.
-         */
-        get: operations["appGetWeighingCampaign"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/parks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the parks whose Weighing this caller may look at.
-         * @description Park VOCABULARY for the oversight surfaces' filter chips: identity only, no weigh date and no counts. It exists because the only other park list is the planner catalog, which is gated on `weighing.plan` -- CEO-only -- so a Growth Director (`weighing.monitor` + `weighing.oversee_operators`, never `weighing.plan`) had no park list they could read and the client fell back to whichever parks appeared on the rows it happened to have loaded. A vocabulary derived from the filtered data loses a park as soon as that park's tasks page out. The list is the caller's CAPABILITY-SCOPED parks, never every park in the tenant. Unpaged: parks are a handful and a chip row that pages cannot offer the parks it has not reached.
-         */
-        get: operations["appListWeighingParks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/weighing/export.csv": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export recent leadership-visible Weighing rows as CSV.
-         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope. The default window is today plus the previous 35 business dates (36 inclusive dates). Pending video verification is included and reported in `video_verification_status`; it is not filtered out.
-         */
-        get: operations["exportWeighingCsv"];
         put?: never;
         post?: never;
         delete?: never;
@@ -237,51 +171,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get every Weighing planner park for a weigh date, with the operator picker.
-         * @description PARK-GRAIN read. It returns EVERY park the planner may use on the requested date -- each with a park-grain shed COUNT, a park-grain kid count, and the park's existing task on that date -- plus the operator picker the wizard holds while it pages buckets. It carries NO shed rows and has no cursor: a park picker that paged could not offer the parks it had not reached yet. Read the chosen park's sheds, with their date-scoped availability, from /app/weighing/planner/parks/{park_id}/buckets.
-         */
+        /** Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards. */
         get: operations["appWeighingPlannerCatalog"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/planner/parks/{park_id}/buckets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Page one Weighing planner park's kid sheds with their availability on a weigh date.
-         * @description Availability is scoped to ONE weigh date: each shed reports whether an open weighing task already claims it on that date, and by whom. A shed claimed on another date is not claimed here. A real park holds 76+ sheds, so this is a keyset page; the park list it drills from is a separate unpaged read.
-         */
-        get: operations["appWeighingPlannerParkBuckets"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/campaigns/{campaign_id}/sheds": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Page one Weighing task's shed buckets.
-         * @description The task-detail bucket list. It exists so the detail screen stops rendering the bucket set that the task LIST embeds in every campaign row: a park holds 76+ sheds, so a 20-task list page carried well over a thousand bucket rows. Keyset-paged on (display_name, campaign_shed_id). An assignee sees only their own buckets on the task; a planner or monitor sees all of them — the same split the task list already applies.
-         */
-        get: operations["appListWeighingCampaignSheds"];
         put?: never;
         post?: never;
         delete?: never;
@@ -341,208 +232,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/app/weighing/alerts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the weighing lifecycle alerts routed to the caller.
-         * @description The weighing module's OWN alerts feed: the work-state transitions of weighing -- work assigned, a shed submitted for verification, a proof sent back for rework, a shed reopened, work closed -- each routed to whoever owns the next action.
-         *
-         *     This is NOT the vaccination process-integrity feed at /alerts, and it is gated on weighing capabilities only, never ObligationRead/VaccinationRead.
-         *
-         *     Rows are the durable notifications that were ALREADY routed to this caller when the transition happened, so the feed needs no second audience model: an operator reads only their own buckets because they were never a recipient of anyone else's. Weighing is free-flow and fully herd-isolated, so no alert names a goat, resolves a herd identity, or reports a share of an expected roster.
-         *
-         *     title and empty_message are BACKEND-OWNED copy. Clients render them and hardcode no weighing strings of their own.
-         */
-        get: operations["appListWeighingAlerts"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/weight-history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get CEO-tier per-tag/per-shed weight history across weigh days.
-         * @description Requires WeighingMonitor. Park-scoped exactly like the leadership growth read: a park-scoped monitor may only request a park inside their own grant (404 otherwise), and a tenant-wide monitor may request any park in the tenant. Both query parameters are optional filters, not a required pair. The response also returns the parks and sheds that are actually represented in the result, so a client can render filter chips with backend-owned vocabulary instead of a separately-fetched list.
-         */
-        get: operations["appGetWeighingWeightHistory"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/leadership/growth": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
-         */
-        get: operations["appGetWeighingLeadershipGrowth"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/weighing/leadership/growth": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
-         */
-        get: operations["adminGetWeighingLeadershipGrowth"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/shed-weights": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
-         *
-         *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
-         *
-         *     Weighing is free-flow and isolated from the herd, so no field here carries breed, sex, age or management stage, and no shed is ever reported "overdue": there is no weighing cadence.
-         */
-        get: operations["appGetWeighingShedWeights"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/weighing/shed-weights": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
-         *
-         *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
-         *
-         *     Weighing is free-flow and isolated from the herd, so no field here carries breed, sex, age or management stage, and no shed is ever reported "overdue": there is no weighing cadence.
-         */
-        get: operations["adminGetWeighingShedWeights"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/weighing/weight-demographics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Average weight by breed, sex and management stage.
-         * @description Requires WeighingMonitor, park-scoped like the other leadership reads.
-         *
-         *     This is the ONE weighing read that resolves a scanned tag to its animal (maintainer decision 2026-08-07), because breed, sex and stage exist only on the animal. Read-only, this reporting path only, never a gate on capture: a tag that resolves to nothing is counted in `unresolved_animals`, not rejected.
-         *
-         *     `by_breed` and `by_sex` cover per-animal weighs only. `by_stage` also covers whole-shed weighs, attributed by the shed's own cohort, which is why its total exceeds the other two -- see `lump_sum_animals`. A shed whose residents do not share one stage is attributed nowhere and appears in `lump_sum_unattributed_animals`.
-         */
-        get: operations["adminGetWeighingWeightDemographics"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/growth-director/weights": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Growth Director widgets for the admin-web Weights screen.
-         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
-         *
-         *     Served by its OWN read-only reporting module, not by weighing: weighing is isolated from the herd, while these widgets resolve scanned tags to breed and sex through the herd register and read the feed-direction sheet. This read gates nothing — a tag that resolves to no animal is counted and reported, never rejected.
-         *
-         *     There is NO expected-animal roster; every denominator here is an actual-scan/identity count. `period.resolution` discloses that weighing data snaps to overlapping campaign weeks while feed uses the exact day range.
-         */
-        get: operations["adminGetGrowthDirectorWeights"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/leadership/sheds": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List leadership-visible Weighing shed buckets with their captured evidence.
-         * @description ONE keyset page of shed buckets across tasks, each with its own context and its first page of captured evidence. The leadership gallery's own read: building this page client-side meant one request per bucket (about 1,500 on a 76-shed park) on every screen open.
-         */
-        get: operations["appListWeighingLeadershipSheds"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos": {
         parameters: {
             query?: never;
@@ -550,10 +239,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get leadership-visible proof videos for one Weighing scope.
-         * @description The shed's captured evidence, plus the shed's own context (park name, weigh business date, assignee display name) so a cold deep link to this surface renders without the parent list having to hand those over. `individual` is a keyset page on (accepted_at, observation_id); `lump_sum` is a single latest row and is not paged.
-         */
+        /** Get leadership-visible proof videos for one Weighing scope. */
         get: operations["appGetWeighingShedVideos"];
         put?: never;
         post?: never;
@@ -574,57 +260,6 @@ export interface paths {
         put?: never;
         /** Idempotently close one individual-animal Weighing scope after proof-backed capture. */
         post: operations["submitWeighingIndividualScope"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Close one Weighing scope after verification-approved evidence. */
-        post: operations["closeWeighingScope"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/campaigns/{campaign_id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Close every verified open scope in one Weighing campaign. */
-        post: operations["closeWeighingCampaign"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/weighing/process-state": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Calendar and Control Tower process state for Weighing. */
-        get: operations["getWeighingProcessState"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1479,14 +1114,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Per-pen, per-session packing worklist for one park and one feed day.
-         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: ONE ROW PER OPERATIONAL LOCATION PER FEEDING SESSION, with the pen's ration grains already summed, because a packer fills one bag per feed item per pen per session rather than one per grain. The totals are the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
+         * Per-shed packing worklist for one park and one feed day.
+         * @description The same generated quantities as `/feed-direction/preview`, collapsed to the line a packer works from: one row per shed per session, with the shed's ration grains already summed, because a packer fills one bag per feed item per shed rather than one per grain. The totals are summed from the ALREADY-ROUNDED session quantities, so the worklist matches the direction sheet exactly rather than differing by a rounding step.
          *
-         *     The SESSION is part of the grain (maintainer decision 2026-08-11, REVERTING the 2026-08-10 pen-day row). A pen's morning and evening shares are two separate bags: each is packed on its own, filmed on its own, and verified on its own. One video cannot prove two bags.
-         *
-         *     The PARTITION is part of the grain for a separate reason: Castro 1 and Castro 2 are physically different pens holding different animals on different rations, and are separate rows.
-         *
-         *     `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the pen short), and `empty` when the pen holds no projected animals, which is not a configuration gap. `lifecycle_status` and `completed` report that shed-session's verification state, recorded through `POST /feed-direction/packing/complete`.
+         *     READ-ONLY. Nothing here is recorded: there is no proof capture, no video, and no stored packing state. `status` is DERIVED from the generation result -- `ready` when every item resolved, `blocked` when any item has no authored ration (the line must not be packed from the resolved remainder, which would send the shed short), and `empty` when the shed holds no projected animals, which is not a configuration gap.
          *
          *     `items` is a page of SHEDS; `summary` is the store draw for the WHOLE filtered worklist and is invariant to `limit`/`offset` -- see `FeedPackingWorklistSummary`.
          */
@@ -1534,11 +1165,11 @@ export interface paths {
         put?: never;
         /**
          * Submit one shed-session's feed distribution for verifier approval.
-         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits TWO mandatory proofs -- a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification` row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits three mandatory proofs -- a feed weight PHOTO (`feed_weight_proof_ref`), a feed-distribution VIDEO (`distribution_proof_ref`), and a water-distribution VIDEO (`water_proof_ref`) -- which writes a `pending_verification` row and enqueues ONE verification item carrying all three proofs. NOTHING is completed here.
          *
          *     The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-direction/preview` rows for that shed-session report `completed: true`.
          *
-         *     Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         *     All three proofs are MANDATORY: a request missing `feed_weight_proof_ref`, `distribution_proof_ref`, or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
         post: operations["completeFeedDistribution"];
         delete?: never;
@@ -1557,14 +1188,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit one pen's packing for ONE feeding session for verifier approval.
+         * Submit one shed-session's feed packing for verifier approval.
          * @description The verifier-GATED feed PACKING completion (maintainer decision, 2026-07-26, SUPERSEDING the earlier "packing stays instant, no verifier" rule). The operator submits ONE mandatory packing VIDEO (`packing_proof_ref`), which writes a `pending_verification` row and enqueues ONE verification item carrying the video. NOTHING is completed here.
          *
-         *     ONE VIDEO PROVES ONE SESSION'S BAG (maintainer decision 2026-08-11, REVERTING the 2026-08-10 pen-day completion). A pen's morning and evening shares are packed and filmed separately, so `session_no` is REQUIRED here and is part of the completion's natural key -- (tenant, park, shed, partition, session_no, target_date, workflow). A request without it, or with `0`, is rejected: a completion that does not say which bag it proves cannot be recorded against the right line. The verification item's expected-ration context names THAT SESSION's quantities, because that is what the clip should show.
-         *
-         *     The PEN is part of the identity for a separate reason. A partitioned shed has one completion PER PEN PER SESSION, and one pen's video must never close out its neighbours -- see `partition_label` and migration 000137.
-         *
-         *     The shed-session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-packing/worklist` row for that shed-session reports `completed: true`; the pen's other session is unaffected and still owes its own video.
+         *     The packing session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-packing/worklist` rows for that shed-session report `completed: true`.
          *
          *     This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert) and from the distribution gate. The packing video is MANDATORY: a request missing `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
@@ -1686,31 +1313,7 @@ export interface paths {
          */
         get: operations["listFeedConfigFeedItems"];
         put?: never;
-        /**
-         * Add one entry to the tenant's feed-item catalog.
-         * @description Adds a feed item -- a name the ration grid, the shed factors and the experiment sheds can then be indexed by. It is TENANT-scoped, not park-scoped: both parks author quantities against the same vocabulary, so there is no park_id. ADDING AN ITEM AUTHORS NO QUANTITY. The new label becomes selectable immediately, and every combination using it stays UNCONFIGURED -- and therefore blocking -- until someone authors a rate for it. This endpoint never creates a rate to go with the item, not even 0, because an implicit 0 would read as "feed none of it" for every group and tag in the tenant. The three nutritional attributes are OPTIONAL and are stored as NULL when omitted, which is the honest "not measured" state: unlike a ration rate, a missing energy value blocks only a rollup, never a feeding decision. An explicit 0 stays a measured zero, and a present but out-of-range value is rejected with a field error rather than clamped into the column's range. display_order is optional and defaults to the END of the catalog -- it is a presentation position no feeding decision reads. A name the catalog already holds (compared on the same normalization the storage key uses, so trailing whitespace and case do not create a second entry) is a 409 rather than an in-place update: this is an Add, and silently rewriting an existing item's attributes would change data the author never opened. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
-         */
-        post: operations["createFeedConfigFeedItem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/feed-config/feed-items/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Retire one feed item, or restore a retired one.
-         * @description RETIRE, NEVER DELETE. This is how a feed item is removed, and it is a status flip rather than a deletion on purpose: the item's authored ration rates, shed factors and experiment cells are left exactly as they are, so every past feed sheet stays explainable and a later restore returns the item fully configured. Deleting would take the rates with it, and a restore would then hand back an item whose every combination is UNCONFIGURED -- which on this screen does not mean "no quantity", it means BLOCKED, and a blocked shed is not fed. THIS CHANGES WHAT ANIMALS ARE FED; it is not a display filter. Feed generation loads the catalog with status = 'active', so a retired item leaves every sheet issued from that point onward, and its authored rates stop being listed on the ration grid to match. Restoring puts both back. The status is a required closed enum with no default -- one value keeps the item in every sheet and the other removes it from all of them, so there is no safe value to fall back to. An item already in the requested status returns outcome "unchanged" rather than an error: the caller asked for a state and that state holds. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true, and reusing the key with a different payload is a 409.
-         */
-        post: operations["setFeedConfigFeedItemStatus"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1793,56 +1396,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List hand-authored experiment pens, for one park or the whole tenant.
-         * @description Returns the authored ABSOLUTE kg per feed item for each experiment pen (an undivided shed is its single whole-shed pen). absolute_kg is a PEN TOTAL, never a per-head rate, and head_count travels as informational context only -- multiplying the two would overfeed the pen by its entire population. Active membership puts that pen on the experiment workflow; a pen with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn pen's authored quantities stay visible and can be restored without re-keying them. Pagination counts complete operational pens, not individual cells: every feed-item row for a selected pen is returned on the same page, and limit/offset therefore refer to pens.
+         * List a park's hand-authored experiment sheds.
+         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them.
          */
         get: operations["listFeedConfigExperiment"];
         put?: never;
         /**
-         * Edit one feed-item cell of an already-enrolled experiment pen.
-         * @description Authors the absolute kg for one (park, shed, partition, feed_item). The pen must already have experiment configuration; first enrollment is accepted only by the atomic batch endpoint, so this route cannot leave a new pen with a partial feed set. absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Any edit forces the pen's rows back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
+         * Author one experiment shed's absolute kg of one feed item.
+         * @description Authors the absolute kg for one (park, shed, feed_item). absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Authoring a shed's FIRST cell is what enrols it onto the experiment workflow, and any write forces the row back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
          */
         post: operations["upsertFeedConfigExperiment"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/feed-config/pens": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List operational locations (sheds and their pens).
-         * @description Returns every active shed in scope, and every active pen of a subdivided shed, each flagged with whether it already carries experiment configuration. This is the experiment enroller's candidate source. It cannot be derived from the experiment list (that only knows locations already enrolled) nor from the shed list (one enrolled pen makes the whole building look enrolled, which is how a partly-experimental shed's remaining pens became unreachable). Reads the location/partition catalog and NO per-animal table, so a pen holding zero animals is still listed -- usually the pen about to be filled and configured first.
-         */
-        get: operations["listFeedConfigPens"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/feed-config/experiment/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Enrol one previously-unconfigured pen atomically.
-         * @description Authors the complete set of absolute-kg quantities for ONE pen in a single transaction. The whole set commits or none of it does, and that is a safety property rather than a convenience: a pen's authored cells are the COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a missing item -- so a partly-applied enrolment leaves the pen ON the experiment workflow fed only the items that committed, on a sheet that looks complete. The experiment arm and head count are carried once for the pen, never per item. A feed item named twice is rejected rather than de-duplicated, because the two cells collapse onto one row and the survivor would be arbitrary. As with the single-cell write, an item the author left blank must be OMITTED from items entirely -- a null absolute_kg is a rejected request, never an instruction to feed nothing. If the pen already has any authored cell, the request returns 409 rather than treating a stale or concurrent enrollment form as a partial update; existing pens are changed through the explicit cell editor.
-         */
-        post: operations["upsertFeedConfigExperimentBatch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1859,8 +1422,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Switch one pen between the experiment workflow and the normal ration grid.
-         * @description Flips the status of EVERY authored experiment row of the addressed pen in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the pen the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). All cells of that pen flip atomically because a half-enrolled pen has no representable feed; sibling pens in the same shed are untouched. partition_label is required for a subdivided shed and blank for an undivided shed. The legacy path name is retained for compatibility. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a pen can be restored without re-keying them. A pen with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one submits its complete item set through POST /feed-config/experiment/batch instead.
+         * Switch a whole shed between the experiment workflow and the normal ration grid.
+         * @description Flips the status of EVERY one of the shed's authored experiment rows in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the shed the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). It is whole-shed because a planner owns a shed rather than a cell, so a half-enrolled shed has no representable feed. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a shed can be restored without re-keying them. A shed with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
          */
         post: operations["setFeedConfigExperimentShedStatus"];
         delete?: never;
@@ -2227,106 +1790,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/counts/milk-preparation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get today's per-shed milk preparation direction from the canonical live herd.
-         * @description Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3, plus a whole-scope summary invariant to limit/offset. Quantities are exact integer millilitres. This is a current live-herd direction only: it accepts no historical date and therefore never presents today's animal locations as a past plan. K0 colostrum and ICU or other clinical feeding are excluded until an approved quantity rule exists; they are not represented as zero.
-         */
-        get: operations["getMilkPreparation"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/counts/milk-preparation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get today's operator Milk Preparation farm worklist and direction.
-         * @description Operator-authorized form of the current-day Milk Preparation read. farm_tasks is the bounded actionable farm_day worklist; items remains the paged internal milk-cohort direction. Summary and farm_tasks cover the whole selected scope and never depend on the requested item page.
-         */
-        get: operations["getAppCountsMilkPreparation"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/counts/milk-preparation/submit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Submit every applicable milk-preparation step video for one verifier verdict.
-         * @description Creates one pending_verification preparation attempt at shed x preparation_date grain. When goat_milk_used is true, five distinct completed in-app-camera videos are required: goat-milk quantity, boiling temperature, cooled temperature, UHT-milk quantity, and citric-acid mixing. When false, the last two videos are required. Each proof is bound to its exact step and shed; one proof cannot satisfy two steps. All applicable videos travel on one generic Verification item. This command never completes preparation: one verifier approval completes the whole attempt and rejection returns it to rework with immutable prior attempts preserved.
-         */
-        post: operations["submitAppCountsMilkPreparation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/counts/milk-feeding/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the four daily Milk Feeding actions at farm-session grain.
-         * @description Returns backend-owned farm x feeding_date x session tasks. Session times are 08:00, 12:00, 16:00, and 21:00 IST. Milk Feeding is a separate Action and never appears inside Milk Preparation.
-         */
-        get: operations["listAppMilkFeedingTasks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/counts/milk-feeding/tasks/{task_id}/submit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Submit one Milk Feeding session's questions and two videos for verification.
-         * @description Stores an immutable attempt and moves the farm-session task to pending_verification. Approval completes it; rejection returns it to rework and requires fresh videos.
-         */
-        post: operations["submitAppMilkFeedingTask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/verification/queue": {
         parameters: {
             query?: never;
@@ -2336,7 +1799,7 @@ export interface paths {
         };
         /**
          * List the Verifier's keyset-paginated media queue (generic Verification vertical).
-         * @description The standalone Verifier section's queue: media items awaiting or already given a verdict, category/vertical/module filtered, oldest-captured-first. Gated on verification.review -- the VISIBILITY permission, held by the Verifier and by CEO/CxO leadership so the same evidence and verdicts can be seen by whoever must act on them. Recording the verdict is a separate, narrower gate (verification.verdict; see the verdict endpoint). Media is returned as streamed signed download URLs resolved via the existing proof storage port -- never inline bytes.
+         * @description The standalone Verifier section's queue: media items awaiting or already given a verdict, category/vertical/module filtered, oldest-captured-first. Gated on verification.review only (separation of duty from capture and act). Media is returned as streamed signed download URLs resolved via the existing proof storage port -- never inline bytes.
          */
         get: operations["listVerificationQueue"];
         put?: never;
@@ -2359,9 +1822,6 @@ export interface paths {
         /**
          * Record the Verifier's approve/reject decision on one verification item.
          * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; an authorized Park Head/Director/CEO/CxO closes the complete drive submission only after every goat proof in it has been approved.
-         *
-         *     Gated on verification.verdict, held by the Verifier role ALONE (maintainer decision 2026-08-03). CEO/CxO reads the same queue and still closes the work, but cannot record the verdict: the independent second check must not be signable by the people whose work it checks.
-         *     APPROVE additionally verifies that every proof object still EXISTS in storage, not merely that a signed link can be issued for it (a link resolves from the DB row alone). A missing object answers 422 evidence_missing (terminal, retryable=false); a failed availability check answers 422 evidence_check_failed (retryable=true). This costs a stat per proof for ONE item at decision time and is deliberately NOT done on the queue read, where it would be an N+1. REJECT is never gated on evidence: when the proof is gone, sending the work back for rework is the only correct action left, so it must always remain available.
          */
         post: operations["recordVerificationVerdict"];
         delete?: never;
@@ -2418,50 +1878,6 @@ export interface paths {
          * @description Atomically closes every goat proof item in the operator submission. The request fails closed unless every item has an approved verifier verdict. Replays after a successful close return the already-closed item set.
          */
         post: operations["closeVerificationSubmission"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/verification/review-events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ingest one batch of verifier video-review telemetry events.
-         * @description CEO integrity signal: proves (or disproves) that a verifier actually WATCHED a proof video rather than rubber-stamping the verdict. The browser flushes a small batch periodically and Gated on verification.verdict, NOT verification.review. Ingest carries verifier-only authority: this stream measures whether the person who signs the second check actually watched the evidence, so a read-only leadership principal (CEO/CxO hold verification.review for visibility but never verification.verdict) must not be able to write rows into it under their own actor id. Reading the derived facts stays on verification.review -- leadership must be able to SEE the signal it cannot write.
-         *
-         *     Idempotent per event: client_event_id is a client-minted UUID and is the idempotency key for that one event -- a replayed batch (retry after a network blip) inserts nothing new and `inserted` reports 0 on an exact replay.
-         *
-         *     Every event's item_id is authorized against the caller's authorized categories (the SAME rule GET /verification/queue applies): an item outside those categories answers 403.
-         */
-        post: operations["recordVerificationReviewEvents"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/verification/items/{item_id}/review-facts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Derived per-actor watch/timing integrity facts for one verification item.
-         * @description Computed read-time from the raw verification_review_events stream for this one item (bounded by that item's own event count, not a whole-table scan): total distinct-covered watch time, watch fraction against the proof's duration, play/pause/seek counts, time from item_opened to verdict_recorded, and whether the watch fraction cleared the configured watched_full threshold.
-         */
-        get: operations["getVerificationItemReviewFacts"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2596,10 +2012,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List birth/death/colostrum workflow cards for one module and business date.
+         * List birth/death follow-up workflow cards for one module and business date.
          * @description The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is one workflow instance opened when a birth applies or a death report is staged (goat.created with origin_type=birth opens the kid track plus the shared mother track; counts.death.reported opens the death evidence trail while the goat remains alive). The card fields (actions_done, actions_total, next_action, awaiting_verification) are write-maintained on every action write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death) and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry the requested day's bucket counts over the same key set the page reads, so page size never changes the chips. overdue_dates contains at most the five most recent PREVIOUS business dates with an open card whose next action is already overdue; it powers the bounded mobile attention popup without fetching historical card pages. Gated on CountsWrite - the operator who records the birth/death runs the follow-up work.
-         *
-         *     module=colostrum is a LENS over the same cards, not a third workflow (docs/decisions/colostrum-milk-module.md). It serves the Colostrum page in the Milk module: the kids with a colostrum feed due on the requested date - the immediate 1st Colostrum plus the birth-time-derived 07:00/11:00/15:00/18:30/22:00 series. Two differences from birth/death, both deliberate. Cards are selected by the date each FEED is due rather than by workflow_instances.event_date, because a kid born yesterday has feeds today. And actions_done/actions_total count only THAT DATE's feeds rather than every operator action, so a kid appears on each of its two dates with independent counters (maintainer decision 2026-08-06 - tomorrow's progress is seen tomorrow). state describes the DAY, and awaiting_verification is always false because verification is enqueued once per whole kid workflow; awaiting_video is therefore rejected as a filter for this module. Completing a feed uses the SAME action write as Birth against the same row - there is no colostrum table and no second copy of the state.
          */
         get: operations["listAppWorkflows"];
         put?: never;
@@ -2620,8 +2034,6 @@ export interface paths {
         /**
          * Get one workflow's card header, context facts, and operator action list.
          * @description The per-goat detail behind a card: the card header, backend-owned context facts (event moment, park/shed, mother link), and every operator action row (at most 18 - the birth kid track's 8 main steps plus up to 10 birth-time-derived colostrum sessions). Every visible operator row, including scheduled colostrum, counts toward actions_total; internal approval/verification rows are omitted. Only the first incomplete action in each section is enabled; later siblings read blocked=true. Tenant-scoped; gated on CountsWrite.
-         *
-         *     lens=colostrum narrows the ROWS to the colostrum feeds due on the given date and re-counts the card header at that day's grain, so the detail cannot disagree with the Colostrum list card the operator tapped (docs/decisions/colostrum-milk-module.md). Blocked state is still computed against the kid's COMPLETE action set: 1st Colostrum sits behind four earlier main-section steps, so a feed can legitimately return blocked=true with blocked_reason=previous_action even though those prerequisites are not themselves rendered here. Clients must show that reason rather than letting the operator tap into a 409.
          */
         get: operations["getAppWorkflow"];
         put?: never;
@@ -2681,7 +2093,7 @@ export interface paths {
         };
         /**
          * List shifting Actions from raise through execution and evidence rework.
-         * @description The operator's Shifting Actions history. APPROVE FIRST: a newly raised movement is NOT in the work list and is not actionable until a Park Head approves it — it is reachable only through status=pending, which is read-only (`primary_action_key=none`, "Awaiting Park Head approval"). status=all therefore EXCLUDES unapproved movements. Authorized and evidence-rework movements are actionable; completed movements remain visible. LEAD TIME: an approved movement awaiting operator work appears when it is DUE. High priority is due the second it is approved. Low priority is planned work: raised before 13:30 IST it is due the next day, raised at or after 13:30 IST the day after that. It stays filed under its RAISED business date either way, so a held movement is simply absent until its due day. An already-applied movement (completed, or in evidence rework) is history and is never held. Each row carries where the animals are/were, where they are going, approval fields when present, plus the full animal_count and a preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. Date is the movement's raised business day in Asia/Kolkata. Status buckets are disjoint and backend-owned; completed rows are read-only (`primary_action_key=none`).
+         * @description The operator's Shifting Actions history: newly raised movements appear immediately, before Park Head approval; authorized and evidence-rework movements remain actionable; completed movements remain visible. Each row carries where the animals are/were, where they are going, approval fields when present, plus the full animal_count and a preview of at most 5 animals (display id and ear tag). A movement may name up to 500 animals, so the full roster is deliberately NOT embedded in a list row; animals_truncated reports when the preview is partial. Keyset-paginated with a maximum page size of 20: this queue is read from a phone standing in a park, so a client asking for more receives one screen of work, not the whole backlog. Date is the movement's raised business day in Asia/Kolkata. Status buckets are disjoint and backend-owned; completed rows are read-only (`primary_action_key=none`).
          */
         get: operations["listAppCountsShiftingPendingExecution"];
         put?: never;
@@ -2703,7 +2115,7 @@ export interface paths {
         put?: never;
         /**
          * Confirm a shifting happened and submit its mandatory live-camera evidence.
-         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof. APPROVE FIRST (maintainer decision 2026-08-09, superseding the 2026-07-28 order-free gates): Park Head approval must already exist. This request atomically relocates the animals and moves the count. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. Low priority requires proof_ref only. High priority embeds feed packing and feeding inside Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three are reviewed together in one Shifting verification item. The packing proof does not complete the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint returned by the pending-execution read; missing config blocks with 422 and changed config blocks with 409 so the server never guesses feed. Valid from event_status='authorized', and for evidence rework on an already-approved movement. An UNAPPROVED (event_status='pending'), rejected, or canceled movement is refused with 400 shifting_not_authorized and nothing is written. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
+         * @description Records that an operator physically moved the animals AND uploaded the mandatory video proof (maintainer decision, 2026-07-28). Completion and Park Head approval are independent gates. If approval already exists, this request atomically relocates the animals and moves the count; otherwise it keeps event_status='pending' with completion stamps and approval applies the move later. Verification reviews the video afterward. Approval marks evidence verified; rejection creates evidence rework and never rolls back goat location or census truth. Low priority requires proof_ref only. High priority embeds feed packing and feeding inside Shifting and requires proof_ref, feed_packing_proof_ref, and feed_given_proof_ref. All three are reviewed together in one Shifting verification item. The packing proof does not complete the separate Feed Packing workflow. High priority must also echo the feed_config_fingerprint returned by the pending-execution read; missing config blocks with 422 and changed config blocks with 409 so the server never guesses feed. Valid from event_status='pending' or 'authorized', and for evidence rework. Rejected or canceled movements are refused with 400 shifting_not_authorized. ANY operator holding counts.write may complete a movement, not only the operator who raised it: the person who witnesses the animals move is not reliably the person who typed the request. Requires the Idempotency-Key header. Re-submitting an already-submitted movement returns the ORIGINAL result with idempotent_replay=true and queues nothing new; a same-key request with a different video/tag is a 409 idempotency_conflict.
          */
         post: operations["completeAppCountsShiftingEvent"];
         delete?: never;
@@ -2726,223 +2138,6 @@ export interface paths {
          * @description Cancels an approved movement nobody is going to walk, so abandoned shiftings do not sit on the execution queue forever. NO animal moves and no location changes. A reason is REQUIRED - an abandoned movement that vanishes with no explanation is indistinguishable from one that was executed - and is enforced by the database as well as the API. Valid ONLY from event_status='authorized'. A movement still pending approval is NOT cancellable here: it is retired by its approver REJECTING the approval request instead, which keeps the decision with the person who holds the authority to make it. Any other state is refused with 400 shifting_not_authorized. ANY operator holding counts.write may cancel, on the same reasoning as complete. Requires the Idempotency-Key header; cancelling an already-cancelled movement returns the original result with idempotent_replay=true.
          */
         post: operations["cancelAppCountsShiftingEvent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/health/cases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Diagnose a goat and open the configured disease treatment course.
-         * @description Snapshots the currently published disease/age protocol and creates its bounded daily treatment sessions. duration_days is disease-configured; missing source duration is normalized to three days at protocol publication. Critical cull/isolation/movement text is materialized only as a guarded handoff and never directly mutates goat lifecycle/location.
-         */
-        post: operations["openHealthCase"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/health/work-items": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List one day's Adult or Kids Health treatment sessions.
-         * @description Returns a keyset page capped at 20 treatment sessions. Summary buckets are whole-filter aggregates and do not change with page size. Date markers and filter options are backend-owned. Approved-death sessions are canceled and omitted from future actionable days; death reports hold sessions until the review resolves.
-         */
-        get: operations["listHealthWorkItems"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/health/work-items/{health_session_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get one treatment session and its snapshotted action rows. */
-        get: operations["getHealthWorkItem"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/health/work-items/{health_session_id}/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Complete one Health treatment session and record its medicines.
-         * @description Atomically completes pending medication/action rows and creates one immutable medicine administration per configured medication step. Guarded critical rows are not executed by this command. Idempotency-Key makes offline retries safe.
-         */
-        post: operations["completeHealthWorkItem"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/protocols": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the authored treatment protocols, one row per disease and age band.
-         * @description One bounded keyset page of the treatment rulebook behind the Health Config screen. Each row carries the LIVE published version and the OPEN DRAFT side by side, because an author needs to see that the live protocol still says 5 ml while their unpublished draft says 3 ml -- collapsing them into one "current" object would hide exactly the state that most needs review. There is no total: counting the filtered catalog on every request is compute-on-read, and a page subtotal shown as a catalog total is a false statement.
-         */
-        get: operations["listHealthConfigProtocols"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/protocols/{protocol_version_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read one protocol version with its ordered steps and version history.
-         * @description Returns the whole authored document -- name, duration, and the ordered day/session steps -- plus the disease's version history and the number of open cases still being treated under THIS version. That case count is shown next to the publish control so an author can see that retiring a version does not stop those treatments: a case pins the version it was diagnosed under and finishes on it.
-         */
-        get: operations["getHealthConfigProtocol"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/diseases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add a disease, opening an empty draft for both age bands.
-         * @description Creates drafts for BOTH the adult and the kid band, because the phone picks the protocol from the GOAT's age band -- a disease authored for adults only fails at diagnosis for a kid with "protocol not published", which reads as a bug rather than as a deliberate gap. The two drafts start identical and are edited apart afterwards. disease_key is derived from the name when omitted. Nothing is live until each draft is published.
-         */
-        post: operations["createHealthConfigDisease"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/drafts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Open the draft for a protocol, copying the published version if none is open.
-         * @description Copy-on-edit is the safety property: the live protocol keeps serving diagnoses untouched while an author works, and nothing typed here reaches a treating operator until publish. This is a POST because it may create a draft row, and it carries no Idempotency-Key because at most one draft can exist per protocol -- the uniqueness constraint IS the idempotency, so a repeated call returns the same draft rather than creating a second one.
-         */
-        post: operations["openHealthConfigDraft"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/drafts/save": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Replace a draft's whole content.
-         * @description Saves are WHOLE-DOCUMENT, never per-field: a protocol is read by an operator as one sequence, and a partial save that left a step pointing at a day the duration no longer covers would be a protocol nobody can execute. Steps carry no seq -- order is positional and the server assigns seq 1..N, which is what makes a reorder a single atomic replacement. Submitting content identical to what is stored returns outcome "unchanged" and writes nothing. A draft may be saved incomplete; the strict rules apply at publish.
-         */
-        post: operations["saveHealthConfigDraft"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/protocols/{protocol_version_id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Publish a draft, retiring the version it replaces.
-         * @description Promotes the draft to the live protocol and retires the previously published version, in one transaction. Goats currently being treated are UNAFFECTED: each case pins the version it was diagnosed under and finishes on those dosages, so publishing changes what the NEXT diagnosis loads, never what an animal mid-course receives. Publish applies the strict rulebook -- at least one step, no step beyond the duration, no day without a step, and every medicine carrying a route and a complete dosage -- against what is actually stored.
-         */
-        post: operations["publishHealthConfigDraft"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health-config/protocols/{protocol_version_id}/discard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Discard a draft without publishing it.
-         * @description Deletes the draft and its steps. Only a draft can be discarded -- a published version is immutable because goats are being treated from it, and a retired one is history.
-         */
-        post: operations["discardHealthConfigDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3224,175 +2419,6 @@ export interface components {
             /** @description Whether another page exists. Deliberately NOT a total count: counting the filtered set on every page is compute-on-read, and the grid needs "is there more", not a total. */
             has_more: boolean;
         };
-        HealthConfigStep: {
-            /** @description Absent on steps a client is submitting; present on stored steps. */
-            step_id?: string;
-            day_no: number;
-            /**
-             * @description 'unscheduled' is a real bucket, not a placeholder for "not decided": it is what the imported sheet uses for a step with no fixed time, such as a once-daily injection given whenever the operator reaches the animal.
-             * @enum {string}
-             */
-            session: "morning" | "afternoon" | "evening" | "unscheduled";
-            /** @description Server-assigned position, 1..N in working order. Clients do NOT send it on save -- order is positional there -- because health_protocol_steps is UNIQUE on (version, seq) and a client-driven renumber collides with itself mid-reorder. */
-            seq: number;
-            /** @enum {string} */
-            record_type: "action" | "medication" | "critical_action";
-            medicine_name?: string | null;
-            dosage_text?: string | null;
-            /**
-             * @description What the dosage number is counted in. 'none' is a real authored value (a whole-unit dose such as one bolus) and is deliberately distinct from an ABSENT denominator, which means the author has not said.
-             * @enum {string|null}
-             */
-            dosage_denominator?: "ml" | "kg" | "none" | null;
-            /**
-             * @description Closed vocabulary rather than free text because the route is a CLINICAL instruction: the difference between IM and IV is not a labelling preference, and a stored typo renders on the operator's phone as an instruction nobody can follow.
-             * @enum {string|null}
-             */
-            medicine_route?: "IM" | "SQ" | "IV" | "Oral" | "Topical" | "Intra Mammary" | null;
-            instruction?: string | null;
-            /**
-             * @description Present only on a critical_action step. Both values hand the animal to a policy-pack transition Health does not itself perform, so an author may name one but the module never executes it.
-             * @enum {string|null}
-             */
-            critical_action_type?: "quarantine_or_movement" | "lifecycle_exit" | null;
-            status?: string | null;
-        };
-        HealthConfigProtocolRow: {
-            disease_key: string;
-            display_name: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-            /** @description Empty when this disease/band has no live protocol (drafted but never published). */
-            published_version_id: string;
-            published_version: number;
-            duration_days: number;
-            step_count: number;
-            medication_count: number;
-            critical_action_count: number;
-            /** Format: date-time */
-            published_at?: string | null;
-            /** @description Where this version came from. 'health-config:app' means it was authored in the app; a 'google-sheet:...' value means it is still the imported bootstrap. */
-            source_ref: string;
-            has_draft: boolean;
-            draft_version_id: string;
-            draft_version: number;
-            draft_duration_days: number;
-            draft_step_count: number;
-            draft_medication_count: number;
-            /** Format: date-time */
-            draft_updated_at?: string | null;
-        };
-        HealthConfigProtocolPage: {
-            items: components["schemas"]["HealthConfigProtocolRow"][];
-            /** @description Keyset position of the next page, absent on the last. Deliberately not a total count: counting the filtered catalog on every request is compute-on-read. */
-            next_cursor?: string | null;
-        };
-        HealthConfigVersionSummary: {
-            /** Format: uuid */
-            protocol_version_id: string;
-            version: number;
-            /** @enum {string} */
-            status: "draft" | "published" | "retired";
-            duration_days: number;
-            step_count: number;
-            source_ref: string;
-            /** Format: date-time */
-            published_at?: string | null;
-            /** Format: date-time */
-            created_at: string;
-        };
-        HealthConfigProtocolDetail: {
-            /** Format: uuid */
-            protocol_version_id: string;
-            disease_key: string;
-            display_name: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-            version: number;
-            /** @enum {string} */
-            status: "draft" | "published" | "retired";
-            duration_days: number;
-            source_ref: string;
-            /** @description Hash of THIS protocol's content for an app-authored version, which is what lets an identical re-save be recognised as "unchanged". Rows written by the sheet importer instead share one hash across the whole import snapshot. */
-            content_hash: string;
-            /** Format: date-time */
-            published_at?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            updated_at: string;
-            steps: components["schemas"]["HealthConfigStep"][];
-            history?: components["schemas"]["HealthConfigVersionSummary"][] | null;
-            /** @description Goats currently being treated under THIS version. Shown next to the publish control so an author can see that retiring the version does not stop those treatments. */
-            open_case_count: number;
-        };
-        CreateHealthConfigDiseaseRequest: {
-            display_name: string;
-            /** @description Optional. Derived from the display name when omitted, which is what the UI does -- the key is an internal join identity an author has no reason to think about. Accepted so a seed command can reproduce the imported keys exactly. */
-            disease_key?: string;
-            /** @description Absent takes the declared default of 3. A PRESENT out-of-range value is REJECTED, never rewritten to the default -- a business number the author did not type must never become authored truth. */
-            duration_days?: number | null;
-        };
-        OpenHealthConfigDraftRequest: {
-            disease_key: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-        };
-        SaveHealthConfigDraftStep: {
-            day_no: number;
-            /** @enum {string} */
-            session: "morning" | "afternoon" | "evening" | "unscheduled";
-            /** @enum {string} */
-            record_type: "action" | "medication" | "critical_action";
-            medicine_name?: string;
-            dosage_text?: string;
-            dosage_denominator?: string;
-            medicine_route?: string;
-            instruction?: string;
-            critical_action_type?: string;
-        };
-        SaveHealthConfigDraftRequest: {
-            disease_key: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-            /** @description A rename applies to the DISEASE, not to one band: the two bands are the same illness, and letting them drift would show an operator one name on an adult and another on a kid. */
-            display_name: string;
-            duration_days?: number | null;
-            /** @description The whole ordered step list. Order is positional; the server assigns seq 1..N. An empty array is a legitimate draft -- the strict rules apply at publish. */
-            steps: components["schemas"]["SaveHealthConfigDraftStep"][];
-        };
-        HealthConfigWriteResult: {
-            /**
-             * @description The same vocabulary the audit ledger uses, so the API, the trail and the UI all say the same word for the same act.
-             * @enum {string}
-             */
-            outcome: "created" | "saved" | "unchanged" | "published" | "discarded";
-            disease_key: string;
-            age_band?: string | null;
-            protocol_version_id?: string | null;
-            version?: number | null;
-            /** @description The version this publish retired. Absent on a disease's first publish. */
-            retired_version_id?: string | null;
-            /** @description Age band -> draft id, returned by a disease create which opens two drafts. */
-            draft_version_ids?: {
-                [key: string]: string;
-            } | null;
-            /** @description True when the response was read back from the ledger rather than re-run. */
-            idempotent_replay: boolean;
-        };
-        HealthConfigFieldError: {
-            /** @description The exact rejected field, e.g. "steps[4].medicine_route", so the editor can mark that row rather than showing one message for the whole form. */
-            field: string;
-            message: string;
-        };
-        HealthConfigValidationError: {
-            code: string;
-            message: string;
-            trace_id: string;
-            retryable: boolean;
-            /** @description EVERY field error from one validation pass, together. A 28-step protocol rejected one field per round trip is not authorable. */
-            errors: components["schemas"]["HealthConfigFieldError"][];
-        };
         FeedConfigRationGroup: {
             /** Format: uuid */
             ration_group_id: string;
@@ -3401,8 +2427,6 @@ export interface components {
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
-            /** @description Every ration-group label that carries an in-force authored rate. This is NOT the set of labels reachable through items: items is the BREED map and that table is adult breeds only, so the fixed 'Kid' group -- which kids resolve to by age band -- appears in no row of it. Build a ration-group filter from this field; build a BREED filter from items. Whole-set and unpaginated on purpose -- limit/offset/has_more describe items only. */
-            ration_groups: string[];
             limit: number;
             offset: number;
             has_more: boolean;
@@ -3482,7 +2506,6 @@ export interface components {
             /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
             detail: string;
         };
-        /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
             /** Format: uuid */
             park_id: string;
@@ -3490,17 +2513,13 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
-            /** @description The row's operational partition within the physical shed ("1", "Part 3"), absent for a shed that has none. A feed row's grain is the OPERATIONAL LOCATION, not the shed: one shed can run an authored experiment on some partitions while the rest stay on the per-head ration grid, so Castro 1 and Castro 2 are two rows sharing one shed_id. Clients MUST render shed + partition together ("Castro 1", "Godel 2 - Part 3") and must never display the bare shed name for a partitioned row, or two different pens appear as two identical lines. */
-            partition_label?: string;
-            /** @description Backend-composed physical feed location label. Render verbatim. */
-            operational_location_display: string;
-            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A pen holding two stages reports both, joined by ` + `, dominant (largest head count) first. */
+            /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A shed holding two stages reports both, joined by ` + `. */
             shed_tag: string;
-            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the pen; a multi-breed pen reports every breed joined by ` + ` (`Beetal + Sojat`), dominant first, rather than naming one and implying it is the only one. THE ROW IS NOT SPLIT PER BREED -- see the row's own grain description. */
+            /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the shed; a multi-breed shed reports every breed joined by ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one. */
             breed: string;
-            /** @description What the breed resolved to in the ration grid, joined by ` + ` when the pen holds more than one (`Beetal/Sirohi + Kid`). EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
+            /** @description What the breed resolved to in the ration grid. EMPTY on an experiment row, correctly: an absolute hand-authored kg never consults the breed -> ration-group map, so there is no group to report. That is a real state, not missing data, and must render as a deliberate blank. */
             ration_group: string;
-            /** @description The trial group a hand-authored experiment pen is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the pen is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
+            /** @description The trial group a hand-authored experiment shed is enrolled in (`Sheep M NEW`); empty on every normal row. A SEPARATE field from `shed_tag` because the two are different facts: a tag is the animals' management stage and selects the ration course, an arm is which trial the shed is in and selects nothing, since the quantity is hand-entered. Mirrors the `Experiment arm` column Feed Config shows over the same authored value. */
             experiment_arm: string;
             session_no: number;
             session_label: string;
@@ -3509,23 +2528,20 @@ export interface components {
              * @description Projected head count for this grain on the target date -- live herd plus the approved but unexecuted movements. Sex is summed away because it is not part of the ration key.
              */
             head_count: number;
-            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a pen total. Multiplying by head count there would overfeed the pen by a factor of its whole population, so this flag exists to stop exactly that. */
+            /** @description True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose authored kg is already a shed total. Multiplying by head count there would overfeed the shed by a factor of its whole population, so this flag exists to stop exactly that. */
             head_count_informational: boolean;
             /**
-             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per pen (an undivided shed is one pen).
+             * @description Which quantity strategy produced the row. `normal` resolves from the ration grid; `experiment` uses hand-authored absolute kg per shed.
              * @enum {string}
              */
             workflow: "normal" | "experiment";
             items: components["schemas"]["FeedDirectionItemQuantity"][];
             /** @description Sum of the RESOLVED items only, as an exact decimal string. Blocked items contribute nothing because they have no number to contribute -- `blocked` is what tells the reader this total is partial. */
             session_total_kg: string;
-            /** @description True when part of this pen's ration is unauthored, so `session_total_kg` covers only part of the pen. The quantities that ARE configured still carry numbers -- the operator feeds those animals and records their video -- and `blocked_reasons` names the gap. An item where NOTHING resolved has a null `quantity_kg` and is never rendered as 0. */
             blocked: boolean;
-            /** @description The distinct gaps behind `blocked`, each naming the exact missing coordinate (park / ration group / tag / feed item) so an operator can locate and close it. Absent on a fully resolved row. Present because one row covers a whole pen: when only part of the pen's ration is authored, the row must say WHICH part is missing. */
-            blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
             /** @description A movement this row's projected head count already assumes came due before the target date and still has not been executed. */
             overdue_pending: boolean;
-            /** @description True when this pen's session has a recorded completion (`feed.direction.completed`). The ration numbers are generated the same way; this reports that the feeding was carried out. Completion is recorded per (shed, partition, session, workflow), which is exactly this row's grain, so it maps 1:1. */
+            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). The ration numbers are generated the same way; this reports that the feeding was carried out. A whole shed-session is completed at once, so every ration grain of the same (shed, session) reports `completed` together. */
             completed: boolean;
         };
         FeedDirectionFeedItemTotal: {
@@ -3577,7 +2593,7 @@ export interface components {
         };
         FeedDirectionLifecycle: {
             /**
-             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `pending` = the workflow's dispatch clock has NOT fired yet, so the day serves NO ROWS and `message` names when the sheet arrives (normal at direction_time 07:00, experiment at 14:00, both on D-1). At/after that instant the FIRST read generates AND FREEZES the sheet, so the state becomes `issued` and every later read serves those frozen rows -- the kilograms a packing crew sees cannot move under them (maintainer decision 2026-08-08, superseding the 2026-07-20 always-generate `preview`). A mixed morning is normal: at 08:00 the aggregate is `issued` for normal while the workflows[] entry for experiment is still `pending` with its 14:00 `expected_issue_at`. `beyond_horizon` = the day has no issued sheet AND falls outside the [today, tomorrow] projection window, so NO rows were generated (generating would fabricate a sheet from today's herd); the `message` names the horizon, and this check runs BEFORE the gate so a past day is never freeze-on-read. An already-issued sheet for any date still serves its frozen rows regardless of the window. `draft` = a live what-if (draft=true), never a frozen sheet, and the only remaining path that live-computes an un-issued day. `preview` is retained in the enum for older clients only; the serve path no longer emits it.
+             * @description The aggregate lifecycle of the served park-day, the LEAST-ADVANCED state among its workflows (issued < amended < locked): a park-day is never "locked" while a workflow is still merely issued. `preview` = NO sheet is issued for this day, so the rows were GENERATED on demand and are shown as a not-yet-issued preview (the per-workflow detail still carries pending/not_issued and `expected_issue_at`). `pending`/`not_issued` remain as PER-WORKFLOW states inside a preview; the aggregate serve path no longer returns them as an empty wall. `beyond_horizon` = the day has no issued sheet AND falls outside the [today, tomorrow] projection window, so NO rows were generated (generating would fabricate a sheet from today's herd); the `message` names the horizon. An already-issued sheet for any date still serves its frozen rows regardless of the window. `draft` = a live what-if (draft=true), never a frozen sheet.
              * @enum {string}
              */
             state: "issued" | "amended" | "locked" | "pending" | "not_issued" | "preview" | "beyond_horizon" | "draft";
@@ -3593,11 +2609,10 @@ export interface components {
             message?: string;
             workflows: components["schemas"]["FeedDirectionWorkflowLifecycle"][];
         };
-        /** @description Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response was actually generated for. A client renders its farm/shed pickers from this and holds no location list of its own. Bounded by physical infrastructure (parks and one park's shed catalog), never by herd size. served_park_id equals the requested park_id, or — when the request omitted park_id — the default park the server selected from the caller's own authorized parks. */
+        /** @description Backend-owned park/shed filter vocabulary for the feed screens, plus the park this response was actually generated for. A client renders its farm/shed pickers from this and holds no location list of its own. Bounded by physical infrastructure (parks and one park's shed catalog), never by herd size. served_park_id equals the requested park_id, or — when the request omitted park_id — the default park the server selected. */
         FeedDirectionFilterOptions: {
-            /** @description The park id this response was generated for (the requested park, or the caller's defaulted first authorized park). */
+            /** @description The park id this response was generated for (the requested park, or the defaulted first park). */
             served_park_id: string;
-            /** @description The parks THIS CALLER may open, not the tenant catalog. A park-scoped operator receives only their own park; a tenant-wide principal receives every active park. The route refuses a park outside the caller's scope (403 park_scope_forbidden), so an option that is not listed here could never have been selected successfully. */
             parks: components["schemas"]["FeedDirectionFilterPark"][];
             sheds: components["schemas"]["FeedDirectionFilterShed"][];
             /** @description The served park's active feeding-session split (session 1, session 2, …), in display order — the backend-owned vocabulary the client renders its session picker from. The client sends session_no back as the `session` query param. */
@@ -3639,48 +2654,28 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
-            /** @description The operational partition this bag is for ("1", "Part 3"), absent for a shed with no partitions. A packing line is grouped at the same operational-location grain as the direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Clients MUST render shed + partition together: two "Castro" lines with no partition leave the packer unable to tell which pen either bag is for, and one shed's partitions can carry very different quantities when some run an authored experiment and the rest the grid. */
-            partition_label?: string;
-            /** @description Backend-composed physical feed location label. Render verbatim. */
-            operational_location_display: string;
-            /** @description The feeding session this bag is for. Part of the line's identity: a pen appears once per session, and one video proves one session. */
             session_no: number;
-            /** @description The authored session name ("Morning"). Farm copy; render verbatim. */
             session_label: string;
             /** @enum {string} */
             workflow: "normal" | "experiment";
-            /** @description The trial group of a hand-authored experiment pen, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
+            /** @description The trial group of a hand-authored experiment shed, empty on normal lines. Carried here as well as on the direction row so a packer knows which trial a bag belongs to without cross-referencing the direction sheet. Never a shed tag. */
             experiment_arm: string;
             /**
              * Format: int64
-             * @description The operational pen's projected or informational head count -- the DENOMINATOR this session's ration was computed from, not a quantity. The same animals are fed morning and evening, so the figure repeats across a pen's sessions and must never be summed over them. An undivided shed is its single pen; never interpret a partitioned row as the building-wide count.
+             * @description The shed's projected head count, summed across its ration grains.
              */
             head_count: number;
-            /** @description This session's expected quantity per feed item, with the ration grains already summed within the pen, because a packer fills one bag per item per operational location. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`, which is a different statement from a resolved `0.000` and must not be confused with one. */
+            /** @description SHED-level expected quantity per feed item, with the ration grains already summed, because a packer fills one bag per item per shed. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
             items: components["schemas"]["FeedDirectionItemQuantity"][];
-            /** @description Sum of this session's resolved items, as an exact decimal string. */
+            /** @description Sum of the resolved items, as an exact decimal string. */
             total_kg: string;
             /**
-             * @description The line's state, DERIVED from the generation result and never stored. `ready` when every item resolved; `blocked` when any item has no authored ration -- the line must not be packed from the resolved remainder, which would send the pen short; `empty` when the pen holds no projected animals, which is not a configuration gap and must not be confused with one.
+             * @description DERIVED from the generation result, not stored -- this surface records nothing. `ready`: every item resolved. `blocked`: at least one item has no authored ration, so the line must NOT be packed from the resolved remainder. `empty`: the shed holds no projected animals, which is not a configuration gap and must not be confused with one.
              * @enum {string}
              */
             status: "ready" | "blocked" | "empty";
-            /** @description True when this SHED-SESSION has a verifier-approved packing completion (`feed.packing.completed`). Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a client can show a "completed" badge without losing the packing state. */
+            /** @description True when this shed-session has a recorded completion (`feed.direction.completed`). Orthogonal to `status`: a completed line was still ready/blocked/empty underneath, so a client can show a "completed" badge without losing the packing state. This packing line IS one shed-session, so it maps 1:1 to the completion. */
             completed: boolean;
-            /**
-             * @description The shed-session's verification-lifecycle bucket -- the finer state `completed` collapses. `rework` merges into `pending`, because a bounced line is the operator's to act on again. Orthogonal to `status` (the ration state): a line can be blocked underneath and still be awaiting a verdict.
-             * @enum {string}
-             */
-            lifecycle_status: "pending" | "pending_verification" | "completed";
-            /**
-             * @description Why this line came back to the packer, present only while it is in rework (which surfaces above as `lifecycle_status: pending`). Two very different things put a line there and the status alone cannot tell them apart: a verifier rejected the video, or the afternoon feed correction changed how many animals the pen feeds, so the recorded video no longer proves the right quantity and the bag must be repacked to the new amounts.
-             *
-             *     A correction reopens BOTH of a pen's sessions, because head count scales both rations, so expect this on each of the pen's lines.
-             *
-             *     Backend-composed farm copy. Render verbatim; never substitute a client-side sentence and never derive one from the status.
-             */
-            rework_reason?: string;
-            /** @description The distinct gaps behind a blocked status. */
             blocked_reasons?: components["schemas"]["FeedDirectionBlockedReason"][];
         };
         FeedDirectionCompleteRequest: {
@@ -3736,8 +2731,6 @@ export interface components {
              * @description The shed whose feeding session was distributed.
              */
             shed_id: string;
-            /** @description The PEN inside the shed that was worked ("2", "Part 3"). Omit or send "" for an undivided shed. This is part of the completion's IDENTITY, not a label: a partitioned shed has one completion PER PEN, so omitting it on a partitioned shed records the work against the shed as a whole and one video stands as proof for every pen (the defect reported on STG 2026-08-08). See migration 000137. */
-            partition_label?: string;
             /** @description The feeding session that was distributed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
             session_no: number;
             /**
@@ -3750,21 +2743,11 @@ export interface components {
              * @enum {string}
              */
             workflow: "normal" | "experiment";
-            /**
-             * @description MANDATORY. The server-minted `proof_id` of the feed-weight PHOTO, captured BEFORE the feed is given out. A blank value is rejected `422 proof_required`.
-             *
-             *     It must be a PHOTO: the server checks both the artifact's `proof_type` and its stored mime, and a video here is rejected `422 proof_required` naming this step. It is captured first because it must be taken while the feed is still on the scale -- after distribution there is nothing left to weigh.
-             *
-             *     Why it exists: the distribution video proves the feed reached the animals but cannot prove HOW MUCH did. This is the only capture a verifier can check against the expected ration shown on the item.
-             */
+            /** @description MANDATORY. The server-minted `proof_id` of the feed weight PHOTO captured before the feed is given out. A blank value is rejected `422 proof_required`. */
             feed_weight_proof_ref: string;
-            /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. Must be a VIDEO -- `proof_type` and mime are both checked. */
+            /** @description MANDATORY. The server-minted `proof_id` of the feed-distribution VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
             distribution_proof_ref: string;
-            /**
-             * @description MANDATORY. The server-minted `proof_id` of the water-distribution VIDEO. A blank value is rejected `422 proof_required`.
-             *
-             *     VIDEO-ONLY since 2026-08-11 (it previously accepted a photo OR a video): a photo of a full trough proves a trough is full, not that this operator filled it today. A photo here is rejected `422 proof_required`.
-             */
+            /** @description MANDATORY. The server-minted `proof_id` of the water-distribution VIDEO. A blank value is rejected `422 proof_required`. */
             water_proof_ref: string;
         };
         FeedDistributionCompleteResponse: {
@@ -3786,12 +2769,10 @@ export interface components {
             park_id?: string;
             /**
              * Format: uuid
-             * @description The shed whose packing day was carried out.
+             * @description The shed whose packing session was carried out.
              */
             shed_id: string;
-            /** @description The PEN inside the shed that was packed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one completion PER PEN, so omitting it records the work against the whole shed and one video stands as proof for every pen. See FeedDistributionCompleteRequest and migration 000137. */
-            partition_label?: string;
-            /** @description The feeding session that was packed and filmed. REQUIRED, and part of the completion's IDENTITY (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day grain): a pen produces one bag and one video per session, so a completion that does not name its session cannot be recorded against the right line. `0` is rejected -- it is not "the whole day", it is a value no worklist line matches, and accepting it would leave the operator's bag still showing as owed. */
+            /** @description The feeding session that was packed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
             session_no: number;
             /**
              * Format: date
@@ -3810,7 +2791,7 @@ export interface components {
             /** Format: uuid */
             completion_id: string;
             /**
-             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the pen-day had already been verifier-approved. Never `completed` on a first submit -- packing is done only at verifier approval.
+             * @description `pending_verification` on a fresh submit or a rework re-submit (awaiting the verifier); `completed` when the shed-session had already been verifier-approved. Never `completed` on a first submit -- packing is done only at verifier approval.
              * @enum {string}
              */
             status: "pending_verification" | "completed";
@@ -3826,9 +2807,6 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
-            /** @description Empty on every task created since the shed-grain repair. Transport is one task per physical shed -- the feed for all of a shed's pens leaves on one trip -- so there is no pen to name. Older rows created while the task was briefly per-pen keep their label so their recorded video still says where it was filmed. */
-            partition_label: string;
-            operational_location_display: string;
             /** Format: date */
             business_date: string;
             /** @enum {string} */
@@ -3842,18 +2820,6 @@ export interface components {
         FeedTransportTaskPage: {
             items: components["schemas"]["FeedTransportTask"][];
             next_cursor?: string;
-            filters: components["schemas"]["FeedTransportFilterOptions"];
-        };
-        FeedTransportFilterOption: {
-            /** @description A park UUID for a park option, a shed UUID for a shed option. Never a composite pen key: transport is one task per physical shed, so one shed is exactly one option. */
-            id: string;
-            label: string;
-            /** @description Always empty for transport options; kept so older clients stay decodable. */
-            partition_label?: string;
-        };
-        FeedTransportFilterOptions: {
-            parks: components["schemas"]["FeedTransportFilterOption"][];
-            sheds: components["schemas"]["FeedTransportFilterOption"][];
         };
         FeedTransportSubmitRequest: {
             /** @description Server-minted proof id for one fresh in-app camera video. */
@@ -3875,13 +2841,9 @@ export interface components {
             scope: "filtered";
             /** @description Distinct sheds in the whole filtered scope. */
             shed_count: number;
-            /** @description PEN-DAY packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. A line is a pen-DAY since 2026-08-10, so on a two-session park this is half what it used to be for the same physical work. */
+            /** @description Shed x session packing LINES in the whole filtered scope. A packer's unit of work is the bag, so this counts lines rather than the preview's ration grains. */
             line_count: number;
-            /**
-             * @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero.
-             *
-             *     Counts EVERY SESSION of every pen -- the packer carries out the morning bag AND the evening bag, so this figure did NOT halve when the lines above did.
-             */
+            /** @description Per-item store draw across the WHOLE filtered scope, in authored catalog order. Blocked cells are counted, never summed as zero. */
             total_kg_by_feed_item: components["schemas"]["FeedDirectionFeedItemTotal"][];
             /** @description Blocked item cells in the whole filtered scope. */
             blocked_count: number;
@@ -3971,25 +2933,17 @@ export interface components {
             experiment_config_id: string;
             /** Format: uuid */
             park_id: string;
-            /** @description The park this cell belongs to. Carried because the list may span BOTH parks; the shed name cannot stand in for it, since Castro, Gandhi and Yashoda each exist in both parks. */
-            park_name: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description Display name of the physical shed, without the pen. */
-            shed_name: string;
-            /** @description The HUMAN pen label ('Part 3', '2'), never the normalized matching key ('3'). Absent or null means an undivided shed. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not identify a row -- send this back on edit or the request is rejected. */
-            partition_label?: string | null;
-            /** @description Backend-composed ground location ("Mandela 1 - Part 3", or just "Yashoda" when undivided). Render verbatim; never rejoin shed_name and partition_label client-side. */
-            operational_location_display: string;
             feed_item: string;
-            /** @description Exact decimal string. A PEN TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the pen. Never multiply it by head_count. */
+            /** @description Exact decimal string. A SHED TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the shed. Never multiply it by head_count. */
             absolute_kg: string;
-            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the pen is empty. */
+            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the shed is empty. */
             head_count?: number | null;
-            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment pen has no ration grain and so no authored tag to report. */
+            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment shed has no ration grain and so no authored tag to report. */
             experiment_category: string;
             /**
-             * @description The workflow switch, not a visibility flag. "active" = this pen is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
+             * @description The workflow switch, not a visibility flag. "active" = this shed is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
              * @enum {string}
              */
             status: "active" | "retired";
@@ -4000,81 +2954,17 @@ export interface components {
             offset: number;
             has_more: boolean;
         };
-        FeedConfigPen: {
-            /** Format: uuid */
-            park_id: string;
-            /** Format: uuid */
-            shed_id: string;
-            shed_name: string;
-            /** @description The pen's HUMAN label ('Part 3', '2'). Absent means the shed is undivided. Never the normalized matching key ('3') and never the 'whole' sentinel. */
-            partition_label?: string;
-            /** @description Backend-composed location label ("Mandela 1 - Part 3"). Rendered verbatim; clients never rejoin the shed name and partition themselves. */
-            operational_location_display: string;
-            /** @description Whether this pen already carries at least one authored experiment cell. Computed against the same (shed_id, partition) natural key the experiment table is unique on, so the enroller's candidate filter cannot disagree with what a write would land on. */
-            has_experiment_config: boolean;
-        };
-        FeedConfigPenPage: {
-            items: components["schemas"]["FeedConfigPen"][];
-            limit: number;
-            offset: number;
-            has_more: boolean;
-        };
-        UpsertFeedConfigExperimentBatchRequest: {
-            /** Format: uuid */
-            park_id: string;
-            /** Format: uuid */
-            shed_id: string;
-            /** @description WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned shed is rejected rather than creating a phantom whole-shed row. Absent means an undivided shed. */
-            partition_label?: string | null;
-            /** @description The experiment ARM, carried ONCE for the pen rather than per item. Per-item copies would let one pen hold two arms, with the display picking whichever row sorted first. */
-            experiment_category: string;
-            /** @description INFORMATIONAL population for the pen. Never multiplied into any absolute_kg. Carried once for the pen. Null records "not recorded", which stays distinct from an authored 0. */
-            head_count?: number | null;
-            /** @description The authored cells. At least one -- an empty batch would enrol the pen onto the experiment workflow with nothing authored, which the planner reads as "fed nothing". */
-            items: components["schemas"]["UpsertFeedConfigExperimentBatchItem"][];
-        };
-        UpsertFeedConfigExperimentBatchItem: {
-            feed_item: string;
-            /** @description Authored ABSOLUTE kg for the whole pen of this item. An explicit 0 is accepted (an arm that deliberately gets none of it); a negative or over-precise value is rejected with a field error. An item the author cleared must be omitted from the array entirely. */
-            absolute_kg: number;
-        };
-        SetFeedConfigFeedItemStatusRequest: {
-            /**
-             * Format: uuid
-             * @description The catalog row being retired or restored. Keyed on the id rather than the label so the write cannot become ambiguous if an item is ever renamed.
-             */
-            feed_item_id: string;
-            /**
-             * @description "retired" removes the item from every future feed sheet and from the ration grid; "active" restores it along with its untouched authored rates. Required, with no default -- see the endpoint description.
-             * @enum {string}
-             */
-            status: "active" | "retired";
-        };
-        CreateFeedConfigFeedItemRequest: {
-            /** @description The item's name, as it will appear on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Compared against the catalog on the same normalization the storage key uses, so a name differing only in case or surrounding whitespace is the SAME item and is rejected as a duplicate rather than added twice. */
-            feed_item: string;
-            /** @description OPTIONAL. Omit it when nobody has measured the item's energy -- it is stored as NULL, which is an honest gap: a missing energy value blocks a rollup, never a feeding decision. An explicit 0 is kept as a measured zero and is a different statement from omitting it. */
-            energy_kcal_per_kg?: number | null;
-            /** @description OPTIONAL fraction of the item that is dry matter, greater than 0 and at most 1. Both bounds are rejections, never clamps: 0 would say the item is entirely water and a value above 1 would say it is more than 100% dry matter. */
-            dry_matter_factor?: number | null;
-            /** @description OPTIONAL expected wastage fraction, at least 0 and less than 1. An authored 0 is legal (no expected wastage); 1 is not, because it would say the entire quantity is lost and nothing reaches the animals. */
-            wastage_factor?: number | null;
-            /** @description OPTIONAL sort position within the catalog. Omitted appends the item to the END rather than taking the column default of 0, which would place every new item first in every dropdown. This is the one derived value on this write, and it is derivable only because it is a presentation position no feeding decision reads. */
-            display_order?: number | null;
-        };
         UpsertFeedConfigExperimentRequest: {
             /** Format: uuid */
             park_id: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description WHICH PEN of the shed is being authored -- echo back the partition_label the row was rendered with. Part of the row's identity: the natural key is (tenant, park, shed, partition, feed_item), so omitting it on a partitioned shed is rejected rather than targeting a different place. Absent means an undivided shed. */
-            partition_label?: string | null;
             feed_item: string;
-            /** @description Authored ABSOLUTE kg for the addressed pen (or undivided shed). REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
+            /** @description Authored ABSOLUTE kg for the whole shed. REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
             absolute_kg: number;
             /** @description INFORMATIONAL population count. Never multiplied into absolute_kg. Optional: null records "not recorded", which stays distinct from an authored 0. */
             head_count?: number | null;
-            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment pen -- the operator's only cue that these numbers are hand-entered rather than computed. */
+            /** @description The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet prints in the shed-tag column for an experiment shed -- the operator's only cue that these numbers are hand-entered rather than computed. */
             experiment_category: string;
         };
         SetFeedConfigExperimentShedStatusRequest: {
@@ -4082,10 +2972,8 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description The PEN being switched, spelled as the shed's own catalog spells it ("2", "Part 3"). Required for a subdivided shed; omitted or blank for an undivided one, and validated against shed_partitions either way. Without it this switch was shed-wide while the screen above it was already pen-grouped, so a control captioned "Return Godel 1 - Part 3" retired all ten Godel 1 pens and dropped nine of them back to the per-head grid. */
-            partition_label?: string;
             /**
-             * @description REQUIRED with no default. This field decides which planner feeds the pen, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
+             * @description REQUIRED with no default. This field decides which planner feeds the shed, so an absent value cannot be filled in: "active" enrols it onto authored absolute kg and "retired" returns it to head count x grams per head. Both are changes to what its animals eat.
              * @enum {string}
              */
             status: "active" | "retired";
@@ -4402,11 +3290,7 @@ export interface components {
             /** Format: uuid */
             task_id: string;
             shed_name: string;
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            partition_label?: string;
             drive_name: string;
             expected_count: number;
             handled_count: number;
@@ -4418,10 +3302,6 @@ export interface components {
             blocking_reason: string | null;
             /** @enum {string} */
             submit_state: "draft" | "submitted" | "verified" | "closed";
-            /** @description True only when a live or accepted submission trail exists for THIS shed's CURRENT round of eligible obligations. False whenever the shed has open, unsubmitted obligations for this round -- including immediately after a verifier rejection reopens an obligation, even if submit_state still reads a stale terminal word from an earlier round. */
-            round_submitted: boolean;
-            /** @description Deterministic fingerprint of this shed's current obligation-round state. Changes value whenever an obligation in this shed submits or is reopened by a verifier rejection. Opaque -- not a UUID, not stable across schema changes -- for round- identity comparisons only, not for display. */
-            round_id: string;
         };
         RetryReviewFanoutsRequest: {
             /** @default 50 */
@@ -4435,8 +3315,6 @@ export interface components {
             /** Format: uuid */
             sop_version_id: string;
             idempotency_key: string;
-            /** @description Raw partition label for a partition-scoped shed submission. Omit for unpartitioned sheds. */
-            partition_label?: string;
             answers: {
                 [key: string]: unknown;
             };
@@ -4469,7 +3347,7 @@ export interface components {
             /** @enum {string} */
             status: "candidate" | "active" | "inactive" | "suspended" | "left";
             /** @enum {string} */
-            primary_role_hint: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            primary_role_hint: "operator" | "park_head" | "pc_director" | "feed_director" | "growth_director" | "verifier" | "supervisor" | "cxo" | "other";
             /** Format: uuid */
             primary_location_id: string | null;
             primary_location: string | null;
@@ -4491,7 +3369,7 @@ export interface components {
             /** Format: uuid */
             user_id: string;
             /** @enum {string} */
-            role: "admin" | "park_head" | "operator" | "verifier" | "ceo_internal";
+            role: "admin" | "park_head" | "pc_director" | "feed_director" | "growth_director" | "operator" | "verifier" | "ceo_internal";
             /** @enum {string} */
             scope_type: "tenant" | "custodian_party" | "farm" | "park" | "shed" | "cohort";
             /** Format: uuid */
@@ -4537,8 +3415,6 @@ export interface components {
             app_install_id: string;
             device_public_key_hash: string | null;
             push_token_hash: string | null;
-            /** @description Last phone-reported state of the OS notification switch. Present only once the phone has reported it; false means push-muted (the device is not addressed and a dropped push is not counted as delivered). */
-            notifications_enabled?: boolean;
             app_version: string;
             os_version: string;
             /** @enum {string} */
@@ -4567,8 +3443,6 @@ export interface components {
             push_token_hash?: string | null;
             /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
             fcm_token?: string | null;
-            /** @description Whether this phone will actually show what is sent to it (the OS notification switch). false marks the device push-muted: FCM would accept the send and the OS would drop it, so the device is not addressed and the drop is never counted as a delivery. Omitted or null by an app build that predates this field, which stays reachable. */
-            notifications_enabled?: boolean | null;
             app_version: string;
             os_version?: string;
             metadata?: {
@@ -4581,8 +3455,6 @@ export interface components {
             push_token_hash?: string | null;
             /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
             fcm_token?: string | null;
-            /** @description Whether this phone will actually show what is sent to it (the OS notification switch). false marks the device push-muted: FCM would accept the send and the OS would drop it, so the device is not addressed and the drop is never counted as a delivery. Omitted or null by an app build that predates this field, which stays reachable. */
-            notifications_enabled?: boolean | null;
             metadata?: {
                 [key: string]: unknown;
             };
@@ -4870,6 +3742,7 @@ export interface components {
             redirect_goat_id?: string | null;
         };
         LocationPath: {
+            display: string;
             /** Format: uuid */
             farm_id?: string | null;
             farm_code?: string | null;
@@ -4886,12 +3759,6 @@ export interface components {
             cohort_id?: string | null;
             cohort_code?: string | null;
             cohort_name?: string | null;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display: string;
         };
         EvidenceRef: {
             /** @enum {string} */
@@ -5046,12 +3913,6 @@ export interface components {
             /** Format: uuid */
             shed_id: string | null;
             shed_name: string | null;
-            /** @description Raw stored partition label for shed_id ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string | null;
             /** Format: uuid */
             cohort_id: string | null;
             cohort_name: string | null;
@@ -5065,8 +3926,6 @@ export interface components {
             deferred_count: number;
             review_count: number;
             shed_labels: string[];
-            /** @description Index-parallel to shed_labels. The raw stored partition label is emitted when the entry is partitioned; an empty string means the physical shed is not partitioned. Repeated shed_labels with different partition labels are distinct operational locations and count separately in shed_count. */
-            shed_partition_labels: (string | null)[];
             vaccine_labels: string[];
             /** Format: uuid */
             protocol_id: string | null;
@@ -5089,25 +3948,21 @@ export interface components {
             links: components["schemas"]["CalendarEventLinks"];
             drive_summary?: components["schemas"]["DriveSummary"] | null;
         };
-        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = due_count + overdue_count + deferred_count = total_count - completed_count - submitted_count (work still owed by the OPERATOR; it excludes submitted work so it can never contradict progress_pct on the same payload). Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Cross-surface progress: progress_completed / progress_total / progress_pct on the progress_basis grain are the ONE authoritative drive-progress figure. Admin-web and the Android app MUST render them verbatim and MUST NOT derive their own numerator from any other field -- two clients each picking their own fields is how the same drive showed two different completion numbers and ring percentages. The numerator is FIELD WORK DONE = completed + submitted (maintainer decision 2026-08-03): an operator who vaccinated every animal and submitted proof sees 100% and "4 of 4 sheds done", and the outstanding verifier review is carried by the verification_pending status/chip and submitted_count / submitted_animals, never by holding the ring below 100%. remaining_count follows the same numerator, so a fully submitted drive reports progress_pct 100 AND remaining_count 0 -- one payload never carries two answers to "how much is left". Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
+        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
-            /** @description Shared logical drive name across every operator-day in the same vaccine campaign */
-            drive_name: string;
-            /** @description Total distinct animals across all operator-days carrying this logical drive name */
-            drive_total: number;
             /**
              * Format: date
              * @description Drive due date
              */
             due_date: string;
-            /** @description Number of unique operational locations (physical shed plus optional partition) in the drive */
+            /** @description Number of unique sheds in the drive */
             shed_count: number;
-            /** @description Number of operational locations where all obligations are completed or submitted */
+            /** @description Number of sheds where all obligations are completed */
             sheds_completed: number;
-            /** @description Per-operational-location animal counts for this drive. */
-            sheds: components["schemas"]["DriveShedSummary"][];
+            /** @description Per-shed animal counts for this drive. */
+            sheds?: components["schemas"]["DriveShedSummary"][];
             /** @description List of vaccine names involved in the drive */
             vaccine_labels: string[];
             /** @description Total obligations in the drive (completed + due + overdue + deferred) */
@@ -5116,7 +3971,7 @@ export interface components {
             completed_count: number;
             /** @description Recorded mobile completions pending verification */
             submitted_count: number;
-            /** @description Work still owed by the OPERATOR = due_count + overdue_count + deferred_count, i.e. total_count - completed_count - submitted_count. Deliberately EXCLUDES submitted-but-unverified work, exactly like the progress numerator, so a fully submitted drive reports remaining_count 0 beside progress_pct 100. It was total_count - completed_count, which rendered "20 left" next to a full ring. */
+            /** @description Remaining obligations */
             remaining_count: number;
             /** @description Active open obligations */
             due_count: number;
@@ -5124,25 +3979,12 @@ export interface components {
             overdue_count: number;
             /** @description Deferred obligations */
             deferred_count: number;
-            /** @description INFORMATIONAL ONLY subset already counted inside due_count/overdue_count above -- never an additional partition on top of the five-bucket total. Obligations whose most recent verification verdict for this drive is a rejection that has not since been superseded by an accepted (or newly recorded) completion for the same obligation. Explains why the completed/progress numerator dropped after a verifier rejects proof: the obligation leaves completed/submitted and reopens as due/overdue work. Clears to 0 for an obligation the moment it is rescanned and accepted -- this is CURRENT rejected state, not lifetime rejection history. */
-            rejected_count: number;
             /** @description Total distinct animals in the drive */
             total_animals: number;
             /** @description Distinct animals where all drive obligations are completed */
             completed_animals: number;
             /** @description Distinct animals with recorded completion pending verification */
             submitted_animals: number;
-            /**
-             * @description Grain that progress_completed/progress_total are counted on. "animals" whenever the drive has animals (a goat due several vaccines the same day is ONE animal), else the obligation/dose grain.
-             * @enum {string}
-             */
-            progress_basis: "animals" | "doses";
-            /** @description Authoritative progress numerator on progress_basis. Verified completion only -- clients render this verbatim and never substitute submitted counts. */
-            progress_completed: number;
-            /** @description Authoritative progress denominator on progress_basis. */
-            progress_total: number;
-            /** @description Backend-rounded (half-up) progress percentage. Clients render this verbatim instead of re-deriving it, so the ring reads identically on every surface. */
-            progress_pct: number;
             /** @description Owner/team label */
             owner_label: string;
         };
@@ -5150,12 +3992,6 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
-            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display: string;
             total_animals: number;
         };
         CalendarPresentationQuery: {
@@ -5350,12 +4186,6 @@ export interface components {
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
             shed_name?: string | null;
-            /** @description Raw stored partition label for this target's shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string | null;
             stage?: string | null;
             lifecycle_status?: string | null;
             health_status?: string | null;
@@ -5467,10 +4297,6 @@ export interface components {
             park_name: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partition_label?: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operational_location_display: string;
             shed_name: string;
             /** Format: uuid */
             cohort_id?: string;
@@ -5562,12 +4388,7 @@ export interface components {
         AdherenceRow: {
             row_id: string;
             shed_name: string;
-            /** @description EXISTING field, kept as-is for existing consumers. Historically populated with "whole" for unsplit sheds by some producers; new code should not rely on that and should treat "whole"/""/null as non-partitioned. Nullable, matching that stated contract: the previous non-nullable typing contradicted this very description and forced clients to model an impossible shape. */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display: string;
+            partition_label?: string;
             expected: string;
             actual: string;
             gap: string;
@@ -5618,10 +4439,8 @@ export interface components {
             park_name: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operational_location_display: string;
             shed_name: string;
-            partition_label?: string | null;
+            partition_label?: string;
             drive_name?: string;
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
@@ -5690,14 +4509,8 @@ export interface components {
             shedName: string;
             /** @description Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition. */
             physicalShed?: string;
-            /** @description DEPRECATED ALIAS — kept for existing consumers; "whole" for unsplit sheds. New consumers must use partition_label instead, which is null (never the string "whole") when the shed is non-partitioned. */
+            /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
             partition?: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display: string;
             animalStage: string;
             /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
             targetCount: number;
@@ -5712,8 +4525,6 @@ export interface components {
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
-            /** @description Vaccine chips for this actual shed card. Counts on the card remain animal-grain: if one animal needs multiple vaccines, one proof/video satisfies all listed labels. */
-            vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
             workState: components["schemas"]["VaccinationExecutionWorkState"];
@@ -5800,10 +4611,6 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partitionLabel?: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operationalLocationDisplay?: string;
             shedName: string;
             stage: string;
             ageBand?: string;
@@ -5824,22 +4631,17 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
-        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > verified > awaiting > overdue > scheduled > closedWithoutDose: a missed dose wins outright, and below that its most-progressed dose wins. Apart from missed the tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
-            /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
+            /** @description Total planning count (all obligations for drive or all-history). */
             targets: number;
-            /** @description Animals holding at least one obligation in status 'missed' WITH NO COMPLETION AGAINST IT. Evaluated FIRST, ahead of dosesVerified, and gated on the absence of a completion — both deliberate. Leading the chain is necessary because it folds to one row per animal, so while verified led it a single accepted dose anywhere in an animal's history swallowed every missed dose it also held. The no-completion gate is necessary because an obligation swept to 'missed' that carries a recorded completion was DOSED. On the live tenant all 137 such obligations were administered on the exact day they were due and are waiting on a verifier; counting them here reported 137 vaccinated animals as unvaccinated while awaitingVerification simultaneously read 0. missedNotGiven means no dose reached the animal. Proof waiting in the verification queue is a desk backlog and surfaces as the shed x vaccine matrix's 'verifying' state, never here. A missed dose is the failure this board exists to report, so it outranks every state an animal can simultaneously be in. */
-            missedNotGiven: number;
-            /** @description Animals with at least one verifier-accepted completion and NO missed obligation. */
+            /** @description Accepted vaccination completions. */
             dosesVerified: number;
-            /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null) and no accepted completion. */
+            /** @description Recorded completions awaiting verification (status=recorded, verified_at=null). */
             awaitingVerification: number;
-            /** @description Animals with no completion at all whose earliest open obligation was due before the as-of IST business date. */
+            /** @description Obligations due before now with no completion. */
             overdueNotGiven: number;
-            /** @description Animals with no completion at all whose open obligations are all due on or after the as-of IST business date. */
+            /** @description Obligations due after now. */
             scheduledAhead: number;
-            /** @description Animals whose every obligation closed with no completion recorded against it (canceled, waived, superseded). They belong to the drive's roster, so they count in targets, but no dose was given and none is outstanding. Named explicitly because without it the tiles summed to LESS than targets and a reader could not tell whether the gap was a bug, missing data, or real outstanding work. Defined as the residual of the other four, so the partition stays exhaustive as statuses change. */
-            closedWithoutDose: number;
         };
         VaccinationCommandBoardCohort: {
             /** @description Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on two farms stays two cells. Empty when the obligation's shed has no resolvable parent. */
@@ -5852,83 +4654,19 @@ export interface components {
             sex: "male" | "female";
             animalCount: number;
         };
-        /** @description One farm × cohort × dose-qualified-vaccine cell, at OBLIGATION grain (COUNT(DISTINCT obligation_id)). pendingCount, submittedCount and verifiedCount are a DISJOINT partition of the cell's obligations along "who owes the next move": the operator, the verifier, nobody. pendingCount previously fused the first two, because obligation status advances only on VERIFICATION and never on submission — a park whose every animal had been vaccinated and submitted rendered byte-identically to a park nobody had touched, and the page showed "40 awaiting verification" in the KPI row above "40 pending" in this matrix with no column reconciling them. submittedCount is that reconciling column. GRAIN NOTE: these counts are obligation grain while VaccinationCommandBoardKPI is animal grain; the two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses, and the matrix stays obligation grain by design so a multi-vaccine animal is visible once per vaccine. */
         VaccinationCommandBoardCohortCell: {
             cohort: components["schemas"]["VaccinationCommandBoardCohort"];
             /** @description Human-readable vaccine label (e.g., ET+TT, PPR · Booster). */
             vaccineLabel: string;
-            /** @description Field work the OPERATOR still owes: obligations in this cohort/vaccine that are open (scheduled, due, in_progress, deferred, missed), due on or before the as-of IST business date, and carry NO recorded completion. Does NOT include submitted work — counting submitted animals here is what made a fully vaccinated park look untouched. */
+            /** @description Count of animals in this cohort with pending obligations for this vaccine (scheduled, due, or recorded-unverified). */
             pendingCount: number;
-            /** @description Field work DONE and awaiting a verifier: obligations with a recorded completion that is not yet verifier-accepted. Reconciles with VaccinationCommandBoardKPI.awaitingVerification (same predicate, animal grain there). Disjoint from pendingCount and verifiedCount. */
-            submittedCount: number;
-            /** @description Obligations in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount and submittedCount — an accepted obligation is neither open-unrecorded nor recorded-but-unverified — so the three may be displayed side by side without double counting. */
+            /** @description Count of animals in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor recorded-but-unverified — so the two may be displayed side by side. */
             verifiedCount: number;
-            /**
-             * Format: date-time
-             * @description Earliest actual operator-administered date among accepted vaccinations in this cohort cell.
-             */
-            minAdministeredDate?: string;
-            /**
-             * Format: date-time
-             * @description Latest actual operator-administered date among accepted vaccinations in this cohort cell.
-             */
-            maxAdministeredDate?: string;
-            /** @description Per-IST-business-day split of this cell's verified doses, ascending. A minAdministeredDate..maxAdministeredDate span of "30 Jun-1 Jul" hides that 84 animals were dosed on the first day and 237 on the second; this array carries that split so leadership reads the actual operator story rather than a range. */
-            administeredDays?: components["schemas"]["VaccinationCommandBoardCohortDay"][];
-            /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. */
-            missingPriorDoseCount: number;
-            /** @description The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never return an unbounded list. missingPriorDoseCount remains the full count when capped. */
-            missingPriorDoseGoats?: components["schemas"]["VaccinationCommandBoardCohortAnimal"][];
-        };
-        /** @description One animal behind the Closed, No Dose tile, with the identity and ground location a park head needs to act on it. */
-        VaccinationCommandBoardClosedWithoutDoseAnimal: {
-            /** Format: uuid */
-            goatId: string;
-            displayId: string;
-            /** @description The animal's physical tag (animal_identifier_1). This is the identity the FARM uses; displayId is an internal Goat OS id and is only a fallback label. */
-            tag1?: string;
-            /** @description Second physical tag (animal_identifier_2) when the animal carries two. */
-            tag2?: string;
-            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro - 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
-            operational_location_display: string;
-            parkName: string;
-            /** @description Physical shed name. Not a ground location on its own when a partition exists. */
-            shedName: string;
-            /** @description Raw stored partition label, absent for a non-partitioned shed. */
-            partitionLabel?: string;
-            /** @description Why the work closed with no dose, in farm language (Cancelled, Waived, Superseded, Deferred for recovery). Never a raw obligation status token. */
-            reason: string;
-            /** @description Human dose label whose obligation closed (e.g. "ET+TT · Dose 2"). */
-            vaccineLabel: string;
-        };
-        /** @description One business day of accepted administration inside a cohort x dose cell. */
-        VaccinationCommandBoardCohortDay: {
-            /**
-             * Format: date
-             * @description IST business date the dose actually went in.
-             */
-            date: string;
-            /** @description DISTINCT animals dosed on that date in this cell. */
-            animalCount: number;
-        };
-        /** @description One animal behind a cohort cell exception, in farm-readable identity. */
-        VaccinationCommandBoardCohortAnimal: {
-            /** Format: uuid */
-            goatId: string;
-            displayId: string;
-            /** @description Primary visible tag when the animal has one. */
-            tag?: string;
         };
         ShedDoseMatrixCell: {
             /** Format: uuid */
             shedId: string;
             shedName: string;
-            /** @description Raw stored partition label for shedId ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
             /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
             doseRule: string;
             /**
@@ -5988,12 +4726,6 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
-            /** @description Raw stored partition label for shedId ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
             /** @description Dose rule identifier or human label. */
             doseRule: string;
             /** @description Count of completions awaiting verification (status=recorded, verified_at=null). */
@@ -6014,130 +4746,22 @@ export interface components {
              * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
              */
             driveBatchId: string;
-            /** @description Park the drive's work is in. Row grain is (batch, park), not batch alone: on an all-parks board two same-vaccine, same-window drives in different parks are two operator days and must be offered — and counted — separately. Empty when the drive's obligations resolve to no park. */
-            parkId?: string;
-            /** @description Display name of parkId, so the selector can label a drive without a second lookup. */
-            parkName?: string;
-            /** @description Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed. */
-            driveName: string;
-            /** @description Operator-facing executable-day label: vaccine names, planned date, distinct animal count, and status. Never a raw config token such as et_tt_adult_w2. */
+            /** @description Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata, and its status. Never a raw config token such as et_tt_adult_w2. */
             label: string;
             status: string;
-            /** Format: date-time */
-            plannedDate?: string;
             /** Format: date-time */
             windowStart?: string;
             /** Format: date-time */
             windowEnd?: string;
-            /** @description Distinct animals assigned to this executable operator day. */
-            targetCount: number;
-            /** @description Distinct vaccine-dose obligations assigned to this executable operator day. */
-            doseCount: number;
-            /** @description Per-business-day execution totals for completed or in-progress drives. */
-            operatorDays?: {
-                date: string;
-                targetCount: number;
-                doseCount: number;
-            }[];
-            /** @description Whole physical sheds assigned to this executable operator day. */
-            shedNames: string[];
-            /** @description Location IDs of the physical sheds assigned to this executable operator day. */
-            shedIds?: string[];
-            /** @description Operational shed locations assigned to this executable operator day. Partitioned sheds appear once per real partition, using shedId + partition_label as identity and operational_location_display for UI labels. */
-            shedLocations?: {
-                /** Format: uuid */
-                shedId: string;
-                shedName: string;
-                partition_label?: string;
-                operational_location_display: string;
-            }[];
-        };
-        /** @description One column of the shed x vaccine matrix. */
-        CommandBoardVaccineColumn: {
-            /** @description The protocol vaccine code the cells are keyed by (ET_TT, SHEEP_POX). */
-            code: string;
-            /** @description The header text. Empty when the canonical labeller does not recognise the code — clients should then fall back to showing the code, since a catalogue vaccine the label table has not caught up with is a gap worth seeing, not one worth hiding. */
-            label: string;
-        };
-        /** @description One shed x vaccine cell with every dose of that vaccine collapsed into a single flag. The question it answers is the one a park head asks walking into a shed: "is anything behind here, for this vaccine, today" — not how many, not which dose, not what is scheduled next quarter. behindAnimals exists only so the flag can be explained on hover; the cell's meaning is state. */
-        CommandBoardShedVaccineCell: {
-            /** @description The cell's IDENTITY. Clients MUST group rows on this, never on shedName. The live tenant runs 175 sheds under 99 distinct names ("Godel 1" exists in two parks), so grouping by name merges two parks' sheds into one row and attributes one park's red cell to the other park's shed. */
-            shedId: string;
-            /** @description A display label, not an identity. See shedId. */
-            shedName: string;
-            /** @description Raw stored partition label for shedId. Omitted for unpartitioned sheds. */
-            partition_label?: string;
-            /** @description Backend-owned display label for shed plus partition. */
-            operational_location_display?: string;
-            /** @description The shed's park, carried so two same-named sheds in different parks can be told apart on screen. Clients should show it whenever a shed name is not unique in the payload. */
-            parkName?: string;
-            vaccineCode: string;
-            /**
-             * @description behind — at least one animal in this shed holds a dose of this vaccine that is 'missed', or is still open with its due IST business date already past, and has no accepted completion. RED. ok — this vaccine is scheduled in this shed and nothing is behind. GREEN. not_planned — this shed has no obligation for this vaccine at all. GREY, and named rather than omitted: a blank cell told the reader nothing about whether the vaccine was clean, un-generated, or genuinely out of protocol for that shed. 'behind' is deliberately broader than the KPI row's missedNotGiven bucket. An operator standing in the shed cannot act on the difference between "the sweeper has flipped this to missed" and "the sweeper has not run yet" — both mean the animal is unvaccinated past its window.
-             * @enum {string}
-             */
-            state: "behind" | "verifying" | "ok" | "not_planned";
-            /** @description Animals whose dose WAS GIVEN, whose proof is recorded, and whose verifier has not accepted it yet. Never added to behindAnimals: one is a herd problem and the other is a desk problem. Merging them reported 76 vaccinated goats in Sumathi 1 as unvaccinated, because every obligation swept to 'missed' there had in fact been dosed on the day it was due. */
-            verifyingAnimals?: number;
-            /** @description DISTINCT animals behind for this shed and vaccine, and the number rendered ON the red cell. "How many are missing, each vaccine, shed wise" is half the ask this matrix answers; a bare colour answers only "is anything wrong" and forces a second question before the row is actionable. Because it counts DISTINCT ANIMALS rather than summing doses it can never exceed the shed's head count. Clients must still key the cell's COLOUR off state, not off this number being non-zero. */
-            behindAnimals: number;
-            /** @description DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is a subset of the same key set, so behindAnimals <= totalAnimals always. */
-            totalAnimals: number;
-            /** @description The shed's vaccination clips for the day these doses were recorded. SHED-and-day grain, not per animal: proof is filmed per shed for the operator day (Sumathi 1 has five clips covering 76 goats), so attaching one to every animal repeats a single link 76 times and implies per-goat footage that does not exist. Absent when nothing was filmed, which is a finding — a verification queue with nothing to watch cannot be drained. */
-            proofVideos?: components["schemas"]["CommandBoardShedVideo"][];
-            /** @description The animals behind BOTH flagged states — genuinely behind AND waiting on a verifier — capped across all flagged cells in one board read. Each row carries awaitingVerification, which is what tells the two apart; clients must read that rather than infer it from the cell's state. Previously named behindAnimalsList and documented as behind-only while it already carried verifier-backlog rows, so the field name asserted the opposite of the payload. Evidence for the flag, not the flag itself: behindAnimals and verifyingAnimals stay whole-scope truth, so when this list is shorter than their sum the client must say the list is partial rather than present it as complete. */
-            flaggedAnimals?: components["schemas"]["CommandBoardShedVaccineAnimal"][];
-        };
-        /** @description One proof clip a verifier has to watch, at shed-and-day grain. */
-        CommandBoardShedVideo: {
-            /** @description Playback path, never a bare id — the signed GCS URL is minted per request by the proof service. */
-            path: string;
-            /** Format: date-time */
-            uploadedAt?: string;
-            /** Format: int64 */
-            durationMs?: number;
-        };
-        /** @description One animal behind a shed x vaccine cell. */
-        CommandBoardShedVaccineAnimal: {
-            /** @description The animal's GROUND location — park, physical shed, and partition when the shed has one ("Godel 1 - Part 3"). The shed name alone is not a location on a partitioned shed: it sends a person to the wrong pen. */
-            locationDisplay: string;
-            /** @description Present only when the shed is genuinely partitioned. Absent on an unpartitioned shed — the "whole" sentinel is a grouping key, never display copy. */
-            partitionLabel?: string;
-            /** @description The dose was GIVEN and its proof is queued for a verifier. Clients must say so rather than render the raw obligation status: an animal dosed on its due date still reads status 'missed' when the sweeper closed the obligation before a verifier looked at the proof, and showing that word accuses an operator who did the work on time. */
-            awaitingVerification: boolean;
-            /**
-             * Format: date-time
-             * @description When the operator recorded the dose.
-             */
-            recordedAt?: string;
-            goatId: string;
-            /** @description The INTERNAL Goat OS id. A fallback label only, never the animal's identity — an operator sent to a shed cannot act on a UUID. */
-            displayId: string;
-            /** @description The animal's first EAR TAG — what identifies it standing in the shed. Empty only when the animal carries no active identifier at all. */
-            tag: string;
-            /** @description The second ear tag. Most of this herd carries two (1004 of 1670 goats, and 172 carry three), so a client showing only `tag` leaves an operator reading the other ear unable to match the animal to the row. */
-            tag2?: string;
-            /** @description The obligation status behind the flag. 'missed' and a still-open past-due status are the same red to a park head but different facts to whoever has to fix it. */
-            status: string;
-            /** Format: date-time */
-            dueAt?: string;
         };
         VaccinationCommandBoardResponse: {
-            /** @description Shed x VACCINE, dose collapsed, reported as a flag. DENSE: every shed in view carries a cell for every code in shedVaccineCodes, so a gap in this array is never the answer "clean" — an unplanned vaccine is an explicit not_planned cell. This does NOT supersede shedDoseMatrix, which stays dose-qualified. An earlier attempt to collapse doses in that matrix was reverted because it SUMMED Dose 1 + Dose 2 + Revaccination into a figure that exceeded the cohort head count. This array carries no sum: its cell state is a boolean OR over the shed's doses, so collapsing cannot over-count by construction. The two matrices answer different questions — "how much of each dose" and "is anything behind at all" — and neither is derivable from the other on the client without losing a guarantee. */
-            shedVaccineMatrix: components["schemas"]["CommandBoardShedVaccineCell"][];
-            /** @description Column order for shedVaccineMatrix: the tenant's FULL protocol vaccine catalogue, not the distinct codes present in the cells. Clients must render columns from this list. Deriving columns from the cells drops any vaccine that generated zero obligations anywhere — the live tenant configures BLUE_TONGUE across eight rule dimensions and has produced no obligations for it at all, so a cells-derived header omits it silently and the matrix reads complete while a whole vaccine is unaccounted for. A column that is entirely not_planned is a finding, not an empty column. Each entry carries the header LABEL as well as the code, because visible copy must originate server-side; a client-side code-to-label map is a second, drifting copy of the canonical vaccine label table. */
-            shedVaccineColumns: components["schemas"]["CommandBoardVaccineColumn"][];
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
-            /** @description Drives the board can be narrowed to, newest executable day first, park-scoped and bounded to 200 rows. Not filtered by the currently selected drive, so the selector can still offer the others. One row is one (batch, park): a drive whose work spans two parks is two operator days in two places and is offered as two choices, so it spends two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the list is incomplete — surface that, do not present the list as the full programme. */
+            /** @description Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50. Not filtered by the currently selected drive, so the selector can still offer the others. */
             driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
-            /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
-            driveOptionsTruncated: boolean;
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
-            /** @description The animals behind kpis.closedWithoutDose, capped at 50. The tile answers "how many", which is where the question starts: the next one is always "which animals, and why did their work close with no dose". Selected by the SAME per-animal residual predicate the tile counts with, so the list and the number can never describe different animals. The tile's count stays whole-scope truth when this list is capped. */
-            closedWithoutDoseAnimals: components["schemas"]["VaccinationCommandBoardClosedWithoutDoseAnimal"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
             shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
             /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */
@@ -6170,10 +4794,6 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partitionLabel: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operationalLocationDisplay: string;
             shedName: string;
             animalStages: string[];
             drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
@@ -6695,10 +5315,6 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partitionLabel?: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operationalLocationDisplay?: string;
             shedName: string;
             animals: number;
             due: number;
@@ -6735,14 +5351,7 @@ export interface components {
             /** Format: uuid */
             shedId?: string | null;
             physicalShed: string;
-            /** @description EXISTING camelCase field, kept for existing consumers. New consumers should prefer partition_label below (nullable, never "whole"). */
             partitionLabel: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
             /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
             /** @description Assigned animals still planned or in progress and not yet overdue. */
@@ -6767,9 +5376,9 @@ export interface components {
             rows: components["schemas"]["VaccinationDriveAssignmentRow"][];
         };
         /** @enum {string} */
-        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "closed" | "canceled";
+        WeighingCampaignStatus: "draft" | "published" | "in_progress" | "delayed" | "completed" | "canceled";
         /** @enum {string} */
-        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "closed" | "canceled";
+        WeighingCampaignShedStatus: "pending" | "in_progress" | "completed" | "canceled";
         /** @enum {string} */
         WeighingCategory: "individual_animal" | "per_shed_partition";
         /** @enum {string} */
@@ -6793,43 +5402,23 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
-            /** @description Base shed name extracted from display_name when a partition label is present. Null or absent when display_name carries no partition suffix. */
-            parent_shed_name?: string | null;
-            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". NOT the same field as location_type, which is an enum (shed/cohort/pen) and carries no partition information. */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
-            /** @description Backend-resolved assignee name, carried ON the bucket so a client never has to join it against a separately paged operator vocabulary. Empty WITH a non-empty operator_user_id is a roster gap, not "not assigned". */
-            operator_display_name: string;
             expected_animal_count: number;
             weighing_category: components["schemas"]["WeighingCategory"];
             /** Format: uuid */
             operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
-            /**
-             * Format: date
-             * @description Business date originally planned for this operator bucket.
-             */
+            /** Format: date */
             planned_business_date?: string;
-            /**
-             * Format: date
-             * @description Current due business date after roll-forward.
-             */
+            /** Format: date */
             due_business_date?: string;
-            /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
-            pending_verification_count: number;
-            /** @description Work a verifier actively bounced back to the operator and the operator still owes. Individual rework counts submitted animal rows. Shed-grain rework is a bucket signal: a withdrawn rejected lump-sum proof counts as 1 until an open replacement proof exists, so this is not always a subset of pending_verification_count. */
-            rework_count?: number;
+            /** @description Number of submitted weighing videos in this bucket that a verifier sent back for rework. */
+            rework_count: number;
             /** @description Most recent verifier-provided rework reason for this bucket, when available. */
             latest_rework_reason?: string;
+            /** @description Exact count of this bucket's SUBMITTED observations (proof already uploaded) whose verification_status is not yet 'verified'. This is a count of evidence that actually exists -- there is deliberately no expected-animal denominator or ratio here. */
+            pending_verification_count: number;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
-            /** @description FACT 1 of 2. How many ANIMALS this bucket has a RECORDED weight for, submitted or not: one per individual observation, plus the recorded head count of the standing (non-withdrawn) shed proof for a lump-sum bucket. ANIMAL grain, not record grain -- it replaces captured_count, which counted the lump-sum proof ROW and so read as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for the same work. Identical predicate to WeighingOperatorSummary.animals_weighed_count, so no two surfaces can disagree. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing weighings by it would render a share of a total that does not exist. Clients report this number as-is and must never turn it into a percentage or a progress bar fill. */
-            animals_weighed_count: number;
-            /** @description FACT 2 of 2. The subset of animals_weighed_count that has been SUBMITTED for verification. An individual observation counts only once submitted; a lump-sum shed proof IS the submission, so a standing one counts as soon as it exists. Identical predicate to WeighingOperatorSummary.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. Never render either number bare, and never divide one by the other. */
-            animals_submitted_count: number;
         };
         WeighingCampaign: {
             /** Format: uuid */
@@ -6861,213 +5450,11 @@ export interface components {
         WeighingCampaignListResponse: {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
-            counts?: components["schemas"]["WeighingCampaignCounts"];
-            /** @description SURFACE-grain, not row-grain. The envelope covers a page whose rows may span several parks, so this is an upper bound ("the caller holds this permission somewhere on this surface") and must NOT be used to gate a per-row button. The single-task read answers at row grain. */
-            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
-            /** @description OPERATOR-grain roll-up behind the weighing oversight surface: one row per person holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`, because the park chip is that screen's own filter. Served whole (capped at 50), not paged: a roll-up that pages cannot answer "who did what". */
-            operator_summaries?: components["schemas"]["WeighingOperatorSummary"][];
             trace_id?: string;
-        };
-        /** @description Which task-level writes the caller may attempt. Publish is `weighing.plan` while ending and reopening are `weighing.monitor`, so a client that gates buttons on task status alone renders a live button that fails. On the single-task read these are answered for the task's OWN park, matching the park scope the corresponding writes enforce -- a caller who monitors another park gets false rather than a button whose tap answers 404. */
-        WeighingCampaignCapabilities: {
-            can_publish: boolean;
-            can_end: boolean;
-            can_reopen: boolean;
-        };
-        /** @description What ONE person's weighing work adds up to. GRAIN: one row per operator_user_id over that person's non-canceled shed buckets in scope. Every field is a PLAIN COUNT and none is ever a numerator -- weighing is free-flow, there is no expected-animal roster, so no share or percentage can honestly be rendered from any of these. not_started_count + capturing_count + submitted_count + accepted_count == shed_count exactly (the four are disjoint and exhaustive over the live bucket statuses), so a client may lay them out as a discrete state ladder but must never draw a part-filled fraction. */
-        WeighingOperatorSummary: {
-            /** @description Empty on the "nobody is assigned yet" row, which is real work leadership must see. */
-            operator_user_id: string;
-            /** @description Backend-resolved name. Blank WITH a non-blank operator_user_id is a roster gap, not "unassigned"; clients render the gap and never fall back to the user id. */
-            operator_display_name: string;
-            shed_count: number;
-            /** @description Buckets holding nothing captured yet. */
-            not_started_count: number;
-            /** @description Buckets where weighing is under way but nothing is submitted. */
-            capturing_count: number;
-            /** @description Buckets submitted and waiting for a verifier. */
-            submitted_count: number;
-            /** @description Buckets verified and closed. */
-            accepted_count: number;
-            /** @description Buckets a verifier bounced back. OVERLAPS the four state counts on purpose (a bounced bucket is still in one of them) and is never added to them. */
-            rework_count: number;
-            /** @description FACT 1 of 2. How many ANIMALS this person has RECORDED a weight for, submitted or not: one per individual observation plus the recorded head count of a standing lump-sum weighing. Whole-filter aggregate computed by the backend over every bucket the person holds in scope -- never grouped client-side from a page of rows. Same predicate as WeighingCampaignShed.animals_weighed_count. A plain total of work done; never a numerator. */
-            animals_weighed_count: number;
-            /** @description FACT 2 of 2. The subset of animals_weighed_count this person has SUBMITTED for verification. Whole-filter aggregate, same predicate as WeighingCampaignShed.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. This pair is what makes visible the mid-shift state where an operator has weighed animals and walked away without submitting them. */
-            animals_submitted_count: number;
-        };
-        /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
-        WeighingCampaignCounts: {
-            active: number;
-            completed: number;
         };
         WeighingCampaignResponse: {
             campaign: components["schemas"]["WeighingCampaign"];
-            /** @description Answered for THIS task's park. The single-task read is what a deep-linked task screen gates its buttons on, so the answer has to match what the write would allow: end and reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here put a live Close button on a task whose write returns 404. */
-            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             trace_id?: string;
-        };
-        WeighingParkListResponse: {
-            parks: components["schemas"]["WeighingPark"][];
-            trace_id?: string;
-        };
-        /** @description The Growth Director section of the Weights screen: six widgets over weighing, herd-register and feed-direction data. Every widget carries its own denominators — there is no expected-animal roster, so every count is an actual-scan/identity count, never "of expected". */
-        GrowthDirectorWeightsResponse: {
-            period: components["schemas"]["GrowthDirectorPeriod"];
-            /** @description Park filter vocabulary, limited to the caller's authorized scope. */
-            parks: components["schemas"]["WeighingPark"][];
-            road_to_sale: components["schemas"]["GrowthDirectorRoadToSale"];
-            fair_fight: components["schemas"]["GrowthDirectorFairFight"];
-            slow_growth: components["schemas"]["GrowthDirectorSlowGrowth"];
-            feed_vs_growth: components["schemas"]["GrowthDirectorFeedVsGrowth"];
-            feed_problems: components["schemas"]["GrowthDirectorFeedProblems"];
-            trust: components["schemas"]["GrowthDirectorTrust"];
-        };
-        /** @description The resolved reporting window. Weighing data is selected by CAMPAIGN-WEEK OVERLAP (campaigns are week-grain, so the window pulls in every overlapping week in full); feed rows use the exact day range. `resolution` discloses this. */
-        GrowthDirectorPeriod: {
-            /** Format: date */
-            start: string;
-            /** Format: date */
-            end: string;
-            /** @description Currently always `campaign_week`. */
-            resolution: string;
-        };
-        /** @description Where every kid sits on the way to sale weight, counted from each tag identity's latest weigh. Unmatched identities stay in the bands — a scale reading is a scale reading — but are counted separately. Rework-status captures are excluded. */
-        GrowthDirectorRoadToSale: {
-            /** @description Distinct tag identities weighed in the period. The denominator for the bands. */
-            total_identities: number;
-            /** @description Identities whose tag resolves in the herd register. */
-            matched_identities: number;
-            unmatched_identities: number;
-            /** @description Always all six bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending. */
-            bands: components["schemas"]["GrowthDirectorWeightBand"][];
-            movement: components["schemas"]["GrowthDirectorBandMovement"];
-        };
-        GrowthDirectorWeightBand: {
-            /** @enum {string} */
-            band: "<15" | "15-20" | "20-25" | "25-30" | "30-35" | "35+";
-            identity_count: number;
-        };
-        /** @description Band movement between an identity's previous and latest campaign rounds. `pair_identities` is the honest denominator: a kid has to be weighed in two rounds before it can move a band. */
-        GrowthDirectorBandMovement: {
-            pair_identities: number;
-            moved_up: number;
-            held: number;
-            moved_down: number;
-        };
-        /** @description Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes. A cohort renders only when at least two sheds each field at least three pair-identities. Breed and sex come from the herd register only, never from shed names or feed-sheet strings. */
-        GrowthDirectorFairFight: {
-            cohorts: components["schemas"]["GrowthDirectorFairFightCohort"][];
-        };
-        GrowthDirectorFairFightCohort: {
-            breed: string;
-            sex: string;
-            /** @description Strongest median first. */
-            sheds: components["schemas"]["GrowthDirectorFairFightShed"][];
-        };
-        GrowthDirectorFairFightShed: {
-            /** Format: uuid */
-            location_id: string;
-            /** @description Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed). */
-            operational_key: string;
-            shed_display_name: string;
-            /** @description The n behind the median. */
-            pair_identities: number;
-            /** Format: double */
-            median_adg_g_per_day: number;
-        };
-        /** @description Every (shed, breed, sex) group with at least three plausible pair-identities, slowest first, judged against the disclosed target. Changes within 3% of body weight are scored as flat (gut fill); losses over 0.30 kg/day are treated as bad scans and excluded. */
-        GrowthDirectorSlowGrowth: {
-            /**
-             * Format: double
-             * @description The ops rule-of-thumb daily gain target (200), disclosed rather than buried.
-             */
-            target_g_per_day: number;
-            groups: components["schemas"]["GrowthDirectorSlowGrowthGroup"][];
-        };
-        GrowthDirectorSlowGrowthGroup: {
-            /** Format: uuid */
-            location_id: string;
-            /** @description Stable operational-location identity — parent shed uuid plus normalized partition (partition is the operational shed). */
-            operational_key: string;
-            shed_display_name: string;
-            breed: string;
-            sex: string;
-            pair_identities: number;
-            /** Format: double */
-            median_adg_g_per_day: number;
-            /**
-             * Format: double
-             * @description This week's median consecutive-round gain minus last week's, for this group. Null until the group has pairs in two distinct campaign weeks — two weeks of weighing are needed before a trend exists.
-             */
-            week_over_week_delta_g: number | null;
-            /**
-             * @description Judged on the noise-adjusted median, so one noisy scale never brands a shed as shrinking.
-             * @enum {string}
-             */
-            status: "on_track" | "below_target" | "losing";
-        };
-        /** @description Feed DIRECTED against growth measured, per shed. `estimate` is always true: the feed figure is what the sheet told the team to give, not what the kids finished — leftovers are not measured yet. */
-        GrowthDirectorFeedVsGrowth: {
-            sheds: components["schemas"]["GrowthDirectorFeedVsGrowthShed"][];
-            estimate: boolean;
-        };
-        /** @description Null never means zero on this row: it means "not computable", with the reason readable from the other fields. Blocked feed cells (quantity NULL) stay out of the feed sum; authored zeros stay in. Experiment / informational-headcount kg is never divided by heads. */
-        GrowthDirectorFeedVsGrowthShed: {
-            /** Format: uuid */
-            location_id: string;
-            shed_display_name: string;
-            /** Format: double */
-            feed_g_per_head_per_day: number | null;
-            /** Format: double */
-            adg_g_per_day: number | null;
-            /**
-             * Format: double
-             * @description Null when either side is missing or gain is non-positive — never 0, never infinity.
-             */
-            kg_feed_per_kg_gain: number | null;
-            /**
-             * @description per_animal = median of per-kid gains (at least three pairs); whole_shed = the shed's average movement over thinner data.
-             * @enum {string}
-             */
-            basis: "per_animal" | "whole_shed";
-            is_experiment: boolean;
-            pair_identities: number;
-        };
-        /** @description Feed-sheet cells that could not be filled in. Blocked is structural (quantity NULL iff a reason code exists); an authored zero is a real instruction, counted separately and never listed as a problem. */
-        GrowthDirectorFeedProblems: {
-            blocked_rows_latest_day: number;
-            blocked_rows_history: number;
-            authored_zero_latest_day: number;
-            authored_zero_history: number;
-            /** @description Most recently blocked first. */
-            items: components["schemas"]["GrowthDirectorFeedProblemItem"][];
-        };
-        GrowthDirectorFeedProblemItem: {
-            shed_label: string;
-            feed_item_label: string;
-            blocked_days: number;
-            latest_reason_code: string;
-        };
-        /** @description The honest-denominator panel behind every other widget. Unlike the growth widgets it INCLUDES rework captures — trust reports the raw stream — and breaks out the rework count so the two views reconcile. */
-        GrowthDirectorTrust: {
-            scans_total: number;
-            scans_matched: number;
-            scans_unmatched: number;
-            identities_total: number;
-            /** @description Identities weighed in at least two campaign rounds — the only ones a gain exists for. */
-            identities_with_pair: number;
-            identities_once_only: number;
-            /** @description Live lump-sum weighings in the period (withdrawn rows excluded). */
-            whole_shed_observations: number;
-            scans_pending_verification: number;
-            scans_rework: number;
-        };
-        /** @description One park the caller may filter weighing by. Identity only -- anything date-scoped or count-bearing belongs on the planner catalog, which is a different grain and a different gate. */
-        WeighingPark: {
-            /** Format: uuid */
-            park_id: string;
-            name: string;
         };
         WeighingPlannerCampaignSummary: {
             /** Format: uuid */
@@ -7087,50 +5474,21 @@ export interface components {
             /** Format: uuid */
             location_id: string;
             name: string;
-            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
             kid_count: number;
-            /** @description True when an open weighing task already claims this shed on the requested weigh date. Absent/false means the shed is free on that date. */
-            scheduled?: boolean;
-            /** Format: uuid */
-            scheduled_campaign_id?: string;
-            scheduled_status?: components["schemas"]["WeighingCampaignShedStatus"];
-            /** Format: uuid */
-            scheduled_operator_user_id?: string;
-            scheduled_operator_display_name?: string;
-            scheduled_weighing_category?: components["schemas"]["WeighingCategory"];
         };
         WeighingPlannerPark: {
             /** Format: uuid */
             park_id: string;
             name: string;
             kid_count: number;
-            /** @description PARK-GRAIN count of this park's active sheds, computed over the park's own children. It is not a count of rows on any page: this response carries no shed rows, and a bucket page carries only ~20. Read the sheds themselves from /app/weighing/planner/parks/{park_id}/buckets. */
-            shed_count: number;
+            sheds: components["schemas"]["WeighingPlannerShed"][];
             existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
-            /** @description How many non-canceled weighing tasks this park holds on the requested week. A park-week may legitimately hold SEVERAL tasks: the capture category (individual vs lump-sum) is a per-BUCKET property, so leadership plans some sheds now and the park's leftover sheds as a separate task. existing_campaign summarizes only the MOST RECENT of them, so treat this count -- not the presence of existing_campaign -- as the answer to "how much is already scheduled here". Never use either field to block creating another task: per-shed availability is reported by the buckets endpoint. */
-            existing_campaign_count?: number;
         };
         WeighingPlannerOperator: {
             /** Format: uuid */
             user_id: string;
             display_name: string;
             display_code: string;
-        };
-        WeighingPlannerParkBucketsResponse: {
-            /**
-             * Format: uuid
-             * @description The park these buckets belong to; echoes the path parameter.
-             */
-            park_id: string;
-            sheds: components["schemas"]["WeighingPlannerShed"][];
-            /** @description Keyset cursor for this park's next bucket page. Absent/empty means the last page. The cursor is scoped to the park in the path, so a page can never carry rows from another park. */
-            next_cursor?: string;
-            trace_id?: string;
         };
         WeighingPlannerCatalogResponse: {
             parks: components["schemas"]["WeighingPlannerPark"][];
@@ -7150,10 +5508,6 @@ export interface components {
             /** Format: uuid */
             expected_location_id: string;
             expected_location_label: string;
-            /** @description Raw stored partition label for expected_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
-            expected_location_partition_label?: string | null;
-            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            expected_operational_location_display?: string;
             /** @enum {string} */
             status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
             /** @enum {string} */
@@ -7161,22 +5515,8 @@ export interface components {
             /** Format: uuid */
             current_location_id?: string;
             current_location_label?: string;
-            /** @description Raw stored partition label for current_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
-            current_location_partition_label?: string | null;
-            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            current_operational_location_display?: string;
             current_lifecycle_status?: string;
             seq: number;
-        };
-        WeighingCampaignShedPageResponse: {
-            /** Format: uuid */
-            campaign_id: string;
-            items: components["schemas"]["WeighingCampaignShed"][];
-            /** @description Keyset cursor for the next page. Absent/empty means the last page. */
-            next_cursor?: string;
-            /** @description WHOLE-TASK bucket count over the same scope the rows range over — never the length of this page, so the header does not change as the user scrolls. */
-            total_count: number;
-            trace_id?: string;
         };
         WeighingRosterResponse: {
             items: components["schemas"]["WeighingRosterRow"][];
@@ -7192,8 +5532,6 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
-            /** @description Raw operational partition label for this shed bucket, e.g. "1" or "Part 3". Required when location_id names a partitioned physical shed; omitted/empty only for truly unpartitioned sheds. The backend validates it against the active shed partition catalog and stores null for unpartitioned sheds. */
-            partition_label?: string;
             weighing_category: components["schemas"]["WeighingCategory"];
             /** Format: uuid */
             operator_user_id?: string;
@@ -7215,7 +5553,9 @@ export interface components {
         RecordWeighingAnimalObservationRequest: {
             /** Format: uuid */
             campaign_shed_id: string;
-            scanned_identifier: string;
+            /** Format: uuid */
+            animal_id: string;
+            scanned_identifier?: string;
             weight_kg: number;
             /** Format: uuid */
             proof_artifact_id: string;
@@ -7239,7 +5579,8 @@ export interface components {
             campaign_id: string;
             /** Format: uuid */
             campaign_shed_id?: string;
-            scanned_identifier?: string;
+            /** Format: uuid */
+            animal_id?: string;
             weight_kg: number;
             average_weight_kg?: number;
             animal_count?: number;
@@ -7268,76 +5609,10 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             shed_name: string;
-            /** @description The park this bucket's task belongs to. Rendered as the screen eyebrow. */
-            park_name: string;
-            /** @description Partition label for subdivided sheds (e.g., "Part 1", "Part 2"), or null for undivided sheds. Must be displayed alongside shed_name to form operational_location_display. */
-            partition_label?: string | null;
-            /** @description Backend-composed display string for the physical location: shed_name alone for undivided sheds, or "shed_name - partition_label" for subdivided ones (e.g., "Castro 1 - Part 1"). This is the ONLY display-safe location identifier and must be rendered verbatim. */
-            operational_location_display: string;
-            /**
-             * Format: date
-             * @description The task's Asia/Kolkata business DATE. Never a timestamp.
-             */
-            weigh_date: string;
-            /** @description Who owns this bucket. An EMPTY value is the only thing that entitles a client to say the bucket is not assigned. */
-            operator_user_id: string;
-            /** @description Backend-resolved assignee name. Empty WITH a non-empty operator_user_id means the assignee has no active workforce record — a roster gap, not "not assigned". */
-            operator_display_name: string;
-            /** @description Planning-time herd estimate for the shed. A coverage hint, never a completeness denominator — weighing is free-flow and has no expected roster. */
-            estimated_animal_count: number;
-            /** @description Group-video allowance for a lump-sum submission, so "N of M" reads off policy. */
-            max_shed_videos: number;
-            /** @description Keyset cursor for the next page of `individual`, on (accepted_at, observation_id). Absent/empty means the last page. */
-            next_individual_cursor?: string;
             weighing_category: components["schemas"]["WeighingCategory"];
             status: string;
             individual: components["schemas"]["WeighingObservation"][];
             lump_sum?: components["schemas"]["WeighingObservation"];
-            /** @description Backend-owned sentence for the weigh period this bucket belongs to. A client must not build this label by concatenating dates itself. */
-            period_label?: string;
-        };
-        /** @description ONE weighing work-state transition that was routed to the caller. GRAIN: one row = one transition for one recipient, collapsed across that person's devices. Every human-visible string is authored by the backend. No goat, herd identity, or expected-roster denominator appears here: weighing is free-flow and fully isolated. */
-        WeighingAlert: {
-            alert_id: string;
-            /** @description Producer's transition type, e.g. weighing_campaign_published, weighing_shed_submitted, weighing_shed_reopened, weighing_rework, weighing_shed_closed. Clients may branch on it for iconography; they must NOT rebuild the sentence from it. */
-            kind: string;
-            /**
-             * @description Which way this alert travelled FOR THIS RECIPIENT. downstream = it landed on the person who must do the work; upstream = on the person who oversees it. Derived from the recipient role the producer stamped, not from the event type, because one transition can travel both ways at once (a rework goes down to the operator and up to the director).
-             * @enum {string}
-             */
-            direction: "downstream" | "upstream";
-            /** @description Backend-owned headline. Render verbatim. */
-            title: string;
-            /** @description Backend-owned sentence naming the sheds and the reason. Render verbatim. */
-            body: string;
-            /** @enum {string} */
-            severity: "normal" | "high";
-            /** @description In-app destination this row opens, chosen by the producer (e.g. /weighing). */
-            target: string;
-            /** @description Shed or shed list this transition concerns, as the producer named it. */
-            shed_label?: string;
-            campaign_id?: string;
-            park_id?: string;
-            /** Format: date-time */
-            occurred_at: string;
-        };
-        /** @description ONE keyset page of the caller's weighing alerts, newest first. */
-        WeighingAlertPageResponse: {
-            items: components["schemas"]["WeighingAlert"][];
-            /** @description Keyset cursor on (occurred_at DESC, alert_id DESC). Absent/empty means the last page. */
-            next_cursor?: string;
-            /** @description Backend-owned screen title. The client MUST render this rather than hardcode a weighing string, so the surface can be renamed without an app release. */
-            title: string;
-            /** @description Backend-owned empty-state sentence, shown when items is empty. Also client-owned never. */
-            empty_message: string;
-            trace_id?: string;
-        };
-        /** @description ONE keyset page of shed buckets across tasks, each carrying its own context and its FIRST page of captured evidence. GRAIN: one row = one bucket = one shed on one task. There is no denominator; each bucket states its own evidence cursor. */
-        WeighingLeadershipShedPageResponse: {
-            items: components["schemas"]["WeighingShedVideos"][];
-            /** @description Keyset cursor on (period_start_date, created_at, campaign_id, campaign_shed_id). Absent/empty means the last page. */
-            next_cursor?: string;
-            trace_id?: string;
         };
         WeighingShedVideosResponse: {
             shed: components["schemas"]["WeighingShedVideos"];
@@ -7351,361 +5626,9 @@ export interface components {
             status: "completed";
             trace_id?: string;
         };
-        WeighingCloseRequest: {
-            reason: string;
-            idempotency_key?: string;
-        };
-        WeighingCloseResult: {
-            /** Format: uuid */
-            campaign_id: string;
-            /** Format: uuid */
-            campaign_shed_id?: string;
-            /** Format: uuid */
-            closed_by?: string;
-            /** Format: date-time */
-            closed_at: string;
-            not_accepted_count: number;
-            not_accepted?: string[];
-        };
-        WeighingCloseResponse: {
-            close: components["schemas"]["WeighingCloseResult"];
-            trace_id?: string;
-        };
-        WeighingProcessStateDayMarker: {
-            /** Format: date */
-            business_date: string;
-            open_count: number;
-            delayed_count: number;
-        };
-        WeighingProcessStateSummary: {
-            scheduled: number;
-            delayed: number;
-            completed: number;
-            closed: number;
-            canceled: number;
-            open_total: number;
-            total: number;
-        };
-        WeighingProcessState: {
-            /** @enum {string} */
-            grain: "weighing_work_item";
-            /** Format: date */
-            from_business_date: string;
-            /** Format: date */
-            to_business_date: string;
-            day_markers: components["schemas"]["WeighingProcessStateDayMarker"][];
-            summary: components["schemas"]["WeighingProcessStateSummary"];
-        };
         WeighingObservationResponse: {
             observation: components["schemas"]["WeighingObservation"];
             trace_id?: string;
-        };
-        /** @description A shed within a park, for the weight-history filter vocabulary. */
-        WeighingParkShed: {
-            /** Format: uuid */
-            campaign_shed_id: string;
-            display_name: string;
-            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
-            /** Format: uuid */
-            park_id: string;
-            /** Format: uuid */
-            location_id: string;
-        };
-        /** @description One observation: (scanned_identifier, weigh_date, weight_kg or shed totals). The individual-only fields (`scanned_identifier`, `weight_kg`) and the lump-sum-only fields (`total_weight_kg`, `average_weight_kg`, `animal_count`) are mutually exclusive per `capture_kind` and are omitted (not zero) on the side that does not apply. */
-        WeighingWeightHistoryPoint: {
-            /** @enum {string} */
-            capture_kind: "individual" | "lump_sum";
-            /** @description RFID/tag read by the scanner. Individual only; absent for lump_sum. */
-            scanned_identifier?: string;
-            /**
-             * Format: date
-             * @description Asia/Kolkata business date the observation was accepted.
-             */
-            weigh_date: string;
-            /** @description Recorded weight. Individual only; absent for lump_sum. */
-            weight_kg?: number;
-            /** @description Total weight of the shed. Lump-sum only. */
-            total_weight_kg?: number;
-            /** @description Average weight per animal. Lump-sum only. */
-            average_weight_kg?: number;
-            /** @description Number of animals in the lump-sum measurement. Lump-sum only. */
-            animal_count?: number;
-            /** @description pending, verified, or rework. */
-            verification_status?: string;
-            /** Format: uuid */
-            campaign_shed_id: string;
-            shed_display_name: string;
-        };
-        /** @description The time series for one RFID tag (individual) or shed (lump_sum) across multiple weigh days. */
-        WeighingWeightHistorySeries: {
-            /** @description The series key for individual captures. Absent for lump_sum. */
-            scanned_identifier?: string;
-            /**
-             * Format: uuid
-             * @description The shed id, for lump_sum series.
-             */
-            campaign_shed_id?: string;
-            /** @description For lump_sum series. */
-            shed_display_name?: string;
-            /** @enum {string} */
-            capture_kind: "individual" | "lump_sum";
-            /** @description Ordered by weigh_date, oldest first. */
-            points: components["schemas"]["WeighingWeightHistoryPoint"][];
-        };
-        /** @description CEO-tier weight history for a park and optional shed scope. Parks and sheds are only those actually represented in the result, so the client can render filter chips with backend-owned vocabulary. */
-        WeighingWeightHistoryResponse: {
-            parks: components["schemas"]["WeighingPark"][];
-            sheds: components["schemas"]["WeighingParkShed"][];
-            series: components["schemas"]["WeighingWeightHistorySeries"][];
-            /** @description True if the result was capped (too many unique tags, too many weigh days, or too many points). When true, `capped_at` names which limit was hit. */
-            truncated: boolean;
-            /** @enum {string} */
-            capped_at?: "max_unique_tags" | "max_weigh_days" | "max_points";
-        };
-        /** @description Herd-level ADG (Average Daily Gain) summary for the requested period, scoped to a park. `status: "insufficient_data"` means no animal was weighed twice in the period, and every nullable field below is null rather than a fabricated 0. */
-        WeighingGrowthHeadline: {
-            /** @enum {string} */
-            status: "ok" | "insufficient_data";
-            median_adg_g_per_day?: number | null;
-            previous_median_adg_g_per_day?: number | null;
-            /** @enum {string} */
-            previous_status: "ok" | "insufficient_data";
-            /** @description median_adg_g_per_day - previous_median_adg_g_per_day. Null whenever either side is null. */
-            delta_g_per_day?: number | null;
-            positive_adg_percent?: number | null;
-            /** @description Count of qualifying PAIRS with ADG < 0 across the whole period. */
-            negative_adg_count: number;
-            /** @description Count of ANIMALS whose most recent pair is negative. */
-            losing_animal_count: number;
-            pair_count: number;
-            rejected_observation_count: number;
-            unverified_observation_count: number;
-        };
-        WeighingGrowthEligibility: {
-            animals_with_two_plus_weighs: number;
-            total_animals_weighed: number;
-        };
-        WeighingGrowthTrendPoint: {
-            /** Format: date */
-            week_start: string;
-            median_adg_g_per_day: number;
-            pair_count: number;
-        };
-        WeighingGrowthShedLeaderboardRow: {
-            /** Format: uuid */
-            location_id: string;
-            display_name: string;
-            partition_label?: string;
-            operational_location_display: string;
-            /** @description Animal count. */
-            n: number;
-            median_weight_kg: number;
-            median_adg_g_per_day: number;
-            /** @description Can be less than `n` -- a shed can have animals weighed once (no pair yet). */
-            adg_pair_count: number;
-        };
-        /** @description One bin of the ADG histogram. Bins are fixed at 25 g/day width, plus one explicit negative bucket. */
-        WeighingGrowthDistributionBucket: {
-            /** @description Human-readable bucket name, e.g. "negative", "0-25", "300+". */
-            label: string;
-            /** @description Inclusive lower edge. Absent for the negative bucket, which has no floor. */
-            min_g_per_day?: number;
-            /** @description Exclusive upper edge. Absent for the top overflow bucket. */
-            max_g_per_day?: number;
-            count: number;
-        };
-        /** @description Counts animals against fixed weight thresholds using each animal's latest weight ever recorded (not bounded to the requested period). */
-        WeighingGrowthSaleReadiness: {
-            at_or_above_30kg: number;
-            at_or_above_35kg: number;
-            /** @description Distinct resolved animals with at least one accepted weigh ever recorded. */
-            animals_considered: number;
-        };
-        /** @description One shed's one week of population-level (not per-animal) average weight. Kept entirely separate from the individual ADG numbers: shed population changes between weighs. */
-        WeighingGrowthLumpSumShedTrendPoint: {
-            /** Format: uuid */
-            location_id: string;
-            display_name: string;
-            partition_label?: string;
-            operational_location_display: string;
-            /** Format: date */
-            week_start: string;
-            average_weight_kg: number;
-            head_count: number;
-        };
-        WeighingGrowthLumpSum: {
-            shed_week_trend: components["schemas"]["WeighingGrowthLumpSumShedTrendPoint"][];
-        };
-        /** @description An animal that lost weight between its two most recent weighs, identified by its raw scanned tag only -- weighing never resolves a tag to a goat. */
-        WeighingGrowthLosingAnimal: {
-            scanned_identifier: string;
-            shed_display_name: string;
-            previous_weight_kg: number;
-            latest_weight_kg: number;
-            adg_g_per_day: number;
-            days_between: number;
-            /** Format: date */
-            latest_weigh_date: string;
-        };
-        WeighingWeightDemographicBucket: {
-            /** @description Value as stored; clients render it and do not re-map it. */
-            label: string;
-            /** @description Distinct animals behind the average. */
-            animals: number;
-            /**
-             * Format: double
-             * @description Mean of each animal's LATEST weight in the window -- a weighted mean over animals.
-             */
-            average_weight_kg: number;
-        };
-        WeighingWeightGainBucket: {
-            label: string;
-            /** @description Animals with a computable gain -- always fewer than the weight bucket's count. */
-            animals: number;
-            /**
-             * Format: double
-             * @description Median across those animals, so one scale misread cannot swing a breed.
-             */
-            median_gain_g_per_day: number;
-        };
-        WeighingWeightDemographicsResponse: {
-            /** @description Per-animal weighs only; a whole-shed total cannot be split by breed. */
-            by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
-            /** @description Per-animal weighs only. */
-            by_sex: components["schemas"]["WeighingWeightDemographicBucket"][];
-            /** @description Per-animal weighs plus whole-shed weighs attributed to their shed's cohort. */
-            by_stage: components["schemas"]["WeighingWeightDemographicBucket"][];
-            /** @description Same dimension as daily gain. Scanned animals only -- a whole-shed weigh yields no per-animal gain. */
-            gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
-            gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
-            gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
-            resolved_animals: number;
-            /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
-            unresolved_animals: number;
-            lump_sum_animals: number;
-            /** @description Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them. */
-            lump_sum_unattributed_animals: number;
-        };
-        /** @description ONE operational shed's most recent weigh. Grain is the physical shed partition, not the campaign bucket. */
-        WeighingShedWeightsRow: {
-            /** Format: uuid */
-            location_id: string;
-            /** Format: uuid */
-            park_id: string;
-            park_name: string;
-            /** @description Canonical shed name from the location record, never the free-text name typed when the task was planned. */
-            shed_display_name: string;
-            partition_label?: string;
-            /** @description Backend-composed physical weighing location label. Render verbatim. */
-            operational_location_display: string;
-            /** @enum {string} */
-            weighing_category: "individual_animal" | "per_shed_partition";
-            /** @description Count of ANIMALS, not captures: distinct scanned tags for a per-animal shed, the declared head count for a whole-shed weigh. */
-            animals_weighed: number;
-            /** Format: double */
-            average_weight_kg: number;
-            /**
-             * Format: double
-             * @description Weight of the animals actually weighed. NOT the shed's total weight -- free-flow weighing has no roster, so nothing knows which animals were missed.
-             */
-            total_weight_kg: number;
-            /**
-             * Format: date
-             * @description Business date of the most recent accepted weigh. Absent when the shed is planned but not yet weighed, which is a fact and not a fault.
-             */
-            last_weighed_date?: string;
-            /** @enum {string} */
-            bucket_status: "pending" | "in_progress" | "completed" | "canceled";
-            /**
-             * Format: double
-             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured across the full span, because consecutive pairs at this grain are unusably noisy (the same shed produced 45 g/day one week and 391 the next).
-             */
-            shed_average_gain_g_per_day?: number;
-            /** @description The span that gain was measured over, so a short-span figure can be discounted rather than hidden. */
-            gain_span_days?: number;
-        };
-        /** @description WHOLE-FILTER rollup behind the KPI cards. Paging changes rows only, never these numbers. */
-        WeighingShedWeightsSummary: {
-            sheds_weighed: number;
-            sheds_in_scope: number;
-            animals_weighed: number;
-            /** Format: double */
-            total_weight_kg: number;
-            /**
-             * Format: double
-             * @description Weighted mean over ANIMALS (total / animals), never the mean of per-shed averages. Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
-             */
-            average_weight_kg?: number | null;
-            at_or_above_30kg: number;
-            at_or_above_35kg: number;
-            /** @description The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only. A whole-shed weigh reports one average and cannot say how many of its animals cleared a threshold, so it contributes nothing here. Rendering the counts against animals_weighed instead would understate the share. */
-            threshold_basis_animals: number;
-        };
-        WeighingShedWeightsResponse: {
-            /** @description Park filter vocabulary, limited to the caller's authorized scope. */
-            parks: components["schemas"]["WeighingPark"][];
-            summary: components["schemas"]["WeighingShedWeightsSummary"];
-            rows: components["schemas"]["WeighingShedWeightsRow"][];
-            /** @description Growth per procurement load, strongest grower first. Empty until the shed-to-load mapping is authored for the tenant. */
-            by_load: components["schemas"]["WeighingLoadGainBucket"][];
-            /** @description Weighed sheds carrying no load tag, or more than one. Returned so the gap between the load chart and the shed table reads as unmapped rather than as missing weighing data. */
-            load_unattributed_sheds: number;
-            /** Format: date */
-            period_start: string;
-            /** Format: date */
-            period_end: string;
-        };
-        /** @description One procurement load's growth, blended across the sheds it was placed into. Attribution is SHED-level: a shed carrying two loads is excluded from every load and counted in load_unattributed_sheds instead, because one shed average cannot be split between two suppliers. */
-        WeighingLoadGainBucket: {
-            /** @description The farm's own load number, rendered verbatim. */
-            load_ref: string;
-            /** @description Supplier the load was bought from. Absent when unrecorded. */
-            owner_name?: string;
-            /** @description Tagged sheds behind this load that carry a weigh. */
-            sheds: number;
-            /** @description Head count at each contributing shed's latest weigh, summed. This is the denominator both figures below are weighted by. */
-            animals: number;
-            /**
-             * Format: double
-             * @description Weighted mean over animals, never a mean of per-shed averages.
-             */
-            average_weight_kg: number;
-            /**
-             * Format: double
-             * @description Each shed's last-two-weighs movement, blended by head count. Absent when no shed in the load was weighed twice — a load with a single weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
-             */
-            gain_g_per_day?: number;
-            /** @description Widest span any contributing shed was measured over, so a figure drawn from two days can be discounted on sight rather than hidden. */
-            gain_span_days?: number;
-        };
-        /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
-        WeighingGrowthADGResponse: {
-            /**
-             * Format: uuid
-             * @description The single requested park. Absent when the caller omitted park_id -- this response then aggregates across every park in `park_ids`.
-             */
-            park_id?: string;
-            /** @description Every park this response aggregates across. */
-            park_ids: string[];
-            /** @description Names the ids in park_ids so a client can offer a park selector. */
-            parks: components["schemas"]["WeighingPark"][];
-            losing_animals: components["schemas"]["WeighingGrowthLosingAnimal"][];
-            /** Format: date */
-            period_start: string;
-            /** Format: date */
-            period_end: string;
-            headline: components["schemas"]["WeighingGrowthHeadline"];
-            eligibility: components["schemas"]["WeighingGrowthEligibility"];
-            trend: components["schemas"]["WeighingGrowthTrendPoint"][];
-            shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
-            distribution: components["schemas"]["WeighingGrowthDistributionBucket"][];
-            sale_readiness: components["schemas"]["WeighingGrowthSaleReadiness"];
-            lump_sum: components["schemas"]["WeighingGrowthLumpSum"];
         };
         VaccinationShedVaccineRow: {
             protocolId: string;
@@ -7731,12 +5654,6 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
-            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
             animals: number;
             due: number;
             done: number;
@@ -7786,14 +5703,6 @@ export interface components {
             vaccine_label: string;
             display_label: string;
             sequence: number;
-            /** @description UUID of the shed this obligation is scoped to, or empty if not shed-scoped. */
-            shed_id: string;
-            /** @description Display name of the shed, or empty if not shed-scoped. */
-            shed_name: string;
-            /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
-            partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not shed-scoped. */
-            operational_location_display: string;
         };
         VaccinationPassportHistoryItem: {
             completion_id: string;
@@ -7810,14 +5719,6 @@ export interface components {
             adverse_reaction: boolean;
             /** Format: date-time */
             withdrawal_until?: string | null;
-            /** @description UUID of the shed where this vaccination occurred, or empty if not available. */
-            shed_id: string;
-            /** @description Display name of the shed, or empty if not available. */
-            shed_name: string;
-            /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
-            partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not available. */
-            operational_location_display: string;
         };
         LastAcceptedVaccinationDose: {
             completion_id: string;
@@ -7827,18 +5728,6 @@ export interface components {
         };
         VaccinationPassport: {
             goat_id: string;
-            /** @description UUID of the park the goat is currently assigned to. Empty if location unknown. */
-            park_id?: string;
-            /** @description Display name of the park. Empty if location unknown. */
-            park_name?: string;
-            /** @description UUID of the physical shed. Empty if location unknown. */
-            shed_id?: string;
-            /** @description Display name of the physical shed. Empty if location unknown. */
-            shed_name?: string;
-            /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
-            partition_label?: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
-            operational_location_display?: string;
             next_due: components["schemas"]["VaccinationPassportDue"] | null;
             open_obligations: components["schemas"]["VaccinationPassportDue"][];
             last_accepted: components["schemas"]["LastAcceptedVaccinationDose"] | null;
@@ -7931,10 +5820,6 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId?: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partitionLabel?: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operationalLocationDisplay?: string;
             shedName?: string;
             reasonCode: components["schemas"]["VaccinationGapReasonCode"];
             reasonLabel: string;
@@ -7991,12 +5876,6 @@ export interface components {
             farmId?: string | null;
             /** Format: uuid */
             currentLocationId?: string | null;
-            /** @description Raw stored partition label for currentLocationId's shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string | null;
             breed?: string | null;
             sex: string;
             lifecycleStatus: string;
@@ -8023,12 +5902,6 @@ export interface components {
             shed_id?: string | null;
             /** @description Shed name or code; empty when the goat has no shed assigned. */
             shed_label?: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string | null;
             /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
             management_stage: string;
             breed: string;
@@ -8047,22 +5920,14 @@ export interface components {
             /** @description Top sheds by head count; display-capped, never the source of totals. */
             shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
         };
-        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. When a shed has partitions, one row per partition is returned, each with its partition_label, count for that partition, and operational_location_display for the partition label. */
+        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. */
         CountsBreakdownShedFacet: {
-            /** @description The PARENT physical shed uuid. Handed over explicitly so a client never parses it back out of the composite `key` — doing so once made the parent-aggregate option carry a partition key and silently broke partition filtering. */
-            shed_id: string;
             /** @description Shed UUID; empty for the bucket of animals with no shed assigned. */
             key: string;
-            /** @description Shed name or code; for partitioned sheds, this is the shed name (without the partition suffix). */
             label: string;
-            /** @description Count of animals in this shed (or partition if partition_label is present). */
             count: number;
             /** @description Park UUID these animals sit in; empty only when the animals have no park assigned. Matches the park_id request filter, so count equals what ?park_id=<park_id>&shed_id=<key> returns. */
             park_id: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string | null;
         };
         CountsBreakdownFacets: {
             /** @description Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/ culled/transferred), independent of the currently-selected lifecycle filter — this is what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather than only ever showing the live herd. */
@@ -8090,253 +5955,8 @@ export interface components {
             /** Format: date-time */
             projected_at: string;
         };
-        MilkPreparationSession: {
-            session_no: number;
-            /** @description False for sessions not used by this cohort, such as K3 sessions 2 and 3. */
-            active: boolean;
-            per_head_ml: number;
-            /**
-             * Format: int64
-             * @description Exact head_count x per_head_ml for this active session; zero only when active is false.
-             */
-            required_ml: number;
-        };
-        MilkPreparationRow: {
-            /** @description Canonical park UUID, or empty when source placement is missing. */
-            park_id: string;
-            park_label: string;
-            /** @description Canonical physical shed UUID, or empty when source placement is missing. */
-            shed_id: string;
-            shed_label: string;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
-            /** @enum {string} */
-            management_stage: "K1" | "K2" | "K3";
-            head_count: number;
-            sessions: components["schemas"]["MilkPreparationSession"][];
-            /** Format: int64 */
-            daily_required_ml: number;
-            /** @enum {string} */
-            status: "ready" | "blocked";
-            /** @enum {string} */
-            blocked_reason?: "missing_shed";
-            /**
-             * @description Park-day operational status; completion means the verifier approved all step videos.
-             * @enum {string}
-             */
-            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
-            /** Format: uuid */
-            completion_id?: string;
-            attempt_no?: number;
-            rework_reason?: string;
-        };
-        MilkPreparationSummary: {
-            /**
-             * @description Covers the complete requested park scope, independent of limit/offset.
-             * @enum {string}
-             */
-            scope: "filtered";
-            shed_count: number;
-            cohort_count: number;
-            head_count: number;
-            /** Format: int64 */
-            total_required_ml: number;
-            /** @description Farm-level Milk Direction calculation lines derived from canonical K1/K2/K3 counts. */
-            milk_direction: components["schemas"]["MilkPreparationDirectionLine"][];
-            /** Format: double */
-            citric_acid_grams_per_litre: number;
-            /**
-             * Format: double
-             * @description Whole-scope milk litres x 5.5 grams, rounded to one decimal place.
-             */
-            citric_acid_grams: number;
-            blocked_row_count: number;
-            park_count: number;
-            not_submitted_farm_count: number;
-            pending_verification_farm_count: number;
-            completed_farm_count: number;
-            rework_farm_count: number;
-        };
-        MilkPreparationFarmTask: {
-            /** Format: uuid */
-            park_id: string;
-            park_label: string;
-            cohort_count: number;
-            head_count: number;
-            /** Format: int64 */
-            total_required_ml: number;
-            /** Format: double */
-            citric_acid_grams: number;
-            /** @enum {string} */
-            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
-            /** Format: uuid */
-            completion_id?: string;
-            attempt_no?: number;
-            rework_reason?: string;
-        };
-        MilkPreparationDirectionLine: {
-            /** @enum {string} */
-            management_stage: "K1" | "K2" | "K3";
-            head_count: number;
-            per_head_ml: number;
-            session_count: number;
-            /** Format: int64 */
-            required_ml: number;
-        };
-        MilkPreparationPage: {
-            /**
-             * Format: date
-             * @description Current India business date on which this live direction is prepared.
-             */
-            preparation_date: string;
-            /**
-             * Format: date
-             * @description India business date immediately after preparation_date.
-             */
-            feeding_date: string;
-            /** Format: date-time */
-            generated_at: string;
-            items: components["schemas"]["MilkPreparationRow"][];
-            /** @description Bounded actionable farm_day worklist, independent of item pagination. */
-            farm_tasks: components["schemas"]["MilkPreparationFarmTask"][];
-            summary: components["schemas"]["MilkPreparationSummary"];
-            limit: number;
-            offset: number;
-            has_more: boolean;
-        };
-        MilkPreparationProofs: {
-            /** Format: uuid */
-            goat_milk_quantity_proof_ref?: string;
-            /** Format: uuid */
-            boiling_temperature_proof_ref?: string;
-            /** Format: uuid */
-            cooled_temperature_proof_ref?: string;
-            /** Format: uuid */
-            uht_milk_quantity_proof_ref: string;
-            /** Format: uuid */
-            citric_acid_mixing_proof_ref: string;
-        };
-        MilkPreparationAnswers: {
-            morning_milk_collected_litres: number;
-            evening_milk_collected_litres: number;
-            goat_milk_quantity_litres: number;
-            boiling_temperature_c: number;
-            cooled_temperature_c: number;
-            uht_milk_quantity_litres: number;
-            citric_acid_grams: number;
-        };
-        MilkPreparationSubmissionRequest: {
-            /** Format: uuid */
-            park_id: string;
-            /** Format: date */
-            preparation_date: string;
-            goat_milk_used: boolean;
-            answers: components["schemas"]["MilkPreparationAnswers"];
-            proofs: components["schemas"]["MilkPreparationProofs"];
-        };
-        MilkPreparationSubmissionResponse: {
-            /** Format: uuid */
-            completion_id: string;
-            /** @enum {string} */
-            status: "pending_verification";
-            attempt_no: number;
-            row_version: number;
-        };
-        MilkFeedingWatchlistKid: {
-            /** Format: uuid */
-            goat_id: string;
-            consecutive_yes: number;
-            remarks?: string;
-            /** Format: date */
-            added_date: string;
-            added_session: number;
-        };
-        MilkFeedingTask: {
-            /** Format: uuid */
-            task_id: string;
-            /** Format: uuid */
-            park_id: string;
-            park_label: string;
-            /** Format: date */
-            feeding_date: string;
-            session_no: number;
-            due_time: string;
-            available: boolean;
-            /** Format: date-time */
-            available_at: string;
-            blocked_reason?: string;
-            head_count: number;
-            /** @enum {string} */
-            verification_status: "not_submitted" | "pending_verification" | "completed" | "rework";
-            /** Format: uuid */
-            completion_id?: string;
-            attempt_no?: number;
-            rework_reason?: string;
-            watchlist: components["schemas"]["MilkFeedingWatchlistKid"][];
-        };
-        MilkFeedingPage: {
-            /** Format: date */
-            feeding_date: string;
-            /** Format: date-time */
-            generated_at: string;
-            items: components["schemas"]["MilkFeedingTask"][];
-            limit: number;
-            offset: number;
-            has_more: boolean;
-        };
-        MilkFeedingWatchlistAnswer: {
-            /** Format: uuid */
-            goat_id: string;
-            drank_milk: boolean;
-        };
-        MilkFeedingNewRefusal: {
-            /** Format: uuid */
-            goat_id: string;
-            remarks?: string;
-        };
-        MilkFeedingAnswers: {
-            watchlist_answers: components["schemas"]["MilkFeedingWatchlistAnswer"][];
-            total_kids_fed: number;
-            attempt_1_not_drinking: number;
-            attempt_2_not_drinking: number;
-            new_refusals: components["schemas"]["MilkFeedingNewRefusal"][];
-            udder_milk_not_drinking: number;
-            ors_not_drinking: number;
-        };
-        MilkFeedingProofs: {
-            /** Format: uuid */
-            clean_bottles_proof_ref: string;
-            /** Format: uuid */
-            mixing_and_filling_proof_ref: string;
-        };
-        MilkFeedingSubmissionRequest: {
-            /** Format: uuid */
-            park_id: string;
-            /** Format: date */
-            feeding_date: string;
-            session_no: number;
-            answers: components["schemas"]["MilkFeedingAnswers"];
-            proofs: components["schemas"]["MilkFeedingProofs"];
-        };
-        MilkFeedingSubmissionResponse: {
-            /** Format: uuid */
-            completion_id: string;
-            /** @enum {string} */
-            status: "pending_verification";
-            attempt_no: number;
-            row_version: number;
-        };
-        /** @description One backend-composed "what was expected" line on a verification item, e.g. label "Expected ration", value "Maize 12.5 kg · Soya 4 kg". Both fields are DISPLAY strings in farm language, composed by the producing module and rendered verbatim; neither is a config token and neither may be parsed back into business logic. The label is not an enum — producers choose their own, so a client must render whatever arrives rather than switching on a known set. */
-        VerificationContextRow: {
-            /** @description What the value describes, e.g. "Expected ration". */
-            label: string;
-            /** @description The expectation itself, e.g. "Maize 12.5 kg · Soya 4 kg". */
-            value: string;
-        };
         /** @enum {string} */
-        VerificationItemStatus: "pending" | "approved" | "rejected" | "withdrawn";
+        VerificationItemStatus: "pending" | "approved" | "rejected";
         VerificationSourceRef: {
             module: string;
             /** Format: uuid */
@@ -8365,10 +5985,6 @@ export interface components {
             category: string;
             /** @description Backend-owned goat/subject display label; never a raw UUID fallback. */
             subject_label?: string;
-            /** @description Optional free-text note written by whoever raised the underlying work (for a shifting movement, the operator's reason for moving the animals), shown to the verifier during evidence review. Absent when the producer supplied none. Distinct from subject_label, which is system-composed identity text. */
-            subject_note?: string;
-            /** @description What the reviewed work was EXPECTED to be, so the verifier can judge the proof against a standard rather than only confirming a video exists. Backend-composed label/value pairs attached by the PRODUCING module at enqueue time, in the producer's order; for a feed packing proof these carry the frozen ration for that pen-session and the head count it was computed from. Rendered VERBATIM: clients must not parse, reorder, or re-label them, and must not assume a fixed set of labels — a producer may add rows at any time. Always present; empty when the producer attached none. */
-            context_rows?: components["schemas"]["VerificationContextRow"][];
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
@@ -8377,10 +5993,6 @@ export interface components {
             operator_name?: string;
             /** Format: uuid */
             shed_id?: string;
-            /** @description Raw partition label ('1', 'Part 3') for sheds with partitions, or null/absent for non-partitioned sheds. Used alongside shed_label to identify operational location. */
-            partition_label?: string;
-            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro - 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
-            operational_location_display?: string;
             /** @description Backend-owned display label for shed_id. Never a raw UUID. */
             shed_label?: string;
             /** Format: uuid */
@@ -8391,8 +6003,6 @@ export interface components {
             captured_at: string;
             /** Format: uuid */
             verified_by?: string;
-            /** @description Backend-owned display label for verified_by. Never a raw UUID. */
-            verified_by_name?: string;
             /** Format: date-time */
             verified_at?: string;
             /** Format: uuid */
@@ -8405,102 +6015,8 @@ export interface components {
         };
         VerificationQueueResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
-            filter_options: components["schemas"]["VerificationFilterOptions"];
-            drive_closures?: components["schemas"]["VerificationDriveClosure"][];
             next_cursor?: string;
             trace_id: string;
-        };
-        VerificationFilterOptions: {
-            /** @description Stable backend drawer-module key for the selected verification page. */
-            module_key?: string;
-            /** @description Backend-owned display label for the selected verifier module. */
-            module_label?: string;
-            /** @description Complete ordered verifier MODULE vocabulary from the registry — one entry per module however many categories it spans — for a cross-module renderer's module filter. Send a selected entry's key back as the `nav_module` query parameter. Independent of current queue rows, so an empty module never disappears from the filter. */
-            modules: components["schemas"]["VerificationModuleOption"][];
-            /** @description Complete ordered cross-module action-type filter vocabulary from the verification registry, independent of current queue rows. */
-            action_types: components["schemas"]["VerificationActionTypeOption"][];
-            /** @description Complete ordered page-tab set for the selected verifier module, independent of current queue rows. */
-            pages: components["schemas"]["VerificationPageOption"][];
-            /** @description Ordered secondary tabs at verification-item grain. The first is the "All" tab (no status filter); the remaining tabs are disjoint single statuses. */
-            statuses: components["schemas"]["VerificationStatusOption"][];
-            parks: components["schemas"]["VerificationLocationOption"][];
-            sheds: components["schemas"]["VerificationLocationOption"][];
-            counts: components["schemas"]["VerificationStatusCounts"];
-            /** Format: date */
-            selected_business_date?: string;
-            /** @example Asia/Kolkata */
-            business_timezone: string;
-            missed_only: boolean;
-            has_missed: boolean;
-        };
-        /** @description Whole-filter row counts (pending/approved/rejected) for the SAME scope the queue page is reading — tenant, category/vertical/module, park, shed, and business date — computed by one indexed GROUP BY over verification_items, never derived from a fetched/paginated page. The three statuses are disjoint at verification-item grain (a row is exactly one of the three), so pending + approved + rejected is the whole in-scope backlog. */
-        VerificationStatusCounts: {
-            pending: number;
-            approved: number;
-            rejected: number;
-        };
-        VerificationModuleOption: {
-            /** @description Verifier-drawer module key; send it back as the `nav_module` query parameter. */
-            key: string;
-            /** @description Backend-owned display label for the module. */
-            label: string;
-        };
-        VerificationActionTypeOption: {
-            key: string;
-            label: string;
-            /** @description Disjoint verification-item category predicate for this action type. */
-            category: string;
-            module_key: string;
-            module_label: string;
-        };
-        VerificationPageOption: {
-            key: string;
-            label: string;
-            /** @description Disjoint verification-item category filter owned by this page tab. */
-            category: string;
-        };
-        VerificationStatusOption: {
-            key: string;
-            label: string;
-            /** @description The item status this tab filters to. OMITTED for the "All" tab, which applies no status filter and therefore returns due, approved and rejected items together. A renderer must treat an absent status as "send no status query parameter", never as a default. */
-            status?: components["schemas"]["VerificationItemStatus"];
-        };
-        VerificationLocationOption: {
-            /** @description Park options use a UUID. Shed options use an opaque operational-location filter key: `<shed UUID>#<normalized partition>`. */
-            id: string;
-            label: string;
-            /** @description Park the shed belongs to. Set on shed options only, and omitted when the option's rows disagree about the park rather than guessing one. Never folded into `label`. */
-            park_id?: string;
-            /** @description Display name of `park_id`, for grouping the shed list by park. A shed NAME is not unique across the farm — Castro, Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in both parks — so without this two different sheds render as identical adjacent options. Clients group by it; they must not concatenate it into the shed's operational-location display. */
-            park_label?: string;
-            /** @description Raw backend-owned partition label; omitted for an undivided shed. */
-            partition_label?: string;
-            /** @description Backend-composed location display. Clients render this verbatim. */
-            operational_location_display?: string;
-        };
-        VerificationDriveClosure: {
-            /** Format: uuid */
-            batch_id: string;
-            drive_key?: string;
-            drive_label?: string;
-            batch_label?: string;
-            /** Format: uuid */
-            park_id?: string;
-            park_label?: string;
-            /** Format: date */
-            start_date?: string;
-            /** Format: date */
-            end_date?: string;
-            total_count: number;
-            approved_count: number;
-            rejected_count: number;
-            pending_count: number;
-            video_count: number;
-            approved_videos: number;
-            rejected_videos: number;
-            pending_videos: number;
-            shed_count: number;
-            ready: boolean;
         };
         /** @enum {string} */
         VerificationDecision: "approved" | "rejected";
@@ -8516,79 +6032,6 @@ export interface components {
         };
         VerificationCloseRequest: {
             row_version: number;
-        };
-        /** @enum {string} */
-        VerificationReviewEventType: "queue_opened" | "item_opened" | "video_play" | "video_pause" | "video_seek_attempt" | "video_ended" | "proof_switched" | "fullscreen_toggled" | "verdict_recorded";
-        VerificationReviewEventPayload: {
-            video_position_ms?: number;
-            video_duration_ms?: number;
-            seek_from_ms?: number;
-            seek_to_ms?: number;
-            verdict?: string;
-            /** @description REQUIRED on a queue_opened event (funnel attribution when there is no item yet, see VerificationReviewEvent.item_id). Ignored/optional on item-scoped events, which already carry category via their item_id. */
-            category?: string;
-            /**
-             * Format: uuid
-             * @description Optional queue-scope attribution when the queue view was park-scoped.
-             */
-            park_id?: string;
-            /**
-             * Format: uuid
-             * @description Optional queue-scope attribution when the queue view was shed-scoped.
-             */
-            shed_id?: string;
-            /** @description Informational client-declared queue-state context; carries no server-side meaning. */
-            status?: string;
-        };
-        VerificationReviewEvent: {
-            /**
-             * Format: uuid
-             * @description REQUIRED (a real UUID) for every event type EXCEPT queue_opened. MUST be null/omitted for queue_opened -- that event fires before any item exists (landing on the queue screen), so there is no item to name yet. See migration 000119 (verification_review_events_item_id_scope_check): item_id IS NULL if and only if event_type = 'queue_opened'. Sending a placeholder string for a queue_opened event (e.g. "queue") is REJECTED with a precise 422 field error naming item_id, not accepted and not a generic invalid_json.
-             */
-            item_id?: string | null;
-            /**
-             * Format: uuid
-             * @description Which proof video the event refers to. MUST be one of the item's OWN proofs (its media_refs) — a proof belonging to another item is REJECTED with a 422 field error naming proof_id (`proof_not_on_item`), even though it is a real, existing proof. The derived watch facts partition durations and watch intervals BY proof_id, so a foreign proof would put a duration this verifier never watched into the item's denominator and skew both its watch fraction and the CEO integrity aggregate. Omit it for queue_opened, which has no item and therefore no proof (`queue_scoped_proof_forbidden`).
-             */
-            proof_id?: string;
-            session_id: string;
-            event_type: components["schemas"]["VerificationReviewEventType"];
-            /** Format: date-time */
-            occurred_at: string;
-            payload?: components["schemas"]["VerificationReviewEventPayload"];
-            /**
-             * Format: uuid
-             * @description Client-minted UUID. This is the idempotency key for THIS event -- a replayed batch (retry after a network blip) that repeats the same client_event_id inserts nothing new.
-             */
-            client_event_id: string;
-        };
-        VerificationReviewEventBatchRequest: {
-            events: components["schemas"]["VerificationReviewEvent"][];
-        };
-        VerificationReviewEventBatchResponse: {
-            /** @description Count of ACTUALLY new rows persisted (excludes rows skipped as exact replays). */
-            inserted: number;
-            trace_id: string;
-        };
-        VerificationItemReviewFactsEntry: {
-            /** Format: uuid */
-            actor_id: string;
-            proof_duration_ms: number;
-            /** @description Union of distinct-covered played spans (overlapping replays merge, never sum) -- see verification/adapters/postgres/review_events.go mergeIntervalsDistinctMs. */
-            watched_distinct_ms: number;
-            /** Format: double */
-            watch_fraction: number;
-            play_count: number;
-            pause_count: number;
-            seek_attempt_count: number;
-            /** Format: double */
-            time_to_verdict_seconds?: number;
-            /** @description watch_fraction >= the configured threshold (0.9). */
-            watched_full: boolean;
-        };
-        VerificationItemReviewFactsResponse: {
-            facts: components["schemas"]["VerificationItemReviewFactsEntry"][];
-            trace_id: string;
         };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
@@ -8621,14 +6064,6 @@ export interface components {
             name: string;
             /** @description Distinct stages currently represented by live animals in this shed. */
             management_stages: string[];
-            /** @description Raw stored partition label for this shed option ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
-            /** @description Live animal count for this operational location option (shed or partition), used to render dropdown option counts. */
-            animal_count?: number;
         };
         RecordShiftingEventRequest: {
             /**
@@ -8648,8 +6083,13 @@ export interface components {
             destination_park_id: string;
             /** Format: uuid */
             destination_shed_id: string;
-            /** @description Raw stored partition label for the selected destination option ('1', 'Part 3'). Omit or null when the destination shed is non-partitioned or the whole shed was selected. */
-            destination_partition_label?: string | null;
+            /**
+             * @description Mandatory raise-time decision for the post-shift management stage.
+             * @enum {string}
+             */
+            management_stage_mode: "keep_current" | "select_stage" | "destination_stage";
+            /** @description Required for select_stage/destination_stage; omitted for keep_current. */
+            target_management_stage?: string;
             /**
              * Format: date-time
              * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
@@ -8665,8 +6105,6 @@ export interface components {
              * @enum {string}
              */
             category?: "growth" | "health" | "breeding" | "delivery";
-            /** @description Optional free-text note from the operator raising the movement, explaining why the animals are being shifted. Shown to the park head deciding the approval and to the verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent. A value longer than maxLength is rejected with comment_too_long, never truncated. */
-            comment?: string;
             /** @description Optional reference to captured proof media for this movement. */
             proof_ref?: string;
             /** @description The structured cohort effect of the movement, at breed grain. OPTIONAL when goat_ids names EXACTLY ONE animal: the server then derives a single impact from that animal's own canonical facts (breed key/label, stage tag, age class, sex, head_count 1), so an operator moving one animal via RFID search does not have to describe a cohort the system already knows. REQUIRED for two or more animals, because the server will not invent the cohort split or the pregnancy/lactation/warm-up distribution across cohorts - omitting it there is rejected with 400 missing_impacts. When supplied, it is stored verbatim and no derivation runs. A derived impact never leaves pregnant/lactating/warmup non-zero; record those by supplying impacts explicitly. */
@@ -8837,124 +6275,6 @@ export interface components {
             completed_at: string | null;
             idempotent_replay: boolean;
         };
-        OpenHealthCaseRequest: {
-            /** Format: uuid */
-            goat_id: string;
-            disease_key: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-            /** Format: date */
-            start_date: string;
-        };
-        OpenHealthCaseResponse: {
-            /** Format: uuid */
-            case_id: string;
-            /** Format: uuid */
-            first_session_id: string;
-            session_count: number;
-            duration_days: number;
-            idempotent_replay: boolean;
-        };
-        HealthWorkItem: {
-            /** Format: uuid */
-            health_session_id: string;
-            /** Format: uuid */
-            case_id: string;
-            /** Format: uuid */
-            goat_id: string;
-            goat_display_id: string;
-            disease_key: string;
-            disease_name: string;
-            /** @enum {string} */
-            age_band: "adult" | "kid";
-            day_no: number;
-            duration_days: number;
-            /** Format: date */
-            business_date: string;
-            /** @enum {string} */
-            session: "morning" | "afternoon" | "evening" | "unscheduled";
-            /** Format: date-time */
-            due_at: string;
-            /** @enum {string} */
-            status: "scheduled" | "due" | "in_progress" | "completed" | "rework" | "held" | "canceled_death";
-            /** Format: uuid */
-            park_id: string | null;
-            park_label: string;
-            /** Format: uuid */
-            shed_id: string | null;
-            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
-            partition_label: string | null;
-            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
-            operational_location_display: string;
-            shed_label: string;
-            step_count: number;
-            medication_count: number;
-            has_critical_step: boolean;
-        };
-        HealthSummary: {
-            total: number;
-            due: number;
-            scheduled: number;
-            in_progress: number;
-            completed: number;
-            rework: number;
-            held: number;
-            canceled_death: number;
-        };
-        HealthDateMarker: {
-            /** Format: date */
-            date: string;
-            count: number;
-        };
-        HealthFilterOption: {
-            key: string;
-            label: string;
-        };
-        HealthFilterOptions: {
-            diseases: components["schemas"]["HealthFilterOption"][];
-            parks: components["schemas"]["HealthFilterOption"][];
-            sheds: components["schemas"]["HealthFilterOption"][];
-        };
-        HealthWorkItemPage: {
-            items: components["schemas"]["HealthWorkItem"][];
-            summary: components["schemas"]["HealthSummary"];
-            date_markers: components["schemas"]["HealthDateMarker"][];
-            filter_options: components["schemas"]["HealthFilterOptions"];
-            next_cursor: string | null;
-        };
-        HealthTreatmentStep: {
-            /** Format: uuid */
-            step_id: string;
-            day_no: number;
-            session: string;
-            seq: number;
-            /** @enum {string} */
-            record_type: "action" | "medication" | "critical_action";
-            medicine_name: string | null;
-            dosage_text: string | null;
-            dosage_denominator: string | null;
-            medicine_route: string | null;
-            instruction: string | null;
-            critical_action_type: string | null;
-            /** @enum {string} */
-            status: "pending" | "completed" | "guarded";
-        };
-        HealthWorkItemDetail: components["schemas"]["HealthWorkItem"] & {
-            steps: components["schemas"]["HealthTreatmentStep"][];
-        };
-        CompleteHealthWorkItemRequest: {
-            proof_ref?: string;
-        };
-        CompleteHealthWorkItemResponse: {
-            /** Format: uuid */
-            health_session_id: string;
-            /** @enum {string} */
-            status: "completed";
-            /** Format: date-time */
-            completed_at: string;
-            medication_count: number;
-            idempotent_replay: boolean;
-        };
         /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. For this birth route the server ignores child identifiers from the app and generates one provisional identifier per child from the canonical park code (`CBE-` or `CPT-`) plus five deterministic digits. One request fans out according to litter_size, so Twins creates two distinct canonical goats and Triplets creates three. The app never scans a child RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
         RecordBirthEventRequest: {
             /** @description The permanent RFID. Provide this OR temporary_identifier, never both. */
@@ -8974,8 +6294,6 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
-            /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
-            partition_label?: string | null;
             breed: string;
             /** @enum {string} */
             sex: "female" | "male";
@@ -9116,10 +6434,6 @@ export interface components {
             raised_by_user_id: string;
             /** Format: date-time */
             raised_at: string;
-            /** @description The raiser's name, for display. BACKEND-OWNED COPY: clients render this verbatim and must never compose their own label from raised_by_user_id. Absent when the raiser has no roster row; a client drops the line rather than falling back to the id. */
-            raised_by_name?: string;
-            /** @description A one-line, farm-readable description of what the request contains, composed by the backend from the payload with every id already resolved to a name (for example "12 animals - Gandhi 1 to Gandhi 2 - Routine"). BACKEND-OWNED COPY: clients render it verbatim. Absent when the payload holds nothing nameable; the row's request type still names the work. A fact whose name cannot be resolved is DROPPED from this line - it is never rendered as a raw id. */
-            summary_line?: string;
             /**
              * Format: uuid
              * @description Present only for a shifting request - the pending movement this authorizes.
@@ -9130,8 +6444,6 @@ export interface components {
              * @description Present only for a death request - the animal the request would exit.
              */
             subject_goat_id?: string;
-            /** @description Present only for a death request whose animal resolves to a real park/shed - the animal's CURRENT operational location ("park, shed" or "park, shed partition"), already resolved to names by the backend and already folded into summary_line. A death is terminal and never moves the animal's shed, so this is read from the animal's live location, not snapshotted at raise time. BACKEND-OWNED DISPLAY COPY: clients render it verbatim; absent when the animal's location cannot be resolved. */
-            subject_animal_location?: string;
             /** @description The submitted payload, for rendering the row without a second fetch. */
             summary: {
                 [key: string]: unknown;
@@ -9296,14 +6608,6 @@ export interface components {
             /** Format: uuid */
             destination_shed_id: string;
             destination_shed_name: string;
-            /** @description The pen this movement runs FROM. Absent for an intake with no tracked origin. */
-            source_partition_label?: string | null;
-            /** @description The pen this movement runs INTO. */
-            destination_partition_label?: string | null;
-            /** @description Backend-composed operator-facing label for the source end ("Castro - 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
-            source_operational_location_display?: string | null;
-            /** @description Backend-composed operator-facing label for the destination end ("Castro - 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
-            destination_operational_location_display?: string;
             /**
              * Format: uuid
              * @description Who authorized this movement - the operator's basis for acting.
@@ -9571,8 +6875,6 @@ export interface operations {
     listWeighingCampaigns: {
         parameters: {
             query?: {
-                /** @description Optional park filter. It narrows the returned ROWS only; `counts` stays a whole-scope aggregate so the Active/Completed tallies do not move when the park chip changes. */
-                park_id?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -9691,18 +6993,21 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    exportWeighingCampaignCsv: {
+    exportWeighingCsv: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
+            query?: {
+                /** @description Inclusive Goat OS business date. Defaults to 35 days before `to`. */
+                from?: string;
+                /** @description Inclusive Goat OS business date. Defaults to the current Asia/Kolkata business date. */
+                to?: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description CSV export of the campaign's shed/observation rows. */
+            /** @description Weighing CSV export. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9711,18 +7016,15 @@ export interface operations {
                     "text/csv": string;
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
     appListWeighingCampaigns: {
         parameters: {
             query?: {
-                scope?: "mine" | "all" | "operators";
-                /** @description Optional park filter. It narrows the returned ROWS only; `counts` stays a whole-scope aggregate so the Active/Completed tallies do not move when the park chip changes. */
-                park_id?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -9746,89 +7048,9 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    appGetWeighingCampaign: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The task, with its buckets and progress. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCampaignResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appListWeighingParks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The caller's authorized weighing parks. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingParkListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    exportWeighingCsv: {
-        parameters: {
-            query?: {
-                /** @description Inclusive Asia/Kolkata business date. Defaults to 35 days before `to`. */
-                from?: string;
-                /** @description Inclusive Asia/Kolkata business date. Defaults to today. */
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description CSV export of recent weighing rows. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/csv": string;
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
     appWeighingPlannerCatalog: {
         parameters: {
             query: {
-                /** @description The Asia/Kolkata business DATE the existing-task decoration is read for. */
                 period_start_date: string;
             };
             header?: never;
@@ -9837,79 +7059,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Every planner park for the date, plus the operator picker. */
+            /** @description Bounded Weighing planner catalog. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingPlannerCatalogResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appWeighingPlannerParkBuckets: {
-        parameters: {
-            query: {
-                /** @description The Asia/Kolkata business DATE the availability is reported for. */
-                period_start_date: string;
-                /** @description The task currently being edited. Its own buckets are not reported as taken, so an edit can re-save the sheds it already owns. */
-                exclude_campaign_id?: string;
-                /** @description Opaque cursor returned as next_cursor by the previous page of THIS park. */
-                cursor?: string;
-                /** @description Shed rows per page. */
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                /** @description The park whose sheds are paged. */
-                park_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One keyset page of the park's buckets. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingPlannerParkBucketsResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appListWeighingCampaignSheds: {
-        parameters: {
-            query?: {
-                /** @description Opaque cursor returned as next_cursor by the previous page. */
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of the task's shed buckets. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCampaignShedPageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9926,8 +7082,6 @@ export interface operations {
                 cursor?: string;
                 /** @description Opaque observations cursor returned as next_observations_cursor by the previous page. Paginates the observations array independently of items, on a keyset of (accepted_at, observation_id) scoped to this campaign_shed_id; it does not advance in lockstep with the roster cursor. */
                 observations_cursor?: string;
-                /** @description Set false for observation-only continuation pages after the roster cursor is exhausted. */
-                include_roster?: boolean;
             };
             header?: never;
             path: {
@@ -10022,278 +7176,9 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    appListWeighingAlerts: {
-        parameters: {
-            query?: {
-                /** @description Opaque cursor returned as next_cursor by the previous page. */
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of the caller's weighing alerts, newest first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingAlertPageResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appGetWeighingWeightHistory: {
-        parameters: {
-            query?: {
-                /** @description Restrict to one park. Must be a park the caller is authorized to monitor. */
-                park_id?: string;
-                /** @description Restrict to one shed. */
-                campaign_shed_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Weight history series for the requested scope. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingWeightHistoryResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appGetWeighingLeadershipGrowth: {
-        parameters: {
-            query?: {
-                /** @description The park to report on. When omitted, aggregates across the caller's own authorized-park scope. */
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Growth/ADG read model for the requested park or herd-wide scope. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingGrowthADGResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    adminGetWeighingLeadershipGrowth: {
-        parameters: {
-            query?: {
-                /** @description The park to report on. When omitted, aggregates across the caller's own authorized-park scope. */
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Growth/ADG read model for the requested park or herd-wide scope. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingGrowthADGResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appGetWeighingShedWeights: {
-        parameters: {
-            query?: {
-                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Per-shed weights and the whole-filter summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingShedWeightsResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    adminGetWeighingShedWeights: {
-        parameters: {
-            query?: {
-                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Per-shed weights and the whole-filter summary. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingShedWeightsResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    adminGetWeighingWeightDemographics: {
-        parameters: {
-            query?: {
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Weight broken down by breed, sex and stage. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingWeightDemographicsResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    adminGetGrowthDirectorWeights: {
-        parameters: {
-            query?: {
-                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
-                park_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The six Growth Director widgets plus the period/park envelope. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GrowthDirectorWeightsResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    appListWeighingLeadershipSheds: {
-        parameters: {
-            query?: {
-                /** @description Opaque cursor returned as next_cursor by the previous page. */
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of shed buckets with their evidence. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingLeadershipShedPageResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
     appGetWeighingShedVideos: {
         parameters: {
-            query?: {
-                /** @description Opaque cursor returned as next_individual_cursor by the previous page. */
-                cursor?: string;
-                limit?: number;
-            };
+            query?: never;
             header?: never;
             path: {
                 campaign_id: components["parameters"]["WeighingCampaignId"];
@@ -10350,103 +7235,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    closeWeighingScope: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-                campaign_shed_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WeighingCloseRequest"];
-            };
-        };
-        responses: {
-            /** @description Scope closed or idempotently replayed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCloseResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    closeWeighingCampaign: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WeighingCloseRequest"];
-            };
-        };
-        responses: {
-            /** @description Campaign closed or idempotently replayed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCloseResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getWeighingProcessState: {
-        parameters: {
-            query?: {
-                campaign_id?: string;
-                from?: string;
-                to?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Weighing process state. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingProcessState"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -10600,12 +7388,7 @@ export interface operations {
     };
     getShedCompletionSummary: {
         parameters: {
-            query?: {
-                /** @description Optional operational shed id for partition-scoped shed completion summaries. */
-                shed_id?: string;
-                /** @description Optional partition label for partitioned sheds; blank/omitted means whole shed. */
-                partition_label?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 task_id: components["parameters"]["TaskId"];
@@ -11401,8 +8184,6 @@ export interface operations {
                 park_id?: string;
                 /** @description Scope instant (defaults to now in business timezone). Past values are supported for historical closure review; future values clamp to now. */
                 as_of?: string;
-                /** @description Park of the drive named by `drive_batch_id`. Narrows the board SECTIONS to that park's share of the drive — a batch can span parks, so a selected drive is one park's operator day — while `driveOptions` stays at `park_id`'s scope so the other parks' drives remain selectable. Without it a caller wanting both had to send two requests, one purely to keep its picker. Ignored unless `drive_batch_id` is present; authorized exactly like `park_id`. */
-                drive_park_id?: string;
             };
             header?: never;
             path?: never;
@@ -11610,8 +8391,6 @@ export interface operations {
     getVaccinationExecutionShedDrilldown: {
         parameters: {
             query?: {
-                /** @description Raw operational partition label within the physical shed. Omit only for an undivided shed or an intentional all-partitions read. */
-                partition_label?: string;
                 /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
@@ -12056,10 +8835,10 @@ export interface operations {
                 park_id: string;
                 /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
                 target_date: string;
+                /** @description Narrow to one feeding session number. Absent means every session. Narrowing does NOT rescale: the morning batch stays the morning batch. Same contract as the preview. */
+                session?: number;
                 /** @description Narrow the served issue to one dispatch workflow. Absent unions both. See the preview. */
                 workflow?: "normal" | "experiment";
-                /** @description Narrow the worklist to one feeding session. Absent or `0` returns every session, the same contract as the preview. A present-but-out-of-range value is rejected, never widened. */
-                session?: number;
                 /** @description The only live-compute path; see the preview's `draft`. Absent/false serves the frozen issued worklist (or its pending/never-issued state). */
                 draft?: boolean;
                 /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
@@ -12150,7 +8929,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            /** @description A mandatory proof is missing (`code: proof_required`): the feed weight photo, feed-distribution video, or water-distribution video was blank. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -12177,7 +8956,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The shed-session is recorded pending_verification (or already held THIS SAME video). The packing is not done until a verifier approves. */
+            /** @description The shed-session is recorded pending_verification (or was already completed). The packing session is not done until a verifier approves. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12190,21 +8969,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
-            /**
-             * @description Either the `Idempotency-Key` was reused with a different payload, or this shed-session already holds a DIFFERENT packing video (`code: packing_already_recorded`).
-             *
-             *     A packing line accepts exactly ONE video, so a second, different one is a CONFLICT and not a replay -- it cannot be stored, and answering success would tell the operator their recording was accepted while nothing recorded it and no verifier ever saw it. A genuine re-send is unaffected: an identical request replays on its idempotency key, and re-sending the SAME `packing_proof_ref` under a new key still matches the stored proof and returns `200`.
-             *
-             *     The client must treat this as TERMINAL and surface it, never retry it.
-             */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
+            409: components["responses"]["WriteConflict"];
             /** @description The mandatory packing video is missing (`code: proof_required`). */
             422: {
                 headers: {
@@ -12221,12 +8986,6 @@ export interface operations {
         parameters: {
             query: {
                 business_date: string;
-                /** @description Optional Farm filter. The response still returns the complete Farm vocabulary for the selected date. */
-                park_id?: string;
-                /** @description Optional physical-shed filter; must remain shed-grain and never imply a feed session. */
-                shed_id?: string;
-                /** @description Optional verification-lifecycle filter. */
-                status?: "due" | "verification_due" | "rework" | "completed";
                 cursor?: string;
                 limit?: number;
             };
@@ -12296,15 +9055,8 @@ export interface operations {
             query: {
                 park_id: string;
                 ration_group?: string;
-                /** @description Narrow by BREED, which is not the same filter as ration_group even though both land on the same column. feed_ration_groups maps breed -> ration group MANY-TO-ONE (Beetal and Sirohi both resolve to "Beetal/Sirohi"), so this resolves the breed to its group first and then filters. A breed that maps to no group returns NO rows -- an unknown breed narrows to nothing rather than widening to everything. No breed maps to the "Kid" group by design: kids resolve to one group by age band and their breed is deliberately ignored, so a breed filter correctly excludes kid rates. */
-                breed?: string;
                 shed_tag?: string;
-                /** @description Repeatable. Each occurrence adds an item to the match set (?feed_item=Hybrid&feed_item=COFS returns rows for either), and omitting it entirely means no feed-item filter. Values are matched on the normalized feed-item key, so casing and separator differences resolve the same way the stored key does. */
-                feed_item?: string[];
-                /** @description Comparison applied to grams_per_head, paired with grams_value. Both are supplied together or neither is; sending one alone is rejected 400 rather than defaulted, because every possible default silently answers a different question than the one asked. The common use is grams_op=gt&grams_value=0 -- "show me only combinations that actually get some of this item" -- and its mirror grams_op=eq&grams_value=0, which isolates the authored zeros (correct and deliberate for milk-fed K0/K1 kids). */
-                grams_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
-                /** @description The value grams_op compares against, as an exact decimal STRING with at most three decimal places -- the same representation grams_per_head is returned in, and for the same reason: numeric(12,3) is exact and a float round-trip is not. A value that is not an exact decimal is rejected 400. */
-                grams_value?: string;
+                feed_item?: string;
                 /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
                 limit?: components["parameters"]["FeedConfigLimit"];
                 /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
@@ -12448,69 +9200,6 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    createFeedConfigFeedItem: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateFeedConfigFeedItemRequest"];
-            };
-        };
-        responses: {
-            /** @description The add's outcome. Always "inserted" on success -- there is no update branch. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    setFeedConfigFeedItemStatus: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetFeedConfigFeedItemStatusRequest"];
-            };
-        };
-        responses: {
-            /** @description The flip's outcome -- "corrected" when the status changed, "unchanged" when it already held. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -12673,22 +9362,11 @@ export interface operations {
     };
     listFeedConfigExperiment: {
         parameters: {
-            query?: {
-                /** @description Narrow to one park. ABSENT returns every authored experiment cell in the tenant, across both parks -- this read is deliberately the one exception to the park-scoped rule on this screen, because an experiment cell carries its own park while a ration rate, a session split and a dispatch clock are park-OWNED and have no cross-park meaning. A company-wide caller must be able to see all authored experiments rather than one park's silently. */
-                park_id?: string;
+            query: {
+                park_id: string;
                 shed_id?: string;
-                /** @description Narrow to ONE PEN of the selected shed, by its human partition label ("2", "Part 3"). Absent returns every pen of that shed. This read is pen-grained -- one shed holds many pens, each with its own arm, head count and authored quantities -- so a shed-only filter answers a coarser question than the rows it returns. Matched on the same normalization the stored partition key uses, so case and spacing do not matter. An undivided shed needs no value here: it has exactly one pen, which shed_id alone already selects. */
-                partition_label?: string;
                 /** @description Narrow to one status. Absent returns BOTH active and retired rows. */
                 status?: "active" | "retired";
-                /** @description Repeatable, matching the ration grid's parameter of the same name. Each occurrence adds an item to the match set; omitting it means no feed-item filter. Because pagination counts PENS, a pen survives the filter when at least one of its cells matches, and only its matching cells are returned. */
-                feed_item?: string[];
-                /** @description Narrow to one experiment ARM ("Sheep M NEW"). Matched on the normalized label key, so casing and separator differences resolve the same way every other feed-config label does. */
-                experiment_category?: string;
-                /** @description Comparison applied to absolute_kg, paired with kg_value; both are supplied together or neither is, and sending one alone is rejected 400 rather than defaulted. Named kg_ rather than grams_ on purpose: the ration grid compares a PER-HEAD RATE in grams and this compares an ABSOLUTE PEN TOTAL in kg. They are not the same quantity and must not read as one parameter shared between two screens. */
-                kg_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
-                /** @description The value kg_op compares against, as an exact decimal STRING with at most three decimal places -- the representation absolute_kg is returned in. A value that is not an exact decimal is rejected 400. */
-                kg_value?: string;
                 /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
                 limit?: components["parameters"]["FeedConfigLimit"];
                 /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
@@ -12700,7 +9378,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One bounded page of complete experiment pens and all of their authored cells. */
+            /** @description One bounded page of authored experiment cells. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12731,69 +9409,6 @@ export interface operations {
         };
         responses: {
             /** @description The authored edit's outcome. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    listFeedConfigPens: {
-        parameters: {
-            query?: {
-                /** @description Omitted means every park in the tenant, matching listFeedConfigExperiment. The enroller needs that when the top bar reads company-wide: the experiment table spans both parks in that mode, so a park-locked candidate list would offer nothing for the other park's rows. Every returned pen carries its own park_id. */
-                park_id?: string;
-                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
-                limit?: components["parameters"]["FeedConfigLimit"];
-                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
-                offset?: components["parameters"]["FeedConfigOffset"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One bounded page of the park's operational locations. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeedConfigPenPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    upsertFeedConfigExperimentBatch: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
-            };
-        };
-        responses: {
-            /** @description The authored enrolment's outcome. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13318,8 +9933,6 @@ export interface operations {
     appScanRoster: {
         parameters: {
             query?: {
-                /** @description Raw operational partition label within the physical shed. Operators send the label from the selected execution card. */
-                partition_label?: string;
                 task_id?: string;
                 /** @description Opaque keyset cursor for the next page. Omit to start from the beginning. */
                 cursor?: string;
@@ -13353,8 +9966,6 @@ export interface operations {
                              */
                             scannedAt?: string | null;
                             obligationId?: string;
-                            /** @description obligation_instances.row_version for this row's obligation — bumps on every transition, including a verifier rejection reopening it for re-capture. The scan-capture idempotency key discriminator; a mobile client must fold this into the key so a genuinely-new scan after a reopen is not deduped away as a replay of the prior cycle's capture. */
-                            obligationRowVersion?: number;
                             taskId?: string;
                             batchId?: string;
                             sopVersionId?: string;
@@ -13508,7 +10119,6 @@ export interface operations {
             query?: {
                 park_id?: string;
                 shed_id?: string;
-                partition_label?: string | null;
                 management_stage?: string;
                 breed?: string;
                 sex?: string;
@@ -13537,182 +10147,15 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
-    getMilkPreparation: {
-        parameters: {
-            query?: {
-                /** @description Optional park scope from the admin top bar. */
-                park_id?: string;
-                limit?: number;
-                /** @description Offset over the bounded physical shed x milk cohort grain set. */
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current milk preparation direction and whole-scope totals. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilkPreparationPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getAppCountsMilkPreparation: {
-        parameters: {
-            query?: {
-                park_id?: string;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current operator shed-day worklist, direction page, and whole-scope totals. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilkPreparationPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    submitAppCountsMilkPreparation: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MilkPreparationSubmissionRequest"];
-            };
-        };
-        responses: {
-            /** @description The full step-video package is pending verifier review. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilkPreparationSubmissionResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["WriteConflict"];
-            422: components["responses"]["UnprocessableEntity"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    listAppMilkFeedingTasks: {
-        parameters: {
-            query?: {
-                feeding_date?: string;
-                park_id?: string;
-                session_no?: number;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Bounded Milk Feeding task page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilkFeedingPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    submitAppMilkFeedingTask: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MilkFeedingSubmissionRequest"];
-            };
-        };
-        responses: {
-            /** @description Questions and both proofs are pending verifier review. */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MilkFeedingSubmissionResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["WriteConflict"];
-            422: components["responses"]["UnprocessableEntity"];
-            500: components["responses"]["ServerError"];
-        };
-    };
     listVerificationQueue: {
         parameters: {
             query?: {
-                /** @description Verification type-registry category (e.g. vaccination_proof). When omitted, a verifier sees all evidence across their assigned categories (the "All evidence" landing view). Leadership (CEO/CxO) sees all categories when omitted. When specified, filters to a single category and requires authorization for that category. */
+                /** @description Verification type-registry category (e.g. vaccination_proof). Verifiers are assigned one or more categories. */
                 category?: string;
                 vertical?: string;
                 module?: string;
-                /** @description Verifier-drawer module key from filter_options.modules (e.g. feed_direction, counts). Filters to EVERY category registered under that module — Feed spans feed_distribution, feed_packing and feed_transport — so it is a wider selection than `category` and a narrower one than no filter at all. It never widens an authorized category set: a verifier asking for a module she holds no duty for answers 403 module_scope_forbidden, an unregistered key answers 400 invalid_module, and combining it with a `category` from a different module answers 400 module_category_conflict. */
-                nav_module?: string;
-                /** @description Defaults to pending when omitted. `all` applies no status filter and returns due, approved and rejected items together — it must be sent explicitly, because an absent parameter means the pending landing tab. */
-                status?: "all" | "pending" | "approved" | "rejected";
-                /** @description Asia/Kolkata capture date. Defaults to today's business date for the verifier queue. */
-                business_date?: string;
-                /** @description Inclusive start of an Asia/Kolkata capture-date range. Must be sent together with business_date_to (400 invalid_business_date_range otherwise), and cannot be combined with business_date or missed (400 invalid_date_scope). */
-                business_date_from?: string;
-                /** @description Inclusive end of an Asia/Kolkata capture-date range. Cannot be earlier than business_date_from (400 invalid_business_date_range) or in the future (400 future_business_date). */
-                business_date_to?: string;
-                /** @description When true, returns pending items captured before today's Asia/Kolkata business day. Cannot be combined with business_date or a non-pending status. */
-                missed?: boolean;
-                park_id?: string;
-                /** @description Opaque shed filter key returned by filter_options.sheds. Partitioned locations use `<shed UUID>#<normalized partition>`; a bare shed UUID remains supported and selects every partition of that physical shed. */
-                shed_id?: string;
+                /** @description Defaults to pending. */
+                status?: components["schemas"]["VerificationItemStatus"];
                 cursor?: string;
                 /** @description Defaults to 20, capped at 100. */
                 limit?: number;
@@ -13775,9 +10218,6 @@ export interface operations {
         parameters: {
             query?: {
                 category?: string;
-                park_id?: string;
-                /** @description Opaque shed filter key returned by filter_options.sheds. Partitioned locations use `<shed UUID>#<normalized partition>`; a bare shed UUID selects every partition. */
-                shed_id?: string;
                 cursor?: string;
                 limit?: number;
             };
@@ -13860,61 +10300,6 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    recordVerificationReviewEvents: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VerificationReviewEventBatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Batch accepted (idempotent count of newly-inserted rows). */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VerificationReviewEventBatchResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getVerificationItemReviewFacts: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                item_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Derived review facts, one entry per actor who reviewed this item. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VerificationItemReviewFactsResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -14109,7 +10494,7 @@ export interface operations {
     listAppWorkflows: {
         parameters: {
             query: {
-                module: "birth" | "death" | "colostrum";
+                module: "birth" | "death";
                 /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
                 date?: string;
                 /** @description Card bucket filter; defaults to all (excludes canceled). */
@@ -14142,12 +10527,7 @@ export interface operations {
     };
     getAppWorkflow: {
         parameters: {
-            query?: {
-                /** @description Narrows the action list to one feature's rows. Only colostrum is defined; omit for the full operator action list. */
-                lens?: "colostrum";
-                /** @description Business date (Asia/Kolkata) the lens is scoped to; defaults to today IST. Ignored when lens is absent. */
-                date?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 workflow_id: string;
@@ -14355,388 +10735,6 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    openHealthCase: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OpenHealthCaseRequest"];
-            };
-        };
-        responses: {
-            /** @description Treatment course opened. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OpenHealthCaseResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["WriteConflict"];
-            422: components["responses"]["UnprocessableEntity"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    listHealthWorkItems: {
-        parameters: {
-            query: {
-                age_band: "adult" | "kid";
-                date?: string;
-                status?: "scheduled" | "due" | "in_progress" | "completed" | "rework" | "held" | "canceled_death";
-                disease_key?: string;
-                park_id?: string;
-                shed_id?: string;
-                session?: "morning" | "afternoon" | "evening" | "unscheduled";
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One Room-friendly page and whole-filter metadata. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthWorkItemPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getHealthWorkItem: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                health_session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Treatment session detail. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthWorkItemDetail"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    completeHealthWorkItem: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                health_session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CompleteHealthWorkItemRequest"];
-            };
-        };
-        responses: {
-            /** @description Session completed or exact replay returned. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CompleteHealthWorkItemResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    listHealthConfigProtocols: {
-        parameters: {
-            query?: {
-                age_band?: "adult" | "kid";
-                /** @description Case-insensitive substring match on the disease name. */
-                search?: string;
-                /** @description When true, returns only protocols with an unpublished draft open. */
-                draft_only?: boolean;
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page of authored protocols. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigProtocolPage"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    getHealthConfigProtocol: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                protocol_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The protocol version. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigProtocolDetail"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    createHealthConfigDisease: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateHealthConfigDiseaseRequest"];
-            };
-        };
-        responses: {
-            /** @description Idempotent replay of an earlier create. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigWriteResult"];
-                };
-            };
-            /** @description The disease was created and both drafts are open. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            409: components["responses"]["WriteConflict"];
-            /** @description The submitted content was rejected. Every offending field is named. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigValidationError"];
-                };
-            };
-            500: components["responses"]["ServerError"];
-        };
-    };
-    openHealthConfigDraft: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OpenHealthConfigDraftRequest"];
-            };
-        };
-        responses: {
-            /** @description The open draft. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigProtocolDetail"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            /** @description The request was rejected. Every offending field is named. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigValidationError"];
-                };
-            };
-            500: components["responses"]["ServerError"];
-        };
-    };
-    saveHealthConfigDraft: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SaveHealthConfigDraftRequest"];
-            };
-        };
-        responses: {
-            /** @description The draft was saved, or already matched. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            /** @description The submitted content was rejected. Every offending field is named. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigValidationError"];
-                };
-            };
-            500: components["responses"]["ServerError"];
-        };
-    };
-    publishHealthConfigDraft: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                protocol_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The draft is now the live protocol. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            /** @description The stored draft is not publishable. Every offending field is named. */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigValidationError"];
-                };
-            };
-            500: components["responses"]["ServerError"];
-        };
-    };
-    discardHealthConfigDraft: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                protocol_version_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The draft was discarded. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthConfigWriteResult"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

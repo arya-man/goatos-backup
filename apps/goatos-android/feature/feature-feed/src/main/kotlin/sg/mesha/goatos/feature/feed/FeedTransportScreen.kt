@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -33,9 +32,13 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 
 @Immutable
 data class FeedTransportRowUi(
@@ -326,10 +329,14 @@ data class FeedTransportCaptureUiState(
     val isCapturing: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
+    val videoPreviewPath: String? = null,
+    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
+    val canSubmit: Boolean = false,
+    val isSyncing: Boolean = false,
     val result: FeedTransportResultUi? = null,
 ) {
     val submitEnabled: Boolean
-        get() = videoCaptured && !isCapturing &&
+        get() = videoCaptured && canSubmit && videoStatus == FeedDistributionProofStatus.SYNCED && !isCapturing &&
             result?.status != FeedTransportSubmitStatus.SYNCED &&
             result?.status != FeedTransportSubmitStatus.QUEUED
 }
@@ -340,6 +347,7 @@ sealed interface FeedTransportCaptureEvent {
     /** Replace the recorded clip; the ViewModel drops the discarded take's queued upload. */
     data object ReRecordVideo : FeedTransportCaptureEvent
     data object Submit : FeedTransportCaptureEvent
+    data object SyncNow : FeedTransportCaptureEvent
     data object Back : FeedTransportCaptureEvent
 }
 
@@ -350,60 +358,97 @@ fun FeedTransportCaptureScreen(
 ) {
     val committed = state.result?.status == FeedTransportSubmitStatus.SYNCED ||
         state.result?.status == FeedTransportSubmitStatus.QUEUED
-    FeedCaptureScaffold(
-        title = state.shedLabel,
-        subtitle = null,
-        instruction = stringResource(R.string.feed_transport_caption),
-        onBack = { onEvent(FeedTransportCaptureEvent.Back) },
+    Scaffold(
+        containerColor = MeshaColors.PageBg,
+        topBar = {
+            MeshaScreenHeader(
+                title = state.shedLabel.ifBlank { stringResource(R.string.feed_transport_title) },
+                eyebrow = "FEED TRANSPORT",
+                eyebrowColor = MeshaColors.BrandD,
+                subtitle = null,
+                onBack = { onEvent(FeedTransportCaptureEvent.Back) },
+                actions = {
+                    SyncIconButton(
+                        isSyncing = state.isSyncing,
+                        onSync = { onEvent(FeedTransportCaptureEvent.SyncNow) },
+                    )
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                FeedTransportStatusCard(state = state, committed = committed) {
+                    onEvent(FeedTransportCaptureEvent.Submit)
+                }
+            }
+            item {
+                FeedDistProofAction(
+                    title = stringResource(R.string.feed_transport_record_video),
+                    subtitle = stringResource(R.string.feed_transport_video_title),
+                    icon = MeshaIcons.Video,
+                    captured = state.videoCaptured,
+                    status = state.videoStatus,
+                    previewPath = state.videoPreviewPath,
+                    previewKind = FeedDistPreviewKind.Video,
+                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_transport_video_recorded)),
+                    loading = state.isCapturing,
+                    loadingLabel = stringResource(R.string.feed_transport_video_uploading),
+                    retryLabel = stringResource(R.string.feed_transport_retry_video),
+                    enabled = !committed && !state.isCapturing,
+                    message = state.videoMessage,
+                    onClick = {
+                        if (state.videoCaptured) {
+                            onEvent(FeedTransportCaptureEvent.ReRecordVideo)
+                        } else {
+                            onEvent(FeedTransportCaptureEvent.RecordVideo)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedTransportStatusCard(
+    state: FeedTransportCaptureUiState,
+    committed: Boolean,
+    onRetrySubmit: () -> Unit,
+) {
+    val completionFailed = state.result?.status == FeedTransportSubmitStatus.FAILED
+    val statusText = when {
+        committed -> stringResource(R.string.feed_transport_submitted)
+        completionFailed -> state.result.message
+        state.submitEnabled -> stringResource(R.string.feed_transport_ready_to_submit)
+        state.videoCaptured -> stringResource(R.string.feed_transport_waiting_sync)
+        else -> stringResource(R.string.feed_transport_need_video)
+    }
+    val tone = when {
+        committed -> MeshaColors.Ok
+        completionFailed -> MeshaColors.Danger
+        state.videoCaptured -> MeshaColors.BrandD
+        else -> MeshaColors.Muted
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        FeedProofCard(title = stringResource(R.string.feed_transport_video_title)) {
-            when {
-                state.videoCaptured -> FeedVerificationCaptured(
-                    label = stringResource(R.string.feed_transport_video_recorded),
-                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
-                    onReRecord = { onEvent(FeedTransportCaptureEvent.ReRecordVideo) },
-                    enabled = !committed,
-                )
-                state.isCapturing -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_transport_video_uploading),
-                    enabled = false,
-                    primary = false,
-                    loading = true,
-                    onClick = {},
-                )
-                else -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_transport_record_video),
-                    enabled = !committed,
-                    primary = false,
-                    onClick = { onEvent(FeedTransportCaptureEvent.RecordVideo) },
-                )
-            }
-            if (state.result == null) {
-                state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-            }
-        }
-
-        FeedVerificationActionButton(
-            label = stringResource(R.string.feed_transport_submit),
-            enabled = state.submitEnabled,
-            primary = true,
-            onClick = { onEvent(FeedTransportCaptureEvent.Submit) },
-        )
-        if (!state.submitEnabled && !committed && !state.videoCaptured) {
-            Text(
-                text = stringResource(R.string.feed_transport_need_video),
-                color = MeshaColors.Faint,
-                fontSize = 12.sp,
-            )
-        }
-
-        state.result?.let { result ->
-            Text(
-                text = result.message,
-                color = if (result.status == FeedTransportSubmitStatus.FAILED) MeshaColors.Danger else MeshaColors.Ok,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
-            )
+        Text(text = stringResource(R.string.feed_transport_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(text = statusText, color = tone, style = MeshaType.caption)
+        if (state.submitEnabled) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_transport_submit), onClick = onRetrySubmit)
+        } else if (completionFailed) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_transport_retry_submit), onClick = onRetrySubmit)
         }
     }
 }

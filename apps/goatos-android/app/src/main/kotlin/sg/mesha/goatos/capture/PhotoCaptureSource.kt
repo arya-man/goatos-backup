@@ -26,10 +26,15 @@ data class CapturedPhoto(
  * [ProofCaptureSource]. Production capture uses the back camera writing straight to app-private
  * storage — no FileProvider, MediaStore, or gallery surface. Tests use [FakePhotoCaptureSource].
  */
+data class PhotoCaptureContext(
+    val title: String = "",
+    val instruction: String = "",
+)
+
 interface PhotoCaptureSource {
     /** Suspends until a photo has been captured (production: launches the in-app camera and awaits
      *  its result), or returns null if the operator cancelled. */
-    suspend fun capturePhoto(): CapturedPhoto?
+    suspend fun capturePhoto(context: PhotoCaptureContext = PhotoCaptureContext()): CapturedPhoto?
 }
 
 /**
@@ -40,12 +45,12 @@ interface PhotoCaptureSource {
  */
 class DelegatingPhotoCaptureSource : PhotoCaptureSource {
     @Volatile
-    private var delegate: (suspend () -> CapturedPhoto?)? = null
+    private var delegate: (suspend (PhotoCaptureContext) -> CapturedPhoto?)? = null
     @Volatile
     private var generation: Int = 0
 
     @Synchronized
-    fun bind(capture: suspend () -> CapturedPhoto?): Int {
+    fun bind(capture: suspend (PhotoCaptureContext) -> CapturedPhoto?): Int {
         generation += 1
         val token = generation
         delegate = capture
@@ -60,7 +65,7 @@ class DelegatingPhotoCaptureSource : PhotoCaptureSource {
         delegate = null
     }
 
-    override suspend fun capturePhoto(): CapturedPhoto? = delegate?.invoke()
+    override suspend fun capturePhoto(context: PhotoCaptureContext): CapturedPhoto? = delegate?.invoke(context)
 }
 
 /** Test double: returns queued fixture results in call order. */
@@ -74,7 +79,7 @@ class FakePhotoCaptureSource(
         results.add(photo)
     }
 
-    override suspend fun capturePhoto(): CapturedPhoto? {
+    override suspend fun capturePhoto(context: PhotoCaptureContext): CapturedPhoto? {
         captureCount++
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }

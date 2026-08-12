@@ -147,8 +147,16 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     createdAt = createdAt,
     updatedAt = updatedAt,
     lastError = lastError,
+    localFilePath = proofLocalFilePath(),
     resultJson = resultJson,
 )
+
+private fun OutboxEntity.proofLocalFilePath(): String? {
+    if (opType != sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD.name) return null
+    return runCatching { syncJson.decodeFromString<ProofUploadPayload>(payloadJson).localFilePath }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }
+}
 
 /** Active rows + bounded recent terminals -> the [SyncStatus] snapshot the UI renders.
  *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).

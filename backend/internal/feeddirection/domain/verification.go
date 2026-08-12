@@ -2,8 +2,9 @@ package domain
 
 // Feed DISTRIBUTION verification gate coordinates (maintainer decision, 2026-07-26). A
 // feed-direction shed-session now passes through the generic Verification module before it counts as
-// done: the operator completes with a MANDATORY feed-distribution video + a MANDATORY water proof,
-// which enqueues one verification item, and the session is 'completed' only when a verifier approves.
+// done: the operator completes with a MANDATORY feed-distribution video + a MANDATORY
+// water-distribution video, which enqueues one verification item, and the session is 'completed'
+// only when a verifier approves.
 //
 // These are the (vertical, module, category, ref_type) the generic verification module stores as a
 // back-pointer. The consumer (FeedDistributionVerificationHandler) filters verdict events on
@@ -19,7 +20,7 @@ const (
 	VerificationCategoryFeed = "feed_distribution"
 	VerificationRefTypeFeed  = "feed_distribution_completion"
 
-	// DistributionStatusPendingVerification is operator-completed-but-not-yet-verified: both proofs are
+	// DistributionStatusPendingVerification is operator-completed-but-not-yet-verified: all proofs are
 	// stored, a verification item is queued, and NOTHING is completed yet.
 	DistributionStatusPendingVerification = "pending_verification"
 	// DistributionStatusCompleted is verifier-approved: the session is done NOW and

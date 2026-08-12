@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -53,6 +55,43 @@ sealed interface FeedCompleteEvent {
     data object RecordVideo : FeedCompleteEvent
     data object MarkDone : FeedCompleteEvent
     data object Back : FeedCompleteEvent
+}
+
+@Composable
+internal fun FeedVerificationActionButton(
+    label: String,
+    enabled: Boolean,
+    primary: Boolean,
+    loading: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val bg = when {
+        primary && enabled -> MeshaColors.Brand
+        primary -> MeshaColors.Brand.copy(alpha = 0.35f)
+        else -> MeshaColors.Surf2
+    }
+    val fg = when {
+        primary -> MeshaColors.OnBrand
+        enabled -> MeshaColors.Ink
+        else -> MeshaColors.Faint
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(bg)
+            .border(1.dp, if (primary) bg else MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .clickable(enabled = enabled && !loading, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = fg)
+            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+        }
+        Text(text = label, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
+    }
 }
 
 @Composable

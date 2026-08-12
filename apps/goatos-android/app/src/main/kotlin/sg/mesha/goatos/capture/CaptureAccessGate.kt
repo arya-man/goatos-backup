@@ -52,13 +52,12 @@ internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
 internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
     add(Manifest.permission.RECORD_AUDIO)
+    add(Manifest.permission.ACCESS_FINE_LOCATION)
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
         add(Manifest.permission.POST_NOTIFICATIONS)
     }
     if (sdkInt >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
-    } else {
-        add(Manifest.permission.ACCESS_FINE_LOCATION) // Bluetooth dependency on pre-12.
     }
 }
 
@@ -139,7 +138,7 @@ internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
     Manifest.permission.RECORD_AUDIO -> "Microphone"
     Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth (RFID reader)"
-    Manifest.permission.ACCESS_FINE_LOCATION -> "Location (Bluetooth dependency)"
+    Manifest.permission.ACCESS_FINE_LOCATION -> "Precise location"
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
     else -> permission
 }

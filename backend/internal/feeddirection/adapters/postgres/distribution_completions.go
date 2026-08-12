@@ -94,10 +94,10 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		return ports.CompleteDistributionResult{}, err
 	}
 	if !reservation.proceed {
-		// Exact replay of the same request: return the original result, run NO side effects. Read the
-		// row so the caller still sees its current status/row_version, but NewlyPending stays false so no
-		// verification item is re-enqueued.
-		status, rowVersion, readErr := r.readDistributionByID(ctx, tx, p.TenantID, reservation.resultID)
+		// Exact replay of the same request: return the original result and canonical row proofs.
+		// NewlyPending stays false, but the app may still run the idempotent verifier enqueue to repair a
+		// prior enqueue failure.
+		row, readErr := r.readDistributionByID(ctx, tx, p.TenantID, reservation.resultID)
 		if readErr != nil {
 			return ports.CompleteDistributionResult{}, readErr
 		}
@@ -105,14 +105,18 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: commit idempotent distribution replay: %w", err)
 		}
 		committed = true
-		return ports.CompleteDistributionResult{CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false}, nil
+		row.NewlyPending = false
+		return row, nil
 	}
 
 	var (
-		completionID string
-		rowVersion   int32
-		status       = domain.DistributionStatusPendingVerification
-		newlyPending bool
+		completionID             string
+		rowVersion               int32
+		status                   = domain.DistributionStatusPendingVerification
+		newlyPending             bool
+		canonicalFeedWeightProof = weightProof
+		canonicalDistProof       = distProof
+		canonicalWaterProof      = waterProof
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_distribution_completions (
@@ -123,21 +127,22 @@ INSERT INTO feed_distribution_completions (
   $8, $9, $10, nullif($11::text, '')::uuid, $12
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
-RETURNING completion_id::text, row_version`,
+RETURNING completion_id::text, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
-		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
+		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey).
+		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
 		var existingStatus string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version
+SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
 			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
 			domain.PartitionMatchKey(p.PartitionLabel)).
-			Scan(&completionID, &existingStatus, &rowVersion); err != nil {
+			Scan(&completionID, &existingStatus, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read existing distribution completion: %w", err)
 		}
 		switch existingStatus {
@@ -155,8 +160,9 @@ SET status = 'pending_verification',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
-RETURNING row_version`,
-				p.TenantID, completionID, weightProof, distProof, waterProof).Scan(&rowVersion); err != nil {
+RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
+				p.TenantID, completionID, weightProof, distProof, waterProof).
+				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof); err != nil {
 				return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: resubmit distribution for verification: %w", err)
 			}
 			status = domain.DistributionStatusPendingVerification
@@ -191,28 +197,36 @@ RETURNING row_version`,
 		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: commit distribution completion: %w", err)
 	}
 	committed = true
-	return ports.CompleteDistributionResult{CompletionID: completionID, Status: status, RowVersion: rowVersion, NewlyPending: newlyPending}, nil
+	return ports.CompleteDistributionResult{
+		CompletionID:         completionID,
+		Status:               status,
+		RowVersion:           rowVersion,
+		FeedWeightProofRef:   canonicalFeedWeightProof,
+		DistributionProofRef: canonicalDistProof,
+		WaterProofRef:        canonicalWaterProof,
+		NewlyPending:         newlyPending,
+	}, nil
 }
 
-// readDistributionByID reads a row's status and row_version within the transaction, for the idempotent
-// replay echo.
-func (r *Repository) readDistributionByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (string, int32, error) {
+// readDistributionByID reads a row's status, row_version, and canonical proof refs within the
+// transaction, for the idempotent replay echo.
+func (r *Repository) readDistributionByID(ctx context.Context, tx pgx.Tx, tenantID, completionID string) (ports.CompleteDistributionResult, error) {
 	if strings.TrimSpace(completionID) == "" {
-		return "", 0, nil
+		return ports.CompleteDistributionResult{}, nil
 	}
-	var status string
-	var rowVersion int32
+	var out ports.CompleteDistributionResult
 	err := tx.QueryRow(ctx, `
-SELECT status, row_version
+SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
 FROM feed_distribution_completions
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).Scan(&status, &rowVersion)
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).
+		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", 0, nil
+		return ports.CompleteDistributionResult{}, nil
 	}
 	if err != nil {
-		return "", 0, fmt.Errorf("feeddirection: read distribution completion by id: %w", err)
+		return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read distribution completion by id: %w", err)
 	}
-	return status, rowVersion, nil
+	return out, nil
 }
 
 // ListVerifiedDistributions returns every VERIFIED (status='completed') (shed, session, workflow) for

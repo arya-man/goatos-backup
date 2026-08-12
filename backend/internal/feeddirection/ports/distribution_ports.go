@@ -48,13 +48,9 @@ type CompleteDistributionParams struct {
 	SessionNo      int32
 	TargetDate     time.Time
 	Workflow       string
-	// The three MANDATORY proof_ids, in capture order. FeedWeightProofRef is a PHOTO of the weighed
-	// feed taken BEFORE it is given out; DistributionProofRef and WaterProofRef are VIDEOS. All three
-	// travel into the ONE queued verification item.
-	//
-	// FeedWeightProofRef is nullable in the table for rows submitted before the 2026-08-11 rule
-	// (migration 000151 grandfathers them), but it is never optional on THIS path -- a write reaching
-	// the store has already been rejected without it.
+	// FeedWeightProofRef is the MANDATORY feed weight PHOTO proof_id. DistributionProofRef is the
+	// MANDATORY feed-distribution VIDEO proof_id. WaterProofRef is the MANDATORY water-distribution
+	// video proof_id. All three proofs travel into the queued verification item.
 	FeedWeightProofRef   string
 	DistributionProofRef string
 	WaterProofRef        string
@@ -77,6 +73,11 @@ type CompleteDistributionResult struct {
 	// RowVersion is the row's version after the write. It keys the verification item's idempotency so a
 	// rework re-submit (row_version bumped) enqueues a fresh item rather than colliding with the old one.
 	RowVersion int32
+	// Proof refs are the canonical refs currently stored on the completion row. Repair enqueue paths use
+	// these rather than the current request body, so a retry cannot queue media different from the row.
+	FeedWeightProofRef   string
+	DistributionProofRef string
+	WaterProofRef        string
 	// NewlyPending is true ONLY when the row entered pending_verification on THIS call (a fresh submit or
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
