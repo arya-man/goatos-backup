@@ -193,6 +193,16 @@
       "notes": "Blocks the Android proof_rescan regression where a proof-missing DONE goat can upload proof without repairing the durable scan capture. Submit summary counts sop_task_scan_captures, so accepted proof_rescan must call recordRosterScan before requestGoatProof."
     },
     {
+      "id": "android-stg-release-version",
+      "script": "tools/ci/check-android-stg-release-version.sh",
+      "makeTarget": null,
+      "realCheck": "tools/ci/check-android-stg-release-version.sh",
+      "selfTest": "tools/ci/check-android-stg-release-version.sh --self-test",
+      "owningDoc": "docs/mobile/stg-signed-release.md",
+      "requiredInCI": false,
+      "notes": "Manual Android STG release gate: APK manifest versionName/versionCode, Firebase/website release filename, website public/dist APK bytes, and optional live mesha.sg URL must all share one release identity. Play Internal Testing must be verified separately with the same identity before claiming Play availability."
+    },
+    {
       "id": "assistant-route-closure",
       "script": "tools/agent-hooks/check-assistant-route-closure.mjs",
       "makeTarget": "assistant-route-closure-guard",
@@ -814,7 +824,7 @@
       "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
       "ciStep": "weighing-free-flow-guard",
-      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
+      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field — scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
       "id": "weighing-close-gate",
