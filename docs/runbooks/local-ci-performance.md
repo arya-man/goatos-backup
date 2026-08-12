@@ -69,7 +69,7 @@ authorise a push to `main`?*
 | Flag | Default | What it changes | Wall-clock | Receipt? |
 |---|---|---|---|---|
 | `GOATOS_FAST_LOCAL_CI` | `0` (`run-local-ci.sh:44`) | Android uses the Gradle **daemon** and one combined `:app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease` invocation; the benchmark compile is skipped unless the diff touches Android build files | Large saving on the Android job (daemon reuse + one configuration phase instead of three) | **NO — never writes a receipt.** This is the inner-loop flag |
-| `GOATOS_RUN_ANDROID_SCREENSHOTS` | `0` (`:470` fast path, `:518` receipt path) | **NEW.** Opt-**in** for the Paparazzi proof `:app:verifyPaparazziDevDebug`. Governs both the fast and the normal Android path — one knob, not two | Adds the full single-threaded `devDebug` variant build with `--rerun-tasks` in a fresh no-daemon JVM. Measured floor ≈100 s; on a cold worktree, materially more | Yes (it does not itself suppress the receipt). Sets `screenshots=yes` on the receipt |
+| `GOATOS_RUN_ANDROID_SCREENSHOTS` | `0` (`run_android`) | Opt-**in** for the Paparazzi proof. Governs both the fast and the normal Android path — one knob, not two. Known UI diffs may use the guarded targeted mapper (`tools/ci/android-screenshot-scope.sh`); unknown UI/resource diffs fall back to full `:app:verifyPaparazziDevDebug` | Adds the single-threaded `devDebug` screenshot build. Targeted feed mapping avoids unrelated screenshot methods, but still pays the app test build. Full fallback measured floor ≈100 s; on a cold worktree, materially more | Yes (it does not itself suppress the receipt). Sets `screenshots=yes` on the receipt |
 | `GOATOS_RUN_POSTGRES_TESTS` | `0` (`:121`) | Opt-in for the Docker/Postgres integration + E2E chain (`e2e-image-build`, `e2e-parity`, `e2e-smoke`, `e2e-business-chain`) and `go test ./...` with Postgres enabled. When `0`, the backend job still runs `go test ./...` with Postgres disabled | Very large when on (image build + compose stacks) | Yes. Default `0` is the normal landing posture |
 | `CEO_AI_EVAL_LIVE` | `0` (`:229`) | Runs the **live** CEO-AI answer-quality eval against a real assistant endpoint (Vertex/Gemini) + Postgres oracle. Also needs `MESHA_ASSISTANT_URL`, `GOATOS_EVAL_DATABASE_URL`, `GOATOS_EVAL_TENANT_ID`. The cheap structural self-test always runs | Adds network-bound eval time | Yes. Default `0`; the skip is a loud `SKIP`, never a silent pass |
 | `GOATOS_CI_BASE` | `origin/main` (single resolver: `run-local-ci.sh` `resolve_ci_base`) | The diff base for the classifier AND the Android UI-diff detector. An unresolvable ref falls back to `HEAD~1` **loudly**, and that fallback is FATAL (exit 4) on the receipt-writing `auto`/`all` modes | Indirect — a narrower base selects fewer jobs | Yes: the resolved base is recorded on EVERY receipt (`all` and `scoped`) and must be an ancestor of real remote main at push time |
@@ -165,12 +165,15 @@ nothing you will push, since a rebase or amend changes the SHA and voids the
 receipt anyway (measured: five `android screenshots` steps, 109-208 s each, on
 five DIFFERENT SHAs inside one 42-minute block).
 
-This runs the **full, unnarrowed** `:app:verifyPaparazziDevDebug`.
+This runs `:app:verifyPaparazziDevDebug`. For known feed UI/golden diffs, the
+runner adds a guarded allowlist of seven feed screenshot filters: feed role
+chrome, feed direction, feed distribution, feed transport, and feed packing.
+Unknown Android UI/resource diffs still run the full task with no filters.
 `tools/ci/check-android-screenshot-proof.sh` (wired into the `android` job and
 into `make land-main-self-test`) fails the build if any screenshot invocation
-is narrowed with `--tests`, loses the full task name, or if the opt-in becomes
-unreachable. It has its own negative self-test
-(`check-android-screenshot-proof.test.sh`) proving it is live, not inert.
+uses raw ad-hoc `--tests`, loses the task name, or if the opt-in becomes
+unreachable. It has negative self-tests proving both the proof guard and the
+targeted mapper are live, not inert.
 
 **Run it whenever you intentionally change UI:**
 

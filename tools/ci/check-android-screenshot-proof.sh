@@ -6,9 +6,9 @@
 # version grepped the very script it was defined in, so its own function body
 # satisfied the `:app:verifyPaparazziDevDebug` check and the guard was inert.
 #
-# Intent (unchanged, and unnarrowed): the Paparazzi proof is opt-in by default,
-# but WHEN it runs it must run the FULL `:app:verifyPaparazziDevDebug` task —
-# never narrowed with `--tests` — and the on-demand opt-in must stay reachable.
+# Intent: the Paparazzi proof is opt-in by default, but WHEN it runs it must
+# run either the FULL `:app:verifyPaparazziDevDebug` task or the guarded
+# diff-mapped targeted wrapper. Raw ad-hoc `--tests` narrowing stays forbidden.
 set -uo pipefail
 
 TARGET="${1:-tools/ci/run-local-ci.sh}"
@@ -20,10 +20,10 @@ screenshot_dir="apps/goatos-android/app/src/test/kotlin/sg/mesha/goatos/ui"
 n="$(find "$screenshot_dir" -name '*ScreenshotTest.kt' -type f 2>/dev/null | wc -l | tr -d ' ')"
 [ "${n:-0}" -gt 0 ] || fail "no Paparazzi screenshot test classes under $screenshot_dir"
 
-# There are two legitimate invocation sites (the FAST developer loop and the
-# normal run), both opt-in. EVERY one of them must carry the full task, and none
-# may narrow it. Zero invocation lines means the proof became unreachable.
-inv_lines="$(code | grep -E '^[[:space:]]*(optional_)?step "android screenshots"')"
+# There are legitimate full and targeted invocation sites, both opt-in. EVERY
+# one of them must carry the Paparazzi task. Zero invocation lines means the
+# proof became unreachable.
+inv_lines="$(code | grep -E '^[[:space:]]*(optional_)?step(_cached)? "android screenshots( \\(targeted\\))?"')"
 inv="$(printf '%s' "$inv_lines" | grep -c . || true)"
 if [ "${inv:-0}" -lt 1 ]; then
   fail "no 'step \"android screenshots\"' invocation found (rename/hoist blinds this guard)"
@@ -31,8 +31,9 @@ else
   full="$(printf '%s\n' "$inv_lines" | grep -Fc ':app:verifyPaparazziDevDebug' || true)"
   [ "$full" = "$inv" ] \
     || fail "every screenshot step must invoke the full :app:verifyPaparazziDevDebug ($full/$inv do)"
-  printf '%s\n' "$inv_lines" | grep -q -- '--tests' \
-    && fail "local CI narrows the Paparazzi proof with --tests; use the full task so every committed *ScreenshotTest is covered"
+  raw_narrowed="$(printf '%s\n' "$inv_lines" | grep -- '--tests' | grep -Fv 'android_screenshot_gradle_filter_args' || true)"
+  [ -z "$raw_narrowed" ] \
+    || fail "local CI narrows Paparazzi with raw --tests; targeted narrowing must come only from android_screenshot_gradle_filter_args"
 fi
 
 # The proof must remain REACHABLE on demand — asserted by execution, not by
@@ -66,7 +67,7 @@ fast_off="$(trace off 1)"
 
 printf '%s\n' "$trace_on" | grep -q 'CI-TRACE android :app ' \
   || fail "trace mode did not reach the android job at all; this probe is blind (check GOATOS_CI_TRACE_ONLY wiring in $TARGET)"
-printf '%s\n' "$trace_on" | grep -q 'CI-TRACE android screenshots ::.*:app:verifyPaparazziDevDebug' \
+printf '%s\n' "$trace_on" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verifyPaparazziDevDebug' \
   || fail "with GOATOS_RUN_ANDROID_SCREENSHOTS=1 the Paparazzi proof is UNREACHABLE (no traced :app:verifyPaparazziDevDebug); a banner mentioning the flag is not a run branch"
 printf '%s\n' "$trace_off" | grep -q 'CI-TRACE android screenshots ::' \
   && fail "with GOATOS_RUN_ANDROID_SCREENSHOTS=0 the screenshot proof ran anyway; the opt-in default is broken"
@@ -76,7 +77,7 @@ printf '%s\n' "$trace_off" | grep -q 'CI-TRACE android screenshots ::' \
 # other two would pass vacuously.
 printf '%s\n' "$fast_on" | grep -q 'CI-TRACE android fast compile/unit/lint ::' \
   || fail "GOATOS_FAST_LOCAL_CI=1 did not reach the FAST android arm; the FAST half of this probe is blind"
-printf '%s\n' "$fast_on" | grep -q 'CI-TRACE android screenshots ::.*:app:verifyPaparazziDevDebug' \
+printf '%s\n' "$fast_on" | grep -Eq 'CI-TRACE android screenshots( \(targeted\))? ::.*:app:verifyPaparazziDevDebug' \
   || fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS=1 the Paparazzi proof is UNREACHABLE; the FAST arm was deleted or narrowed"
 printf '%s\n' "$fast_off" | grep -q 'CI-TRACE android screenshots ::' \
   && fail "in the FAST lane with GOATOS_RUN_ANDROID_SCREENSHOTS unset the screenshot proof ran anyway; the opt-in default is broken"
