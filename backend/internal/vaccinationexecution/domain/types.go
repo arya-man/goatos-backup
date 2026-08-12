@@ -446,8 +446,9 @@ type ScanRosterCursor struct {
 }
 
 type ScanRosterResult struct {
-	Rows       []ScanRosterRow
-	NextCursor *ScanRosterCursor
+	Rows         []ScanRosterRow
+	NeighborRows []ScanRosterRow
+	NextCursor   *ScanRosterCursor
 }
 
 type TaskOptionValue struct {

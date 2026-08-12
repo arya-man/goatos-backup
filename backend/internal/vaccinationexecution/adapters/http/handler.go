@@ -762,8 +762,9 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]interface{}{
-		"source": "api",
-		"rows":   result.Rows,
+		"source":        "api",
+		"rows":          result.Rows,
+		"neighbor_rows": result.NeighborRows,
 	}
 	if len(result.Rows) > 0 {
 		row := result.Rows[0]

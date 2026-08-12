@@ -2352,7 +2352,71 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		last := result.Rows[len(result.Rows)-1]
 		result.NextCursor = &domain.ScanRosterCursor{GoatID: last.GoatID, ObligationID: last.ObligationID}
 	}
+	if strings.TrimSpace(q.TaskID) != "" {
+		neighborRows, err := r.scanRosterNeighborRows(ctx, q, identity, restrictParks)
+		if err != nil {
+			return domain.ScanRosterResult{}, err
+		}
+		result.NeighborRows = neighborRows
+	}
 	return result, nil
+}
+
+func (r *Repository) scanRosterNeighborRows(ctx context.Context, q domain.ScanRosterQuery, identity taskExecutionIdentity, restrictParks []string) ([]domain.ScanRosterRow, error) {
+	rows, err := r.pool.Query(ctx, scanRosterNeighborRowsSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, restrictParks, q.OperatorScopeActorID, strings.TrimSpace(q.PartitionLabel))
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: scan roster neighbor rows: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ScanRosterRow{}
+	for rows.Next() {
+		var row domain.ScanRosterRow
+		var secondaryTag, partitionLabel, sourceShedName pgtype.Text
+		var scannedAt pgtype.Timestamptz
+		var protocolName, doseCode string
+		if err := rows.Scan(
+			&row.GoatID,
+			&row.PrimaryTag,
+			&secondaryTag,
+			&protocolName,
+			&doseCode,
+			&row.Status,
+			&scannedAt,
+			&row.ObligationID,
+			&row.ObligationRowVersion,
+			&row.ShedName,
+			&partitionLabel,
+			&sourceShedName,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan roster neighbor row scan: %w", err)
+		}
+		row.SecondaryTag = textPtr(secondaryTag)
+		if partitionLabel.Valid {
+			row.PartitionLabel = strings.TrimSpace(partitionLabel.String)
+		}
+		if sourceShedName.Valid {
+			row.SourceShedName = strings.TrimSpace(sourceShedName.String)
+		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedName,
+			PartitionLabel: row.PartitionLabel,
+			SourceShedName: row.SourceShedName,
+		}.Display()
+		if scannedAt.Valid {
+			value := scannedAt.Time.UTC().Format(time.RFC3339Nano)
+			row.ScannedAt = &value
+		}
+		row.VaccineLabel = domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
+		row.BatchID = identity.BatchID
+		row.TaskID = identity.TaskID
+		row.SOPVersionID = identity.SOPVersionID
+		row.TaskRowVersion = identity.TaskRowVersion
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination execution: scan roster neighbor rows iterate: %w", err)
+	}
+	return out, nil
 }
 
 func (r *Repository) shedHasActivePartitions(ctx context.Context, tenantID, shedID string) (bool, error) {
@@ -2656,6 +2720,138 @@ WHERE oi.tenant_id = $1::uuid
   AND ($8::uuid[] IS NULL OR g.park_id = ANY($8::uuid[]))
 ORDER BY g.goat_id ASC, oi.obligation_id ASC
 LIMIT $7;
+`
+
+const scanRosterNeighborRowsSQL = `
+WITH operator_scope_member AS (
+  SELECT wm.workforce_member_id
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $6::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($6::text, '')::uuid
+      OR wm.user_id = NULLIF($6::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($6::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+),
+current_assignment AS (
+  SELECT assignment.batch_id, assignment.park_id, assignment.physical_shed
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = $1::uuid
+    AND assignment.batch_id = $4::uuid
+    AND assignment.shed_id = $2::uuid
+    AND (
+      $7::text = ''
+      OR assignment.partition_label = 'whole'
+      OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($7::text)), '^part[[:space:]]+', '')
+    )
+    AND (
+      $6::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+  ORDER BY CASE WHEN assignment.partition_label = 'whole' THEN 1 ELSE 0 END,
+           assignment.assignment_id
+  LIMIT 1
+),
+eligible_assignment_sheds AS (
+  SELECT DISTINCT assignment.shed_id
+  FROM vaccination_drive_assignments assignment
+  JOIN current_assignment current
+    ON current.park_id = assignment.park_id
+   AND current.physical_shed = assignment.physical_shed
+  WHERE assignment.tenant_id = $1::uuid
+    AND assignment.batch_id = $4::uuid
+    AND assignment.shed_id <> $2::uuid
+    AND (
+      $6::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+),
+latest_attempt AS (
+  SELECT DISTINCT ON (attempt.goat_id)
+    attempt.goat_id,
+    attempt.captured_at
+  FROM sop_task_scan_attempts attempt
+  JOIN goats g
+    ON g.tenant_id = attempt.tenant_id
+   AND g.goat_id = attempt.goat_id
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  WHERE attempt.tenant_id = $1::uuid
+    AND attempt.task_id = $3::uuid
+    AND attempt.field_key IN ('goat_ids', '__scan_roster__')
+    AND attempt.outcome = 'accepted'
+    AND attempt.reason = 'neighbor_partition'
+    AND g.shed_id IN (SELECT shed_id FROM eligible_assignment_sheds)
+    AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
+    AND (
+      $7::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       <> regexp_replace(lower(btrim($7::text)), '^part[[:space:]]+', '')
+    )
+  ORDER BY attempt.goat_id, attempt.captured_at DESC, attempt.attempt_id DESC
+)
+SELECT
+  g.goat_id::text,
+  COALESCE(aid1.identifier_value, '') AS primary_tag,
+  aid2.identifier_value AS secondary_tag,
+  pd.name AS protocol_name,
+  pr.dose_code,
+  'done' AS status,
+  latest_attempt.captured_at AS scanned_at,
+  oi.obligation_id::text,
+  oi.row_version,
+  loc.name AS shed_name,
+  COALESCE(gsp.partition_label, 'whole') AS partition_label,
+  NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name
+FROM latest_attempt
+JOIN goats g
+  ON g.tenant_id = $1::uuid
+ AND g.goat_id = latest_attempt.goat_id
+ AND g.merged_into_goat_id IS NULL
+ AND g.lifecycle_status = 'alive'
+JOIN locations loc
+  ON loc.tenant_id = g.tenant_id
+ AND loc.location_id = g.shed_id
+JOIN obligation_instances oi
+  ON oi.tenant_id = g.tenant_id
+ AND oi.target_type = 'goat'
+ AND oi.target_id = g.goat_id
+ AND oi.batch_id = $4::uuid
+ AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+ AND pd.category = 'vaccination'
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id
+ AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1'
+ AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id
+ AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2'
+ AND aid2.status = 'active'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+WHERE ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
+ORDER BY latest_attempt.captured_at DESC, g.goat_id ASC, oi.obligation_id ASC;
 `
 
 const scanTagClassificationSQL = `
