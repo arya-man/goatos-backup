@@ -64,6 +64,48 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
+## Mandatory Phone Validation For Phone-Facing Fixes
+
+When a fix touches Android behavior, mobile API data, operator/CEO RBAC, scan
+flows, proof capture, permissions, BLE, camera/microphone/location, Room cache,
+outbox, or any screen the maintainer is validating on a physical phone, do not
+call the fix done from code review, compile, or API curl alone. Install/run it
+on the correct physical phone and state the observed result.
+
+Before every phone install, clear, launch, login, screenshot, or scripted tap,
+verify the visible Android profile and app focus:
+
+```bash
+adb -s <serial> shell am get-current-user
+adb -s <serial> shell dumpsys window | rg 'mCurrentFocus|mFocusedApp'
+adb -s <serial> shell cmd user list
+```
+
+Use the visible user id explicitly for every profile-scoped command. Current
+QA device roles:
+
+```text
+Poco/Redmi dd861eff: operator phone, Android user 0, Pramod token
+Infinix 143382555G111292: CEO phone, Android user 10 / Gameboy, CEO token
+```
+
+Never install the CEO build/token on Poco/Redmi, and never install the operator
+build/token on Infinix. If the visible profile or serial does not match this
+mapping, stop and report it instead of guessing.
+
+For a phone-facing fix, final verification must include:
+
+- device serial and Android user id used;
+- app role/token target used;
+- backend/API/DB target, especially whether phone QA used `8081 -> 15544`;
+- exact screen opened;
+- exact visible result, from screenshot or direct phone observation;
+- any remaining unverified path.
+
+If the phone does not visibly show the expected behavior, say that plainly and
+keep debugging. Do not say “fixed” until the phone proof matches the code/API
+claim.
+
 ## Weighing Is ISOLATED — No Herd, No Vaccination, No Exceptions (Claude AND Codex)
 
 Weighing owns its own tables and reads NOTHING from another module's schema, in
