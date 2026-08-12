@@ -1,36 +1,43 @@
 package sg.mesha.goatos.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
+import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.PhotoCaptureSource
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
-import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.CaptureDraft
-import sg.mesha.goatos.core.data.CaptureDraftRepository
-import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
-import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
+import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionResultUi
 import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionUiState
 import java.util.Locale
+import java.util.EnumSet
 import javax.inject.Inject
 
 /**
@@ -38,23 +45,14 @@ import javax.inject.Inject
  * Direction flow (docs/decisions/feed-distribution-verification.md). Opened by tapping a Feed
  * DIRECTION row (Packing rows still open the untouched [FeedCompleteViewModel]).
  *
- * FOUR offline-first writes, mirroring [ShiftingExecuteViewModel]'s mandatory-video coupling:
- *  - a MANDATORY feed-weight PHOTO ([PhotoCaptureSource], live camera — the backend additionally
- *    asserts `capture_source = in_app_camera`, because this is the capture that carries a number);
- *  - a MANDATORY feed-distribution VIDEO ([ProofCaptureSource], scope=shed);
- *  - a MANDATORY water-distribution VIDEO — video-only since 2026-08-11, the photo path is gone;
- *  - **Submit** ([SyncRepository.enqueueFeedDistributionComplete]) — carries ALL THREE proof outbox
- *    item ids so the dispatcher resolves each uploaded proof_id and sends the set; the shed-session
- *    flips to `pending_verification` and NOTHING is completed until a verifier approves.
+ * THREE offline-first proof writes:
+ *  - a MANDATORY feed weight PHOTO ([PhotoCaptureSource]), scope=shed;
+ *  - a MANDATORY feed-distribution VIDEO ([SyncRepository.enqueueProofUpload], scope=shed);
+ *  - a MANDATORY water-distribution VIDEO ([ProofCaptureSource]), scope=shed.
  *
- * All four enqueue on the SAME outbox group (the shed-session), so the three proofs drain strictly
- * before the completion. STABLE `SavedStateHandle`-persisted idempotency keys collapse a resend after
- * process death onto the original writes; a failed enqueue invalidates its key so a retry mints fresh.
- * Client-side, Submit is gated on ALL THREE proofs being captured/uploaded; the backend also rejects
- * a blank or wrong-kind proof `422 proof_required`.
- *
- * The capture ORDER is enforced by the UI state (weight -> feed -> water) because the weight photo
- * can only be taken while the feed is still on the scale.
+ * All three proofs can be captured in any order and replaced before final submit. The final
+ * verifier-gated completion unlocks only after all three proof uploads have synced. The completion
+ * still references the backend's existing feed-video and water-video proof refs.
  */
 @HiltViewModel
 class FeedDistributionCompleteViewModel @Inject constructor(
@@ -63,7 +61,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val photoCaptureSource: PhotoCaptureSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
-    private val drafts: CaptureDraftRepository,
+    @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -78,130 +76,89 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
-    // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
-    // an operator was shown an empty form for work already submitted (STG 2026-08-09).
-    private val alreadySubmitted: Boolean =
-        !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
+    // The shed-session partitions ordering for the proof uploads and completion, so all three
+    // proof items drain before the gated completion references them.
+    private val groupKey = feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate)
 
-    // The day-shed-PEN-session partitions ordering for BOTH proofs AND the completion, so the
-    // proofs drain strictly before the gated completion that references them. The PEN and the DAY
-    // are both part of this key: see feedCaptureGroupKey for what dropping either did to the field.
-    private val groupKey =
-        feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate)
-
-    private val weightKey = DraftIdempotencyKey(savedStateHandle, KEY_WEIGHT_IDEMPOTENCY, "feed-distribution-weight")
+    private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-distribution-complete")
+    private val feedWeightPhotoKey = DraftIdempotencyKey(savedStateHandle, KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY, "feed-distribution-feed-weight-photo")
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-distribution-video")
-    private val waterKey = DraftIdempotencyKey(savedStateHandle, KEY_WATER_IDEMPOTENCY, "feed-distribution-water")
-
-    /**
-     * The shed-session's DURABLE draft: the recorded proofs' outbox item ids and the completion's
-     * idempotency key, keyed by [groupKey] in the shared capture-draft store.
-     *
-     * These used to live in [SavedStateHandle], which dies with the nav backstack entry — so
-     * recording the feed video, pressing Back and re-opening the session lost the clip and asked for
-     * it again while the first one uploaded anyway (maintainer report 2026-07-30, the same defect
-     * first seen on Shifting). The completion key was lost with it, defeating the idempotency that
-     * stops a double submit.
-     */
-    private var draft = CaptureDraft()
+    private val waterVideoKey = DraftIdempotencyKey(savedStateHandle, KEY_WATER_VIDEO_IDEMPOTENCY, "feed-distribution-water-video")
+    private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
+    private val feedWeightPhotoProofItemId = DraftOutboxItemId(savedStateHandle, KEY_FEED_WEIGHT_PHOTO_PROOF_ITEM_ID)
+    private val videoProofItemId = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_PROOF_ITEM_ID)
+    private val waterVideoProofItemId = DraftOutboxItemId(savedStateHandle, KEY_WATER_VIDEO_PROOF_ITEM_ID)
+    private var completeEnqueueInFlight = false
+    private val syncedProofAnalytics: MutableSet<ProofSlot> =
+        EnumSet.noneOf(ProofSlot::class.java) // mobile-guard:ignore bounded by ProofSlot enum.
 
     private val _state = MutableStateFlow(
         FeedDistributionUiState(
             shedLabel = shedLabel,
             sessionLabel = sessionLabel,
             workflowLabel = workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() },
-            alreadySubmitted = alreadySubmitted,
+            feedWeightPhotoCaptured = feedWeightPhotoProofItemId.value != null,
+            feedWeightPhotoStatus = feedWeightPhotoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
+            videoCaptured = videoProofItemId.value != null,
+            videoStatus = videoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
+            waterVideoCaptured = waterVideoProofItemId.value != null,
+            waterVideoStatus = waterVideoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
         ),
     )
     val state: StateFlow<FeedDistributionUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
-
+    private var syncStatusJob: Job? = null
+    private var feedWeightPhotoStatusJob: Job? = null
+    private var feedVideoStatusJob: Job? = null
+    private var waterVideoStatusJob: Job? = null
     init {
         analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED)
-        viewModelScope.launch {
-            // Rehydrate BEFORE the first render decision: a re-entered session must show the proofs
-            // it already has rather than an empty form.
-            draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
-            _state.update {
-                it.copy(
-                    weightCaptured = draft.hasProof(STEP_WEIGHT),
-                    videoCaptured = draft.hasProof(STEP_VIDEO),
-                    waterCaptured = draft.hasProof(STEP_WATER),
-                )
-            }
-            recomputeCanComplete()
-            draft.submitOutboxItemId?.let(::observeOutboxItem)
-        }
+        recomputeCanComplete()
+        observeSyncStatus()
+        outboxItemId.value?.let(::observeOutboxItem)
+        feedWeightPhotoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, it) }
+        videoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_VIDEO, it) }
+        waterVideoProofItemId.value?.let { observeProofItem(ProofSlot.WATER_VIDEO, it) }
     }
 
     fun onEvent(event: FeedDistributionEvent) {
         when (event) {
-            FeedDistributionEvent.TakeFeedWeightPhoto -> captureFeedWeightPhoto()
             FeedDistributionEvent.RecordFeedVideo -> captureFeedVideo()
+            FeedDistributionEvent.TakeFeedWeightPhoto -> captureFeedWeightPhoto()
             FeedDistributionEvent.RecordWaterVideo -> captureWaterVideo()
-            // Re-record/re-take: drop the queued upload of the take being discarded so the verifier
-            // never receives two captures for one step, then capture afresh.
-            FeedDistributionEvent.ReTakeFeedWeightPhoto -> reCapture(STEP_WEIGHT) { captureFeedWeightPhoto() }
-            FeedDistributionEvent.ReRecordFeedVideo -> reCapture(STEP_VIDEO) { captureFeedVideo() }
-            FeedDistributionEvent.ReRecordWaterVideo -> reCapture(STEP_WATER) { captureWaterVideo() }
             FeedDistributionEvent.MarkDone -> markDone()
-            FeedDistributionEvent.Back -> Unit // navigation — handled by the nav host.
+            FeedDistributionEvent.SyncNow -> syncNow()
+            FeedDistributionEvent.Back -> analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_BACK_TAPPED)
         }
     }
 
-    /**
-     * Discards one step's captured proof and re-runs its capture. The queued PROOF_UPLOAD is deleted
-     * first: it has not been reviewed, and leaving it would submit a clip the operator rejected.
-     */
-    private fun reCapture(step: String, capture: () -> Unit) {
-        if (_state.value.isCapturingWeight || _state.value.isCapturingVideo || _state.value.isCapturingWater) return
-        viewModelScope.launch {
-            draft.proofs[step]?.let { syncRepository.deleteOutboxItem(it) }
-            drafts.clearProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, step)
-            draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
-            when (step) {
-                STEP_WEIGHT -> weightKey.invalidate()
-                STEP_VIDEO -> videoKey.invalidate()
-                STEP_WATER -> waterKey.invalidate()
-            }
-            _state.update {
-                it.copy(
-                    weightCaptured = if (step == STEP_WEIGHT) false else it.weightCaptured,
-                    videoCaptured = if (step == STEP_VIDEO) false else it.videoCaptured,
-                    waterCaptured = if (step == STEP_WATER) false else it.waterCaptured,
-                    canComplete = false,
-                    weightMessage = if (step == STEP_WEIGHT) null else it.weightMessage,
-                    videoMessage = if (step == STEP_VIDEO) null else it.videoMessage,
-                    waterMessage = if (step == STEP_WATER) null else it.waterMessage,
-                )
-            }
-            capture()
-        }
-    }
-
-    /**
-     * STEP 1 — MANDATORY feed-weight PHOTO from the LIVE in-app camera.
-     *
-     * `capture_source` is sent and the backend ASSERTS it is `in_app_camera` for this step (the two
-     * videos are not asserted that way). A gallery still of a scale is a reading from some other day,
-     * and this is the only capture a verifier can check against the expected ration.
-     */
     private fun captureFeedWeightPhoto() {
-        if (!_state.value.weightCaptureEnabled || shedId.isBlank()) return
-        _state.update { it.copy(isCapturingWeight = true, weightMessage = null) }
+        if (_state.value.isCapturingFeedWeightPhoto || _state.value.isFinalSubmitted || shedId.isBlank()) return
+        val replacing = _state.value.feedWeightPhotoCaptured
+        if (replacing) trackReuploadTapped(ProofSlot.FEED_WEIGHT_PHOTO)
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
+            mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+        )
+        _state.update { it.copy(isCapturingFeedWeightPhoto = true, feedWeightPhotoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                photoCaptureSource.capturePhoto()
+                photoCaptureSource.capturePhoto(
+                    PhotoCaptureContext(
+                        title = appContext.getString(R.string.proof_photo_feed_weight_title),
+                        instruction = appContext.getString(R.string.proof_photo_feed_weight_instruction),
+                    ),
+                )
             } catch (error: Exception) {
-                crashReporter.recordException(error, "feed weight photo capture failed")
+                crashReporter.recordException(error, "feed distribution feed weight photo capture failed")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingWeight = false) }
+                _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
                 return@launch
             }
+            feedWeightPhotoKey.invalidate()
             val request = ProofUploadRequestDto(
                 proofType = "photo",
                 mimeType = captured.mimeType,
@@ -209,39 +166,47 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 scopeId = shedId,
                 subjectType = "shed",
                 subjectId = shedId,
-                // No capture window: a photo is an instant, and the backend requires start/end only
-                // for videos. capture_source IS required here -- see the KDoc above.
                 metadata = mapOf(
                     META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_PROOF_SLOT to JsonPrimitive("feed_weight_photo"),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
                 ),
             )
             when (
                 val result = syncRepository.enqueueProofUpload(
                     groupKey = groupKey,
-                    idempotencyKey = weightKey.current(),
+                    idempotencyKey = feedWeightPhotoKey.current(),
                     request = request,
                     localFilePath = captured.localUri,
                     durationMs = null,
                 )
             ) {
                 is AppResult.Ok -> {
-                    // Durable BEFORE the UI flips: a process death here must not lose the photo.
-                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_WEIGHT, result.value)
-                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
-                    analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_WEIGHT_PHOTO_CAPTURED)
-                    _state.update { it.copy(isCapturingWeight = false, weightCaptured = true, weightMessage = WEIGHT_QUEUED) }
+                    feedWeightPhotoProofItemId.value = result.value
+                    observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, result.value)
+                    analytics.track(
+                        AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
+                        mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+                    )
+                    _state.update {
+                        it.copy(
+                            isCapturingFeedWeightPhoto = false,
+                            feedWeightPhotoCaptured = true,
+                            feedWeightPhotoPreviewPath = captured.localUri,
+                            feedWeightPhotoStatus = FeedDistributionProofStatus.QUEUED,
+                            feedWeightPhotoMessage = PROOF_QUEUED,
+                        )
+                    }
                     recomputeCanComplete()
                 }
                 is AppResult.Err -> {
-                    // The row was never created; drop the key so a retry mints a fresh one.
-                    weightKey.invalidate()
-                    result.cause?.let { crashReporter.recordException(it, "feed weight photo enqueue failed") }
+                    feedWeightPhotoKey.invalidate()
+                    result.cause?.let { crashReporter.recordException(it, "feed distribution feed weight photo enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
                         mapOf(AnalyticsEvents.Params.REASON to result.message),
                     )
-                    _state.update { it.copy(isCapturingWeight = false, weightMessage = PROOF_FAILED) }
+                    _state.update { it.copy(isCapturingFeedWeightPhoto = false, feedWeightPhotoMessage = PROOF_FAILED) }
                 }
             }
         }
@@ -250,11 +215,17 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     /** MANDATORY feed-distribution video from the LIVE in-app camera. It enqueues a PROOF_UPLOAD on
      *  the shed-session group so it drains before the completion. */
     private fun captureFeedVideo() {
-        if (!_state.value.videoCaptureEnabled || shedId.isBlank()) return
+        if (_state.value.isCapturingVideo || _state.value.isFinalSubmitted || shedId.isBlank()) return
+        val replacing = _state.value.videoCaptured
+        if (replacing) trackReuploadTapped(ProofSlot.FEED_VIDEO)
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
+            mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+        )
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_DISTRIBUTION)
+                proofCaptureSource.captureVideo(feedVideoContext())
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed distribution video capture failed")
                 null
@@ -263,6 +234,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
+            videoKey.invalidate()
             val request = ProofUploadRequestDto(
                 proofType = "video",
                 mimeType = captured.mimeType,
@@ -275,6 +247,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 // camera; omitting them is rejected 400 invalid_proof.
                 metadata = mapOf(
                     META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_PROOF_SLOT to JsonPrimitive("feed_distribution_video"),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
                     META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
                     META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
@@ -290,11 +263,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
-                    // Durable BEFORE the UI flips: a process death here must not lose the clip.
-                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_VIDEO, result.value)
-                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
-                    analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_VIDEO_CAPTURED)
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
+                    videoProofItemId.value = result.value
+                    observeProofItem(ProofSlot.FEED_VIDEO, result.value)
+                    analytics.track(
+                        AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
+                        mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+                    )
+                    _state.update {
+                        it.copy(
+                            isCapturingVideo = false,
+                            videoCaptured = true,
+                            videoPreviewPath = captured.localUri,
+                            videoStatus = FeedDistributionProofStatus.QUEUED,
+                            videoMessage = VIDEO_QUEUED,
+                        )
+                    }
                     recomputeCanComplete()
                 }
                 is AppResult.Err -> {
@@ -311,27 +294,27 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
-    /**
-     * STEP 3 — MANDATORY water-distribution VIDEO from the LIVE in-app camera.
-     *
-     * VIDEO-ONLY since 2026-08-11. The photo branch (and its `isVideo` parameter) is deliberately
-     * gone rather than defaulted: a photo of a full trough proves a trough is full, not that this
-     * operator filled it today. The backend rejects a photo here `422 proof_required`.
-     */
     private fun captureWaterVideo() {
-        if (!_state.value.waterCaptureEnabled || shedId.isBlank()) return
-        _state.update { it.copy(isCapturingWater = true, waterMessage = null) }
+        if (_state.value.isCapturingWaterVideo || !_state.value.waterVideoCaptureEnabled || shedId.isBlank()) return
+        val replacing = _state.value.waterVideoCaptured
+        if (replacing) trackReuploadTapped(ProofSlot.WATER_VIDEO)
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
+            mapOf(AnalyticsEvents.Params.KIND to "water_video"),
+        )
+        _state.update { it.copy(isCapturingWaterVideo = true, waterVideoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(ProofCapturePrompt.WATER_DISTRIBUTION)
+                proofCaptureSource.captureVideo(waterVideoContext())
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed distribution water video capture failed")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingWater = false) }
+                _state.update { it.copy(isCapturingWaterVideo = false) }
                 return@launch
             }
+            waterVideoKey.invalidate()
             val request = ProofUploadRequestDto(
                 proofType = "video",
                 mimeType = captured.mimeType,
@@ -339,10 +322,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 scopeId = shedId,
                 subjectType = "shed",
                 subjectId = shedId,
-                // The backend REQUIRES capture_source + the capture window for a video proof
-                // (proof/app.validateCreate); omitting them is rejected 400 invalid_proof.
                 metadata = mapOf(
                     META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
+                    META_PROOF_SLOT to JsonPrimitive("water_distribution_video"),
                     META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
                     META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
                     META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
@@ -351,78 +333,92 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             when (
                 val result = syncRepository.enqueueProofUpload(
                     groupKey = groupKey,
-                    idempotencyKey = waterKey.current(),
+                    idempotencyKey = waterVideoKey.current(),
                     request = request,
                     localFilePath = captured.localUri,
                     durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
                 )
             ) {
                 is AppResult.Ok -> {
-                    drafts.putProof(CaptureFlow.FEED_DISTRIBUTION, groupKey, STEP_WATER, result.value)
-                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
+                    waterVideoProofItemId.value = result.value
+                    observeProofItem(ProofSlot.WATER_VIDEO, result.value)
                     analytics.track(
-                        AnalyticsEvents.FEED_DISTRIBUTION_WATER_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "video"),
+                        AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
+                        mapOf(AnalyticsEvents.Params.KIND to "water_video"),
                     )
-                    _state.update { it.copy(isCapturingWater = false, waterCaptured = true, waterMessage = PROOF_QUEUED) }
+                    _state.update {
+                        it.copy(
+                            isCapturingWaterVideo = false,
+                            waterVideoCaptured = true,
+                            waterVideoPreviewPath = captured.localUri,
+                            waterVideoStatus = FeedDistributionProofStatus.QUEUED,
+                            waterVideoMessage = PROOF_QUEUED,
+                        )
+                    }
                     recomputeCanComplete()
                 }
                 is AppResult.Err -> {
-                    waterKey.invalidate()
-                    result.cause?.let { crashReporter.recordException(it, "feed distribution water enqueue failed") }
+                    waterVideoKey.invalidate()
+                    result.cause?.let { crashReporter.recordException(it, "feed distribution water video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
                         mapOf(AnalyticsEvents.Params.REASON to result.message),
                     )
-                    _state.update { it.copy(isCapturingWater = false, waterMessage = PROOF_FAILED) }
+                    _state.update { it.copy(isCapturingWaterVideo = false, waterVideoMessage = PROOF_FAILED) }
                 }
             }
         }
     }
 
     private fun markDone() {
+        if (completeEnqueueInFlight) return
         val current = _state.value
-        val weightItem = draft.proofs[STEP_WEIGHT]
-        val videoItem = draft.proofs[STEP_VIDEO]
-        val waterItem = draft.proofs[STEP_WATER]
-        // Defense in depth alongside the UI gate: all three proofs must exist to submit.
-        if (!current.weightCaptured || !current.videoCaptured || !current.waterCaptured ||
-            weightItem.isNullOrBlank() || videoItem.isNullOrBlank() || waterItem.isNullOrBlank()
+        val feedWeightPhotoItem = feedWeightPhotoProofItemId.value
+        val videoItem = videoProofItemId.value
+        val waterVideoItem = waterVideoProofItemId.value
+        if (
+            !current.submitEnabled ||
+            feedWeightPhotoItem.isNullOrBlank() ||
+            videoItem.isNullOrBlank() ||
+            waterVideoItem.isNullOrBlank()
         ) {
+            analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED,
+                mapOf(
+                    "feed_weight_photo_status" to current.feedWeightPhotoStatus.name.lowercase(Locale.ROOT),
+                    "feed_video_status" to current.videoStatus.name.lowercase(Locale.ROOT),
+                    "water_video_status" to current.waterVideoStatus.name.lowercase(Locale.ROOT),
+                ),
+            )
             _state.update { it.copy(canComplete = false) }
             return
         }
+        completeEnqueueInFlight = true
         viewModelScope.launch {
-            // STABLE per shed-session and durable, so a re-entered screen resends the SAME key and a
-            // completion the server already accepted collapses onto it instead of submitting twice.
-            val completeIdempotencyKey = draft.submitIdempotencyKey ?: "feed-distribution-complete:$groupKey"
-            if (draft.submitIdempotencyKey == null) {
-                drafts.putSubmit(CaptureFlow.FEED_DISTRIBUTION, groupKey, completeIdempotencyKey, null)
-                draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
-            }
             when (
                 val result = syncRepository.enqueueFeedDistributionComplete(
                     groupKey = groupKey,
-                    idempotencyKey = completeIdempotencyKey,
+                    idempotencyKey = completeKey.current(),
                     parkId = parkId,
                     shedId = shedId,
                     partitionLabel = partitionLabel,
                     sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
-                    feedWeightProofOutboxItemId = weightItem,
+                    feedWeightProofOutboxItemId = feedWeightPhotoItem,
                     distributionProofOutboxItemId = videoItem,
-                    waterProofOutboxItemId = waterItem,
+                    waterProofOutboxItemId = waterVideoItem,
                 )
             ) {
                 is AppResult.Ok -> {
-                    drafts.putSubmit(CaptureFlow.FEED_DISTRIBUTION, groupKey, completeIdempotencyKey, result.value)
-                    draft = drafts.find(CaptureFlow.FEED_DISTRIBUTION, groupKey)
+                    outboxItemId.value = result.value
                     observeOutboxItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
+                    completeEnqueueInFlight = false
                     _state.update { it.copy(canComplete = false) }
                 }
                 is AppResult.Err -> {
+                    completeEnqueueInFlight = false
                     result.cause?.let { crashReporter.recordException(it, "feed distribution complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
@@ -436,31 +432,145 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun syncNow() {
+        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
+        viewModelScope.launch {
+            syncRepository.triggerDrain()
+        }
+    }
+
+    private fun observeSyncStatus() {
+        syncStatusJob?.cancel()
+        syncStatusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status -> status.inFlightCount > 0 }
+                .distinctUntilChanged()
+                .collect { syncing ->
+                    _state.update { it.copy(isSyncing = syncing) }
+                }
+        }
+    }
+
     private fun observeOutboxItem(itemId: String) {
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
-            syncRepository.observeItem(itemId)
+            syncRepository.observeStatus()
+                .map { status -> status.items.firstOrNull { it.id == itemId } }
                 .filterNotNull()
                 .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
+                    item ?: return@collect
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
                             result = FeedDistributionResultUi(writeResult.status.toDistributionStatus(), writeResult.message.orEmpty()),
-                            canComplete = !writeResult.isCommitted &&
-                                it.weightCaptured && it.videoCaptured && it.waterCaptured,
+                            canComplete = !writeResult.isCommitted && it.feedWeightPhotoCaptured && it.videoCaptured && it.waterVideoCaptured,
                         )
                     }
                 }
         }
     }
 
+    private fun observeProofItem(slot: ProofSlot, itemId: String) {
+        val jobRef = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> ::feedWeightPhotoStatusJob
+            ProofSlot.FEED_VIDEO -> ::feedVideoStatusJob
+            ProofSlot.WATER_VIDEO -> ::waterVideoStatusJob
+        }
+        jobRef.get()?.cancel()
+        jobRef.set(
+            viewModelScope.launch {
+                syncRepository.observeItem(itemId)
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .collect { item ->
+                        updateProofStatus(slot, item)
+                    }
+            },
+        )
+    }
+
+    private fun updateProofStatus(slot: ProofSlot, item: SyncQueueItem) {
+        val proofStatus = when (item.status) {
+            SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
+            SyncItemStatus.IN_FLIGHT -> FeedDistributionProofStatus.UPLOADING
+            SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
+            SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
+        }
+        val message = when (proofStatus) {
+            FeedDistributionProofStatus.QUEUED -> PROOF_QUEUED
+            FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
+            FeedDistributionProofStatus.SYNCED -> PROOF_SYNCED
+            FeedDistributionProofStatus.FAILED -> item.lastError ?: PROOF_FAILED
+            FeedDistributionProofStatus.EMPTY -> null
+        }
+        _state.update {
+            when (slot) {
+                ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
+                    feedWeightPhotoCaptured = it.feedWeightPhotoCaptured || item.localFilePath != null,
+                    feedWeightPhotoPreviewPath = it.feedWeightPhotoPreviewPath ?: item.localFilePath,
+                    feedWeightPhotoStatus = proofStatus,
+                    feedWeightPhotoMessage = message,
+                )
+                ProofSlot.FEED_VIDEO -> it.copy(
+                    videoCaptured = it.videoCaptured || item.localFilePath != null,
+                    videoPreviewPath = it.videoPreviewPath ?: item.localFilePath,
+                    videoStatus = proofStatus,
+                    videoMessage = message,
+                )
+                ProofSlot.WATER_VIDEO -> it.copy(
+                    waterVideoCaptured = it.waterVideoCaptured || item.localFilePath != null,
+                    waterVideoPreviewPath = it.waterVideoPreviewPath ?: item.localFilePath,
+                    waterVideoStatus = proofStatus,
+                    waterVideoMessage = message,
+                )
+            }
+        }
+        if (proofStatus == FeedDistributionProofStatus.SYNCED && syncedProofAnalytics.add(slot)) {
+            analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED,
+                mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+            )
+        }
+        recomputeCanComplete()
+    }
+
+    private fun trackReuploadTapped(slot: ProofSlot) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED,
+            mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+        )
+    }
+
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedDistributionStatus.SYNCED || r.status == FeedDistributionStatus.QUEUED } ?: false
-            it.copy(canComplete = it.weightCaptured && it.videoCaptured && it.waterCaptured && !committed)
+            it.copy(
+                canComplete = it.feedWeightPhotoStatus == FeedDistributionProofStatus.SYNCED &&
+                    it.videoStatus == FeedDistributionProofStatus.SYNCED &&
+                    it.waterVideoStatus == FeedDistributionProofStatus.SYNCED &&
+                    !committed,
+            )
         }
     }
+
+    private fun feedVideoContext(): ProofCaptureContext = proofContext(
+        title = "Record feed video",
+    )
+
+    private fun waterVideoContext(): ProofCaptureContext = proofContext(
+        title = "Record water video",
+    )
+
+    private fun proofContext(title: String): ProofCaptureContext = ProofCaptureContext(
+        title = title,
+        primaryTag = shedLabel.ifBlank { shedId },
+        workLabel = listOf(sessionLabel, workflow.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() })
+            .filter { it.isNotBlank() }
+            .joinToString(" · "),
+        headerTitle = title,
+    )
 
     private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toDistributionStatus(): FeedDistributionStatus = when (this) {
         sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED -> FeedDistributionStatus.SYNCED
@@ -476,29 +586,36 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         const val ARG_TARGET_DATE = "target_date"
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
-
-        /** The PEN worked. Part of the completion's identity: without it one pen's video closed
-         *  out every pen of the shed (STG 2026-08-08). */
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
 
-        /** Draft step names in the shared capture-draft store. */
-        private const val STEP_WEIGHT = "weight"
-        private const val STEP_VIDEO = "video"
-        private const val STEP_WATER = "water"
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedDistribution.completeKey"
-        private const val KEY_WEIGHT_IDEMPOTENCY = "feedDistribution.weightKey"
+        private const val KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY = "feedDistribution.feedWeightPhotoKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"
-        private const val KEY_WATER_IDEMPOTENCY = "feedDistribution.waterKey"
+        private const val KEY_WATER_VIDEO_IDEMPOTENCY = "feedDistribution.waterVideoKey"
+        private const val KEY_OUTBOX_ITEM_ID = "feedDistribution.outboxItemId"
+        private const val KEY_FEED_WEIGHT_PHOTO_PROOF_ITEM_ID = "feedDistribution.feedWeightPhotoProofItemId"
+        private const val KEY_VIDEO_PROOF_ITEM_ID = "feedDistribution.videoProofItemId"
+        private const val KEY_WATER_VIDEO_PROOF_ITEM_ID = "feedDistribution.waterVideoProofItemId"
         private const val META_SESSION_NO = "session_no"
+        private const val META_PROOF_SLOT = "proof_slot"
         private const val META_CAPTURE_SOURCE = "capture_source"
         private const val META_CAPTURED_START_MS = "captured_start_ms"
         private const val META_CAPTURED_END_MS = "captured_end_ms"
-        private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the weight photo, feed video and water video."
-        private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this feeding is counted."
-        private const val WEIGHT_QUEUED = "Feed weight photo saved on this phone. It will upload automatically."
+        private const val QUEUED_MESSAGE = "Sent for verification. A verifier will review the three proofs."
+        private const val SYNCED_MESSAGE = "Sent. Waiting for verifier approval before this feeding is counted."
         private const val VIDEO_QUEUED = "Feed video saved on this phone. It will upload automatically."
-        private const val PROOF_QUEUED = "Water video saved on this phone. It will upload automatically."
+        private const val PROOF_QUEUED = "Proof saved on this phone. It will upload automatically."
+        private const val PROOF_UPLOADING = "Proof upload is in progress."
+        private const val PROOF_SYNCED = "Proof is ready."
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
+    }
+
+    private enum class ProofSlot { FEED_WEIGHT_PHOTO, FEED_VIDEO, WATER_VIDEO }
+
+    private fun ProofSlot.analyticsKind(): String = when (this) {
+        ProofSlot.FEED_WEIGHT_PHOTO -> "feed_weight_photo"
+        ProofSlot.FEED_VIDEO -> "feed_video"
+        ProofSlot.WATER_VIDEO -> "water_video"
     }
 }

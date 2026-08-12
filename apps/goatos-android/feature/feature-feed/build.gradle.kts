@@ -37,6 +37,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
     // Paging's Compose bindings: the two feed read screens render LazyPagingItems so each list is
     // bounded at both layers (Room window + network page), never a materialized full sheet.
     implementation(libs.androidx.paging.compose)

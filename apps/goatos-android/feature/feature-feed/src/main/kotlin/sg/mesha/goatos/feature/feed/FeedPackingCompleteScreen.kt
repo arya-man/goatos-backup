@@ -6,28 +6,25 @@ package sg.mesha.goatos.feature.feed
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
  * Feed-PACKING completion detail (L2), reached by tapping a shed-session row on Feed Packing. The
@@ -55,7 +52,10 @@ data class FeedPackingCompleteUiState(
     val isCapturingVideo: Boolean = false,
     val videoCaptured: Boolean = false,
     val videoMessage: String? = null,
+    val videoPreviewPath: String? = null,
+    val videoStatus: FeedDistributionProofStatus = FeedDistributionProofStatus.EMPTY,
     val canComplete: Boolean = false,
+    val isSyncing: Boolean = false,
     val result: FeedPackingCompleteResultUi? = null,
     /**
      * The session already went to the verifier (or was approved), so there is nothing to record
@@ -71,6 +71,7 @@ data class FeedPackingCompleteUiState(
     /** The mandatory video is recorded and the write is not already committed. */
     val submitEnabled: Boolean
         get() = !alreadySubmitted && canComplete && videoCaptured && !isCapturingVideo &&
+            videoStatus == FeedDistributionProofStatus.SYNCED &&
             result?.status != FeedPackingCompleteStatus.SYNCED && result?.status != FeedPackingCompleteStatus.QUEUED
 
     /** Recording is offered only while the session is still the operator's to act on. */
@@ -85,6 +86,7 @@ sealed interface FeedPackingCompleteEvent {
     data object ReRecordPackingVideo : FeedPackingCompleteEvent
 
     data object MarkDone : FeedPackingCompleteEvent
+    data object SyncNow : FeedPackingCompleteEvent
     data object Back : FeedPackingCompleteEvent
 }
 
@@ -95,68 +97,125 @@ fun FeedPackingCompleteScreen(
 ) {
     val committed = state.result?.status == FeedPackingCompleteStatus.SYNCED ||
         state.result?.status == FeedPackingCompleteStatus.QUEUED
-    FeedCaptureScaffold(
-        title = state.shedLabel,
-        subtitle = listOf(state.sessionLabel, state.workflowLabel).filter { it.isNotBlank() }.joinToString(" \u00b7 "),
-        instruction = stringResource(R.string.feed_pack_complete_caption),
-        onBack = { onEvent(FeedPackingCompleteEvent.Back) },
+    val subtitle = listOf(state.sessionLabel, state.workflowLabel).filter { it.isNotBlank() }.joinToString(" · ")
+    Scaffold(
+        containerColor = MeshaColors.PageBg,
+        topBar = {
+            MeshaScreenHeader(
+                title = state.shedLabel.ifBlank { stringResource(R.string.feed_packing_title) },
+                eyebrow = "FEED PACKING",
+                eyebrowColor = MeshaColors.BrandD,
+                subtitle = subtitle,
+                onBack = { onEvent(FeedPackingCompleteEvent.Back) },
+                actions = {
+                    SyncIconButton(
+                        isSyncing = state.isSyncing,
+                        onSync = { onEvent(FeedPackingCompleteEvent.SyncNow) },
+                    )
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+        ) {
+            // ALREADY SUBMITTED: the session went to the verifier, so there is nothing to record.
+            if (state.alreadySubmitted) {
+                item {
+                    FeedDistStatusCardBody(
+                        text = stringResource(R.string.feed_complete_already_submitted_body),
+                        tone = MeshaColors.Muted,
+                    )
+                }
+                return@LazyColumn
+            }
+
+            item {
+                FeedPackingStatusCard(
+                    state = state,
+                    committed = committed,
+                    onRetrySubmit = { onEvent(FeedPackingCompleteEvent.MarkDone) },
+                )
+            }
+            item {
+                FeedDistProofAction(
+                    title = stringResource(R.string.feed_pack_complete_record_video),
+                    subtitle = stringResource(R.string.feed_pack_complete_video_title),
+                    icon = MeshaIcons.Video,
+                    captured = state.videoCaptured,
+                    status = state.videoStatus,
+                    previewPath = state.videoPreviewPath,
+                    previewKind = FeedDistPreviewKind.Video,
+                    capturedLabel = proofLabel(state.videoStatus, stringResource(R.string.feed_pack_complete_video_recorded)),
+                    loading = state.isCapturingVideo,
+                    loadingLabel = stringResource(R.string.feed_pack_complete_video_uploading),
+                    retryLabel = stringResource(R.string.feed_pack_complete_retry_video),
+                    enabled = state.captureEnabled && !committed && !state.isCapturingVideo,
+                    message = state.videoMessage,
+                    onClick = {
+                        if (state.videoCaptured) {
+                            onEvent(FeedPackingCompleteEvent.ReRecordPackingVideo)
+                        } else {
+                            onEvent(FeedPackingCompleteEvent.RecordPackingVideo)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedPackingStatusCard(
+    state: FeedPackingCompleteUiState,
+    committed: Boolean,
+    onRetrySubmit: () -> Unit,
+) {
+    val completionFailed = state.result?.status == FeedPackingCompleteStatus.FAILED
+    val statusText = when {
+        committed -> stringResource(R.string.feed_pack_complete_submitted)
+        completionFailed -> state.result.message
+        state.submitEnabled -> stringResource(R.string.feed_pack_complete_ready_to_submit)
+        state.videoCaptured -> stringResource(R.string.feed_pack_complete_waiting_sync)
+        else -> stringResource(R.string.feed_pack_complete_need_video)
+    }
+    val tone = when {
+        committed -> MeshaColors.Ok
+        completionFailed -> MeshaColors.Danger
+        state.videoCaptured -> MeshaColors.BrandD
+        else -> MeshaColors.Muted
+    }
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
     ) {
-        // ALREADY SUBMITTED: the session went to the verifier, so there is nothing to record. The
-        // operator still gets here — a row he tapped must open — but he sees the state instead of
-        // an empty form, which is what let a second video be shot for work already queued.
-        if (state.alreadySubmitted) {
-            FeedProofCard(title = stringResource(R.string.feed_complete_already_submitted_title)) {
-                Text(
-                    text = stringResource(R.string.feed_complete_already_submitted_body),
-                    color = MeshaColors.Muted,
-                    fontSize = 13.sp,
-                )
-            }
-            return@FeedCaptureScaffold
+        Text(text = stringResource(R.string.feed_pack_complete_caption), color = MeshaColors.Muted, style = MeshaType.body)
+        Text(text = statusText, color = tone, style = MeshaType.caption)
+        if (state.submitEnabled) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_pack_complete_submit), onClick = onRetrySubmit)
+        } else if (completionFailed) {
+            FeedDistRetryButton(label = stringResource(R.string.feed_pack_complete_retry_submit), onClick = onRetrySubmit)
         }
+    }
+}
 
-        // MANDATORY live in-app camera packing video.
-        FeedProofCard(title = stringResource(R.string.feed_pack_complete_video_title)) {
-            when {
-                state.videoCaptured -> FeedVerificationCaptured(
-                    label = stringResource(R.string.feed_pack_complete_video_recorded),
-                    reRecordLabel = stringResource(R.string.feed_proof_rerecord),
-                    onReRecord = { onEvent(FeedPackingCompleteEvent.ReRecordPackingVideo) },
-                    enabled = !committed,
-                )
-                state.isCapturingVideo -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_pack_complete_video_uploading),
-                    enabled = false,
-                    primary = false,
-                    loading = true,
-                    onClick = {},
-                )
-                else -> FeedVerificationActionButton(
-                    label = stringResource(R.string.feed_pack_complete_record_video),
-                    enabled = !committed,
-                    primary = false,
-                    onClick = { onEvent(FeedPackingCompleteEvent.RecordPackingVideo) },
-                )
-            }
-            state.videoMessage?.let { Text(text = it, color = MeshaColors.Muted, fontSize = 12.sp) }
-        }
-
-        FeedVerificationActionButton(
-            label = stringResource(R.string.feed_pack_complete_submit),
-            enabled = state.submitEnabled,
-            primary = true,
-            onClick = { onEvent(FeedPackingCompleteEvent.MarkDone) },
-        )
-        if (!state.submitEnabled && !committed && !state.videoCaptured) {
-            Text(text = stringResource(R.string.feed_pack_complete_need_video), color = MeshaColors.Faint, fontSize = 12.sp)
-        }
-
-        state.result?.let { result ->
-            val tone = when (result.status) {
-                FeedPackingCompleteStatus.FAILED -> MeshaColors.Danger
-                else -> MeshaColors.Ok
-            }
-            Text(text = result.message, color = tone, fontSize = 13.sp, fontWeight = FontWeight.W700)
-        }
+@Composable
+private fun FeedDistStatusCardBody(text: String, tone: Color) {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
+            .padding(16.dp),
+    ) {
+        Text(text = text, color = tone, style = MeshaType.body)
     }
 }

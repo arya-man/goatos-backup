@@ -36,8 +36,10 @@
     <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
     <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
     <string name="proof_camera_upload_background">प्रमाण अपलोड पृष्ठभूमि में जारी हैं</string>
-    <string name="proof_photo_title">पानी प्रमाण फ़ोटो लें</string>
-    <string name="proof_photo_instruction">पानी वितरण को स्पष्ट रूप से दिखाई देने दें</string>
+    <string name="proof_photo_title">प्रमाण फ़ोटो लें</string>
+    <string name="proof_photo_instruction">प्रमाण के विषय को साफ़ दिखाई देने दें</string>
+    <string name="proof_photo_feed_weight_title">फ़ीड वज़न फ़ोटो लें</string>
+    <string name="proof_photo_feed_weight_instruction">तौले गए फ़ीड को देने से पहले साफ़ दिखाई देने दें</string>
     <string name="proof_photo_take">फ़ोटो लें</string>
     <string name="proof_photo_cancel">फ़ोटो कैप्चर रद्द करें</string>
     <string name="submit_shed_success_toast">शेड प्रमाण समीक्षा के लिए जमा हुआ</string>

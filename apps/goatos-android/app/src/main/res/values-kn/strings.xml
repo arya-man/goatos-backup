@@ -36,8 +36,10 @@
     <string name="proof_camera_state_ready">ರೆಕಾರ್ಡ್ ಮಾಡಲು ಸಿದ್ಧ</string>
     <string name="proof_camera_state_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="proof_camera_upload_background">ಪುರಾವೆ ಅಪ್‌ಲೋಡ್‌ಗಳು ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಮುಂದುವರಿಯುತ್ತವೆ</string>
-    <string name="proof_photo_title">ನೀರಿನ ಪುರಾವೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
-    <string name="proof_photo_instruction">ನೀರಿನ ವಿತರಣೆ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_photo_title">ಪುರಾವೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="proof_photo_instruction">ಪುರಾವೆಯ ವಿಷಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
+    <string name="proof_photo_feed_weight_title">ಮೇವಿನ ತೂಕದ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="proof_photo_feed_weight_instruction">ಹಾಕುವ ಮೊದಲು ತೂಕ ಮಾಡಿದ ಮೇವು ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_photo_take">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_cancel">ಫೋಟೋ ಕ್ಯಾಪ್ಚರ್ ರದ್ದುಮಾಡಿ</string>
     <string name="submit_shed_success_toast">ಶೆಡ್ ಪುರಾವೆ ಪರಿಶೀಲನೆಗೆ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>

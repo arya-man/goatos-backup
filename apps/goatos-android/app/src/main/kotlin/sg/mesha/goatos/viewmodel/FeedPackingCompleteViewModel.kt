@@ -10,11 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
-import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -22,6 +23,8 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.feedSessionCanCapture
@@ -29,6 +32,7 @@ import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteUiState
+import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import java.util.Locale
 import javax.inject.Inject
 
@@ -99,12 +103,16 @@ class FeedPackingCompleteViewModel @Inject constructor(
     val state: StateFlow<FeedPackingCompleteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var proofStatusJob: Job? = null
+    private var proofSyncedTracked = false
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
+        observeSyncStatus()
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
             _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
+            draft.proofs[STEP_VIDEO]?.let(::observeProofItem)
             recomputeCanComplete()
             draft.submitOutboxItemId?.let(::observeOutboxItem)
         }
@@ -115,17 +123,29 @@ class FeedPackingCompleteViewModel @Inject constructor(
             FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo()
             // Re-record: drop the discarded take's queued upload, then capture afresh.
             FeedPackingCompleteEvent.ReRecordPackingVideo -> {
+                analytics.track(AnalyticsEvents.FEED_PACKING_REUPLOAD_TAPPED)
                 viewModelScope.launch {
                     if (_state.value.isCapturingVideo) return@launch
                     draft.proofs[STEP_VIDEO]?.let { syncRepository.deleteOutboxItem(it) }
                     drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     videoKey.invalidate()
-                    _state.update { it.copy(videoCaptured = false, canComplete = false, videoMessage = null) }
+                    proofStatusJob?.cancel()
+                    proofSyncedTracked = false
+                    _state.update {
+                        it.copy(
+                            videoCaptured = false,
+                            canComplete = false,
+                            videoMessage = null,
+                            videoPreviewPath = null,
+                            videoStatus = FeedDistributionProofStatus.EMPTY,
+                        )
+                    }
                     capturePackingVideo()
                 }
             }
             FeedPackingCompleteEvent.MarkDone -> markDone()
+            FeedPackingCompleteEvent.SyncNow -> syncNow()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -134,10 +154,18 @@ class FeedPackingCompleteViewModel @Inject constructor(
      *  drains before the completion. */
     private fun capturePackingVideo() {
         if (_state.value.isCapturingVideo || _state.value.videoCaptured || shedId.isBlank()) return
+        analytics.track(AnalyticsEvents.FEED_PACKING_CAPTURE_TAPPED)
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_PACKING)
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = "Record packing video",
+                        primaryTag = shedLabel.ifBlank { shedId },
+                        workLabel = listOf(sessionLabel, _state.value.workflowLabel).filter { it.isNotBlank() }.joinToString(" · "),
+                        headerTitle = "Record packing video",
+                    ),
+                )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed packing video capture failed")
                 null
@@ -175,8 +203,17 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, result.value)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                    observeProofItem(result.value)
                     analytics.track(AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED)
-                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
+                    _state.update {
+                        it.copy(
+                            isCapturingVideo = false,
+                            videoCaptured = true,
+                            videoPreviewPath = captured.localUri,
+                            videoStatus = FeedDistributionProofStatus.QUEUED,
+                            videoMessage = VIDEO_QUEUED,
+                        )
+                    }
                     recomputeCanComplete()
                 }
                 is AppResult.Err -> {
@@ -197,7 +234,11 @@ class FeedPackingCompleteViewModel @Inject constructor(
         val current = _state.value
         val videoItem = draft.proofs[STEP_VIDEO]
         // Defense in depth alongside the UI gate: the video must exist to submit.
-        if (!current.videoCaptured || videoItem.isNullOrBlank()) {
+        if (!current.submitEnabled || videoItem.isNullOrBlank()) {
+            analytics.track(
+                AnalyticsEvents.FEED_PACKING_SUBMIT_BLOCKED,
+                mapOf("video_status" to current.videoStatus.name.lowercase(Locale.ROOT)),
+            )
             _state.update { it.copy(canComplete = false) }
             return
         }
@@ -261,10 +302,67 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun observeProofItem(itemId: String) {
+        proofStatusJob?.cancel()
+        proofStatusJob = viewModelScope.launch {
+            syncRepository.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect(::updateProofStatus)
+        }
+    }
+
+    private fun updateProofStatus(item: SyncQueueItem) {
+        val proofStatus = when (item.status) {
+            SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
+            SyncItemStatus.IN_FLIGHT -> FeedDistributionProofStatus.UPLOADING
+            SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
+            SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
+        }
+        val message = when (proofStatus) {
+            FeedDistributionProofStatus.QUEUED -> PROOF_QUEUED
+            FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
+            FeedDistributionProofStatus.SYNCED -> PROOF_SYNCED
+            FeedDistributionProofStatus.FAILED -> item.lastError ?: PROOF_FAILED
+            FeedDistributionProofStatus.EMPTY -> null
+        }
+        _state.update {
+            it.copy(
+                videoCaptured = it.videoCaptured || item.localFilePath != null,
+                videoPreviewPath = it.videoPreviewPath ?: item.localFilePath,
+                videoStatus = proofStatus,
+                videoMessage = message,
+            )
+        }
+        if (proofStatus == FeedDistributionProofStatus.SYNCED && !proofSyncedTracked) {
+            proofSyncedTracked = true
+            analytics.track(AnalyticsEvents.FEED_PACKING_PROOF_UPLOAD_SYNCED)
+        }
+        recomputeCanComplete()
+    }
+
+    private fun syncNow() {
+        analytics.track(AnalyticsEvents.FEED_PACKING_SYNC_TAPPED)
+        viewModelScope.launch {
+            syncRepository.triggerDrain()
+        }
+    }
+
+    private fun observeSyncStatus() {
+        viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { it.inFlightCount > 0 }
+                .distinctUntilChanged()
+                .collect { syncing ->
+                    _state.update { it.copy(isSyncing = syncing) }
+                }
+        }
+    }
+
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedPackingCompleteStatus.SYNCED || r.status == FeedPackingCompleteStatus.QUEUED } ?: false
-            it.copy(canComplete = it.videoCaptured && !committed)
+            it.copy(canComplete = it.videoStatus == FeedDistributionProofStatus.SYNCED && !committed)
         }
     }
 
@@ -299,6 +397,9 @@ class FeedPackingCompleteViewModel @Inject constructor(
         private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the packing video."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this packing is counted."
         private const val VIDEO_QUEUED = "Packing video saved on this phone. It will upload automatically."
+        private const val PROOF_QUEUED = "Proof saved on this phone. It will upload automatically."
+        private const val PROOF_UPLOADING = "Proof upload is in progress."
+        private const val PROOF_SYNCED = "Proof is ready."
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 }

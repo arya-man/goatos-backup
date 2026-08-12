@@ -34,8 +34,10 @@
     <string name="proof_camera_stop_recording">Stop and save proof recording</string>
     <string name="proof_camera_state_ready">Ready to record</string>
     <string name="proof_camera_state_recording">Recording</string>
-    <string name="proof_photo_title">Take water proof photo</string>
-    <string name="proof_photo_instruction">Keep the water distribution clearly visible</string>
+    <string name="proof_photo_title">Take proof photo</string>
+    <string name="proof_photo_instruction">Keep the proof subject clearly visible</string>
+    <string name="proof_photo_feed_weight_title">Take feed weight photo</string>
+    <string name="proof_photo_feed_weight_instruction">Keep the weighed feed clearly visible before it is given out</string>
     <string name="proof_photo_take">Take photo</string>
     <string name="proof_photo_cancel">Cancel photo capture</string>
     <string name="submit_shed_success_toast">Shed proof submitted for review</string>

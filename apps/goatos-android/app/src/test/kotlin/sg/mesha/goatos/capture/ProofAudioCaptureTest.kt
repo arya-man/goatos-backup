@@ -90,6 +90,7 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
             ),
             mandatoryCapturePermissionsForSdk(31),
@@ -102,6 +103,7 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
             ),
             mandatoryCapturePermissionsForSdk(32),
@@ -114,6 +116,7 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.POST_NOTIFICATIONS,
                 Manifest.permission.BLUETOOTH_CONNECT,
             ),

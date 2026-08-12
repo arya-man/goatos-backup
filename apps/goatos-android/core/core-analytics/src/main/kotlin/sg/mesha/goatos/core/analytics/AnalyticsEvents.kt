@@ -416,6 +416,30 @@ object AnalyticsEvents {
     /** The verifier-gated feed-distribution completion detail was opened (a Direction row tapped). */
     const val FEED_DISTRIBUTION_OPENED = "feed_distribution_opened"
 
+    /** Operator left the feed-distribution proof detail. */
+    const val FEED_DISTRIBUTION_BACK_TAPPED = "feed_distribution_back_tapped"
+
+    /** Operator tapped one of the independent feed-distribution proof capture actions. */
+    const val FEED_DISTRIBUTION_CAPTURE_TAPPED = "feed_distribution_capture_tapped"
+
+    /** A feed-distribution proof was captured locally. [Params.KIND] names the proof slot. */
+    const val FEED_DISTRIBUTION_PROOF_CAPTURED = "feed_distribution_proof_captured"
+
+    /** A feed-distribution proof upload reached backend sync. [Params.KIND] names the proof slot. */
+    const val FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED = "feed_distribution_proof_upload_synced"
+
+    /** Operator tapped a completed proof card to reupload that proof. */
+    const val FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED = "feed_distribution_proof_reupload_tapped"
+
+    /** Submit was tapped before all three proof uploads were synced. */
+    const val FEED_DISTRIBUTION_SUBMIT_BLOCKED = "feed_distribution_submit_blocked"
+
+    /** Operator manually asked the detail to sync proof/upload state. */
+    const val FEED_DISTRIBUTION_SYNC_TAPPED = "feed_distribution_sync_tapped"
+
+    /** A submitted/in-review feed-distribution row was tapped and blocked from reopening. */
+    const val FEED_DISTRIBUTION_REOPEN_BLOCKED = "feed_distribution_reopen_blocked"
+
     /** The MANDATORY feed-WEIGHT photo (step 1) was captured on the distribution detail. Its own
      *  event rather than a [Params.KIND] on the video one: it is the step most likely to be skipped
      *  or retaken, and the drop-off between it and [FEED_DISTRIBUTION_SUBMITTED] is the funnel that
@@ -442,6 +466,11 @@ object AnalyticsEvents {
 
     /** The MANDATORY packing video was captured on the packing completion detail. */
     const val FEED_PACKING_VIDEO_CAPTURED = "feed_packing_video_captured"
+    const val FEED_PACKING_CAPTURE_TAPPED = "feed_packing_capture_tapped"
+    const val FEED_PACKING_PROOF_UPLOAD_SYNCED = "feed_packing_proof_upload_synced"
+    const val FEED_PACKING_REUPLOAD_TAPPED = "feed_packing_reupload_tapped"
+    const val FEED_PACKING_SYNC_TAPPED = "feed_packing_sync_tapped"
+    const val FEED_PACKING_SUBMIT_BLOCKED = "feed_packing_submit_blocked"
 
     /** A feed-packing completion was submitted for verification (proof queued, completion enqueued
      *  -> the shed-session moves to pending_verification). */
@@ -455,6 +484,11 @@ object AnalyticsEvents {
 
     /** The MANDATORY transport video was captured on the feed-transport detail. */
     const val FEED_TRANSPORT_VIDEO_CAPTURED = "feed_transport_video_captured"
+    const val FEED_TRANSPORT_CAPTURE_TAPPED = "feed_transport_capture_tapped"
+    const val FEED_TRANSPORT_PROOF_UPLOAD_SYNCED = "feed_transport_proof_upload_synced"
+    const val FEED_TRANSPORT_REUPLOAD_TAPPED = "feed_transport_reupload_tapped"
+    const val FEED_TRANSPORT_SYNC_TAPPED = "feed_transport_sync_tapped"
+    const val FEED_TRANSPORT_SUBMIT_BLOCKED = "feed_transport_submit_blocked"
 
     /** A feed-transport completion was submitted for verification. */
     const val FEED_TRANSPORT_SUBMITTED = "feed_transport_submitted"

@@ -13,7 +13,7 @@ import (
 // CompletionStore (the old instant feed_direction_session_completions path, now inert) and
 // DistributionCompletionStore (feed_distribution_completions). It owns exactly one NEW table
 // (feed_packing_completions) behind PackingCompletionStore, gated on a verifier-approved video before a
-// packing session is completed. Unlike distribution (two proofs), packing needs ONE mandatory video.
+// packing session is completed. Unlike distribution (three proofs), packing needs ONE mandatory video.
 
 var (
 	// ErrPackingProofRequired is returned when a packing completion omits the MANDATORY packing VIDEO.

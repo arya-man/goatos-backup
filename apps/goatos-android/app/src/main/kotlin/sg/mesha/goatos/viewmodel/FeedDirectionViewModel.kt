@@ -176,6 +176,13 @@ class FeedDirectionViewModel @Inject constructor(
                     AnalyticsEvents.Params.SESSION_NO to event.sessionNo.toString(),
                 ),
             )
+            is FeedDirectionEvent.AlreadySubmittedRow -> analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_REOPEN_BLOCKED,
+                mapOf(
+                    AnalyticsEvents.Params.SHED_ID to event.shedId,
+                    AnalyticsEvents.Params.SESSION_NO to event.sessionNo.toString(),
+                ),
+            )
             FeedDirectionEvent.ClearFilters -> clearFilters()
         }
     }

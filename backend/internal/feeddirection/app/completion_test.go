@@ -43,13 +43,19 @@ func (f *fakeCompletionStore) ListCompletedSessions(_ context.Context, _, _ stri
 // fakeDistributionStore is the DISTRIBUTION verification-gated store (the NEW table the DIRECTION
 // overlay reads verified sessions from -- separate from fakeCompletionStore, which is packing).
 type fakeDistributionStore struct {
-	verified    []ports.VerifiedDistribution
-	statuses    []ports.SessionCompletionStatus
-	listCalls   int
-	statusCalls int
+	verified       []ports.VerifiedDistribution
+	statuses       []ports.SessionCompletionStatus
+	listCalls      int
+	statusCalls    int
+	completeCalls  int
+	completeResult ports.CompleteDistributionResult
 }
 
 func (f *fakeDistributionStore) CompleteDistribution(_ context.Context, _ ports.CompleteDistributionParams) (ports.CompleteDistributionResult, error) {
+	f.completeCalls++
+	if f.completeResult.CompletionID != "" {
+		return f.completeResult, nil
+	}
 	return ports.CompleteDistributionResult{}, nil
 }
 
@@ -155,6 +161,17 @@ func (f *fakeProofValidator) ValidateFeedProofMedia(_ context.Context, _ string,
 	return f.err
 }
 
+type fakeDistributionEnqueuer struct {
+	calls int
+	last  FeedDistributionVerificationEnqueueRequest
+}
+
+func (f *fakeDistributionEnqueuer) EnqueueFeedDistributionVerification(_ context.Context, in FeedDistributionVerificationEnqueueRequest) error {
+	f.calls++
+	f.last = in
+	return nil
+}
+
 func validCompleteInput() CompleteSessionInput {
 	return CompleteSessionInput{
 		TenantID:       testTenant,
@@ -164,6 +181,23 @@ func validCompleteInput() CompleteSessionInput {
 		TargetDate:     targetDate(),
 		Workflow:       domain.WorkflowNormal,
 		IdempotencyKey: "feed-complete-123456",
+	}
+}
+
+func validCompleteDistributionInput() CompleteDistributionInput {
+	return CompleteDistributionInput{
+		TenantID:             testTenant,
+		ParkID:               testPark,
+		ShedID:               shedA,
+		PartitionLabel:       "1",
+		SessionNo:            1,
+		TargetDate:           targetDate(),
+		Workflow:             domain.WorkflowNormal,
+		FeedWeightProofRef:   "proof-feed-weight-photo-1",
+		DistributionProofRef: "proof-feed-video-1",
+		WaterProofRef:        "proof-water-video-1",
+		CompletedBy:          "00000000-0000-4000-8000-000000000111",
+		IdempotencyKey:       "feed-distribution-complete-123456",
 	}
 }
 
@@ -222,6 +256,51 @@ func TestPreviewOverlaysCompletedShedSessions(t *testing.T) {
 	}
 	if !matched {
 		t.Fatal("the completed shed-session was not present in the re-served page")
+	}
+}
+
+func TestCompleteDistributionReplayRepairsMissingVerificationQueueItemWithCanonicalProofRefs(t *testing.T) {
+	t.Parallel()
+	store := &fakeDistributionStore{
+		// NewlyPending=false models a retry after the row committed but verifier enqueue failed. The row
+		// is still pending_verification, so the app must retry the idempotent enqueue using canonical row
+		// refs, not whatever proof refs the retry request carries.
+		completeResult: ports.CompleteDistributionResult{
+			CompletionID:         "completion-1",
+			Status:               domain.DistributionStatusPendingVerification,
+			RowVersion:           1,
+			FeedWeightProofRef:   "canonical-feed-weight-photo-a",
+			DistributionProofRef: "canonical-feed-video-a",
+			WaterProofRef:        "canonical-water-video-a",
+			NewlyPending:         false,
+		},
+	}
+	enqueuer := &fakeDistributionEnqueuer{}
+	service := NewService(nil, nil).
+		WithDistributionStore(store).
+		WithDistributionVerificationEnqueuer(enqueuer)
+
+	input := validCompleteDistributionInput()
+	input.FeedWeightProofRef = "retry-feed-weight-photo-b"
+	input.DistributionProofRef = "retry-feed-video-b"
+	input.WaterProofRef = "retry-water-video-b"
+	_, err := service.CompleteDistribution(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enqueuer.calls != 1 {
+		t.Fatalf("enqueue calls=%d want 1", enqueuer.calls)
+	}
+	if enqueuer.last.IdempotencyKey != "feed-distribution-verification:completion-1:1" {
+		t.Fatalf("enqueue idempotency key=%q", enqueuer.last.IdempotencyKey)
+	}
+	if enqueuer.last.FeedWeightProofRef != "canonical-feed-weight-photo-a" ||
+		enqueuer.last.DistributionProofRef != "canonical-feed-video-a" ||
+		enqueuer.last.WaterProofRef != "canonical-water-video-a" {
+		t.Fatalf("enqueue refs=(%q,%q,%q), want canonical row refs",
+			enqueuer.last.FeedWeightProofRef,
+			enqueuer.last.DistributionProofRef,
+			enqueuer.last.WaterProofRef)
 	}
 }
 

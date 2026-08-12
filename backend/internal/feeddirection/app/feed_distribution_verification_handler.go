@@ -12,7 +12,7 @@ import (
 )
 
 // Feed distribution verification consumer (maintainer decision, 2026-07-26). A feed-direction session
-// is completed only when an independent verifier approves the operator's video + water proof. The
+// is completed only when an independent verifier approves the operator's three proofs. The
 // verification module emits a generic verdict event on every approve/reject; this handler is the
 // feed-side consumer of those events for feed_distribution items:
 //
