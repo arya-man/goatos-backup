@@ -969,13 +969,26 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 	if !mayOversee {
 		oversightReason = controlCopy(copy, "oversight_filters.disabled_no_access", "Cross-module filters are limited to leadership oversight of verification.")
 	}
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "oversight_filters",
 		Label:          copy["filter.module"],
 		Kind:           "visibility",
 		Enabled:        mayOversee,
 		DisabledReason: oversightReason,
 		Action:         "",
+	})
+	// oversight_analytics gates the CEO/Director analytics section ABOVE the queue table on
+	// /verify: waiting count, per-module pending, per-verifier last-14d, watch-integrity. Same
+	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
+	// control rather than the renderer reusing oversight_filters for two different pieces of
+	// chrome, so a future change to one visibility rule cannot silently move the other.
+	return upsertControl(out, domain.Control{
+		ID:             "oversight_analytics",
+		Label:          controlCopy(copy, "oversight_analytics.title", "Verification oversight"),
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "GET /verification/oversight-analytics",
 	})
 }
 
