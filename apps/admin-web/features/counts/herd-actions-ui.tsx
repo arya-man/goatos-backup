@@ -151,7 +151,7 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
 }
 
 // ---- Modal shell (centered overlay; backdrop + Escape close; focus trap entry; body scroll lock) ----
-function Drawer({
+export function Drawer({
   open,
   onClose,
   closeLabel,

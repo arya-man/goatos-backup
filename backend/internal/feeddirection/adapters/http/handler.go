@@ -185,16 +185,18 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	if httpmiddleware.HasTenantWideCapability(httpmiddleware.AuthGrantsFromContext(r.Context()), tenant, permissions.FeedTransportRead) {
 		actorFilter = ""
 	}
+	// No partition_label filter: transport is one task per physical shed, so shed_id is the
+	// finest location this list can be narrowed to. An older phone build may still send the
+	// param; it is ignored rather than hiding part of a shed's own work.
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
-		TenantID:       tenant,
-		ActorID:        actorFilter,
-		Date:           r.URL.Query().Get("business_date"),
-		ParkID:         parkScope.ParkID,
-		ShedID:         r.URL.Query().Get("shed_id"),
-		PartitionLabel: r.URL.Query().Get("partition_label"),
-		Status:         r.URL.Query().Get("status"),
-		Cursor:         r.URL.Query().Get("cursor"),
-		Limit:          int(limit),
+		TenantID: tenant,
+		ActorID:  actorFilter,
+		Date:     r.URL.Query().Get("business_date"),
+		ParkID:   parkScope.ParkID,
+		ShedID:   r.URL.Query().Get("shed_id"),
+		Status:   r.URL.Query().Get("status"),
+		Cursor:   r.URL.Query().Get("cursor"),
+		Limit:    int(limit),
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "list feed transport tasks", err)

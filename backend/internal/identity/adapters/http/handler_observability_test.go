@@ -68,6 +68,14 @@ func (r errRepo) HealthGoat(context.Context, ports.HealthGoatCommand) (*ports.Ad
 func (r errRepo) ReproductiveGoat(context.Context, ports.ReproductiveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }
+func (r errRepo) PreviewReclassifyShedStage(context.Context, ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStagePreview, error) {
+	return nil, r.err
+}
+
+func (r errRepo) ReclassifyShedStage(context.Context, ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStageResult, error) {
+	return nil, r.err
+}
+
 func (r errRepo) IdentityGoat(context.Context, ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	return nil, r.err
 }

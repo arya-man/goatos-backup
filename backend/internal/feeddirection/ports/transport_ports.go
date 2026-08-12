@@ -18,6 +18,9 @@ var (
 	ErrInvalidTransportStatus             = errors.New("feeddirection: invalid feed-transport status")
 )
 
+// FeedTransportTask keeps PartitionLabel for pre-000152 rows only: transport tasks are created per
+// physical shed and every row written since then carries an empty partition. Do not reintroduce a
+// pen grain here -- packing and distribution own that.
 type FeedTransportTask struct {
 	TaskID, ParkID, ParkLabel, ShedID, ShedLabel, BusinessDate, Status string
 	OperatorID, CurrentAttemptID, ReworkReason                         string
@@ -25,6 +28,7 @@ type FeedTransportTask struct {
 	ScheduledAt                                                        time.Time
 }
 
+// FeedTransportFilterOption.ID is a park UUID or a shed UUID -- never a composite pen key.
 type FeedTransportFilterOption struct {
 	ID, Label, PartitionLabel string
 }
@@ -39,10 +43,12 @@ type FeedTransportTaskPage struct {
 	Filters    FeedTransportFilterOptions
 }
 
+// ListTransportTasksParams has NO partition filter. Transport is one task per physical shed, so
+// there is no pen to narrow to; see MaterializeTransportTasks for why the grain is the shed.
 type ListTransportTasksParams struct {
-	TenantID, ActorID, ParkID, ShedID, PartitionLabel, Status, Cursor string
-	Day                                                               time.Time
-	Limit                                                             int
+	TenantID, ActorID, ParkID, ShedID, Status, Cursor string
+	Day                                               time.Time
+	Limit                                             int
 }
 
 type MaterializeTransportParams struct {

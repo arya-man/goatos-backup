@@ -25,7 +25,6 @@ class FeedTransportRepositoryFilterTest {
         val date: String,
         val parkId: String?,
         val shedId: String?,
-        val partitionLabel: String?,
         val status: String?,
         val limit: Int?,
     )
@@ -43,13 +42,12 @@ class FeedTransportRepositoryFilterTest {
                     businessDate: String,
                     parkId: String?,
                     shedId: String?,
-                    partitionLabel: String?,
                     status: String?,
                     cursor: String?,
                     limit: Int?,
                 ): FeedTransportTaskPageDto {
-                    requests += Request(businessDate, parkId, shedId, partitionLabel, status, limit)
-                    val suffix = listOfNotNull(parkId, shedId, partitionLabel).joinToString("-").ifBlank { "all" }
+                    requests += Request(businessDate, parkId, shedId, status, limit)
+                    val suffix = listOfNotNull(parkId, shedId).joinToString("-").ifBlank { "all" }
                     return FeedTransportTaskPageDto(
                         items = listOf(
                             FeedTransportTaskDto(
@@ -58,8 +56,9 @@ class FeedTransportRepositoryFilterTest {
                                 parkLabel = "Farm $suffix",
                                 shedId = shedId ?: "shed-all",
                                 shedLabel = "Shed $suffix",
-                                partitionLabel = partitionLabel,
-                                operationalLocationDisplay = listOfNotNull("Shed $suffix", partitionLabel).joinToString(" - "),
+                                // Transport is shed-grain: the location is the bare shed name.
+                                partitionLabel = null,
+                                operationalLocationDisplay = "Shed $suffix",
                                 businessDate = businessDate,
                                 status = status ?: "due",
                                 scheduledAt = "2026-07-29T15:30:00+05:30",
@@ -67,23 +66,24 @@ class FeedTransportRepositoryFilterTest {
                         ),
                         filters = FeedTransportFilterOptionsDto(
                             parks = listOf(FeedTransportFilterOptionDto("park-1", "Farm 1")),
-                            sheds = listOf(FeedTransportFilterOptionDto("shed-1", "Shed 1 - Part 3", "Part 3")),
+                            // One option per shed, keyed by the bare shed id -- never one per pen.
+                            sheds = listOf(FeedTransportFilterOptionDto("shed-1", "Shed 1")),
                         ),
                     )
                 }
             }
             val repository = FeedTransportRepository(api, database)
-            val farmQuery = FeedTransportQuery("2026-07-29", parkId = "park-1", shedId = "shed-1", partitionLabel = "Part 3", status = "completed")
+            val farmQuery = FeedTransportQuery("2026-07-29", parkId = "park-1", shedId = "shed-1", status = "completed")
             val allQuery = FeedTransportQuery("2026-07-29")
 
             assertTrue(repository.refresh(farmQuery).isSuccess)
             assertTrue(repository.refresh(allQuery).isSuccess)
 
-            assertEquals(Request("2026-07-29", "park-1", "shed-1", "Part 3", "completed", 20), requests.first())
-            assertEquals("task-park-1-shed-1-Part 3", repository.observe(farmQuery, 20).first().items.single().taskId)
+            assertEquals(Request("2026-07-29", "park-1", "shed-1", "completed", 20), requests.first())
+            assertEquals("task-park-1-shed-1", repository.observe(farmQuery, 20).first().items.single().taskId)
             assertEquals("task-all", repository.observe(allQuery, 20).first().items.single().taskId)
             assertEquals("Farm 1", repository.observe(farmQuery, 20).first().filters.parks.single().label)
-            assertEquals("Part 3", repository.observe(farmQuery, 20).first().filters.sheds.single().partitionLabel)
+            assertEquals("Shed 1", repository.observe(farmQuery, 20).first().filters.sheds.single().label)
         } finally {
             database.close()
         }

@@ -439,5 +439,7 @@ type Repository interface {
 	HealthGoat(ctx context.Context, cmd HealthGoatCommand) (*AdminGoatMutationResult, error)
 	ReproductiveGoat(ctx context.Context, cmd ReproductiveGoatCommand) (*AdminGoatMutationResult, error)
 	IdentityGoat(ctx context.Context, cmd IdentityGoatCommand) (*AdminGoatMutationResult, error)
+	PreviewReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStagePreview, error)
+	ReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStageResult, error)
 	Ping(ctx context.Context) error
 }

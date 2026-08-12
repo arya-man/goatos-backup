@@ -678,13 +678,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Feed distribution verification (maintainer decision, 2026-07-26): a feed-direction session is
 	// completed only after a verifier approves the operator's video + water proof, so feed is a
 	// verification producer just like vaccination and shifting. Register its category and wire the
-	// enqueue seam into the feed-direction service now that verificationService exists. The video +
-	// water proof travel on one item (photo_or_video covers the water proof, which may be a photo).
+	// enqueue seam into the feed-direction service now that verificationService exists. Weight photo,
+	// feed-distribution video, and water-distribution video travel together on one verification item.
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category:         feeddirectiondomain.VerificationCategoryFeed,
-		ExpectedMedia:    []string{"video", "photo_or_video"},
-		MediaLabels:      []string{"Feed distribution video", "Water distribution proof"},
+		ExpectedMedia:    []string{"photo", "video", "video"},
+		MediaLabels:      []string{"Feed weight photo", "Feed distribution video", "Water distribution video"},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
 	}); err != nil {

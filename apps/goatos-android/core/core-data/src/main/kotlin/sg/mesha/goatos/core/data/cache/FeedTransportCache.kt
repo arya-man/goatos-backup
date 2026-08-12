@@ -59,6 +59,14 @@ interface FeedTransportScopedItemDao {
     @Query("DELETE FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey")
     suspend fun deleteScope(scopeKey: String)
 
+    /**
+     * Drops rows cached under the retired pen-grain scope key, which carried a partition segment
+     * ("date|park|shed|partition|status") that today's key does not. Nothing reads them again, so
+     * without this they would sit in the database forever.
+     */
+    @Query("DELETE FROM feed_transport_scoped_items WHERE scopeKey LIKE '%|%|%|%|%'")
+    suspend fun deleteLegacyPartitionScopes()
+
     @Query("SELECT COUNT(*) FROM feed_transport_scoped_items WHERE scopeKey=:scopeKey")
     suspend fun count(scopeKey: String): Int
 }
@@ -73,4 +81,8 @@ interface FeedTransportScopedRemoteKeyDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(key: FeedTransportScopedRemoteKeyEntity)
+
+    /** Companion of [FeedTransportScopedItemDao.deleteLegacyPartitionScopes]. */
+    @Query("DELETE FROM feed_transport_scoped_remote_keys WHERE scopeKey LIKE '%|%|%|%|%'")
+    suspend fun deleteLegacyPartitionScopes()
 }

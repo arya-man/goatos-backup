@@ -1413,6 +1413,32 @@ type fakeRepo struct {
 	createAdminGoatCmds         []ports.CreateAdminGoatCommand
 	temporaryTaggedItems        []domain.TemporaryTaggedGoat
 	lastTemporaryTaggedParams   ports.ListTemporaryTaggedGoatsParams
+	lastReclassifyCmd           ports.ReclassifyShedStageCommand
+	reclassifyPreview           *ports.ReclassifyShedStagePreview
+	reclassifyResult            *ports.ReclassifyShedStageResult
+	reclassifyErr               error
+}
+
+func (f *fakeRepo) PreviewReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStagePreview, error) {
+	f.lastReclassifyCmd = cmd
+	if f.reclassifyErr != nil {
+		return nil, f.reclassifyErr
+	}
+	if f.reclassifyPreview != nil {
+		return f.reclassifyPreview, nil
+	}
+	return &ports.ReclassifyShedStagePreview{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Changing: 1}, nil
+}
+
+func (f *fakeRepo) ReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStageResult, error) {
+	f.lastReclassifyCmd = cmd
+	if f.reclassifyErr != nil {
+		return nil, f.reclassifyErr
+	}
+	if f.reclassifyResult != nil {
+		return f.reclassifyResult, nil
+	}
+	return &ports.ReclassifyShedStageResult{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Reclassified: 1}, nil
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {

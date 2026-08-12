@@ -98,7 +98,10 @@
       "tf_file": "infra/envs/stg/cloud_run_jobs.tf",
       "jobs": [
         { "name": "migrate", "binary": "migrate", "kind": "job", "image": "migrate", "args": ["-timeout=10m"], "schedule": "deploy-time (run once per release, not scheduled)", "health_signal": "exit code 0; schema_migrations at HEAD", "notes": "Deployed from local.migration_image (backend/Dockerfile.migrate), a SEPARATE image from local.backend_image/goatos-backend:e2e — see the top-level images.migrate entry. tools/agent-hooks/check-deployed-job-flags.mjs still validates its binary/flags (it unions binaries across every backend/Dockerfile*); make e2e-parity skips the goatos-backend:e2e binary-existence check for it and instead relies on deploy/e2e/docker-compose.e2e.yml's migrate service, which builds Dockerfile.migrate and actually runs this exact binary+args against real Postgres." },
-        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" }
+        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" },
+        { "name": "feed_direction_issue", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=issue", "-workflow=both", "-timeout=120s"], "schedule": "0 7 * * * (normal) + 0 14 * * * (experiment), per feed_schedule_config direction_time", "health_signal": "exit code 0; feed_direction_issues row in state 'issued' for feed_day = as-of + 1", "notes": "ONE job, TWO scheduler triggers. The command self-gates on the authored clock (app/lifecycle_schedule.go: asOf.Before(issueAt) -> no-op), so the 07:00 wake-up issues normal and skips experiment, and the 14:00 wake-up issues experiment and no-ops on the already-issued normal. Freezing is the point: until a sheet is issued the API regenerates it live on every read and an authorized shifting moves quantities the operator has already packed against." },
+        { "name": "feed_direction_amend", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=amend", "-workflow=both", "-timeout=120s"], "schedule": "0 14 * * *, per feed_schedule_config correction_time", "health_signal": "exit code 0; issue in state 'amended' (or an unchanged no-op that still stamped amended_at)" },
+        { "name": "feed_direction_lock", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=lock", "-workflow=both", "-timeout=120s"], "schedule": "30 15 * * *, per feed_schedule_config transport_time", "health_signal": "exit code 0; issue in state 'locked'", "notes": "15:30, not 15:45: migration 000104 aligned transport_time with the hard 15:30 gate in MaterializeTransportTasks so the sheet locks exactly when transport is raised." }
       ]
     }
   },
@@ -113,20 +116,18 @@
   "future_jobs": {
     "_readme": [
       "Documented NOT-YET-DEPLOYED future targets (the third process category named in the top _readme).",
-      "The binary is built by backend/Dockerfile and is production-ready, but it is not yet wired into",
+      "A binary listed here is built by backend/Dockerfile and production-ready, but is not yet wired into",
       "infra/envs/{dev,stg}/cloud_run_jobs.tf, so it deliberately does NOT live under environments.*.jobs:",
       "check-deployed-job-flags.mjs asserts bidirectional TF<->manifest parity for env jobs, and claiming a",
-      "job is deployed while no Terraform creates it would be a false-green. When Feed Direction issuance is",
-      "promoted to a scheduled deployment, move these entries verbatim into environments.dev.jobs /",
-      "environments.stg.jobs and add the matching google_cloud_run_v2_job + Cloud Scheduler blocks in the",
-      "same change; the args below are already the exact flags backend/cmd/feed-direction-issue defines.",
-      "Cadence is per (park, workflow) from feed_schedule_config: normal direction 07:00, experiment 14:00,",
-      "correction 14:00, transport 15:45 (Asia/Kolkata). Each invocation acts on feed_day = as-of + 1."
+      "job is deployed while no Terraform creates it would be a false-green. To promote one, move its entry",
+      "into environments.<env>.jobs and add the matching google_cloud_run_v2_job + Cloud Scheduler blocks",
+      "in the SAME change -- and put them in the file that environment's tf_file names, because the guard",
+      "reads exactly that one file.",
+      "",
+      "Feed Direction issuance was promoted to environments.stg.jobs on 2026-08-07 (normal direction 07:00,",
+      "experiment 14:00, correction 14:00, transport 15:30 Asia/Kolkata; each run acts on",
+      "feed_day = as-of + 1). It is still absent from environments.dev.jobs -- dev has no feed data to issue."
     ],
-    "jobs": [
-      { "name": "feed_direction_issue", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=issue", "-workflow=both", "-timeout=120s"], "schedule": "0 7 * * * (normal) + 0 14 * * * (experiment), per feed_schedule_config direction_time", "health_signal": "exit code 0; feed_direction_issues row in state 'issued' for feed_day = as-of + 1" },
-      { "name": "feed_direction_amend", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=amend", "-workflow=both", "-timeout=120s"], "schedule": "0 14 * * *, per feed_schedule_config correction_time", "health_signal": "exit code 0; issue in state 'amended' (or an unchanged no-op that still stamped amended_at)" },
-      { "name": "feed_direction_lock", "binary": "feed-direction-issue", "kind": "job", "args": ["-action=lock", "-workflow=both", "-timeout=120s"], "schedule": "45 15 * * *, per feed_schedule_config transport_time", "health_signal": "exit code 0; issue in state 'locked'" }
-    ]
+    "jobs": []
   }
 }

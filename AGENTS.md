@@ -712,7 +712,7 @@ migrations `000049_shifting_approval_completion_gate.sql` and
 Confirmed high-priority shifting feed-evidence rule (maintainer decision 2026-07-29): low-priority
 shifting remains the existing one-live-camera-video flow. High-priority shifting embeds feed packing
 and feeding inside Shifting, resolves exact feed type/quantity from active destination Feed Config
-matched to the raise-time target management stage and moved animals' ration groups, and requires
+matched to the movement's EFFECTIVE management stage and moved animals' ration groups, and requires
 THREE live-camera videos: shifting, feed packing, and configured feed being given to the animal(s).
 All three proofs are reviewed together in ONE `shifting_move` verification item. Embedded packing
 proof is shifting-scoped only and never creates or completes the separate Feed Packing/Feed
@@ -720,7 +720,18 @@ Distribution workflows. Park Head approval + operator completion still apply loc
 on the second gate; verification remains post-task review and rejection creates operator rework
 without rollback. Missing config blocks, and a semantic fingerprint shown to the phone is
 revalidated under the shifting row lock so changed config returns `feed_config_changed` rather than
-guessing. Canonical source: `docs/decisions/shifting-verification.md`; migration
+guessing.
+
+EFFECTIVE STAGE (maintainer decision 2026-08-12): the ration is priced against the snapshotted
+target stage, or -- when that is BLANK -- against each ANIMAL's own current stage. Blank is the
+normal outcome whenever `ResolveShiftingDestinationStage` declines to adopt a destination cohort
+(empty pen, mixed pen, Flushing, or a cohort the relocation cannot write); it means "keep each
+animal's current stage", NOT a missing input, and the raiser is never asked for a stage. Keying the
+ration off the blank target hard-blocked EVERY high-priority movement into an EMPTY PEN with
+"selected destination management stage is missing" -- naming a choice the phone does not offer. Do
+not restore that key. An animal with no stage on either side still blocks, with a message naming
+the herd-data gap rather than blaming the raiser. Canonical source:
+`docs/decisions/shifting-verification.md`; migration
 `000053_high_priority_shifting_feed_evidence.sql`.
 
 Confirmed feed-distribution verification gate (maintainer decision 2026-07-26,
@@ -846,8 +857,23 @@ Canonical source: `docs/decisions/feed-distribution-verification.md`; migration
 `000033_feed_packing_verification_gate.sql`.
 
 Confirmed Feed Transport daily verification rule (maintainer decisions 2026-07-29
-and 2026-08-10, SUPERSEDING transport session/batch/consolidation wording): Feed
+and 2026-08-10, REAFFIRMED 2026-08-12 against a partition grain, SUPERSEDING
+transport session/batch/consolidation wording): Feed
 Transport is one daily task per active physical shed and is never per feed session.
+
+**NOR PER PARTITION.** A shed's pens are packed and fed as separate bags, but they
+are LOADED AND STAGED as one trip, so transport is ONE task and ONE video for the
+whole shed. Migration `000143` fanned the materializer out over `shed_partitions`
+and a partitioned shed began listing `Castro - 1`, `Castro - 2`, `Castro - 3` as
+three transport tasks -- three videos of one load. That was never a recorded
+decision; it contradicted this rule and `docs/decisions/feed-transport-verification.md`
+at the same time. `000152_feed_transport_restore_shed_grain.sql` is the forward
+repair (`000143`/`000146` are NOT amended -- STG records checksums). It retires only
+UNSTARTED pen tasks; a pen task already carrying an attempt keeps its status and its
+proof, because an operator really filmed it. `partition_label` is kept and stops
+being written. **Pen grain belongs to PACKING and DISTRIBUTION** -- those really are
+one bag per pen -- and copying their shape onto transport is the specific mistake
+this paragraph exists to stop.
 The controlling source clock requires packed/diff-corrected feed to be loaded and
 staged outside sheds by Day N 15:00 for Day N+1 service. The current 15:30 task
 creation is compatibility behavior and a source/runtime defect: materialize and

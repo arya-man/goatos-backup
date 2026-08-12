@@ -128,6 +128,9 @@ export type AdminGoatBulkSummary = AdminApiComponents["schemas"]["AdminGoatBulkS
 export type GenerationStatus = AdminApiComponents["schemas"]["GenerationStatus"];
 export type StageGoatRequest = AdminApiComponents["schemas"]["StageGoatRequest"];
 export type ReproductiveGoatRequest = AdminApiComponents["schemas"]["ReproductiveGoatRequest"];
+export type ReclassifyShedStageRequest = AdminApiComponents["schemas"]["ReclassifyShedStageRequest"];
+export type ReclassifyShedStagePreviewResponse = AdminApiComponents["schemas"]["ReclassifyShedStagePreviewResponse"];
+export type ReclassifyShedStageResponse = AdminApiComponents["schemas"]["ReclassifyShedStageResponse"];
 export type BulkStatusPreviewRequest = AdminApiComponents["schemas"]["BulkStatusPreviewRequest"];
 export type BulkStatusPreviewResponse = AdminApiComponents["schemas"]["BulkStatusPreviewResponse"];
 export type BulkStatusCommitRequest = AdminApiComponents["schemas"]["BulkStatusCommitRequest"];
@@ -1679,6 +1682,12 @@ export async function getVaccinationCommandBoard(params: {
   driveBatchId?: string;
   parkId?: string;
   asOf?: string;
+  /**
+   * Park of the selected drive. Narrows the board's sections to that park's share of the drive
+   * while leaving driveOptions at parkId's scope, so one request serves both the narrowed numbers
+   * and the full picker.
+   */
+  driveParkId?: string;
 } = {}): Promise<ApiResult<VaccinationCommandBoardResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1690,6 +1699,7 @@ export async function getVaccinationCommandBoard(params: {
         drive_batch_id: params.driveBatchId,
         park_id: params.parkId,
         as_of: params.asOf,
+        drive_park_id: params.driveParkId,
       }),
     }),
   );
@@ -2303,6 +2313,43 @@ export async function reproductiveGoat(
   const path = `/admin/goats/${encodeURIComponent(goatId)}/reproductive` as keyof AdminApiPaths & string;
   return request(() =>
     client.request<AdminGoatResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Whole-pen stage change. Preview is a pure read and deliberately carries NO Idempotency-Key: the
+// drawer re-checks whenever the operator changes the pen or the target stage, and burning a key per
+// keystroke would leave the commit unable to reuse one. Commit is idempotent on Idempotency-Key,
+// which is the only thing stopping a double-clicked button from re-emitting stage-change events --
+// this write has no approval step behind it.
+export async function previewReclassifyShedStage(
+  body: ReclassifyShedStageRequest,
+): Promise<ApiResult<ReclassifyShedStagePreviewResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ReclassifyShedStagePreviewResponse>("/admin/goats/shed-stage/preview", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function commitReclassifyShedStage(
+  body: ReclassifyShedStageRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<ReclassifyShedStageResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ReclassifyShedStageResponse>("/admin/goats/shed-stage/commit", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
