@@ -766,6 +766,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/shed-stage/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what a whole-pen cohort reclassification would change, without writing anything.
+         * @description Read-only. Returns the pen's whole-scope live composition and how many animals the requested cohort tag would actually change, so the operator sees a mixed pen before flipping it. Takes no Idempotency-Key because it is safe to repeat. Gated on the same permission as the commit.
+         */
+        post: operations["previewReclassifyShedStage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/shed-stage/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a management stage to every live animal in one shed partition.
+         * @description Applies immediately: there is no approval step and no proof, so the Idempotency-Key is what stops a double-clicked button from re-emitting stage-change events. Animals already carrying the target tag are left untouched and emit no event. The tag also carries kid/adult, so age_band moves with it and vaccination re-derives each affected animal's schedule. A clinical target (sick, under_treatment, recovering, quarantine, icu) is rejected: those are set by the animal's own health workflow.
+         */
+        post: operations["commitReclassifyShedStage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/{goat_id}/stage": {
         parameters: {
             query?: never;
@@ -2069,6 +2109,62 @@ export interface components {
             occurred_at?: string;
             evidence_refs: components["schemas"]["EvidenceRef"][];
             row_version: number;
+        };
+        ReclassifyShedStageRequest: {
+            /**
+             * Format: uuid
+             * @description The PARENT physical shed. Never a partition-bearing alias row: the operational-location convention keeps goats.shed_id on the building and the pen in partition_label.
+             */
+            shed_id: string;
+            /** @description The pen inside shed_id ('1', 'Part 3'). Omitted or empty means the shed is genuinely undivided -- it does NOT mean "every partition of this shed". Matched tolerantly, so 'Part 3' and '3' resolve to the same pen. */
+            partition_label?: string;
+            /** @description Target cohort tag, matched case-insensitively against the tenant's active stage vocabulary and echoed back canonicalized. Clinical states are rejected. */
+            management_stage: string;
+            /** @description Required on commit, ignored on preview. Recorded in audit and on every animal's event. */
+            reason?: string;
+        };
+        ReclassifyShedStageBucket: {
+            management_stage: string;
+            /** @description kid, adult, or empty when the tag is deliberately unclassified. */
+            age_band: string;
+            /** @description Grain: live animal. Buckets are disjoint and sum to total_live. */
+            count: number;
+        };
+        ReclassifyShedStagePreviewResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            /** @description Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here. */
+            partition_label: string | null;
+            /** @description Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it. */
+            operational_location_display: string;
+            /** @description The canonical resolved target tag. */
+            management_stage: string;
+            /** @description kid or adult, the band the target tag carries. Empty when the tag is deliberately unclassified, in which case animals keep the band they already have. */
+            age_band: string;
+            total_live: number;
+            /** @description Animals whose stage differs from the target. changing + unchanged == total_live. */
+            changing: number;
+            /** @description Animals already on the target tag. They will not be written or evented. */
+            unchanged: number;
+            /** @description The pen's complete present composition, so a mixed pen is visible before the flip. */
+            current_stages: components["schemas"]["ReclassifyShedStageBucket"][];
+            trace_id?: string;
+        };
+        ReclassifyShedStageResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label: string | null;
+            operational_location_display: string;
+            management_stage: string;
+            age_band: string;
+            total_live: number;
+            /** @description Animals whose stage genuinely changed. Only these were written and evented. */
+            reclassified: number;
+            unchanged: number;
+            idempotency_key?: string;
+            trace_id?: string;
         };
         StageGoatRequest: {
             management_stage: string;
@@ -5339,6 +5435,65 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    previewReclassifyShedStage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReclassifyShedStageRequest"];
+            };
+        };
+        responses: {
+            /** @description Preview of the reclassification. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReclassifyShedStagePreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    commitReclassifyShedStage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReclassifyShedStageRequest"];
+            };
+        };
+        responses: {
+            /** @description Pen reclassified, or the original result replayed for an exact retry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReclassifyShedStageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

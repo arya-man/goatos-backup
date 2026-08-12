@@ -19,8 +19,19 @@ const feedTransportIdemScope = "feed.transport.submit"
 
 var _ ports.TransportStore = (*Repository)(nil)
 
-// MaterializeTransportTasks creates today's one-per-operational-location work after 15:30 IST. The
-// daily location key makes scheduler retries and overlapping workers harmless.
+// MaterializeTransportTasks creates today's one-per-PHYSICAL-SHED work after 15:30 IST. The daily
+// shed key makes scheduler retries and overlapping workers harmless.
+//
+// GRAIN IS THE SHED, NEVER THE PEN. Transport is one loading/staging run for the shed: the feed for
+// every pen of a shed leaves on the same trip, so a per-partition task would ask one operator to
+// film the same physical load two or three times. This is the recorded contract in
+// docs/decisions/feed-transport-verification.md ("Grain: (tenant_id, business_date, shed_id). There
+// is no session, batch, workflow, or consolidation grain") and in AGENTS.md. Migration 000143 broke
+// it by fanning out over shed_partitions; 000152 is the forward repair. Partition grain belongs to
+// PACKING and DISTRIBUTION, which are per-pen bags -- do not copy their shape back to here.
+//
+// partition_label is written EMPTY on every new row. The column stays only so pre-000152 rows keep
+// naming the pen they were filmed for.
 func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.MaterializeTransportParams) (ports.MaterializeTransportResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -48,30 +59,18 @@ ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.For
 		}
 		return ports.MaterializeTransportResult{BusinessDate: day.Format("2006-01-02"), Inserted: tag.RowsAffected()}, nil
 	}
+	// ONE row per active shed, partition_label ALWAYS ''. The arbiter kept by 000143 is
+	// (tenant, date, shed, COALESCE(NULLIF(btrim(partition_label),''),'whole')); because every row
+	// this statement writes carries '', that key degenerates to one row per shed per day, which is
+	// exactly the contract. Legacy pen rows keep their own key and survive as history without
+	// colliding. 000152 does NOT rebuild the index for this reason -- a CONCURRENTLY rebuild on a
+	// live table buys nothing here.
 	tag, err := r.pool.Exec(ctx, `
 INSERT INTO feed_transport_tasks (tenant_id, park_id, shed_id, partition_label, business_date, scheduled_at)
-SELECT s.tenant_id, s.parent_location_id, s.location_id, part.partition_label, $2::date,
+SELECT s.tenant_id, s.parent_location_id, s.location_id, '', $2::date,
        (($2::date + time '15:30') AT TIME ZONE 'Asia/Kolkata')
 FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
-JOIN LATERAL (
-  SELECT sp.partition_label
-  FROM shed_partitions sp
-  WHERE sp.tenant_id = s.tenant_id
-    AND sp.shed_id = s.location_id
-    AND sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  UNION ALL
-  SELECT ''
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM shed_partitions sp
-    WHERE sp.tenant_id = s.tenant_id
-      AND sp.shed_id = s.location_id
-      AND sp.status = 'active'
-      AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  )
-) part ON true
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
 ON CONFLICT (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''), 'whole')) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
@@ -87,13 +86,16 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	if q.Limit < 1 || q.Limit > 100 {
 		q.Limit = 20
 	}
-	// projection-review: producer unique=(tenant_id,business_date,shed_id,partition_label); consumer match/group uses
-	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
-	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by actor, park, shed and status; group_key=none on the row read (one row per task), and the partition join groups shed_partitions by (tenant_id, shed_id); join_cardinality=the partition subquery is pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so it cannot fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters, and the partition join adds no rows so page boundaries are unchanged; scope=tenant plus optional park/shed resolved from canonical location ids.
-	// Returns the shed name and the partition as SEPARATE columns; oploc.Display() composes them
-	// in Go below. The display rule lives in exactly one place -- a CASE that concatenates them
-	// here is a second implementation, and six of those are what shipped 'Godel 1 1' and
-	// 'Mandela 2 - 3' to operators.
+	// projection-review: producer unique=(tenant_id,business_date,shed_id) for every row this build
+	// writes (partition_label is always ''); consumer match/group uses the same columns. locations
+	// park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
+	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by actor, park, shed and status; group_key=none on the row read (one row per task); join_cardinality=both locations joins are 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so no side can fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters; scope=tenant plus optional park/shed resolved from canonical location ids.
+	// Returns the shed name and the stored partition as SEPARATE columns; oploc.Display() composes
+	// them in Go below. The display rule lives in exactly one place -- a CASE that concatenates
+	// them here is a second implementation, and six of those are what shipped 'Godel 1 1' and
+	// 'Mandela 2 - 3' to operators. Every row written since 000152 carries an EMPTY partition, so
+	// this reads as the bare shed name; a surviving pre-000152 pen row still names its pen, which
+	// is the truth about where that video was filmed.
 	rows, err := r.pool.Query(ctx, `
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
@@ -102,19 +104,17 @@ SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
--- ONE grouped join, evaluated once, instead of the same correlated subquery repeated four
--- times. Agree-or-go-bare is HAVING count(*) = 1: exactly one real partition resolves, several
--- or none go bare.
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 	AND ($4::text='' OR t.park_id=$4::uuid)
+	-- Shed, not shed+pen. There is no partition filter because there is no partition grain: one
+	-- shed is one task, so narrowing further could only hide part of a shed's own work.
 	AND ($5::text='' OR t.shed_id=$5::uuid)
-	AND ($6::text='' OR COALESCE(NULLIF(btrim(t.partition_label), ''), 'whole') = COALESCE(NULLIF(btrim($6::text), ''), 'whole'))
-	AND ($7::text='' OR t.status=$7)
-	AND ($8::text='' OR t.task_id > $8::uuid)
-ORDER BY t.task_id LIMIT $9`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.PartitionLabel, q.Status, q.Cursor, q.Limit+1)
+	AND ($6::text='' OR t.status=$6)
+	AND ($7::text='' OR t.task_id > $7::uuid)
+ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.Status, q.Cursor, q.Limit+1)
 	if err != nil {
 		return ports.FeedTransportTaskPage{}, fmt.Errorf("feeddirection: list transport tasks: %w", err)
 	}
@@ -144,7 +144,7 @@ ORDER BY t.task_id LIMIT $9`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID,
 }
 
 func (r *Repository) listTransportFilterOptions(ctx context.Context, q ports.ListTransportTasksParams) (ports.FeedTransportFilterOptions, error) {
-	// projection-review: membership=feed_transport_tasks for the tenant/date/actor filter vocabulary, not the current page; group_key=(t.park_id, p.name) for parks and (t.shed_id, s.name, part.partition_label) for sheds; join_cardinality=the partition join is pre-aggregated to ONE row per shed (GROUP BY tenant_id, shed_id HAVING count(*) = 1), so it cannot duplicate a filter option; pagination=none by design -- filter vocabulary is whole-date scoped so the dropdown never narrows to the visible page; scope=tenant plus optional park, applied before grouping.
+	// projection-review: membership=feed_transport_tasks for the tenant/date/actor filter vocabulary, not the current page; group_key=(t.park_id, p.name) for parks and (t.shed_id, s.name) for sheds; join_cardinality=the locations join is 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so it cannot duplicate a filter option; pagination=none by design -- filter vocabulary is whole-date scoped so the dropdown never narrows to the visible page; scope=tenant plus optional park, applied before grouping.
 	// Filter vocabulary is whole-date and actor scoped, not derived from the current 20-row page.
 	// The selected park narrows only the shed vocabulary; status/shed filters never hide choices.
 	rows, err := r.pool.Query(ctx, `
@@ -156,26 +156,21 @@ WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 GROUP BY t.park_id, p.name
 UNION ALL
--- The filter DROPDOWN must name the same place the rows name. A bare s.name hides the
--- partition, so two pens of one shed read as one option and the operator cannot tell which
--- they picked. Composed here with the same agree-or-go-bare rule the row reads use.
+-- The shed option ID is the shed UUID, plainly. It was briefly an opaque
+-- "<shed>\x1f<partition>" composite so a partitioned shed could offer one option per pen; the
+-- dropdown then listed the same shed several times for work that is one trip. Grouping by
+-- (t.shed_id, s.name) -- never by name alone, which merges the two parks' Castro/Gandhi/Yashoda.
 SELECT 'shed',
-       t.shed_id::text || E'\x1f' || COALESCE(NULLIF(BTRIM(t.partition_label), ''), 'whole'),
+       t.shed_id::text,
        s.name,
-       coalesce(t.partition_label, '')
+       ''
 FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
--- Partition resolved by a GROUPED JOIN, not a correlated subquery: correlating on t.tenant_id
--- inside a query that groups by (t.shed_id, s.name) makes tenant_id an ungrouped outer column
--- and Postgres rejects it (42803). Agree-or-go-bare is kept by HAVING count(*) = 1.
--- The name and the partition come back as SEPARATE columns and are composed in Go by
--- oploc.Display(). Concatenating them here would be a second implementation of the display
--- rule living in SQL -- exactly the drift the guard blocks.
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
   AND ($4::text='' OR t.park_id=$4::uuid)
-GROUP BY t.shed_id, s.name, t.partition_label
+GROUP BY t.shed_id, s.name
 ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 	if err != nil {
 		return ports.FeedTransportFilterOptions{}, fmt.Errorf("feeddirection: list transport filter options: %w", err)
@@ -188,8 +183,8 @@ ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 		if err := rows.Scan(&kind, &option.ID, &shedName, &partitionLabel); err != nil {
 			return ports.FeedTransportFilterOptions{}, err
 		}
-		// The shed option ID is an opaque operational-location key, not a bare shed UUID.
-		// Compose the label through the shared primitive so the dropdown reads exactly like the rows.
+		// The shed option ID is the bare shed UUID. The label still goes through the shared
+		// primitive so the dropdown reads exactly like the rows, with an empty partition.
 		option.PartitionLabel = partitionLabel
 		option.Label = oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if kind == "park" {

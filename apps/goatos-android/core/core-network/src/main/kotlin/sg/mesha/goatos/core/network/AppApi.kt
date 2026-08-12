@@ -973,11 +973,14 @@ interface AppApi {
     suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String? = null, sessionNo: Int? = null, limit: Int = 20, offset: Int = 0): MilkFeedingPageDto
     suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
 
+    /**
+     * One task per PHYSICAL SHED per day -- there is no pen filter, because a shed's whole load
+     * leaves on one trip. Pen grain belongs to packing and distribution.
+     */
     suspend fun getFeedTransportTasks(
         businessDate: String,
         parkId: String? = null,
         shedId: String? = null,
-        partitionLabel: String? = null,
         status: String? = null,
         cursor: String? = null,
         limit: Int? = null,
@@ -1654,7 +1657,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         businessDate: String,
         parkId: String?,
         shedId: String?,
-        partitionLabel: String?,
         status: String?,
         cursor: String?,
         limit: Int?,

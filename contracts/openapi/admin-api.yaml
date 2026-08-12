@@ -1647,6 +1647,75 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/shed-stage/preview:
+    post:
+      tags:
+        - Admin Goats
+      operationId: previewReclassifyShedStage
+      summary: Report what a whole-pen cohort reclassification would change, without writing anything.
+      description: >-
+        Read-only. Returns the pen's whole-scope live composition and how many animals the requested
+        cohort tag would actually change, so the operator sees a mixed pen before flipping it. Takes
+        no Idempotency-Key because it is safe to repeat. Gated on the same permission as the commit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReclassifyShedStageRequest"
+      responses:
+        "200":
+          description: Preview of the reclassification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReclassifyShedStagePreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/goats/shed-stage/commit:
+    post:
+      tags:
+        - Admin Goats
+      operationId: commitReclassifyShedStage
+      summary: Apply a management stage to every live animal in one shed partition.
+      description: >-
+        Applies immediately: there is no approval step and no proof, so the Idempotency-Key is what
+        stops a double-clicked button from re-emitting stage-change events. Animals already carrying
+        the target tag are left untouched and emit no event. The tag also carries kid/adult, so
+        age_band moves with it and vaccination re-derives each affected animal's schedule. A
+        clinical target (sick, under_treatment, recovering, quarantine, icu) is rejected: those are
+        set by the animal's own health workflow.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReclassifyShedStageRequest"
+      responses:
+        "200":
+          description: Pen reclassified, or the original result replayed for an exact retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReclassifyShedStageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/goats/{goat_id}/stage:
     post:
       tags:
@@ -5252,6 +5321,143 @@ components:
         row_version:
           type: integer
           minimum: 1
+    ReclassifyShedStageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - management_stage
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+          description: >-
+            The PARENT physical shed. Never a partition-bearing alias row: the operational-location
+            convention keeps goats.shed_id on the building and the pen in partition_label.
+        partition_label:
+          type: string
+          maxLength: 80
+          description: >-
+            The pen inside shed_id ('1', 'Part 3'). Omitted or empty means the shed is genuinely
+            undivided -- it does NOT mean "every partition of this shed". Matched tolerantly, so
+            'Part 3' and '3' resolve to the same pen.
+        management_stage:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            Target cohort tag, matched case-insensitively against the tenant's active stage
+            vocabulary and echoed back canonicalized. Clinical states are rejected.
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Required on commit, ignored on preview. Recorded in audit and on every animal's event.
+    ReclassifyShedStageBucket:
+      type: object
+      additionalProperties: false
+      required:
+        - management_stage
+        - age_band
+        - count
+      properties:
+        management_stage:
+          type: string
+        age_band:
+          type: string
+          description: kid, adult, or empty when the tag is deliberately unclassified.
+        count:
+          type: integer
+          description: "Grain: live animal. Buckets are disjoint and sum to total_live."
+    ReclassifyShedStagePreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
+        - management_stage
+        - age_band
+        - total_live
+        - changing
+        - unchanged
+        - current_stages
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          nullable: true
+          description: Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here.
+        operational_location_display:
+          type: string
+          description: Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it.
+        management_stage:
+          type: string
+          description: The canonical resolved target tag.
+        age_band:
+          type: string
+          description: >-
+            kid or adult, the band the target tag carries. Empty when the tag is deliberately
+            unclassified, in which case animals keep the band they already have.
+        total_live:
+          type: integer
+        changing:
+          type: integer
+          description: Animals whose stage differs from the target. changing + unchanged == total_live.
+        unchanged:
+          type: integer
+          description: Animals already on the target tag. They will not be written or evented.
+        current_stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReclassifyShedStageBucket"
+          description: The pen's complete present composition, so a mixed pen is visible before the flip.
+        trace_id:
+          type: string
+    ReclassifyShedStageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
+        - management_stage
+        - age_band
+        - total_live
+        - reclassified
+        - unchanged
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          nullable: true
+        operational_location_display:
+          type: string
+        management_stage:
+          type: string
+        age_band:
+          type: string
+        total_live:
+          type: integer
+        reclassified:
+          type: integer
+          description: Animals whose stage genuinely changed. Only these were written and evented.
+        unchanged:
+          type: integer
+        idempotency_key:
+          type: string
+        trace_id:
+          type: string
     StageGoatRequest:
       type: object
       additionalProperties: false
