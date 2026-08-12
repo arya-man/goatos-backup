@@ -528,6 +528,7 @@ class DefaultSyncRepository(
      *  been attempted, which is exactly the state a never-draining queue is stuck in.
      *  [OutboxTelemetryReporter.Noop] by default so existing/test constructions keep compiling. */
     private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
+    private val galleryProofSaver: GalleryProofSaver = GalleryProofSaver.Noop,
 ) : SyncRepository {
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
@@ -652,14 +653,24 @@ class DefaultSyncRepository(
         request: ProofUploadRequestDto,
         localFilePath: String,
         durationMs: Long?,
-    ): AppResult<String> = enqueue(
-        opType = OutboxOpType.PROOF_UPLOAD,
-        groupKey = groupKey,
-        idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(
-            ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
-        ),
-    )
+    ): AppResult<String> {
+        val result = enqueue(
+            opType = OutboxOpType.PROOF_UPLOAD,
+            groupKey = groupKey,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
+            ),
+        )
+        if (result is AppResult.Ok) {
+            appScope.launch(dispatchers.io) {
+                runCatching {
+                    galleryProofSaver.saveProofCopy(localFilePath, request, idempotencyKey)
+                }
+            }
+        }
+        return result
+    }
 
     override suspend fun enqueueVerifyTask(
         taskId: String,

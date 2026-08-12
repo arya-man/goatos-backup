@@ -109,6 +109,7 @@ import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.core.data.sync.LocalBackendConnectivityGate
+import sg.mesha.goatos.core.data.sync.MediaStoreGalleryProofSaver
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -739,6 +740,7 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSyncRepository(
+        @ApplicationContext context: Context,
         store: OutboxStore,
         engine: SyncEngine,
         connectivityGate: ConnectivityGate,
@@ -752,6 +754,7 @@ object AppModule {
         appScope = appScope,
         foregroundSyncController = foregroundSyncController,
         telemetry = outboxTelemetry,
+        galleryProofSaver = MediaStoreGalleryProofSaver(context),
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned
