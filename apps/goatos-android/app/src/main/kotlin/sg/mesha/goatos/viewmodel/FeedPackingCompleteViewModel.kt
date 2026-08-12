@@ -127,6 +127,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 }
             }
             FeedPackingCompleteEvent.MarkDone -> markDone()
+            FeedPackingCompleteEvent.SyncNow -> syncNow()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -264,6 +265,12 @@ class FeedPackingCompleteViewModel @Inject constructor(
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedPackingCompleteStatus.SYNCED || r.status == FeedPackingCompleteStatus.QUEUED } ?: false
             it.copy(canComplete = it.videoCaptured && !committed)
+        }
+    }
+
+    private fun syncNow() {
+        viewModelScope.launch {
+            syncRepository.triggerDrain()
         }
     }
 
