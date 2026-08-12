@@ -1251,10 +1251,13 @@ private val rfidBurnOverlayFieldKeys = setOf(
     "weighing_individual_video",
 )
 
-private fun localFileBytes(localUri: String): Long? = runCatching {
-    val file = if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)
-    file.takeIf { it.exists() }?.length()
-}.getOrNull()
+private fun localFileBytes(localUri: String): Long? =
+    try {
+        val file = if (localUri.startsWith("file:", ignoreCase = true)) File(URI(localUri)) else File(localUri)
+        file.takeIf { it.exists() }?.length()
+    } catch (_: Exception) {
+        null
+    }
 
 private fun proofTypeForMime(mimeType: String): String =
     if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"

@@ -42,8 +42,10 @@ class AppProofMediaProcessor @Inject constructor(
     }
 
     private fun contentBytes(uriText: String): Long? =
-        runCatching {
+        try {
             context.contentResolver.openAssetFileDescriptor(Uri.parse(uriText), "r")
                 ?.use { descriptor -> descriptor.length.takeIf { it >= 0L } }
-        }.getOrNull()
+        } catch (_: Exception) {
+            null
+        }
 }
