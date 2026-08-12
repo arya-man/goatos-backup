@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -924,6 +925,266 @@ func TestCountsBreakdownShedFacetSeparatesSameNamedShedsInDifferentParks(t *test
 	}
 	if cbe.Count != 2 {
 		t.Errorf("CBE Castro 1 count=%d, want 2", cbe.Count)
+	}
+}
+
+// The Shed occupancy chart is ONE BAR PER PEN, each named with its park (maintainer decision
+// 2026-08-12, superseding the parent-shed roll-up this series used to carry).
+//
+// Two properties, and the second is what the old grain was hiding. Pens must not be collapsed into
+// their shed; and because 66 of 154 real shed names exist in BOTH parks, every bar must say which
+// park it belongs to — the chart previously printed "Gandhi", "Godel 1", "Godel 2" and "Mandela 2"
+// twice each with nothing to tell the pairs apart, which is OL-1 rendered as a bar chart.
+func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool)
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+
+	labels := map[string]int64{}
+	for _, point := range got.Charts.Shed {
+		labels[point.Label] = point.Count
+	}
+	// The park CODES come from the response's own park facet, never hardcoded here: the shared
+	// fixture inserts with ON CONFLICT DO NOTHING, so which of the two ids carries which code
+	// depends on what the suite seeded first. Asserting a literal made this test fail for a reason
+	// that had nothing to do with the behaviour under test.
+	parkCode := map[string]string{}
+	for _, park := range got.Facets.Parks {
+		parkCode[park.Key] = park.Label
+	}
+	one, two := parkCode[countsPark], parkCode[countsParkTwo]
+	if one == "" || two == "" || one == two {
+		t.Fatalf("park facet did not resolve two distinct park codes: %+v", got.Facets.Parks)
+	}
+	want := map[string]int64{
+		// Park first, then the pen composed by oploc — each shed keeping its own convention.
+		one + " · Castro 1 - 2":      3,
+		one + " · Castro 1 - Part 1": 1,
+		two + " · Castro 1 - 2":      2,
+	}
+	for label, count := range want {
+		if labels[label] != count {
+			t.Errorf("chart bar %q = %d, want %d — series: %+v", label, labels[label], count, got.Charts.Shed)
+		}
+	}
+	// The roll-up must be GONE: a bare shed bar means partitions were collapsed again.
+	for _, bare := range []string{"Castro 1", one + " · Castro 1", two + " · Castro 1"} {
+		if _, found := labels[bare]; found {
+			t.Errorf("found a whole-shed bar %q — the chart must be one bar per PEN: %+v", bare, got.Charts.Shed)
+		}
+	}
+	// The scrubbed matching key must never reach a screen: "Part 1" normalizes to "1", so a bar
+	// reading "Castro 1 - 1" here would mean the key was rendered instead of the label.
+	if _, found := labels[one+" · Castro 1 - 1"]; found {
+		t.Errorf("rendered the normalized partition KEY instead of its label: %+v", got.Charts.Shed)
+	}
+	// Same-named sheds in different parks stay separate bars, and the pens still partition the herd.
+	var sum int64
+	for _, point := range got.Charts.Shed {
+		sum += point.Count
+	}
+	if sum != got.TotalCount {
+		t.Errorf("pen bars sum to %d, want total_count %d — the pen grain must still partition the herd", sum, got.TotalCount)
+	}
+}
+
+// seedPenChartFixture puts two pens in one park's Castro 1 (3 + 1) and one pen in the other park's
+// same-named shed (2), so every property below is asserted against pens that a name-keyed or
+// partition-collapsing query would merge.
+func seedPenChartFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+	place := func(i int, shed, park, label string) {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", "K1", strp(park), strp(shed), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partition_label`,
+			countsTenant, goatUUID(i), shed, label); err != nil {
+			t.Fatalf("seed goat_shed_partitions: %v", err)
+		}
+	}
+	place(0, countsShedCastroOne, countsPark, "2")
+	place(1, countsShedCastroOne, countsPark, "2")
+	place(2, countsShedCastroOne, countsPark, "2")
+	place(3, countsShedCastroOne, countsPark, "Part 1")
+	place(4, countsShedCastroTwo, countsParkTwo, "2")
+	place(5, countsShedCastroTwo, countsParkTwo, "2")
+}
+
+func penChartByKey(points []domain.CountsBreakdownSeriesPoint) map[string]int64 {
+	out := make(map[string]int64, len(points))
+	for _, point := range points {
+		out[point.Key] = point.Count
+	}
+	return out
+}
+
+// COVERAGE. The pen series must PARTITION the herd: its bars sum to the same total_count the KPI
+// above the chart reports. A top-N cap breaks that silently and looks fine — at the shed grain 12
+// of 18 sheds was nearly the whole estate, so nobody noticed; at the pen grain 12 of 130 pens
+// showed 560 of 1,670 animals under a headline reading 1,670 (maintainer report, 2026-08-12).
+//
+// Seeded ABOVE the old cap on purpose: with 12 or fewer pens the capped query and the uncapped one
+// return the same rows, so a smaller fixture cannot tell the two apart and would pass either way.
+func TestCountsBreakdownShedChartCoversEveryPen(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	const pens = 20
+	for i := 0; i < pens; i++ {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partition_label`,
+			countsTenant, goatUUID(i), countsShedCastroOne, fmt.Sprintf("%d", i+1)); err != nil {
+			t.Fatalf("seed goat_shed_partitions: %v", err)
+		}
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 5})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	if len(got.Charts.Shed) != pens {
+		t.Fatalf("pen series has %d bars, want %d — a top-N cap is hiding pens", len(got.Charts.Shed), pens)
+	}
+	var sum int64
+	for _, point := range got.Charts.Shed {
+		sum += point.Count
+	}
+	if sum != got.TotalCount {
+		t.Fatalf("pen bars sum to %d, want total_count %d — the chart must reconcile with the KPI above it", sum, got.TotalCount)
+	}
+	// ...and the page size must not move it: the series is a whole-result rollup, never the page.
+	wide, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(limit=50): %v", err)
+	}
+	if !reflect.DeepEqual(penChartByKey(got.Charts.Shed), penChartByKey(wide.Charts.Shed)) {
+		t.Errorf("pen series changed with page size: %+v vs %+v", got.Charts.Shed, wide.Charts.Shed)
+	}
+}
+
+// CARDINALITY. The pen series joins locations TWICE — once for the shed name, once for the park
+// code. Both are label-only lookups on the (tenant_id, location_id) primary key; if either were
+// ever rewritten onto a non-unique column (name and location_code both repeat across parks in real
+// data), every pen count would multiply by the number of matching rows while still looking
+// plausible. Seed decoys that a sloppy join would match, then assert the counts are exact.
+func TestCountsBreakdownShedChartOneToManyLocationJoinDoesNotFanOutPenCounts(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool)
+
+	// Decoys share the NAME, which is the column a sloppy join would reach for (location_code is
+	// unique per tenant, so it cannot be duplicated and is not the risk).
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES
+  ('00000000-0000-4000-8000-000000004097'::uuid, $1::uuid, 'shed', 'DECOY-CASTRO-A', 'Castro 1', 'active'),
+  ('00000000-0000-4000-8000-000000004098'::uuid, $1::uuid, 'shed', 'DECOY-CASTRO-B', 'Castro 1', 'active'),
+  ('00000000-0000-4000-8000-000000003097'::uuid, $1::uuid, 'park', 'DECOY-PARK-A', 'CBE', 'active'),
+  ('00000000-0000-4000-8000-000000003098'::uuid, $1::uuid, 'park', 'DECOY-PARK-B', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed decoy locations: %v", err)
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	byKey := penChartByKey(got.Charts.Shed)
+	for key, want := range map[string]int64{
+		countsShedCastroOne + "#2": 3,
+		countsShedCastroOne + "#1": 1, // "Part 1" normalizes to "1" in the KEY; the label keeps the word.
+		countsShedCastroTwo + "#2": 2,
+	} {
+		if byKey[key] != want {
+			t.Errorf("pen %s = %d, want %d — a label join fanned out the count: %+v", key, byKey[key], want, got.Charts.Shed)
+		}
+	}
+	if len(got.Charts.Shed) != 3 {
+		t.Errorf("pen series has %d bars, want 3 — decoy locations must not create bars: %+v", len(got.Charts.Shed), got.Charts.Shed)
+	}
+}
+
+// PAGINATION. The pen series is a WHOLE-RESULT rollup capped at 12 for display; it must never be
+// computed from the returned page. A series that moved with limit/offset would be the banned
+// capped read-time rollup, and the chart would silently describe one page of grain rows as the
+// whole estate.
+func TestCountsBreakdownShedChartPaginationDoesNotMoveThePenSeries(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool)
+
+	first, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(limit=1): %v", err)
+	}
+	// A page PAST the first, so the series cannot be right by accident of starting at row zero.
+	second, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 1, Offset: 2})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(limit=1, offset=2): %v", err)
+	}
+	whole, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(limit=50): %v", err)
+	}
+	if !reflect.DeepEqual(penChartByKey(first.Charts.Shed), penChartByKey(whole.Charts.Shed)) {
+		t.Errorf("pen series changed with page size: limit=1 %+v vs limit=50 %+v", first.Charts.Shed, whole.Charts.Shed)
+	}
+	if !reflect.DeepEqual(penChartByKey(second.Charts.Shed), penChartByKey(whole.Charts.Shed)) {
+		t.Errorf("pen series changed with offset: offset=2 %+v vs whole %+v", second.Charts.Shed, whole.Charts.Shed)
+	}
+}
+
+// SCOPE. Selecting a park must leave only that park's pens, and each remaining bar must carry the
+// SAME count it had unfiltered — the chart and the filter have to describe one estate. Because both
+// parks hold a shed called "Castro 1", a park-blind or name-keyed grouping would either keep the
+// other park's pens or merge the two sheds' counts, and both failures look like a plausible chart.
+func TestCountsBreakdownShedChartParkScopeMatchesTheFilter(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedPenChartFixture(t, ctx, pool)
+
+	all, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	scoped, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(park): %v", err)
+	}
+
+	unfiltered, filtered := penChartByKey(all.Charts.Shed), penChartByKey(scoped.Charts.Shed)
+	for key, want := range map[string]int64{countsShedCastroOne + "#2": 3, countsShedCastroOne + "#1": 1} {
+		if filtered[key] != want {
+			t.Errorf("park-scoped pen %s = %d, want %d: %+v", key, filtered[key], want, scoped.Charts.Shed)
+		}
+		if unfiltered[key] != filtered[key] {
+			t.Errorf("pen %s = %d unfiltered but %d park-scoped — the chart and the filter disagree", key, unfiltered[key], filtered[key])
+		}
+	}
+	if _, leaked := filtered[countsShedCastroTwo+"#2"]; leaked {
+		t.Errorf("the other park's pen survived the park filter: %+v", scoped.Charts.Shed)
+	}
+	var sum int64
+	for _, count := range filtered {
+		sum += count
+	}
+	if sum != scoped.TotalCount {
+		t.Errorf("park-scoped pen bars sum to %d, want total_count %d", sum, scoped.TotalCount)
 	}
 }
 

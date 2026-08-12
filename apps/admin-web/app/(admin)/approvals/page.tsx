@@ -25,7 +25,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   // chrome — Birth/Death/Shifting tabs and queue — to anyone who typed the URL, even though the
   // decision endpoints independently 403 on counts.approve_access.
   if (!(await adminWebRouteOffered("/approvals"))) {
-    redirect((await adminWebLandingHref()) ?? "/actions");
+    redirect((await adminWebLandingHref()) ?? "/verify");
   }
   return <ApprovalsPage searchParams={await searchParams} />;
 }

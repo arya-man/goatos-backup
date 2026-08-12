@@ -104,9 +104,14 @@ func navigation() domain.NavigationContract {
 			// ceo_internal). The nav contract is static — like /verification and /config, an
 			// unauthorized caller's decision/list calls fail closed at the route.
 			navItem("approvals", "Approvals", "/approvals", "gavel", "approvals_open_queue"),
-			// Evidence Actions is a peer decision surface directly below Approvals and before
-			// the vertical/module groups. It remains independently gated by verification.review.
-			navItemDomain("verification-actions", "Actions", "/actions", "clipboard-check", "", "admin.verification"),
+			// Verify is a peer decision surface directly below Approvals and before the
+			// vertical/module groups. It remains independently gated by verification.review.
+			//
+			// Named "Verify" (maintainer decision 2026-08-12), which is what the PHONE has always
+			// called it (workforce nav.verify) — one word for one job across both surfaces. It was
+			// "Actions", the vaguest possible label for a screen that does exactly one thing: open a
+			// proof video, check it against the facts, accept or reject.
+			navItemDomain("verification-actions", "Verify", "/verify", "clipboard-check", "", "admin.verification"),
 		},
 		Groups: []domain.NavigationGroup{
 			{
@@ -226,7 +231,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/workflows/{row_id}", Label: "Workflow record", Match: "pattern"},
 		{Pattern: "/workflows", Label: "Workflows", Match: "exact"},
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
-		{Pattern: "/actions", Label: "Actions", Match: "exact"},
+		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
@@ -356,7 +361,7 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
 			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
-		page("verification-review", "/actions", "/actions", "Actions", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
+		page("verification-review", "/verify", "/verify", "Verify", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
 			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
 			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
 			// which is the config-token-as-UI-copy leak the label rules exist to stop, and it was
@@ -1039,7 +1044,10 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "verification-review":
 		return map[string]string{
-			"crumb": "Approvals",
+			// The VERTICAL this screen belongs to, the way every other page names its parent. It read
+			// "Approvals" — a different top-level module that merely sits next to this one in the nav —
+			// which is the one thing a breadcrumb must never do.
+			"crumb": "Verification",
 			// Verifier video-review board copy. These are backend-owned like every other visible
 			// string here: the frontend previously carried them as local fallbacks, which is the
 			// hardcoded-visible-literal defect the contract rule exists to prevent.
@@ -1053,7 +1061,22 @@ func pageSpecificCopy(id string) map[string]string {
 			// and quietly go stale the next time a module is registered.
 			"filter.module":      "Module",
 			"filter.all_modules": "All modules",
-			"table.hint":         "Open a row to review the evidence and record a verdict.",
+			// The capture-date calendar (maintainer request 2026-08-12). It lands on TODAY and the
+			// queue opens filtered to today, so every label below has to make the current scope
+			// legible at a glance — a verifier who cannot see that she is looking at one day will
+			// read an empty board as "nothing to do" instead of "nothing captured today".
+			"filter.date":                "Capture date",
+			"filter.date.today":          "Today",
+			"filter.date.single":         "Single day",
+			"filter.date.range":          "Date range",
+			"filter.date.aria":           "Choose which capture dates the board shows",
+			"filter.date.previous_month": "Previous month",
+			"filter.date.next_month":     "Next month",
+			// Range picking is two clicks, and the half-picked state is the one people get stuck in.
+			"filter.date.range_start_hint": "Pick the first day of the range.",
+			"filter.date.range_end_hint":   "Now pick the last day of the range.",
+			"filter.date.range_separator":  "to",
+			"table.hint":                   "Open a row to review the evidence and record a verdict.",
 			// Accessible label for the player's full-screen toggle.
 			"drawer.media.fullscreen_label": "Full screen",
 			// Accept is blocked when the proof media does not resolve, so a verdict can never be
@@ -2107,24 +2130,36 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.weighing.all":        "All",
 			"filter.weighing.individual": "Per animal",
 			"filter.weighing.lump":       "Whole shed",
-			"filter.period.label":        "Period",
-			"filter.period.4w":           "Last 4 weeks",
-			"filter.period.12w":          "Last 12 weeks",
-			"kpi.kids.label":             "Kids weighed",
-			"kpi.kids.sub":               "in the selected period",
-			"kpi.total.label":            "Total weight",
-			"kpi.total.sub":              "of the kids actually weighed",
-			"kpi.average.label":          "Average weight",
-			"kpi.average.sub":            "per kid, across every shed",
-			"kpi.over30.label":           "Over 30 kg",
-			"kpi.over35.label":           "Over 35 kg",
-			"kpi.threshold.basis":        "weighed one by one",
-			"kpi.sheds.label":            "Sheds weighed",
-			"chart.average.title":        "Average weight by shed",
-			"chart.average.caption":      "Heaviest first. Scroll for the rest.",
-			"chart.average.aria":         "Average weight for each shed",
-			"section.sheds.title":        "Sheds",
-			"section.sheds.aria":         "Weight by shed",
+			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 30 days
+			// before today. `filter.period.4w` / `.12w` and the `weighing_period` option group went
+			// with the fixed-window select they labelled: two preset spans could only answer the two
+			// questions someone thought of in advance, and a reader comparing one drive week against
+			// another had no way to ask.
+			"filter.period.label":            "Period",
+			"filter.period.today":            "Today",
+			"filter.period.single":           "Single day",
+			"filter.period.range":            "Date range",
+			"filter.period.aria":             "Choose which weighing days the page reports on",
+			"filter.period.previous_month":   "Previous month",
+			"filter.period.next_month":       "Next month",
+			"filter.period.range_start_hint": "Pick the first day of the range.",
+			"filter.period.range_end_hint":   "Now pick the last day of the range.",
+			"filter.period.range_separator":  "to",
+			"kpi.kids.label":                 "Kids weighed",
+			"kpi.kids.sub":                   "in the selected period",
+			"kpi.total.label":                "Total weight",
+			"kpi.total.sub":                  "of the kids actually weighed",
+			"kpi.average.label":              "Average weight",
+			"kpi.average.sub":                "per kid, across every shed",
+			"kpi.over30.label":               "Over 30 kg",
+			"kpi.over35.label":               "Over 35 kg",
+			"kpi.threshold.basis":            "weighed one by one",
+			"kpi.sheds.label":                "Sheds weighed",
+			"chart.average.title":            "Average weight by shed",
+			"chart.average.caption":          "Heaviest first. Scroll for the rest.",
+			"chart.average.aria":             "Average weight for each shed",
+			"section.sheds.title":            "Sheds",
+			"section.sheds.aria":             "Weight by shed",
 			// Column headers come from the table contract's own columns via tableLabels(),
 			// so they are deliberately NOT duplicated here.
 			"filter.all_option":         "All",
@@ -2144,17 +2179,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.losing.aria":       "Kids losing weight",
 			"section.losing.caption":    "Latest weigh lower than the one before it.",
 			"pager.losing_noun":         "kid",
-			"kpi.gain.label":            "Median daily gain",
-			"kpi.gain.sub":              "per kid, own weighs",
-			"kpi.gain.none":             "needs a second weigh",
-			"kpi.gain.blended":          "kids weighed one by one and whole sheds together, per kid",
-			"kpi.park_gain.suffix":      "— daily gain",
-			"kpi.park_gain.all":         "All parks",
-			"section.park_gain.aria":    "Daily gain by park",
-			"chart.gain.title":          "Daily gain by shed",
-			"chart.gain.caption":        "Kids weighed one by one. A shed weighed as one total cannot produce a per-kid gain.",
-			"chart.gain.aria":           "Daily gain for each shed",
-			"empty.gain.body":           "A kid has to be weighed twice before a gain can be worked out.",
+			// `kpi.gain.label` / `kpi.gain.sub` went with the sixth headline card (maintainer,
+			// 2026-08-12): it restated the "All parks — daily gain" card below it — same number, same
+			// denominator, same sub-line — and cost a sixth of the headline row to say it twice. The
+			// gain row is now unconditional, so the figure is still on the page in every scope.
+			"kpi.gain.none":          "needs a second weigh",
+			"kpi.gain.blended":       "kids weighed one by one and whole sheds together, per kid",
+			"kpi.park_gain.suffix":   "— daily gain",
+			"kpi.park_gain.all":      "All parks",
+			"section.park_gain.aria": "Daily gain by park",
+			"chart.gain.title":       "Daily gain by shed",
+			"chart.gain.caption":     "Kids weighed one by one. A shed weighed as one total cannot produce a per-kid gain.",
+			"chart.gain.aria":        "Daily gain for each shed",
+			"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
 			// Distinct from the above: these sheds DO have a second weigh, they are just all
 			// losing. Reusing the "needs a second weigh" line there would be a lie.
 			"empty.gain.all_losing":        "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
@@ -2187,40 +2224,52 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "counts-breakdown":
 		return map[string]string{
-			"crumb":                       "Counts",
-			"section.breakdown.title":     "Detail Breakdown",
-			"section.breakdown.aria":      "Counts breakdown",
-			"section.breakdown.caption":   "Farm × stage × breed × gender × shed for every matching combination",
-			"section.breakdown.note":      "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
-			"section.charts.title":        "Distribution",
-			"section.charts.aria":         "Count distribution charts",
-			"kpi.matching.label":          "Matching count",
-			"kpi.matching.sub":            "Live animals matching the current filters",
-			"kpi.matching.unavailable":    "Count unavailable",
-			"kpi.age.label":               "Kids · Adults",
-			"kpi.age.aria":                "Kid and adult split",
-			"label.kids":                  "kids",
-			"label.adults":                "adults",
-			"table.breakdown.aria":        "Detail breakdown rows",
-			"table.breakdown.total_row":   "Total (rows)",
-			"table.breakdown.noun":        "row",
-			"filter.bar_aria":             "Filter breakdown rows",
-			"filter.farm_label":           "Farm",
-			"filter.stage_label":          "Stage",
-			"filter.breed_label":          "Breed",
-			"filter.shed_label":           "Shed",
-			"filter.gender_label":         "Gender",
-			"filter.all_option":           "All",
-			"filter.clear_all":            "Clear all",
-			"filter.scope_readonly":       "Park scope is set in the top bar.",
-			"chart.breed.title":           "Count by breed",
-			"chart.breed.caption":         "animals by breed",
-			"chart.stage.title":           "Count by stage",
-			"chart.stage.caption":         "where they are",
-			"chart.gender.title":          "Gender split",
-			"chart.gender.caption":        "animals by sex",
-			"chart.shed.title":            "Shed occupancy",
-			"chart.shed.caption":          "top sheds by head count",
+			"crumb":                     "Counts",
+			"section.breakdown.title":   "Detail Breakdown",
+			"section.breakdown.aria":    "Counts breakdown",
+			"section.breakdown.caption": "Farm × stage × breed × gender × shed for every matching combination",
+			"section.breakdown.note":    "Counts live animals only (lifecycle status alive), matching Herd Register. Stage is the raw source value recorded against each animal — near-duplicate labels are shown exactly as stored rather than merged, so source data issues stay visible.",
+			"section.charts.title":      "Distribution",
+			"section.charts.aria":       "Count distribution charts",
+			"kpi.matching.label":        "Matching count",
+			"kpi.matching.sub":          "Live animals matching the current filters",
+			"kpi.matching.unavailable":  "Count unavailable",
+			"kpi.age.label":             "Kids · Adults",
+			"kpi.age.aria":              "Kid and adult split",
+			"label.kids":                "kids",
+			"label.adults":              "adults",
+			"table.breakdown.aria":      "Detail breakdown rows",
+			// Says WHAT it totals (maintainer report, 2026-08-12). The value is the whole-filter sum —
+			// 1,670 live animals across all 213 grain rows — sitting under a page of 10 rows that add
+			// up to 463, so "Total (rows)" read as a number that did not match the table above it. The
+			// value is right and must stay whole-filter (recomputing it from the page is the banned
+			// capped read-time rollup); it was the LABEL that never said the page is not the whole set.
+			"table.breakdown.total_row": "Total · every matching row, not just this page",
+			"table.breakdown.noun":      "row",
+			"filter.bar_aria":           "Filter breakdown rows",
+			"filter.farm_label":         "Farm",
+			"filter.stage_label":        "Stage",
+			"filter.breed_label":        "Breed",
+			"filter.shed_label":         "Shed",
+			"filter.gender_label":       "Gender",
+			"filter.all_option":         "All",
+			"filter.clear_all":          "Clear all",
+			"filter.scope_readonly":     "Park scope is set in the top bar.",
+			"chart.breed.title":         "Count by breed",
+			"chart.breed.caption":       "animals by breed",
+			"chart.stage.title":         "Count by stage",
+			"chart.stage.caption":       "where they are",
+			"chart.gender.title":        "Gender split",
+			"chart.gender.caption":      "animals by sex",
+			"chart.shed.title":          "Shed occupancy",
+			// PENS, not sheds (maintainer decision 2026-08-12): each bar is one pen, named with its
+			// park because 66 of 154 shed names exist in both. The caption has to say so — a reader
+			// counting twelve bars against a 44-shed estate would otherwise draw the wrong conclusion
+			// about what the cap is hiding.
+			// "every pen", not "top pens": the series carries no top-N cap and sums to the same
+			// total the KPI above reports. Saying "top" while showing all of them would understate
+			// the chart; saying it while showing 12 of 130 was what made the numbers look wrong.
+			"chart.shed.caption":          "every pen by head count, park first",
 			"chart.legend_aria":           "Chart series legend",
 			"chart.empty":                 "No animals match these filters.",
 			"chart.value_aria":            "animals",
@@ -2635,28 +2684,31 @@ func pageSpecificCopy(id string) map[string]string {
 			// Copy for the one section on this page that is NOT the ration grid's world. Its job is
 			// to keep two facts un-missable: absolute_kg is a pen TOTAL (never per head), and
 			// listing a pen here is what switches which workflow feeds it.
-			"section.experiment.title":             "Experiment pens",
-			"section.experiment.aria":              "Hand-authored experiment pens",
-			"section.experiment.caption":           "Pens fed a hand-entered absolute kg instead of the ration grid above",
-			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the absolute kg that pen receives of each item, so the head count shown here is context for that decision and is never multiplied in. An undivided shed is its single pen. While a pen is listed here, the rates and shed factors above have no effect on it.",
-			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: a shed's other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
-			"table.experiment.aria":                "Experiment pen rows",
-			"table.experiment.noun":                "experiment row",
-			"label.experiment_absolute_kg":         "Absolute kg (this pen)",
-			"label.experiment_absolute_kg_note":    "The total this pen receives of this item, already inclusive of every animal in it. An undivided shed is its single pen. It is NOT a per-head figure and is never multiplied by the head count.",
-			"label.experiment_head_count":          "Head count (informational)",
-			"label.experiment_head_count_note":     "The population the quantity was authored against, recorded so the figure can be judged later. It is not a multiplier. On Feed Direction a head count IS multiplied by the ration rate; on an experiment row it is not, because the kg is already a pen total.",
-			"label.experiment_category":            "Experiment arm",
-			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
-			"label.experiment_active":              "On experiment (absolute kg)",
-			"label.experiment_active_note":         "This pen is fed the absolute kg authored here. The ration grid, its shed factors, and its projected head count do not affect it.",
-			"label.experiment_retired":             "On the normal grid (per head)",
-			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
-			"label.experiment_not_dated_note":      "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
-			"action.add_experiment_pen":            "Move a pen to the experiment",
-			"action.add_experiment_item":           "Add feed item",
-			"action.edit_experiment_cell":          "Edit kg",
-			"action.withdraw_experiment_shed":      "Return this pen to the normal grid",
+			"section.experiment.title":          "Experiment pens",
+			"section.experiment.aria":           "Hand-authored experiment pens",
+			"section.experiment.caption":        "Pens fed a hand-entered absolute kg instead of the ration grid above",
+			"section.experiment.note":           "These pens are NOT computed from the ration grid. An operator hand-enters the absolute kg that pen receives of each item, so the head count shown here is context for that decision and is never multiplied in. An undivided shed is its single pen. While a pen is listed here, the rates and shed factors above have no effect on it.",
+			"section.experiment.switch_note":    "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: a shed's other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
+			"table.experiment.aria":             "Experiment pen rows",
+			"table.experiment.noun":             "experiment row",
+			"label.experiment_absolute_kg":      "Absolute kg (this pen)",
+			"label.experiment_absolute_kg_note": "The total this pen receives of this item, already inclusive of every animal in it. An undivided shed is its single pen. It is NOT a per-head figure and is never multiplied by the head count.",
+			"label.experiment_head_count":       "Head count (informational)",
+			"label.experiment_head_count_note":  "The population the quantity was authored against, recorded so the figure can be judged later. It is not a multiplier. On Feed Direction a head count IS multiplied by the ration rate; on an experiment row it is not, because the kg is already a pen total.",
+			"label.experiment_category":         "Experiment arm",
+			"label.experiment_category_note":    "Which arm of the trial this pen is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
+			"label.experiment_active":           "On experiment (absolute kg)",
+			"label.experiment_active_note":      "This pen is fed the absolute kg authored here. The ration grid, its shed factors, and its projected head count do not affect it.",
+			"label.experiment_retired":          "On the normal grid (per head)",
+			"label.experiment_retired_note":     "This pen has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
+			"label.experiment_not_dated_note":   "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
+			"action.add_experiment_pen":         "Move a pen to the experiment",
+			"action.add_experiment_item":        "Add feed item",
+			"action.edit_experiment_cell":       "Edit kg",
+			// "Shift to normal feed" (maintainer, 2026-08-12). It names what happens to the ANIMALS —
+			// they go back to being fed from the standing ration — rather than to a table on this
+			// screen. "The normal grid" only means something to someone already looking at the grid.
+			"action.withdraw_experiment_shed":      "Shift to normal feed",
 			"action.restore_experiment_shed":       "Return this pen to the experiment",
 			"action.experiment_saved":              "Saved. This pen is fed the absolute kg authored here; its head count is not multiplied in.",
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
@@ -5530,12 +5582,9 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 				option("per_shed_partition", "Whole shed", "One total for the shed, with a head count", ""),
 			},
 		},
-		{
-			ID: "weighing_period", Options: []domain.Option{
-				option("28", "Last 4 weeks", "", ""),
-				option("84", "Last 12 weeks", "", ""),
-			},
-		},
+		// `weighing_period` (28 / 84 days) is deliberately GONE, not left as an unused vocabulary: the
+		// window is now picked from a calendar, and a stale option group reads to the next author as
+		// a control that still exists somewhere.
 		{ID: "weighing_parks", Options: []domain.Option{}},
 	}
 }

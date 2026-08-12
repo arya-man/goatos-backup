@@ -868,6 +868,100 @@ func TestListQueueRejectsFutureOrConflictingDateScope(t *testing.T) {
 	}
 }
 
+// The Actions board's capture-date picker sends a span when the verifier asks for one. The range
+// is INCLUSIVE on both ends in Asia/Kolkata, which is the whole reason it cannot be expressed as
+// two instants: 2026-07-29T18:20Z is already 2026-07-30 IST, so a naive UTC bound would drop it
+// from a range ending on the 30th.
+func TestListQueueFiltersAnInclusiveIndiaBusinessDateRange(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 31, 1, 0, 0, 0, time.UTC) }
+	create := func(key string, capturedAt time.Time) {
+		_, err := svc.CreateItem(context.Background(), domain.CreateItem{
+			TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:    domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+			MediaRefs: []string{"proof-" + key}, IdempotencyKey: key, CapturedAt: capturedAt,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem(%s): %v", key, err)
+		}
+	}
+	// IST business dates: 28th (below the range), 29th (lower edge), 30th (upper edge), 31st (above).
+	create("before-range", time.Date(2026, 7, 27, 20, 0, 0, 0, time.UTC))
+	create("lower-edge", time.Date(2026, 7, 28, 20, 0, 0, 0, time.UTC))
+	create("upper-edge", time.Date(2026, 7, 29, 20, 0, 0, 0, time.UTC))
+	create("after-range", time.Date(2026, 7, 30, 20, 0, 0, 0, time.UTC))
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof",
+		BusinessDateFrom: "2026-07-29", BusinessDateTo: "2026-07-30",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("items = %d, want the 2 items captured on 2026-07-29 and 2026-07-30 IST: %+v", len(result.Items), result.Items)
+	}
+}
+
+// A single-day range and the single-day param must select the SAME set — the admin-web picker
+// collapses from == to into business_date, so a disagreement here would make the same calendar
+// click return different rows depending on which encoding the page chose.
+func TestListQueueSingleDayRangeMatchesBusinessDate(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 31, 1, 0, 0, 0, time.UTC) }
+	for key, capturedAt := range map[string]time.Time{
+		"in":  time.Date(2026, 7, 29, 20, 0, 0, 0, time.UTC), // 2026-07-30 IST
+		"out": time.Date(2026, 7, 28, 20, 0, 0, 0, time.UTC), // 2026-07-29 IST
+	} {
+		if _, err := svc.CreateItem(context.Background(), domain.CreateItem{
+			TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:    domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+			MediaRefs: []string{"proof-" + key}, IdempotencyKey: key, CapturedAt: capturedAt,
+		}); err != nil {
+			t.Fatalf("CreateItem(%s): %v", key, err)
+		}
+	}
+	single, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, BusinessDate: "2026-07-30"})
+	if err != nil {
+		t.Fatalf("ListQueue(business_date): %v", err)
+	}
+	asRange, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, BusinessDateFrom: "2026-07-30", BusinessDateTo: "2026-07-30",
+	})
+	if err != nil {
+		t.Fatalf("ListQueue(range): %v", err)
+	}
+	if len(single.Items) != 1 || len(asRange.Items) != len(single.Items) {
+		t.Fatalf("single=%d range=%d, want both to select exactly the one item captured on 2026-07-30 IST", len(single.Items), len(asRange.Items))
+	}
+}
+
+func TestListQueueRejectsMalformedOrConflictingDateRange(t *testing.T) {
+	svc, _ := newTestService()
+	svc.now = func() time.Time { return time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC) }
+	for name, tc := range map[string]struct {
+		params ports.ListQueueParams
+		want   string
+	}{
+		// A half-open range would have to invent the missing end, and the two plausible inventions
+		// (today, or the beginning of time) mean opposite things to a verifier.
+		"missing upper end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29"}, "invalid_business_date_range"},
+		"missing lower end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateTo: "2026-07-29"}, "invalid_business_date_range"},
+		"inverted":          {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-30", BusinessDateTo: "2026-07-28"}, "invalid_business_date_range"},
+		"future upper end":  {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29", BusinessDateTo: "2026-07-31"}, "future_business_date"},
+		"not a date":        {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "yesterday", BusinessDateTo: "2026-07-29"}, "invalid_business_date"},
+		// The three date scopes are mutually exclusive; combining them asks for a contradiction.
+		"with business_date": {ports.ListQueueParams{TenantID: testTenant, BusinessDate: "2026-07-29", BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29"}, "invalid_date_scope"},
+		"with missed":        {ports.ListQueueParams{TenantID: testTenant, MissedOnly: true, BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29"}, "invalid_date_scope"},
+	} {
+		_, err := svc.ListQueue(context.Background(), tc.params)
+		var appErr *Error
+		if !errors.As(err, &appErr) || appErr.Code != tc.want {
+			t.Fatalf("%s: ListQueue err = %v, want %s", name, err, tc.want)
+		}
+	}
+}
+
 func TestListQueueCanIncludeAllStatusesForLeadershipReview(t *testing.T) {
 	svc, repo := newTestService()
 	submissionID := "00000000-0000-4000-8000-000000000031"

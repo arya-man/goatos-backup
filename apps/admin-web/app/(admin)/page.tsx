@@ -13,7 +13,7 @@ function firstEnabledPublishedHref(contract: Awaited<ReturnType<typeof getAdminW
     ...contract.data.navigation.groups.flatMap((group) => group.leaves),
   ];
   const enabledPublished = candidates.filter((item) => item.enabled && item.href !== "/" && pageHrefs.has(item.href));
-  return enabledPublished.find((item) => item.href === "/actions")?.href ?? enabledPublished[0]?.href ?? null;
+  return enabledPublished.find((item) => item.href === "/verify")?.href ?? enabledPublished[0]?.href ?? null;
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {

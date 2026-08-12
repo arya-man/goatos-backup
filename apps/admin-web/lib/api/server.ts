@@ -1888,6 +1888,11 @@ export async function listVerificationQueue(
     // "all" is the explicit no-status-filter selection; omitting status lands on pending.
     status?: VerificationItemStatus | "all";
     businessDate?: string;
+    // Inclusive capture-date range. Sent INSTEAD of businessDate — the backend answers 400
+    // invalid_date_scope if both arrive, and 400 invalid_business_date_range unless both ends of
+    // the range are present.
+    businessDateFrom?: string;
+    businessDateTo?: string;
     missed?: boolean;
     parkId?: string;
     shedId?: string;
@@ -1908,6 +1913,8 @@ export async function listVerificationQueue(
         nav_module: params.navModule,
         status: params.status,
         business_date: params.businessDate,
+        business_date_from: params.businessDateFrom,
+        business_date_to: params.businessDateTo,
         missed: params.missed,
         park_id: params.parkId,
         shed_id: params.shedId,

@@ -480,20 +480,21 @@ These are the only current implemented admin-web product routes:
 /config
 /sops
 /goats/{goat_id}
-/actions                   Actions — top-level cross-module verification evidence below Approvals
-/verification              Compatibility redirect to /actions
+/verify                   Verify — top-level cross-module verification evidence below Approvals
+/actions                  Compatibility redirect to /verify (route renamed 2026-08-12)
+/verification             Compatibility redirect to /verify
 ```
 
-`/actions` serves TWO personas, split by the backend page contract's controls rather than by route
+`/verify` serves TWO personas, split by the backend page contract's controls rather than by route
 (maintainer decision 2026-08-03). For the AUTHORITY (`verification.act`) it is the top-level screen
 described below. For the VERIFIER (`verification.review` without `act`) the whole admin-web contract
 narrows to a verifier-only workspace: the sidebar becomes the five registry-composed evidence
-modules (Vaccination, Weighing, Counts, Feed, Health), `/actions` gains the Approve / Reject+reason
+modules (Vaccination, Weighing, Counts, Feed, Health), `/verify` gains the Approve / Reject+reason
 verdict card, the authority's rework/reassign cards are withheld, and every other page contract is
 dropped so a typed URL fails closed. Canonical rule:
 `context/architecture/verifier-app-and-flow.md` → "Verifier WEB workspace".
 
-`/actions` is a backend-composed top-level authority screen immediately below
+`/verify` is a backend-composed top-level authority screen immediately below
 `/approvals` and above the Preventive Care/module groups. It browses the generic Verification vertical by
 registry-backed action type and disjoint Due/Approved/Rejected status, then opens
 same-page details with proof playback and signed video links. Linked SOP-task

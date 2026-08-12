@@ -7,13 +7,17 @@ import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
+import { ActionsDateFilter } from "./actions-date-filter";
+// Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
+// client-reference proxy, not the string, and every date selection silently fell back to today.
+import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
-const PATHNAME = "/actions";
+const PATHNAME = "/verify";
 
 // Changing a filter invalidates the open row, the keyset cursor, its back-trail, and any verdict
 // feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
@@ -42,6 +46,13 @@ export async function VerificationReviewPage({
   const navModule = one(sp, "nav_module")?.trim();
   const shedId = one(sp, "shed_id")?.trim();
   const scope = parseScope(sp);
+  // The capture-date filter (maintainer decision 2026-08-12). The board LANDS ON TODAY: absent
+  // params mean today, so the default view is one business day and a bookmark keeps meaning
+  // "today" rather than freezing on the day it was taken. Anything older is reached by picking a
+  // past day or a span, which is why the picker exists at all — before it, this screen showed the
+  // whole pending backlog and had no way to narrow it.
+  const today = todayIso();
+  const dateRange = parseDateRange(sp, today);
   const selectedId = one(sp, "vi_row");
   const trail = decodeTrail(one(sp, "vi_trail"));
 
@@ -54,7 +65,12 @@ export async function VerificationReviewPage({
     status,
     category,
     navModule,
-    businessDate: scope.asOf,
+    // One day collapses to the backend's single `business_date`; a span uses the range pair. Both
+    // are the same inclusive Asia/Kolkata capture-date scope, and sending both at once is a 400
+    // (invalid_date_scope), so this is an either/or, never a merge.
+    ...(dateRange.from === dateRange.to
+      ? { businessDate: dateRange.from }
+      : { businessDateFrom: dateRange.from, businessDateTo: dateRange.to }),
     parkId: scope.parkId,
     shedId,
     limit: 20,
@@ -190,9 +206,34 @@ export async function VerificationReviewPage({
             Shed is now the only filter, so the whole row is conditional on there being sheds to
             choose between: without this, a module with no shed options (Birth, Death) rendered an
             Apply/Clear pair with nothing to apply. */}
-        {sheds.length ? (
-          <div className="vr-frow">
+        {/* The filter row always renders now, because the capture-date picker always applies —
+            unlike Shed, which is conditional on the selected module having sheds to choose
+            between (Birth and Death have none, and an Apply button with nothing to apply is
+            worse than no row). */}
+        <div className="vr-frow">
+          <ActionsDateFilter
+            basePath={PATHNAME}
+            from={dateRange.from}
+            to={dateRange.to}
+            today={today}
+            labels={{
+              field: copy(pageContract, "filter.date"),
+              today: copy(pageContract, "filter.date.today"),
+              single: copy(pageContract, "filter.date.single"),
+              range: copy(pageContract, "filter.date.range"),
+              aria: copy(pageContract, "filter.date.aria"),
+              previousMonth: copy(pageContract, "filter.date.previous_month"),
+              nextMonth: copy(pageContract, "filter.date.next_month"),
+              rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+              rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+              rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+            }}
+          />
+          {sheds.length ? (
+            <>
             <form action={PATHNAME} style={{ display: "contents" }}>
+              {/* vd_from / vd_to are NOT excluded: the shed submit must preserve the selected
+                  capture date, or applying a shed filter would silently reset the board to today. */}
               {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code"])}
               {/* Carries the sidebar's scope through the submit; without it, filtering by shed
                   would silently widen the queue back to every module. */}
@@ -215,17 +256,26 @@ export async function VerificationReviewPage({
             </form>
             {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
                 filter the verifier set here. Clearing it stranded her on every module's queue at
-                once while the nav still highlighted the one she had picked. */}
+                once while the nav still highlighted the one she had picked. It DOES clear the
+                date pair, which returns the board to its today default. */}
             <Link
-              href={hrefWith(sp, { shed_id: null, status: null, nav_module: null, ...RESET_ON_FILTER })}
+              href={hrefWith(sp, {
+                shed_id: null,
+                status: null,
+                nav_module: null,
+                [DATE_FROM_PARAM]: null,
+                [DATE_TO_PARAM]: null,
+                ...RESET_ON_FILTER,
+              })}
               replace
               scroll={false}
               className="lk small"
             >
               {copy(pageContract, "filter.clear_all")}
             </Link>
-          </div>
-        ) : null}
+            </>
+          ) : null}
+        </div>
 
         {statuses.length ? (
           <div className="vr-legend">
@@ -409,6 +459,36 @@ function QueueRow({
  * defaults to pending (the landing tab) rather than to "everything". An unknown value falls back to
  * that same landing tab.
  */
+const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The selected inclusive capture-date range, both ends "YYYY-MM-DD".
+ *
+ * A single day is expressed as from === to, so the whole screen carries ONE date concept and the
+ * query builder decides at the last moment whether that collapses to the backend's `business_date`
+ * or opens into the range pair.
+ *
+ * Defaults, in order:
+ *  - `vd_from` + `vd_to`, the picker's own params;
+ *  - `as_of`, so links minted while the shell still had a top-bar date picker keep working;
+ *  - today.
+ *
+ * Malformed or out-of-order input falls back rather than throwing: a hand-edited URL must not take
+ * the board down, and the backend re-validates the same bounds anyway. A future end is clamped to
+ * today for the same reason — the backend answers 400 future_business_date, and a 400 is a worse
+ * answer to a stale bookmark than today's board.
+ */
+function parseDateRange(sp: RouteSearchParams, today: string): { from: string; to: string } {
+  const rawFrom = one(sp, DATE_FROM_PARAM)?.trim();
+  const rawTo = one(sp, DATE_TO_PARAM)?.trim();
+  if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
+    return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
+  }
+  const asOf = one(sp, "as_of")?.trim();
+  if (asOf && BUSINESS_DAY.test(asOf) && asOf <= today) return { from: asOf, to: asOf };
+  return { from: today, to: today };
+}
+
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {
   if (value === "all" || value === "approved" || value === "rejected") return value;
   return "pending";

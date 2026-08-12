@@ -26,11 +26,11 @@ import (
 // role or per module is banned"), and the reason this composes from registry data rather than a
 // literal list of the five modules that happen to be registered today.
 const (
-	// verifierLensRoute is the only admin-web route the lens exposes. /actions already reads the
+	// verifierLensRoute is the only admin-web route the lens exposes. /verify already reads the
 	// real /verification/queue contract, filters by the registry's disjoint categories, and plays
 	// proof media -- so the lens re-scopes an existing screen instead of forking a second one.
-	verifierLensRoute = "/actions"
-	// verifierLensPageID is the page contract /actions renders from. It is the ONLY page contract
+	verifierLensRoute = "/verify"
+	// verifierLensPageID is the page contract /verify renders from. It is the ONLY page contract
 	// a lens principal receives; requireAdminWebPageContract throws on every other route_id, which
 	// is what makes a hand-typed URL fail closed instead of rendering a shell she cannot use.
 	verifierLensPageID = "verification-review"
@@ -60,7 +60,7 @@ func verifierLensIconForModule(moduleKey string) string {
 }
 
 // VerificationNavPage is one backend-defined page tab inside a verifier evidence module -- the web
-// twin of the mobile top-tab row. Category is the disjoint queue predicate /actions filters on.
+// twin of the mobile top-tab row. Category is the disjoint queue predicate /verify filters on.
 type VerificationNavPage struct {
 	Key      string
 	Label    string
@@ -284,7 +284,7 @@ func verifierLensRouteLabels(rules []domain.RouteLabelRule) []domain.RouteLabelR
 // applyVerifierLens re-scopes a compiled bootstrap response down to the verifier workspace.
 //
 // It runs AFTER normal compilation so the queue page still receives the same controls, copy, and
-// option groups every other principal's /actions gets -- the lens narrows what she can reach, it
+// option groups every other principal's /verify gets -- the lens narrows what she can reach, it
 // does not fork the contract she renders.
 func applyVerifierLens(resp domain.BootstrapResponse, modules []VerificationNavModule) domain.BootstrapResponse {
 	resp.Navigation = verifierLensNavigation(modules, resp.Navigation.Footer)

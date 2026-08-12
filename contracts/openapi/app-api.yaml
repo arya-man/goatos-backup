@@ -6067,6 +6067,26 @@ paths:
           schema:
             type: string
             format: date
+        - name: business_date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive start of an Asia/Kolkata capture-date range. Must be sent together with
+            business_date_to (400 invalid_business_date_range otherwise), and cannot be combined
+            with business_date or missed (400 invalid_date_scope).
+          schema:
+            type: string
+            format: date
+        - name: business_date_to
+          in: query
+          required: false
+          description: >-
+            Inclusive end of an Asia/Kolkata capture-date range. Cannot be earlier than
+            business_date_from (400 invalid_business_date_range) or in the future
+            (400 future_business_date).
+          schema:
+            type: string
+            format: date
         - name: missed
           in: query
           required: false

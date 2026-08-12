@@ -30,7 +30,7 @@ import { submitVerificationReviewEvents } from "./review-events-server";
 // hook and the Action Center drawer; THIS drawer keeps a private copy of the logic and was missed.
 const OPEN_FALLBACK_MS = 50;
 
-const PATHNAME = "/actions";
+const PATHNAME = "/verify";
 
 function renderLabelOrFallback(label: string | null | undefined): string {
   return label && label.trim() ? label : "—";

@@ -198,7 +198,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/config` | `config` | Protocol Rules | `/protocols`, `/protocols/animal-stages` | Authority screen; category-driven. |
 | `/sops` | `sops` | SOP Library | `/admin/sops` | Vaccination SOP slice only. |
 | `/goats/{goat_id}` | `goat-passport` | Goat Passport | `/goats/{goat_id}`, `/goats/{goat_id}/passport` | Contextual drilldown. |
-| `/actions` | `verification-review` | Actions | `/verification/queue`, `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | Cross-module verification evidence, filtered by backend-registered action type and status. `/verification` redirects here for compatibility. |
+| `/verify` | `verification-review` | Verify | `/verification/queue`, `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | Cross-module verification evidence, filtered by backend-registered action type and status. `/actions` and `/verification` both redirect here for compatibility (renamed 2026-08-12). |
 
 ## Current Migration State
 
@@ -291,7 +291,7 @@ Explicit exceptions:
   admin-web nav item, route label, or page contract. This exception applies
   only to the admin-web surface; mobile weighing and the weighing API endpoints
   remain active.
-- `features/verification-review/*` now renders the backend-composed `/actions` authority screen.
+- `features/verification-review/*` now renders the backend-composed `/verify` authority screen.
   `backend/internal/adminui/app/service.go` publishes the `verification-review` page contract and
   top-level nav item immediately below Approvals; the frontend consumes its copy/table contract, while
   `GET /verification/queue` publishes the complete registry-backed `action_types` and disjoint
