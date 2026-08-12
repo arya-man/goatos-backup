@@ -612,6 +612,20 @@ questions continue to resolve through `animal_current_scope`.
 
 | goat_passport_location | func:NewLocationReader, func:GoatLocation, func:NewService | Covered by `ceo_ai.animal_current_scope` (same park/shed/partition grain, `partition_label` present); passport reader is a per-animal detail read adding no new leadership aggregate. |
 
+## Explicit exclusion: counts shed-stage reclassification command (2026-08-12)
+
+`func:PreviewReclassifyShedStage`, `func:CommitReclassifyShedStage`, and
+`func:ReclassifyShedStage` power an admin-only Counts correction action for
+retagging every live animal in one physical shed/partition cohort. The commit
+emits the existing `goat.stage_changed` event for changed animals and updates
+the existing herd identity facts; it does not introduce a new leadership KPI,
+read API route, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL
+fallback surface. Leadership questions about current park/shed/partition/stage
+composition continue to resolve through the already-covered
+`ceo_ai.animal_current_scope` and Counts breakdown/read APIs.
+
+| counts_shed_stage_reclassification | func:PreviewReclassifyShedStage, func:CommitReclassifyShedStage, func:ReclassifyShedStage | Explicit exclusion: admin-only correction write path over existing identity facts; current herd composition remains covered by `ceo_ai.animal_current_scope` and existing Counts reads. |
+
 ## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
 
 `func:RecomputeFutureVaccinationDrives`

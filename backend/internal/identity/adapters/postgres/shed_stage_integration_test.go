@@ -127,7 +127,7 @@ func reclassifyCmd(shedID, partition, stage, key string) ports.ReclassifyShedSta
 		ShedID:               shedID,
 		ManagementStage:      stage,
 		Reason:               "cohort moved up",
-		OccurredAt:           time.Now().UTC(),
+		OccurredAt:           time.Date(2026, time.August, 12, 9, 0, 0, 0, time.UTC),
 	}
 	if partition != "" {
 		label := partition
