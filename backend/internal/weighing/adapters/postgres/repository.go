@@ -999,7 +999,7 @@ LIMIT $2`, tenantID, domain.PlannerOperatorLimit, domain.WeighingAssignableRoles
 //
 // excludeCampaignID is the task being EDITED: its own buckets must not read back as taken, or an
 // edit could never re-save the sheds it already owns.
-func (r *Repository) PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error) {
+func (r *Repository) PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, search, cursor string, limit int) (domain.PlannerParkBuckets, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -1196,6 +1196,19 @@ LEFT JOIN taken
  AND taken.partition_key=COALESCE(bucket.partition_label, '')
 WHERE true
   AND (
+    NULLIF(BTRIM($11::text), '') IS NULL
+    OR bucket.parent_shed_name ILIKE '%' || BTRIM($11::text) || '%'
+    OR COALESCE(bucket.partition_label, '') ILIKE '%' || BTRIM($11::text) || '%'
+    OR COALESCE(bucket.partition_key, '') ILIKE '%' || BTRIM($11::text) || '%'
+    OR (
+      CASE
+        WHEN NULLIF(BTRIM(bucket.partition_label), '') IS NULL THEN bucket.parent_shed_name
+        ELSE bucket.parent_shed_name || ' - ' || bucket.partition_label
+      END
+    ) ILIKE '%' || BTRIM($11::text) || '%'
+    OR bucket.location_id::text ILIKE '%' || BTRIM($11::text) || '%'
+  )
+  AND (
     $5::int IS NULL
     OR (bucket.display_order, bucket.parent_shed_name, bucket.partition_order, bucket.partition_key, bucket.location_id) > ($5::int, $6::text, $7::int, $8::text, $9::uuid)
   )
@@ -1203,7 +1216,7 @@ ORDER BY bucket.display_order, bucket.parent_shed_name, bucket.partition_order, 
 LIMIT $10`,
 		tenantID, parkID, periodStartDate, nullableString(strings.TrimSpace(excludeCampaignID)),
 		cur.orderArg(), cur.nameArg(), cur.partitionOrderArg(), cur.partitionKeyArg(), cur.idArg(),
-		limit+1)
+		limit+1, strings.TrimSpace(search))
 	if err != nil {
 		return domain.PlannerParkBuckets{}, err
 	}
@@ -2345,6 +2358,9 @@ WHERE tenant_id=$1::uuid
 	if completed.RowsAffected() == 0 {
 		return domain.Observation{}, fmt.Errorf("record shed observation: bucket %s did not transition to completed after accepting observation %s: %w", cmd.CampaignShedID, obs.ObservationID, ports.ErrImmutable)
 	}
+	if _, err := r.CompleteWorkItemsForBucket(ctx, tx, cmd.TenantID, cmd.CampaignShedID); err != nil {
+		return domain.Observation{}, err
+	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, cmd.TenantID, cmd.CampaignShedID); err != nil {
 		return domain.Observation{}, err
 	}
@@ -2386,11 +2402,10 @@ WHERE tenant_id=$1::uuid
 //     deliberately NOT checked: zero rows is the normal, expected answer for
 //     every capture after the first.
 //
-// NOT a work_state write. work_state on weighing_work_items has a single writer,
-// the kernel sweeper (see kernel.go). pending -> in_progress is not a terminal
-// transition either way, so reconcileTerminalWorkItems does not act on it and
-// ReactivateWorkItemsForBucket has nothing to undo — the item was and stays
-// 'scheduled'.
+// NOT a work_state write. pending -> in_progress is not a terminal transition:
+// the operator can still resume this bucket, so the kernel work item stays
+// 'scheduled' until the submit path completes it in the same transaction as the
+// bucket completion.
 //
 // NO EVENT. Every reader of this state — operatorSummaries, the campaign-sheds
 // page, the leadership sheds page, close.go's readiness fragments — reads
@@ -2684,6 +2699,9 @@ WHERE tenant_id=$1::uuid
 		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
+		return err
+	}
+	if _, err := r.CompleteWorkItemsForBucket(ctx, tx, tenantID, campaignShedID); err != nil {
 		return err
 	}
 	if err := r.completeCampaignIfDone(ctx, tx, tenantID, campaignID); err != nil {
@@ -3400,6 +3418,17 @@ unpartitioned AS (
     shed.name AS parent_shed_name,
     NULL::text AS partition_label,
     false AS partitioned,
+    EXISTS (
+      SELECT 1
+      FROM locations sibling
+      WHERE sibling.tenant_id=shed.tenant_id
+        AND sibling.location_id<>shed.location_id
+        AND sibling.location_type='shed'
+        AND sibling.status='active'
+        AND sibling.retired_at IS NULL
+        AND sibling.parent_location_id IS NOT DISTINCT FROM shed.parent_location_id
+        AND lower(BTRIM(sibling.name))=lower(BTRIM(shed.name))
+    ) AS ambiguous_unpartitioned,
     2 AS option_priority
   FROM requested r
   JOIN locations shed
@@ -3414,15 +3443,15 @@ unpartitioned AS (
       AND sp.status='active'
   )
 )
-SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
+SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, ambiguous_unpartitioned
 FROM (
-  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, false AS ambiguous_unpartitioned, option_priority
   FROM parent_options
   UNION ALL
-  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, false AS ambiguous_unpartitioned, option_priority
   FROM alias_options
   UNION ALL
-  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, ambiguous_unpartitioned, option_priority
   FROM unpartitioned
 ) options
 ORDER BY requested_location_id, option_priority, parent_shed_name, partition_label`, tenantID, locationIDs)
@@ -3435,13 +3464,14 @@ ORDER BY requested_location_id, option_priority, parent_shed_name, partition_lab
 		shedName            string
 		label               string
 		partitioned         bool
+		ambiguous           bool
 	}
 	byLocation := map[string][]partitionOption{}
 	for rows.Next() {
 		var locationID, canonicalLocationID, shedName string
 		var label *string
-		var partitioned bool
-		if err := rows.Scan(&locationID, &canonicalLocationID, &shedName, &label, &partitioned); err != nil {
+		var partitioned, ambiguous bool
+		if err := rows.Scan(&locationID, &canonicalLocationID, &shedName, &label, &partitioned, &ambiguous); err != nil {
 			return nil, err
 		}
 		byLocation[locationID] = append(byLocation[locationID], partitionOption{
@@ -3449,6 +3479,7 @@ ORDER BY requested_location_id, option_priority, parent_shed_name, partition_lab
 			shedName:            shedName,
 			label:               strings.TrimSpace(deref(label)),
 			partitioned:         partitioned,
+			ambiguous:           ambiguous,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -3463,6 +3494,9 @@ ORDER BY requested_location_id, option_priority, parent_shed_name, partition_lab
 			continue
 		}
 		if len(options) == 1 && !options[0].partitioned {
+			if options[0].ambiguous {
+				return nil, ports.ErrInvalidArgument
+			}
 			out[i].LocationID = options[0].canonicalLocationID
 			out[i].DisplayName = options[0].shedName
 			out[i].PartitionLabel = ""

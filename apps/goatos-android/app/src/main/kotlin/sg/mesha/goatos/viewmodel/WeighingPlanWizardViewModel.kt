@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.SharingStarted
@@ -122,6 +123,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
 
     private var observeCatalogJob: Job? = null
     private var observeBucketsJob: Job? = null
+    private var bucketSearchJob: Job? = null
 
     /** The chosen park's cached cursor state. Stops the scroll prefetch at the end of that park. */
     private var bucketsEndReached = false
@@ -174,6 +176,34 @@ class WeighingPlanWizardViewModel @Inject constructor(
             mapOf(
                 AnalyticsEventsWeighing.Params.WIZARD_STEP to step.name.lowercase(),
                 AnalyticsEvents.Params.CATEGORY to if (raw.value.editCampaignId != null) "edit" else "create",
+            ),
+        )
+    }
+
+    private fun wizardMode(raw: WizardRaw = this.raw.value): String =
+        if (raw.editCampaignId != null) "edit" else "create"
+
+    private fun baseWizardProps(raw: WizardRaw = this.raw.value): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.CATEGORY to wizardMode(raw),
+            AnalyticsEventsWeighing.Params.WIZARD_STEP to raw.step.name.lowercase(),
+            AnalyticsEventsWeighing.Params.PAGE_SIZE to WEIGHING_PAGE_SIZE.toString(),
+            AnalyticsEventsWeighing.Params.SELECTION_COUNT to raw.selections.size.toString(),
+        )
+
+    private fun searchProps(query: String): Map<String, String> =
+        mapOf(
+            AnalyticsEventsWeighing.Params.QUERY_STATE to if (query.isBlank()) "blank" else "set",
+            AnalyticsEventsWeighing.Params.QUERY to query.trim().take(40),
+        )
+
+    private fun trackBucketSearchResults(raw: WizardRaw = this.raw.value) {
+        if (raw.bucketQuery.isBlank()) return
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_SEARCH_RESULTS,
+            baseWizardProps(raw) + searchProps(raw.bucketQuery) + mapOf(
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.filteredBuckets().size.toString(),
+                AnalyticsEvents.Params.ROW_COUNT to raw.buckets.size.toString(),
             ),
         )
     }
@@ -271,6 +301,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
             picked = emptySet(),
             repeatDropped = 0,
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_DATE_SELECTED,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "set"),
+        )
         loadCatalog(isoDate)
     }
 
@@ -303,6 +337,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
             // silently drops every bucket the planner already picked from a later page --
             // out of the tray, out of configure/review, and out of the published task.
             // This refreshes the pages already on screen and adds none.
+            analytics.track(
+                AnalyticsEventsWeighing.WEIGHING_PLAN_PARK_SELECTED,
+                baseWizardProps(current) + mapOf(AnalyticsEvents.Params.ACTION to "refresh"),
+            )
             refreshBucketAvailability(date, parkId)
             return
         }
@@ -315,21 +353,53 @@ class WeighingPlanWizardViewModel @Inject constructor(
             bucketQuery = "",
             bucketCap = WEIGHING_PAGE_SIZE,
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_PARK_SELECTED,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "set"),
+        )
         loadParkBuckets(date, parkId)
     }
 
     // ---- step 3: shed buckets ------------------------------------------------------------
 
     fun setBucketQuery(query: String) {
+        bucketSearchJob?.cancel()
         val next = raw.value.copy(bucketQuery = query, bucketCap = WEIGHING_PAGE_SIZE)
         raw.value = next
-        if (query.isNotBlank() && next.filteredBuckets().isEmpty()) {
-            loadMoreBuckets()
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_SEARCH_CHANGED,
+            baseWizardProps(next) + searchProps(query) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (query.isBlank()) "cleared" else "set",
+                AnalyticsEvents.Params.ROW_COUNT to next.filteredBuckets().size.toString(),
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to next.filteredBuckets().size.toString(),
+            ),
+        )
+        val date = next.date
+        val parkId = next.parkId
+        if (date == null || parkId == null) return
+        val search = query.trim().takeIf { it.isNotBlank() }
+        if (search == null) {
+            loadParkBuckets(date, parkId, search = null)
+            return
+        }
+        bucketSearchJob = viewModelScope.launch {
+            delay(BUCKET_SEARCH_DEBOUNCE_MS)
+            val latest = raw.value
+            if (latest.date == date && latest.parkId == parkId && latest.bucketQuery == query) {
+                loadParkBuckets(date, parkId, search = search)
+            }
         }
     }
 
     fun setBucketFilter(filter: WeighingBucketFilter) {
         raw.value = raw.value.copy(bucketFilter = filter, bucketCap = WEIGHING_PAGE_SIZE)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_FILTER_CHANGED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to filter.name.lowercase(),
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+            ),
+        )
     }
 
     /**
@@ -345,17 +415,64 @@ class WeighingPlanWizardViewModel @Inject constructor(
         val parkId = current.parkId
         if (current.bucketCap < current.filteredBuckets().size) {
             raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE)
+            analytics.track(
+                AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_PAGE_COMPLETED,
+                baseWizardProps(raw.value) + mapOf(
+                    AnalyticsEvents.Params.OUTCOME to "local_window",
+                    AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+                    AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+                ),
+            )
             return
         }
         if (date == null || parkId == null || bucketsEndReached) return
         if (bucketsRefreshInFlight) return
         bucketsRefreshInFlight = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_PAGE_ATTEMPTED,
+            baseWizardProps(current) + mapOf(
+                AnalyticsEvents.Params.ROW_COUNT to current.buckets.size.toString(),
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to current.filteredBuckets().size.toString(),
+                AnalyticsEvents.Params.KIND to if (current.bucketQuery.isBlank()) "normal_page" else "search_page",
+            ) + searchProps(current.bucketQuery),
+        )
         raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE, loading = true)
         viewModelScope.launch {
             try {
-                when (val result = repository.appendPlannerParkBuckets(date, parkId, current.editCampaignId)) {
-                    is AppResult.Ok -> raw.value = raw.value.copy(message = null)
-                    is AppResult.Err -> raw.value = raw.value.copy(message = result.message)
+                when (
+                    val result = repository.appendPlannerParkBuckets(
+                        date,
+                        parkId,
+                        current.editCampaignId,
+                        search = current.bucketQuery.trim().takeIf { it.isNotBlank() },
+                    )
+                ) {
+                    is AppResult.Ok -> {
+                        raw.value = raw.value.copy(message = null)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_PAGE_COMPLETED,
+                            baseWizardProps(raw.value) + mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                                AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+                                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+                                AnalyticsEvents.Params.KIND to if (raw.value.bucketQuery.isBlank()) "normal_page" else "search_page",
+                            ) + searchProps(raw.value.bucketQuery),
+                        )
+                        trackBucketSearchResults()
+                    }
+                    is AppResult.Err -> {
+                        raw.value = raw.value.copy(message = result.message)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_PAGE_COMPLETED,
+                            baseWizardProps(raw.value) + mapOf(
+                                AnalyticsEvents.Params.OUTCOME to "failure",
+                                AnalyticsEvents.Params.REASON to result.message.take(80),
+                                AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+                                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+                                AnalyticsEvents.Params.KIND to if (raw.value.bucketQuery.isBlank()) "normal_page" else "search_page",
+                            ) + searchProps(raw.value.bucketQuery),
+                        )
+                    }
                 }
             } finally {
                 bucketsRefreshInFlight = false
@@ -377,6 +494,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
             selections[locationId] = current.seededSelection(shed)
         }
         raw.value = current.copy(selections = selections, picked = current.picked - locationId)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_TOGGLED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (locationId in selections) "selected" else "removed",
+            ),
+        )
     }
 
     fun addAllVisibleBuckets() {
@@ -388,16 +511,35 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 selections[shed.operationalKey()] = current.seededSelection(shed)
             }
         raw.value = current.copy(selections = selections)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to "add_all_visible",
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to current.filteredBuckets().size.toString(),
+            ),
+        )
     }
 
     fun clearAllBuckets() {
         raw.value = raw.value.copy(selections = emptyMap(), picked = emptySet())
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "clear_all"),
+        )
     }
 
     // ---- step 4: configure ---------------------------------------------------------------
 
     fun setConfigQuery(query: String) {
         raw.value = raw.value.copy(configQuery = query, configCap = WEIGHING_PAGE_SIZE)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_SEARCH_CHANGED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (query.isBlank()) "cleared" else "set",
+                AnalyticsEventsWeighing.Params.QUERY_STATE to if (query.isBlank()) "blank" else "set",
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredSelections().size.toString(),
+            ),
+        )
     }
 
     fun toggleConfigSearch() {
@@ -406,12 +548,27 @@ class WeighingPlanWizardViewModel @Inject constructor(
             configSearchOpen = !current.configSearchOpen,
             configQuery = if (current.configSearchOpen) "" else current.configQuery,
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_SEARCH_CHANGED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (raw.value.configSearchOpen) "opened" else "closed",
+                AnalyticsEventsWeighing.Params.QUERY_STATE to if (raw.value.configQuery.isBlank()) "blank" else "set",
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredSelections().size.toString(),
+            ),
+        )
     }
 
     fun loadMoreConfigRows() {
         val current = raw.value
         if (current.configCap >= current.filteredSelections().size) return
         raw.value = current.copy(configCap = current.configCap + WEIGHING_PAGE_SIZE)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_PAGE_CHANGED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to "load_more",
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredSelections().size.toString(),
+            ),
+        )
     }
 
     fun setBucketCategory(locationId: String, category: String) {
@@ -425,6 +582,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
         raw.value = current.copy(
             selections = current.selections + (locationId to selection.copy(category = category)),
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_CATEGORY_SET,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to category),
+        )
     }
 
     /** ONE bucket, exactly ONE operator. There is no "shared" bucket and no unassigned bucket. */
@@ -436,6 +597,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
         raw.value = current.copy(
             selections = current.selections + (locationId to selection.copy(operatorUserId = operatorUserId)),
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_BUCKET_OPERATOR_SET,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "set"),
+        )
     }
 
     fun toggleConfigPick(locationId: String) {
@@ -443,15 +608,32 @@ class WeighingPlanWizardViewModel @Inject constructor(
         raw.value = current.copy(
             picked = if (locationId in current.picked) current.picked - locationId else current.picked + locationId,
         )
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_PICK_TOGGLED,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (locationId in raw.value.picked) "picked" else "unpicked",
+            ),
+        )
     }
 
     fun pickAllShownConfigRows() {
         val current = raw.value
         raw.value = current.copy(picked = current.filteredSelections().map { it.first }.toSet())
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to "pick_all_shown",
+                AnalyticsEventsWeighing.Params.RESULT_COUNT to current.filteredSelections().size.toString(),
+            ),
+        )
     }
 
     fun clearConfigPicks() {
         raw.value = raw.value.copy(picked = emptySet())
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "clear_picks"),
+        )
     }
 
     /** Applies a mode and/or an operator to the ticked buckets, or to everything shown if none. */
@@ -468,6 +650,14 @@ class WeighingPlanWizardViewModel @Inject constructor(
             )
         }
         raw.value = current.copy(selections = selections)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(
+                AnalyticsEvents.Params.ACTION to "apply_bulk",
+                AnalyticsEventsWeighing.Params.TARGET to if (current.picked.isEmpty()) "visible" else "picked",
+                AnalyticsEvents.Params.KIND to (category ?: "unchanged"),
+            ),
+        )
     }
 
     /** Deals the buckets round-robin across the park's operators, in a stable order. */
@@ -482,6 +672,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
             selections[locationId] = selection.copy(operatorUserId = operators[index % operators.size].userId)
         }
         raw.value = current.copy(selections = selections)
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_CONFIG_BULK_ACTION,
+            baseWizardProps(raw.value) + mapOf(AnalyticsEvents.Params.ACTION to "split_evenly"),
+        )
     }
 
     // ---- step 5: commit ------------------------------------------------------------------
@@ -508,7 +702,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
             return
         }
         raw.value = current.copy(busy = true, message = null)
-        analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_ATTEMPTED)
+        analytics.track(
+            AnalyticsEvents.WEIGHING_PLAN_SAVE_ATTEMPTED,
+            baseWizardProps(current) + mapOf(
+                AnalyticsEvents.Params.ACTION to if (publish) "publish" else "draft",
+                AnalyticsEvents.Params.ROW_COUNT to rows.size.toString(),
+            ),
+        )
         viewModelScope.launch {
             // A weighing task is ONE park on ONE weigh date, so the period start, period end and
             // weigh date are the same business day. They are not a range.
@@ -539,13 +739,23 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 when (val result = repository.updatePlan(editCampaignId, draft)) {
                     is AppResult.Ok -> {
                         raw.value = raw.value.copy(busy = false, savedCampaignId = editCampaignId)
-                        analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED,
+                            baseWizardProps(raw.value) + mapOf(
+                                AnalyticsEvents.Params.ACTION to "edit",
+                                AnalyticsEvents.Params.ROW_COUNT to rows.size.toString(),
+                            ),
+                        )
                     }
                     is AppResult.Err -> {
                         raw.value = raw.value.copy(busy = false, message = result.message)
                         analytics.track(
                             AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
-                            mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                            baseWizardProps(raw.value) + mapOf(
+                                AnalyticsEvents.Params.ACTION to "edit",
+                                AnalyticsEvents.Params.REASON to result.message.take(80),
+                                AnalyticsEvents.Params.ROW_COUNT to rows.size.toString(),
+                            ),
                         )
                         crashReporter.recordException(
                             result.cause ?: IllegalStateException(result.message),
@@ -558,13 +768,23 @@ class WeighingPlanWizardViewModel @Inject constructor(
             when (val result = repository.createPlan(draft, publish)) {
                 is AppResult.Ok -> {
                     raw.value = raw.value.copy(busy = false, savedCampaignId = result.value)
-                    analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
+                    analytics.track(
+                        AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED,
+                        baseWizardProps(raw.value) + mapOf(
+                            AnalyticsEvents.Params.ACTION to if (publish) "publish" else "draft",
+                            AnalyticsEvents.Params.ROW_COUNT to rows.size.toString(),
+                        ),
+                    )
                 }
                 is AppResult.Err -> {
                     raw.value = raw.value.copy(busy = false, message = result.message)
                     analytics.track(
                         AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
-                        mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                        baseWizardProps(raw.value) + mapOf(
+                            AnalyticsEvents.Params.ACTION to if (publish) "publish" else "draft",
+                            AnalyticsEvents.Params.REASON to result.message.take(80),
+                            AnalyticsEvents.Params.ROW_COUNT to rows.size.toString(),
+                        ),
                     )
                     crashReporter.recordException(
                         result.cause ?: IllegalStateException(result.message),
@@ -611,15 +831,41 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // [catalogRefreshInFlight]'s doc for why the two must never share one guard.
         if (catalogRefreshInFlight) return
         catalogRefreshInFlight = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_ATTEMPTED,
+            baseWizardProps() + mapOf(
+                AnalyticsEvents.Params.ACTION to "catalog_refresh",
+                AnalyticsEvents.Params.KIND to "catalog",
+            ),
+        )
         raw.value = raw.value.copy(loading = true)
         viewModelScope.launch {
             try {
                 when (val result = repository.refreshPlannerCatalog(isoDate)) {
-                    is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
+                    is AppResult.Ok -> {
+                        raw.value = raw.value.copy(loading = false)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_COMPLETED,
+                            baseWizardProps() + mapOf(
+                                AnalyticsEvents.Params.ACTION to "catalog_refresh",
+                                AnalyticsEvents.Params.KIND to "catalog",
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                            ),
+                        )
+                    }
                     // The cached park list stays on screen; the wizard says what did not land rather
                     // than dropping the planner back to an empty picker.
                     is AppResult.Err -> {
                         raw.value = raw.value.copy(loading = false, message = result.message)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_COMPLETED,
+                            baseWizardProps() + mapOf(
+                                AnalyticsEvents.Params.ACTION to "catalog_refresh",
+                                AnalyticsEvents.Params.KIND to "catalog",
+                                AnalyticsEvents.Params.OUTCOME to "failure",
+                                AnalyticsEvents.Params.REASON to result.message.take(80),
+                            ),
+                        )
                         crashReporter.recordException(
                             result.cause ?: IllegalStateException(result.message),
                             "weighing planner catalog load failed"
@@ -640,12 +886,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
      * sheds, so this is a real keyset page -- and a failed refresh leaves the cached buckets on
      * screen instead of emptying the picker.
      */
-    private fun loadParkBuckets(isoDate: String, parkId: String) {
+    private fun loadParkBuckets(isoDate: String, parkId: String, search: String? = null) {
         bucketsEndReached = false
         observeBucketsJob?.cancel()
         val excludeCampaignId = raw.value.editCampaignId
         observeBucketsJob = viewModelScope.launch {
-            repository.observePlannerParkBuckets(isoDate, parkId, Int.MAX_VALUE, excludeCampaignId)
+            repository.observePlannerParkBuckets(isoDate, parkId, Int.MAX_VALUE, excludeCampaignId, search)
                 .collect { cached ->
                 // A stale emission for a park the planner has already moved off must not repopulate
                 // the list under the new park.
@@ -656,12 +902,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
                     .copy(buckets = cached.sheds, bucketsParkId = parkId)
                     .withRepeatBucketsApplied()
                 raw.value = updated
-                if (updated.bucketQuery.isNotBlank() && updated.filteredBuckets().isEmpty() && cached.canLoadMore) {
-                    loadMoreBuckets()
-                }
+                trackBucketSearchResults(updated)
             }
         }
-        refreshParkBuckets(isoDate, parkId, reset = true)
+        refreshParkBuckets(isoDate, parkId, reset = true, search = search)
     }
 
     /**
@@ -690,13 +934,21 @@ class WeighingPlanWizardViewModel @Inject constructor(
         }
     }
 
-    private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean) {
+    private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean, search: String? = null) {
         // Deduped against its OWN in-flight flag, not [WizardRaw.loading]. The edit wizard fires
         // this right after the catalog refresh, before either network call has returned; sharing
         // one flag meant this call saw the catalog refresh's flag still up and bailed out for
         // good, since nothing else ever re-triggers the first park-bucket load.
         if (bucketsRefreshInFlight) return
         bucketsRefreshInFlight = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_ATTEMPTED,
+            baseWizardProps() + mapOf(
+                AnalyticsEvents.Params.ACTION to if (reset) "buckets_refresh_reset" else "buckets_refresh",
+                AnalyticsEvents.Params.KIND to "buckets",
+                AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+            ) + searchProps(search.orEmpty()),
+        )
         raw.value = raw.value.copy(loading = true)
         val excludeCampaignId = raw.value.editCampaignId
         viewModelScope.launch {
@@ -707,11 +959,35 @@ class WeighingPlanWizardViewModel @Inject constructor(
                         parkId,
                         reset = reset,
                         excludeCampaignId = excludeCampaignId,
+                        search = search,
                     )
                 ) {
-                    is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
+                    is AppResult.Ok -> {
+                        raw.value = raw.value.copy(loading = false)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_COMPLETED,
+                            baseWizardProps() + mapOf(
+                                AnalyticsEvents.Params.ACTION to if (reset) "buckets_refresh_reset" else "buckets_refresh",
+                                AnalyticsEvents.Params.KIND to "buckets",
+                                AnalyticsEvents.Params.OUTCOME to "success",
+                                AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+                                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+                            ) + searchProps(search.orEmpty()),
+                        )
+                    }
                     is AppResult.Err -> {
                         raw.value = raw.value.copy(loading = false, message = result.message)
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_PLAN_DATA_LOAD_COMPLETED,
+                            baseWizardProps() + mapOf(
+                                AnalyticsEvents.Params.ACTION to if (reset) "buckets_refresh_reset" else "buckets_refresh",
+                                AnalyticsEvents.Params.KIND to "buckets",
+                                AnalyticsEvents.Params.OUTCOME to "failure",
+                                AnalyticsEvents.Params.REASON to result.message.take(80),
+                                AnalyticsEvents.Params.ROW_COUNT to raw.value.buckets.size.toString(),
+                                AnalyticsEventsWeighing.Params.RESULT_COUNT to raw.value.filteredBuckets().size.toString(),
+                            ) + searchProps(search.orEmpty()),
+                        )
                         crashReporter.recordException(
                             result.cause ?: IllegalStateException(result.message),
                             "weighing planner park buckets load failed"
@@ -733,8 +1009,9 @@ private const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
 private const val DEFAULT_PLANNED_CAP_PER_DAY = 100
 private const val WEIGHING_WIZARD_DATE_OPTIONS = 14
 private const val WEIGHING_WIZARD_TRAY_CAP = 12
+private const val BUCKET_SEARCH_DEBOUNCE_MS = 300L
 private const val SEED_LOST_MESSAGE =
-    "This task's details were lost when the app restarted. Go back and open it again."
+	"This task's details were lost when the app restarted. Go back and open it again."
 
 private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val WIZARD_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH)

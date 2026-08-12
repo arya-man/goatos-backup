@@ -456,6 +456,7 @@ interface AppApi {
         // The task being EDITED, so its own sheds never read back as "already scheduled" against
         // themselves. Null on the create wizard, where there is no source task to exclude.
         excludeCampaignId: String? = null,
+        search: String? = null,
     ): WeighingPlannerParkBucketsResponseDto
 
     suspend fun createWeighingCampaign(
@@ -1323,6 +1324,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int,
         excludeCampaignId: String?,
+        search: String?,
     ): WeighingPlannerParkBucketsResponseDto = WeighingPlannerParkBucketsResponseDto()
 
     override suspend fun createWeighingCampaign(

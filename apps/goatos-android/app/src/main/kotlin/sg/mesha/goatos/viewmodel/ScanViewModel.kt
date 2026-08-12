@@ -21,6 +21,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -589,6 +590,14 @@ class ScanViewModel @Inject constructor(
      *  [_isOffline] — the previously-persisted roster, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
+        analytics.track(
+            AnalyticsEvents.VACCINATION_SCAN_ROSTER_REFRESH_ATTEMPTED,
+            mapOf(
+                AnalyticsEvents.Params.SHED_ID to id,
+                AnalyticsEvents.Params.PARTITION_LABEL to (partitionLabel ?: "whole"),
+                AnalyticsEventsWeighing.Params.PAGE_SIZE to SCAN_PAGE_SIZE.toString(),
+            ) + (taskId?.let { mapOf(AnalyticsEvents.Params.ITEM_ID to it) } ?: emptyMap()),
+        )
         _isRefreshing.value = true
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
@@ -597,14 +606,41 @@ class ScanViewModel @Inject constructor(
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
         _refreshError.value = result.exceptionOrNull()?.message
+        analytics.track(
+            AnalyticsEvents.VACCINATION_SCAN_ROSTER_REFRESH_COMPLETED,
+            mapOf(
+                AnalyticsEvents.Params.SHED_ID to id,
+                AnalyticsEvents.Params.PARTITION_LABEL to (partitionLabel ?: "whole"),
+                AnalyticsEvents.Params.OUTCOME to if (result.isSuccess) "success" else "failure",
+                AnalyticsEvents.Params.ROW_COUNT to rosterTotal.value.toString(),
+                AnalyticsEventsWeighing.Params.PAGE_SIZE to SCAN_PAGE_SIZE.toString(),
+            ) + (taskId?.let { mapOf(AnalyticsEvents.Params.ITEM_ID to it) } ?: emptyMap()) +
+                (result.exceptionOrNull()?.message?.let {
+                    mapOf(AnalyticsEvents.Params.REASON to it.take(MAX_ANALYTICS_REASON_CHARS))
+                } ?: emptyMap()),
+        )
     }
 
     /** Reveal the next page of the ALREADY-LOCAL roster by growing the observed SSOT window. No
      *  network call — the whole roster is in Room after [refresh], so page-N works offline. */
     fun loadMore() {
         if (shedId == null) return
-        if (_windowSize.value >= rosterTotal.value) return
+        val before = _windowSize.value
+        val total = rosterTotal.value
+        if (before >= total) return
         _windowSize.update { it + SCAN_PAGE_SIZE }
+        analytics.track(
+            AnalyticsEvents.VACCINATION_SCAN_ROSTER_PAGE_REVEALED,
+            mapOf(
+                AnalyticsEvents.Params.SHED_ID to shedId.orEmpty(),
+                AnalyticsEvents.Params.PARTITION_LABEL to (partitionLabel ?: "whole"),
+                AnalyticsEvents.Params.ROW_COUNT to total.toString(),
+                AnalyticsEvents.Params.ACTION to "load_more",
+                AnalyticsEventsWeighing.Params.PAGE_SIZE to SCAN_PAGE_SIZE.toString(),
+                "visible_count_before" to before.toString(),
+                "visible_count_after" to _windowSize.value.coerceAtMost(total).toString(),
+            ) + (taskId?.let { mapOf(AnalyticsEvents.Params.ITEM_ID to it) } ?: emptyMap()),
+        )
     }
 
     private fun loadRosterAndRefresh() {
@@ -620,25 +656,67 @@ class ScanViewModel @Inject constructor(
 
     fun onEvent(event: ScanEvent) {
         when (event) {
-            is ScanEvent.SelectGroup ->
+            is ScanEvent.SelectGroup -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SCAN_ACTION,
+                    scanScreenActionProps("vaccine_group_selected"),
+                )
                 _selectedVaccineGroupId.value = event.groupId
-            is ScanEvent.OpenTile ->
+            }
+            is ScanEvent.OpenTile -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SCAN_ACTION,
+                    scanScreenActionProps("filter_tile_toggled"),
+                )
                 _selectedFilter.value = if (_selectedFilter.value == event.status) null else event.status
-            ScanEvent.OpenList ->
+            }
+            ScanEvent.OpenList -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SCAN_ACTION,
+                    scanScreenActionProps("list_toggled"),
+                )
                 _rosterExpanded.value = !_rosterExpanded.value
+            }
             is ScanEvent.CaptureVideo -> requestGoatProof(event.goatId)
             is ScanEvent.CaptureProof -> requestGoatProof(event.goatId)
-            is ScanEvent.RetryProof -> retryGoatProof(event.goatId)
-            is ScanEvent.ArmProofReplacement -> armProofReplacement(event.goatId)
+            is ScanEvent.RetryProof -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_ACTION,
+                    scanScreenActionProps("proof_retry_clicked"),
+                )
+                retryGoatProof(event.goatId)
+            }
+            is ScanEvent.ArmProofReplacement -> {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_PROOF_ACTION,
+                    scanScreenActionProps("proof_replace_armed"),
+                )
+                armProofReplacement(event.goatId)
+            }
             ScanEvent.OpenShedSwitcher,
             ScanEvent.DismissShedSwitcher,
             is ScanEvent.SwitchShed -> Unit
             ScanEvent.LoadMore -> loadMore()
-            ScanEvent.Submit,
+            ScanEvent.Submit -> analytics.track(
+                AnalyticsEvents.VACCINATION_SCAN_ACTION,
+                scanScreenActionProps("submit_cta_clicked"),
+            )
             ScanEvent.Back,
-            ScanEvent.ReconnectReader -> Unit // navigation — handled by the host.
+            ScanEvent.ReconnectReader -> analytics.track(
+                AnalyticsEvents.VACCINATION_SCAN_ACTION,
+                scanScreenActionProps("reader_reconnect_clicked"),
+            ) // navigation — handled by the host.
         }
     }
+
+    private fun scanScreenActionProps(action: String): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.ACTION to action,
+            AnalyticsEvents.Params.SHED_ID to shedId.orEmpty(),
+            AnalyticsEvents.Params.PARTITION_LABEL to (partitionLabel ?: "whole"),
+            AnalyticsEvents.Params.ROW_COUNT to rosterTotal.value.toString(),
+            "visible_count" to _windowSize.value.coerceAtMost(rosterTotal.value).toString(),
+        ) + (taskId?.let { mapOf(AnalyticsEvents.Params.ITEM_ID to it) } ?: emptyMap())
 
     private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
         ScanReaderConnection(

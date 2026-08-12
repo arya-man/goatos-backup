@@ -165,6 +165,7 @@ func TestFirstLumpSumCaptureCompletesBucketWithNoInProgressWindow(t *testing.T) 
 		t.Fatalf("lump-sum capture: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+	assertWorkItemState(t, ctx, pool, repoShedScope, domain.StatusCompleted)
 }
 
 // The read model the broken write left stranded. operator_summaries' in_progress
@@ -209,6 +210,7 @@ func TestOperatorSummariesReportInProgressMidCapture(t *testing.T) {
 		"animal:rollup-submit", []string{"tag-rollup"}); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	assertWorkItemState(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 	after := operatorSummaryFor(t, ctx, repo, repoOperator)
 	if after.CapturingCount != 0 {
 		t.Fatalf("in_progress after submit=%d, want 0", after.CapturingCount)
@@ -240,6 +242,17 @@ func scopeUpdatedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campa
 		t.Fatalf("read scope updated_at: %v", err)
 	}
 	return got
+}
+
+func assertWorkItemState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignShedID, want string) {
+	t.Helper()
+	var got string
+	if err := pool.QueryRow(ctx, `SELECT work_state FROM weighing_work_items WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, campaignShedID).Scan(&got); err != nil {
+		t.Fatalf("read work item state: %v", err)
+	}
+	if got != want {
+		t.Fatalf("work item state for %s=%q, want %q", campaignShedID, got, want)
+	}
 }
 
 // weighingOutboxCount is the whole-tenant outbox row count. The pending ->

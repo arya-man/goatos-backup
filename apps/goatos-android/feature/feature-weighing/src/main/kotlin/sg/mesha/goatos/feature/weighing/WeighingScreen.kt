@@ -1881,9 +1881,11 @@ private fun WeighingLumpSumCapture(
 ) {
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    var activeLumpSumField by rememberSaveable { mutableStateOf<LumpSumField?>(null) }
     fun dismissKeyboard() {
         keyboardController?.hide()
         focusManager.clearFocus()
+        activeLumpSumField = null
     }
     Column(
         modifier = Modifier
@@ -1901,9 +1903,16 @@ private fun WeighingLumpSumCapture(
             suffix = { Text(stringResource(R.string.weighing_kg)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             singleLine = true,
+            readOnly = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .onFocusChanged { onWeightEntryActive(it.isFocused) },
+                .onFocusChanged {
+                    if (it.isFocused) {
+                        keyboardController?.hide()
+                        activeLumpSumField = LumpSumField.TOTAL_WEIGHT
+                    }
+                    onWeightEntryActive(it.isFocused || activeLumpSumField != null)
+                },
         )
         OutlinedTextField(
             value = state.animalCountInput,
@@ -1911,10 +1920,32 @@ private fun WeighingLumpSumCapture(
             label = { Text(stringResource(R.string.weighing_field_animal_count)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
+            readOnly = true,
             modifier = Modifier
                 .fillMaxWidth()
-                .onFocusChanged { onWeightEntryActive(it.isFocused) },
+                .onFocusChanged {
+                    if (it.isFocused) {
+                        keyboardController?.hide()
+                        activeLumpSumField = LumpSumField.ANIMAL_COUNT
+                    }
+                    onWeightEntryActive(it.isFocused || activeLumpSumField != null)
+                },
         )
+        activeLumpSumField?.let { field ->
+            WeighingNumericKeypad(
+                value = when (field) {
+                    LumpSumField.TOTAL_WEIGHT -> state.weightInput
+                    LumpSumField.ANIMAL_COUNT -> state.animalCountInput
+                },
+                onValueChange = { next ->
+                    when (field) {
+                        LumpSumField.TOTAL_WEIGHT -> onWeightChange(next)
+                        LumpSumField.ANIMAL_COUNT -> onAnimalCountChange(next)
+                    }
+                },
+                allowDecimal = field == LumpSumField.TOTAL_WEIGHT,
+            )
+        }
         val totalWeight = state.weightInput.toDoubleOrNull()
         val animalCount = state.animalCountInput.toIntOrNull()
         if (totalWeight != null && totalWeight > 0 && animalCount != null && animalCount > 0) {
@@ -2039,6 +2070,11 @@ private fun WeighingLumpSumCapture(
             primary = false,
         )
     }
+}
+
+private enum class LumpSumField {
+    TOTAL_WEIGHT,
+    ANIMAL_COUNT,
 }
 
 @Composable
@@ -2648,6 +2684,7 @@ private fun WeighingNumericKeypad(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    allowDecimal: Boolean = true,
 ) {
     val rows = listOf(
         listOf("1", "2", "3"),
@@ -2676,7 +2713,7 @@ private fun WeighingNumericKeypad(
                                 val next = when (key) {
                                     "\u232B" -> value.dropLast(1)
                                     // Exactly one decimal point, and never as the first character.
-                                    "." -> if (value.contains(".") || value.isEmpty()) value else value + "."
+                                    "." -> if (!allowDecimal || value.contains(".") || value.isEmpty()) value else value + "."
                                     else -> value + key
                                 }
                                 onValueChange(next)

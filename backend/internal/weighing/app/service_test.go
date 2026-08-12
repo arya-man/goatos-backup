@@ -856,19 +856,19 @@ func TestPlannerParkBucketsRejectsAMalformedParkDateOrExcludeID(t *testing.T) {
 	park := "00000000-0000-4000-8000-000000003001"
 
 	for _, parkID := range []string{"", "not-a-uuid"} {
-		if _, err := service.PlannerParkBuckets(context.Background(), monitor, parkID, "2026-07-04", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, parkID, "2026-07-04", "", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
 			t.Fatalf("planner buckets park %q err=%v, want invalid argument", parkID, err)
 		}
 	}
 	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
-		if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, date, "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, date, "", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
 			t.Fatalf("planner buckets date %q err=%v, want invalid argument", date, err)
 		}
 	}
-	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "not-a-uuid", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "not-a-uuid", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("malformed exclude id err=%v, want invalid argument", err)
 	}
-	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "", "", 0); err != nil {
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "", "", "", 0); err != nil {
 		t.Fatalf("valid planner bucket request: %v", err)
 	}
 }
@@ -989,7 +989,7 @@ func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.Planne
 	return domain.PlannerCatalog{}, nil
 }
 
-func (f fakeRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+func (f fakeRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
 	return domain.PlannerParkBuckets{}, nil
 }
 
@@ -1196,7 +1196,7 @@ func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.P
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *scenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+func (r *scenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
 	return domain.PlannerParkBuckets{}, nil
 }
 

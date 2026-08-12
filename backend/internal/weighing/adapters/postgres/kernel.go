@@ -565,6 +565,34 @@ WHERE tenant_id = $1::uuid
 	return int(tag.RowsAffected()), nil
 }
 
+// CompleteWorkItemsForBucket is the submit-side twin of ReactivateWorkItemsForBucket.
+//
+// The operator submit transaction is the source of truth for "this bucket is no
+// longer actionable". Waiting for the kernel sweeper to discover the completed
+// campaign_shed row leaves the operator-facing work item scheduled for a window,
+// so the phone can still navigate back into a scan screen for work that was
+// already submitted. Keep the terminal work-item write in the same transaction as
+// the bucket completion.
+func (r *Repository) CompleteWorkItemsForBucket(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	campaignShedID = strings.TrimSpace(campaignShedID)
+	if tenantID == "" || campaignShedID == "" {
+		return 0, nil
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE weighing_work_items
+SET work_state = 'completed',
+    terminal_at = COALESCE(terminal_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND campaign_shed_id = $2::uuid
+  AND work_state IN ('scheduled','delayed')`, tenantID, campaignShedID)
+	if err != nil {
+		return 0, fmt.Errorf("weighing kernel: complete work item for bucket: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // cadencePass describes one claim-and-notify sweep pass. It is claimed with a
 // composite (date, work_item_id) keyset cursor (expressed as an OR-decomposed
 // date/work_item_id predicate) so the cursor's sort

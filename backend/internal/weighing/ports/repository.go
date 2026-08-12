@@ -322,7 +322,7 @@ type Repository interface {
 	// PlannerParkBuckets is ONE keyset page of the sheds of ONE park on ONE weigh
 	// date, carrying that date's availability. excludeCampaignID is the task being
 	// edited, whose own buckets must not read back as "taken".
-	PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
+	PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, search, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	// ListCampaignSheds is the task-DETAIL bucket page. The task list embeds a
 	// campaign's whole bucket set; the detail screen reads ~20 at a time instead.
 	//

@@ -331,6 +331,7 @@ class WeighingPlanWizardEditHydrationTest {
             periodStartDate: String,
             parkId: String,
             excludeCampaignId: String?,
+            search: String?,
         ): AppResult<Int> = AppResult.Ok(0)
 
 
@@ -383,6 +384,7 @@ class WeighingPlanWizardEditHydrationTest {
             parkId: String,
             windowSize: Int,
             excludeCampaignId: String?,
+            search: String?,
         ): Flow<WeighingPlannerParkBucketsCache> = bucketsFlow
 
         override suspend fun refreshPlannerParkBuckets(
@@ -390,6 +392,7 @@ class WeighingPlanWizardEditHydrationTest {
             parkId: String,
             reset: Boolean,
             excludeCampaignId: String?,
+            search: String?,
         ): AppResult<Int> {
             parkBucketRefreshCount += 1
             val sheds = listOf(

@@ -58,6 +58,64 @@ object AnalyticsEventsWeighing {
     const val WEIGHING_PLAN_WIZARD_ABANDONED = "weighing_plan_wizard_abandoned"
 
     /**
+     * The planner changed the shed-bucket search box. Carries only set/cleared plus the visible
+     * row count; never the typed shed text or any shed id.
+     */
+    const val WEIGHING_PLAN_BUCKET_SEARCH_CHANGED = "weighing_plan_bucket_search_changed"
+
+    /**
+     * The planner requested one more shed-bucket page from the authoring wizard.
+     */
+    const val WEIGHING_PLAN_BUCKET_PAGE_ATTEMPTED = "weighing_plan_bucket_page_attempted"
+
+    /**
+     * A shed-bucket page request completed. Outcome is success/failure and failure reason is coarse.
+     */
+    const val WEIGHING_PLAN_BUCKET_PAGE_COMPLETED = "weighing_plan_bucket_page_completed"
+
+    /** The shed-bucket search produced a new visible result count after cache/network updates. */
+    const val WEIGHING_PLAN_BUCKET_SEARCH_RESULTS = "weighing_plan_bucket_search_results"
+
+    /** A planner picked or changed the date. */
+    const val WEIGHING_PLAN_DATE_SELECTED = "weighing_plan_date_selected"
+
+    /** A planner picked or refreshed the park. */
+    const val WEIGHING_PLAN_PARK_SELECTED = "weighing_plan_park_selected"
+
+    /** The bucket availability filter changed. */
+    const val WEIGHING_PLAN_BUCKET_FILTER_CHANGED = "weighing_plan_bucket_filter_changed"
+
+    /** A single shed bucket was selected or removed. */
+    const val WEIGHING_PLAN_BUCKET_TOGGLED = "weighing_plan_bucket_toggled"
+
+    /** A bulk bucket-selection action ran from the bucket step. */
+    const val WEIGHING_PLAN_BUCKET_BULK_ACTION = "weighing_plan_bucket_bulk_action"
+
+    /** The configure-step search box changed. */
+    const val WEIGHING_PLAN_CONFIG_SEARCH_CHANGED = "weighing_plan_config_search_changed"
+
+    /** The configure-step rendered row window grew. */
+    const val WEIGHING_PLAN_CONFIG_PAGE_CHANGED = "weighing_plan_config_page_changed"
+
+    /** One configured bucket had its weighing mode changed. */
+    const val WEIGHING_PLAN_BUCKET_CATEGORY_SET = "weighing_plan_bucket_category_set"
+
+    /** One configured bucket had its assigned operator changed. */
+    const val WEIGHING_PLAN_BUCKET_OPERATOR_SET = "weighing_plan_bucket_operator_set"
+
+    /** A configure-step row was ticked or unticked. */
+    const val WEIGHING_PLAN_CONFIG_PICK_TOGGLED = "weighing_plan_config_pick_toggled"
+
+    /** A configure-step bulk action ran. */
+    const val WEIGHING_PLAN_CONFIG_BULK_ACTION = "weighing_plan_config_bulk_action"
+
+    /** The planner started a backend-backed catalog/bucket refresh. */
+    const val WEIGHING_PLAN_DATA_LOAD_ATTEMPTED = "weighing_plan_data_load_attempted"
+
+    /** A backend-backed catalog/bucket refresh completed. */
+    const val WEIGHING_PLAN_DATA_LOAD_COMPLETED = "weighing_plan_data_load_completed"
+
+    /**
      * The operator asked to retry, remove, or (re)capture a shed-level group video proof —
      * fired before the repository call resolves. [AnalyticsEvents.Params.CATEGORY] carries which
      * action (`retry`/`remove`/`capture`), so the three share one funnel while staying
@@ -81,6 +139,24 @@ object AnalyticsEventsWeighing {
         /** Which wizard step an event refers to (`date`/`park`/`buckets`/`configure`/`review`),
          *  lowercase of the [WeighingWizardStep] enum name. */
         const val WIZARD_STEP = "wizard_step"
+
+        /** The fixed client page size used by the relevant list. */
+        const val PAGE_SIZE = "page_size"
+
+        /** Count of selected shed buckets in the wizard. */
+        const val SELECTION_COUNT = "selection_count"
+
+        /** Count of rows matching the current client-side search/filter. */
+        const val RESULT_COUNT = "result_count"
+
+        /** Search state (`blank`/`set`). */
+        const val QUERY_STATE = "query_state"
+
+        /** The typed search text, trimmed and capped before logging. */
+        const val QUERY = "query"
+
+        /** Whether a configure bulk action targets checked rows or visible rows. */
+        const val TARGET = "target"
     }
 
     /**

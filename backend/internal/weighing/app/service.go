@@ -458,7 +458,7 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 // excludeCampaignID is the task currently being edited. Without it an edit would see its
 // OWN buckets as already taken and refuse to re-save them, so the planner needs to say
 // "everything except this task".
-func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error) {
+func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, search, cursor string, limit int) (domain.PlannerParkBuckets, error) {
 	if !s.canPlanOrMonitor(actor) {
 		return domain.PlannerParkBuckets{}, ports.ErrForbidden
 	}
@@ -488,7 +488,7 @@ func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, pa
 	if limit > domain.MaxPlannerBucketPageSize {
 		limit = domain.MaxPlannerBucketPageSize
 	}
-	return s.repo.PlannerParkBuckets(ctx, actor.TenantID, parkID, periodStartDate, excludeCampaignID, strings.TrimSpace(cursor), limit)
+	return s.repo.PlannerParkBuckets(ctx, actor.TenantID, parkID, periodStartDate, excludeCampaignID, strings.TrimSpace(search), strings.TrimSpace(cursor), limit)
 }
 
 // canPlanOrMonitor is the planner's read gate: the planner writes belong to WeighingPlan,

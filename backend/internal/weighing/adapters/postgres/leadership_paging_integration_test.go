@@ -280,7 +280,7 @@ func TestPlannerParkBucketsPagesShedsAndTerminates(t *testing.T) {
 	cursor := ""
 	pages := 0
 	for ; pages < 500; pages++ {
-		page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", cursor, 1)
+		page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", "", cursor, 1)
 		if err != nil {
 			t.Fatalf("bucket page %d: %v", pages, err)
 		}
@@ -339,7 +339,7 @@ func TestPlannerParkBucketsCursorIsStableUnderAMidPageInsert(t *testing.T) {
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	first, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", "", 5)
+	first, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", "", "", 5)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestPlannerParkBucketsCursorIsStableUnderAMidPageInsert(t *testing.T) {
 	ahead := lcpUUID(31002)
 	lsInsertShed(t, ctx, pool, ahead, repoPark, "zzzz-after-everything", 9999)
 
-	second, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", first.NextCursor, 5)
+	second, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", "", first.NextCursor, 5)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestPlannerParkBucketsCursorIsStableUnderAMidPageInsert(t *testing.T) {
 	rest := map[string]bool{}
 	cursor := first.NextCursor
 	for pages := 0; pages < 500 && cursor != ""; pages++ {
-		page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", cursor, 5)
+		page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, lsFixtureDay, "", "", cursor, 5)
 		if err != nil {
 			t.Fatalf("drain page %d: %v", pages, err)
 		}
@@ -397,7 +397,7 @@ func drainParkBuckets(t *testing.T, ctx context.Context, repo *Repository, parkI
 	out := map[string][]domain.PlannerShed{}
 	cursor := ""
 	for pages := 0; pages < 500; pages++ {
-		page, err := repo.PlannerParkBuckets(ctx, repoTenant, parkID, weighDate, excludeCampaignID, cursor, domain.MaxPlannerBucketPageSize)
+		page, err := repo.PlannerParkBuckets(ctx, repoTenant, parkID, weighDate, excludeCampaignID, "", cursor, domain.MaxPlannerBucketPageSize)
 		if err != nil {
 			t.Fatalf("drain bucket page %d: %v", pages, err)
 		}

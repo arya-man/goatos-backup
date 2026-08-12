@@ -447,6 +447,10 @@
     <string name="weighing_history_axis_individual">Weight per animal (kg)</string>
     <string name="weighing_history_axis_lump_sum">Shed total weight (kg)</string>
     <string name="weighing_history_axis_mixed">Individual weights in kg; lump-sum cards show the shed total</string>
+    <string name="weighing_history_lumpsum_total">Total</string>
+    <string name="weighing_history_lumpsum_average">Avg/head</string>
+    <string name="weighing_history_lumpsum_animals">Animals</string>
+    <string name="weighing_history_kg_value_fmt">%1$.1f kg</string>
     <string name="weighing_history_truncation_both_fmt">Showing recent weighings only, and the latest %1$d weigh days per animal.</string>
     <string name="weighing_history_truncation_payload">Showing recent weighings only.</string>
     <string name="weighing_history_truncation_per_series_fmt">Showing the latest %1$d weigh days per animal.</string>

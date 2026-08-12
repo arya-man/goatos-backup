@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -646,6 +647,10 @@ class SubmitViewModel @Inject constructor(
         // appeared the first time this was wired.
         showSubmitConfirmation = true
         _state.value = _state.value.copy(showSubmitConfirmation = true)
+        analytics.track(
+            AnalyticsEvents.VACCINATION_SUBMIT_DIALOG_OPENED,
+            submitDialogProps(current, "opened"),
+        )
     }
 
     fun confirmSubmit() {
@@ -665,6 +670,10 @@ class SubmitViewModel @Inject constructor(
         val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId, activePartitionLabel()).also { idempotencyKey = it }
         // Answers: did the operator actually attempt the final submit (vs. leaving the shed
         // with a fully-scanned roster but never confirming) — the funnel's last-mile event.
+        analytics.track(
+            AnalyticsEvents.VACCINATION_SUBMIT_DIALOG_CONFIRMED,
+            submitDialogProps(current, "confirmed"),
+        )
         AnalyticsFunnels.trackSubmitAttempted(analytics, current.taskId)
         statusJob?.cancel()
         viewModelScope.launch {
@@ -740,8 +749,35 @@ class SubmitViewModel @Inject constructor(
 
     fun dismissSubmitConfirmation() {
         // Cancel changes nothing else: no outbox row, no submit, no navigation.
+        currentTask?.let { current ->
+            analytics.track(
+                AnalyticsEvents.VACCINATION_SUBMIT_DIALOG_CANCELLED,
+                submitDialogProps(current, "cancelled"),
+            )
+        }
         showSubmitConfirmation = false
         _state.value = _state.value.copy(showSubmitConfirmation = false)
+    }
+
+    private fun submitDialogProps(task: TaskSummaryDto, action: String): Map<String, String> {
+        val summary = currentShedCompletionSummary
+        val perGoatReadiness = currentPerGoatProofReadiness()
+        val shedProofReadiness = currentShedProofReadiness()
+        val blockingReason = if (currentProofPolicy.isPerGoatVideo) {
+            perGoatReadiness.blockingReason
+        } else {
+            shedProofReadiness.blockingReason
+        } ?: buildFormRunnerState(currentForm, task)?.blockedReason
+        return mapOf(
+            AnalyticsEvents.Params.ACTION to action,
+            AnalyticsEvents.Params.ITEM_ID to task.taskId,
+            AnalyticsEvents.Params.SHED_ID to (activeShedScopeId(task) ?: task.scopeId),
+            AnalyticsEvents.Params.PARTITION_LABEL to (activePartitionLabel() ?: "whole"),
+            AnalyticsEvents.Params.OUTCOME to if (blockingReason == null) "ready" else "blocked",
+            AnalyticsEvents.Params.REASON to (blockingReason ?: "ready").take(96),
+            AnalyticsEvents.Params.ROW_COUNT to (summary?.handledCount ?: currentScans.size).toString(),
+            AnalyticsEvents.Params.ANIMAL_COUNT to (summary?.expectedCount ?: currentScans.size).toString(),
+        )
     }
 
     private fun retry() {
