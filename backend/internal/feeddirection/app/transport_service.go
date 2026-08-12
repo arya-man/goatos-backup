@@ -37,6 +37,7 @@ type SubmitTransportInput struct {
 type ListTransportTasksInput struct {
 	TenantID, ActorID, Date, ParkID, ShedID, Status, Cursor string
 	Limit                                                   int
+	AuthorizedParkIDs                                       []string
 }
 
 func (s *Service) MaterializeTransportTasks(ctx context.Context, tenantID string, asOf time.Time) (ports.MaterializeTransportResult, error) {
@@ -59,14 +60,15 @@ func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksI
 		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTransportStatus
 	}
 	return s.transports.ListTransportTasks(ctx, ports.ListTransportTasksParams{
-		TenantID: strings.TrimSpace(in.TenantID),
-		ActorID:  strings.TrimSpace(in.ActorID),
-		Day:      day,
-		ParkID:   strings.TrimSpace(in.ParkID),
-		ShedID:   strings.TrimSpace(in.ShedID),
-		Status:   status,
-		Cursor:   strings.TrimSpace(in.Cursor),
-		Limit:    in.Limit,
+		TenantID:          strings.TrimSpace(in.TenantID),
+		ActorID:           strings.TrimSpace(in.ActorID),
+		Day:               day,
+		ParkID:            strings.TrimSpace(in.ParkID),
+		ShedID:            strings.TrimSpace(in.ShedID),
+		Status:            status,
+		Cursor:            strings.TrimSpace(in.Cursor),
+		Limit:             in.Limit,
+		AuthorizedParkIDs: in.AuthorizedParkIDs,
 	})
 }
 
