@@ -49,6 +49,7 @@ type ListTransportTasksParams struct {
 	TenantID, ActorID, ParkID, ShedID, Status, Cursor string
 	Day                                               time.Time
 	Limit                                             int
+	AuthorizedParkIDs                                 []string
 }
 
 type MaterializeTransportParams struct {
