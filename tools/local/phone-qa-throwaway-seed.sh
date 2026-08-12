@@ -912,7 +912,9 @@ JOIN (VALUES
 ) AS rt(idx, tag) ON rt.idx = t.idx;
 
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, state_region, status, display_order, updated_at)
-SELECT s.shed_id, '${tenant_id}'::uuid, 'shed', upper(replace(s.shed_name, ' ', '-')), s.shed_name, s.park_id, 'Karnataka', 'active', 50 + s.seq, now()
+SELECT s.shed_id, '${tenant_id}'::uuid, 'shed',
+       upper(replace(s.shed_name, ' ', '-')) || '-QA-' || s.seq::text,
+       s.shed_name, s.park_id, 'Karnataka', 'active', 50 + s.seq, now()
 FROM qa_sheds s
 ON CONFLICT (location_id) DO UPDATE
 SET location_code = EXCLUDED.location_code,
@@ -1157,8 +1159,13 @@ SELECT
   0,
   'none',
   'immediate',
-  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
-  '91000000-0000-4000-8000-000000000602',
+	  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
+	  (
+	    SELECT sop_version_id
+	    FROM protocol_versions
+	    WHERE tenant_id = '${tenant_id}'::uuid
+	      AND protocol_version_id = '91000000-0000-4000-8000-000000000502'
+	  ),
   '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"maximum_count":5,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
   20
 WHERE NOT EXISTS (
