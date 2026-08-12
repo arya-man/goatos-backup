@@ -12,13 +12,19 @@ import type { LiveTrackerOperatorRow } from "@/lib/api/vaccination-live-tracker"
 import { fmtClock, initials, pct, progressTone } from "./format";
 import { LiveStateTag } from "./live-state-tag";
 
-// Operators — live. One row per operator on the drive day, at ADMINISTRATION grain: the sum of the
-// Scheduled column equals the Scheduled tile for the same filter set.
+// Operators — live. One row per operator on the drive day, at ADMINISTRATION grain.
+//
+// The sum of the Scheduled column equals the Scheduled tile MINUS unassignedAdmins: work in a
+// shed/partition with no drive assignment for the day has no operator to be attributed to, so it is
+// counted in the tiles and listed under Sheds but appears in no row here. That residual is rendered
+// as its own note rather than left as an unexplained gap between a tile and the table under it — on
+// a partially-planned stg day it is 95 of 199.
 export function LiveTrackerOperators({
   rows,
   parkCount,
   total,
   truncated,
+  unassignedAdmins,
   hasFilter,
   resetHref,
   pageContract,
@@ -27,6 +33,7 @@ export function LiveTrackerOperators({
   parkCount: number;
   total: number;
   truncated: boolean;
+  unassignedAdmins: number;
   hasFilter: boolean;
   resetHref: string;
   pageContract: AdminUiPageContract;
@@ -84,7 +91,7 @@ export function LiveTrackerOperators({
             <thead>
               <tr>
                 {cols.map((label, index) => (
-                  <th key={label} className={index >= 3 && index <= 6 ? "num" : undefined} style={index === 7 ? { minWidth: 150 } : undefined}>
+                  <th key={label} className={index >= 3 && index <= 7 ? "num" : undefined} style={index === 8 ? { minWidth: 150 } : undefined}>
                     {label}
                   </th>
                 ))}
@@ -92,8 +99,10 @@ export function LiveTrackerOperators({
             </thead>
             <tbody>
               {rows.map((row) => {
-                const done = row.proof_videos;
-                const tone = progressTone(done, row.scheduled_administrations);
+                // The bar tracks CLOSURE, the same fact Remaining is derived from, so the bar, the
+                // Remaining cell and the status pill all describe one thing.
+                const done = row.closed_administrations;
+                const tone = progressTone(row.state);
                 const stateKey = row.state;
                 const subLine = row.current_vaccine_label
                   ? row.current_vaccine_label
@@ -132,6 +141,7 @@ export function LiveTrackerOperators({
                     <td className="num">{row.scheduled_administrations}</td>
                     <td className="num">{row.proof_videos}</td>
                     <td className="num">{row.scan_captures}</td>
+                    <td className="num">{row.closed_administrations}</td>
                     <td className="num">{row.remaining}</td>
                     <td>
                       <div className="lt-pcell">
@@ -167,6 +177,13 @@ export function LiveTrackerOperators({
                 {rows.length}/{total}
               </b>{" "}
               {copy(pageContract, "section.operators.truncated_note")}
+            </div>
+          ) : null}
+          {/* The residual is stated, never left implicit. Without it the Scheduled column simply
+              sums short of the tile above with nothing on screen to explain the difference. */}
+          {unassignedAdmins > 0 ? (
+            <div className="note lt-truncnote" role="status">
+              <b>{unassignedAdmins}</b> {copy(pageContract, "section.operators.unassigned_note")}
             </div>
           ) : null}
         </div>

@@ -62,10 +62,23 @@ export function initials(name: string): string {
   return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase();
 }
 
-// Progress-bar tone follows the same thresholds the backend uses for row state, so the bar colour
-// and the status tag can never disagree.
-export function progressTone(done: number, total: number): "" | "warn" | "dng" {
-  if (total <= 0 || done === 0) return "dng";
-  if (done / total < 0.25) return "warn";
-  return "";
+// Progress-bar tone is READ FROM the state the backend already computed, never recomputed here.
+//
+// The previous version applied the slow-shed ratio without the slow-shed elapsed-time condition, so
+// in the ordinary early-drive case a shed the backend calls `receiving` (green pill) rendered an
+// amber bar, and an operator the backend calls `active` with no proof yet rendered a full red one.
+// Two controls in the same cell disagreeing about the same row.
+export function progressTone(state: string): "" | "warn" | "dng" {
+  switch (state) {
+    case "not_started":
+      return "dng";
+    case "slow":
+    case "idle":
+    case "review":
+      return "warn";
+    default:
+      // receiving / active / done — and any state added later defaults to neutral rather than to a
+      // colour that asserts something about a row this function does not understand.
+      return "";
+  }
 }

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -99,12 +100,13 @@ func (h *Handler) GetVaccinationLiveTracker(w http.ResponseWriter, r *http.Reque
 	}
 	if raw := strings.TrimSpace(query.Get("activity_limit")); raw != "" {
 		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 {
-			h.badRequest(w, r, "invalid_activity_limit", "activity_limit must be a positive integer")
+		// Both bounds are REFUSED, not one refused and one silently clamped. The contract declares
+		// minimum 1 / maximum 100; answering 200 with a clamped 100 and HTTP 200 tells the caller the
+		// bound they asked for was honoured, which is how a paging client silently loses events.
+		if err != nil || n <= 0 || n > vaccexecd.LiveTrackerMaxActivity {
+			h.badRequest(w, r, "invalid_activity_limit",
+				fmt.Sprintf("activity_limit must be an integer between 1 and %d", vaccexecd.LiveTrackerMaxActivity))
 			return
-		}
-		if n > vaccexecd.LiveTrackerMaxActivity {
-			n = vaccexecd.LiveTrackerMaxActivity
 		}
 		q.ActivityLimit = n
 	}

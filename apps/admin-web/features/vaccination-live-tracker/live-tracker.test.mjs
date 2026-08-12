@@ -74,12 +74,110 @@ test("combo rows open the shared Goat Passport local overlay", () => {
   assert.match(board, /LiveTrackerPassportDrawer/);
 });
 
-test("the three unbacked attention affordances stay visible and disabled with reasons", () => {
-  assert.match(rail, /section\.attention\.nudge/);
-  assert.match(rail, /section\.attention\.escalation/);
-  assert.match(rail, /section\.attention\.pace/);
+test("the three unbacked attention affordances name the missing capability, in visible text", () => {
+  // They shipped labelled "Nudge sent" / "Escalates" / "Finishes at current pace" — bare factual
+  // ASSERTIONS about events that were never recorded, with the reason reachable only through a hover
+  // title on a non-focusable span (invisible on touch and to assistive tech). A director reading
+  // "Nudge sent" against an idle operator is told the intervention already happened.
+  assert.match(rail, /section\.attention\.nudge_label/);
+  assert.match(rail, /section\.attention\.escalate_label/);
+  assert.match(rail, /section\.attention\.pace_label/);
   const disabled = rail.match(/aria-disabled="true"/g) ?? [];
-  assert.ok(disabled.length >= 3, "each unbacked affordance carries aria-disabled with a title reason");
+  assert.ok(disabled.length >= 3, "each unbacked affordance stays visible and inert");
+  // The reason is rendered as text, the way the combo card's truncated branch already does it.
+  const railCode = code(rail);
+  for (const key of ["section.attention.nudge", "section.attention.escalation", "section.attention.pace"]) {
+    assert.ok(
+      new RegExp(`title=\\{copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)\\}`).test(railCode) === false,
+      `${key} must not be reachable only through a hover title`,
+    );
+    assert.ok(railCode.includes(`"${key}"`), `${key} must still reach the screen`);
+  }
+  assert.match(rail, /lt-truncnote/, "the reasons render as visible text, not as tooltips");
+});
+
+test("the board reports obligation CLOSURE, not just proof arrival", () => {
+  // All 298 proof videos had landed in stg on 2026-08-12 while 9 of 298 obligations were completed.
+  // With progress derived from proof arrival the tiles read zero remaining and every shed row read
+  // `done` — the board announced a finished drive on a drive that was still open.
+  assert.match(operators, /row\.closed_administrations/, "the operator table must show closure");
+  assert.match(sheds, /row\.closed_administrations/, "the shed table must show closure");
+  assert.match(kpis, /kpis\.remaining/);
+  assert.match(kpis, /kpis\.awaiting_close/, "proofed-but-not-closed work must be visible, not implied");
+  // The progress bar must track the same fact Remaining and the status pill are derived from.
+  const format = readFileSync(new URL("./format.ts", import.meta.url), "utf8");
+  assert.match(format, /export function progressTone\(state: string\)/,
+    "the bar tone must READ the backend's row state, not recompute a different threshold");
+  assert.match(sheds, /progressTone\(row\.state\)/);
+  assert.match(operators, /progressTone\(row\.state\)/);
+});
+
+test("work with no operator assignment is named, not silently missing from the operator table", () => {
+  // Those administrations are counted in the Scheduled tile and rendered in the shed board, but they
+  // have no operator to be attributed to, so the Operators column simply summed short of the tile
+  // above it. On a partially-planned stg day the gap is 95 of 199.
+  assert.match(board, /data\.unassigned_administrations/);
+  assert.match(operators, /unassignedAdmins/);
+  assert.match(operators, /section\.operators\.unassigned_note/);
+});
+
+test("no internal identifier is ever rendered as user-visible text", () => {
+  // The filter vocabulary is compiled from the day's OWN rows, so a selection with no work on this
+  // drive day is absent from choices. The old fallback printed the raw uuid in the active chip while
+  // the <select> beside it, having no matching <option>, rendered "All parks".
+  const filters = readFileSync(new URL("./live-tracker-filters.tsx", import.meta.url), "utf8");
+  assert.ok(
+    !/\?\?\s*filter\.selected/.test(code(filters)),
+    "an unlisted selection must render a copy string, never the raw value",
+  );
+  assert.match(filters, /filter\.unlisted_selection/);
+  assert.match(filters, /filter\.truncated_note/, "a capped filter vocabulary must say so");
+  assert.match(board, /data\.filter_options\.truncated/);
+});
+
+test("a failed read never fabricates a measurement", () => {
+  // The error branch rendered a pulsing LIVE pill reading "0 parks running" — asserting that no park
+  // is vaccinating, when in fact nothing is known because the read failed.
+  const errorBranch = board.slice(board.indexOf("if (!result.ok)"), board.indexOf("const data = result.data"));
+  assert.match(errorBranch, /activeParks=\{null\}/, "unknown is null, not zero");
+  assert.match(board, /activeParks: number \| null/);
+  assert.match(board, /activeParks == null \? null :/, "no chip at all when the number is unknown");
+});
+
+test("a past drive day is not rendered as running, and is not polled", () => {
+  assert.match(board, /data\.is_live_day/);
+  assert.match(board, /chip\.parks_active_one/, "a finished drive gets a neutral, past-tense chip");
+  assert.match(board, /generatedAt && isLiveDay \? <LivePoller/, "a closed drive day must stop polling");
+});
+
+test("the empty state never claims the whole day when a scope is narrowing it", () => {
+  // hasFilter deliberately excludes the top-bar park, so with a park selected the board asserted
+  // "No vaccination drive work on this day" while the other park was running.
+  assert.match(params, /hasNarrowing/);
+  assert.match(params, /hasNarrowing: Boolean\(parkId \|\|/);
+  assert.match(board, /params\.hasNarrowing/);
+  assert.match(board, /state\.empty_filtered_title/);
+});
+
+test("every capped list on this page declares its own truncation — including the feed and the rail", () => {
+  assert.match(rail, /activity\.next_cursor != null/, "the activity feed must declare that it is capped");
+  assert.match(rail, /section\.activity\.truncated_note/);
+  assert.match(rail, /section\.attention\.truncated_note/);
+  assert.match(board, /data\.attention_total/);
+  const drawer = readFileSync(new URL("./live-tracker-passport-drawer.tsx", import.meta.url), "utf8");
+  assert.match(drawer, /open\.length > DRAWER_ROW_LIMIT/, "the passport drawer must disclose dropped rows");
+  assert.match(drawer, /drawer\.passport\.more_suffix/);
+  assert.match(drawer, /<thead>/, "the drawer's obligations table must label its columns");
+});
+
+test("the combo header never invents a combination no animal received", () => {
+  // Joining every distinct vaccine label with " + " into the mock's single combo slot rendered a
+  // four-antigen combo on a day carrying two different two-antigen combos.
+  assert.ok(
+    !/vaccine_labels\.join\(" \+ "\)/.test(code(combo)),
+    "one chip per real antigen, never the union of every label on the day",
+  );
+  assert.match(combo, /combo\.vaccine_labels\.map/);
 });
 
 test("the feed rate is measured, never the mock's hardcoded value", () => {

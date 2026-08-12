@@ -44,6 +44,14 @@ function ActivityCard({
         tabIndex={0}
         role="log"
       >
+        {/* The feed is capped like every other list on this page, and every other one declares it.
+            next_cursor is non-null exactly when the server had more events than it returned, so the
+            note fires on the same condition the (unused) paging cursor does. */}
+        {activity.next_cursor != null ? (
+          <div className="note lt-truncnote" role="status">
+            {copy(pageContract, "section.activity.truncated_note")}
+          </div>
+        ) : null}
         {activity.items.length === 0 ? (
           <div className="lt-empty" style={{ padding: "14px 15px" }}>
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -83,9 +91,13 @@ function ActivityCard({
 // modelled. They stay in place, mock-shaped, disabled and carrying the reason.
 function AttentionCard({
   attention,
+  total,
+  truncated,
   pageContract,
 }: {
   attention: LiveTrackerAttentionRow[];
+  total: number;
+  truncated: boolean;
   pageContract: AdminUiPageContract;
 }) {
   return (
@@ -94,9 +106,17 @@ function AttentionCard({
         <Activity className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.attention.title")}</h3>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="tag t-warn">{attention.length}</span>
+        <span className="tag t-warn">{total}</span>
       </div>
       <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+        {truncated ? (
+          <div className="note lt-truncnote" role="status">
+            <b>
+              {attention.length}/{total}
+            </b>{" "}
+            {copy(pageContract, "section.attention.truncated_note")}
+          </div>
+        ) : null}
         {attention.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
             {copy(pageContract, "section.attention.empty")}
@@ -118,16 +138,28 @@ function AttentionCard({
                 {" · "}
                 {optionTitle(pageContract, "live_attention_kind", row.kind)}
               </div>
+              {/* These three chips have no record behind them. Their labels used to be bare factual
+                  assertions about a dispatched nudge, a scheduled escalation and a projected finish
+                  time, with the reason reachable only through a hover title on a non-focusable span:
+                  invisible on touch and to assistive tech. A director was told the intervention had
+                  already happened, which suppresses the very action this card exists to prompt. The
+                  labels now name the missing capability and the reasons render as visible text, the
+                  same treatment the combo card's truncated branch already uses. */}
               <div className="chipset" style={{ marginTop: 6, padding: 0 }}>
-                <span className="chip" aria-disabled="true" title={copy(pageContract, "section.attention.nudge")}>
+                <span className="chip" aria-disabled="true">
                   {copy(pageContract, "section.attention.nudge_label")}
                 </span>
-                <span className="chip" aria-disabled="true" title={copy(pageContract, "section.attention.escalation")}>
+                <span className="chip" aria-disabled="true">
                   {copy(pageContract, "section.attention.escalate_label")}
                 </span>
-                <span className="chip" aria-disabled="true" title={copy(pageContract, "section.attention.pace")}>
+                <span className="chip" aria-disabled="true">
                   {copy(pageContract, "section.attention.pace_label")}
                 </span>
+              </div>
+              <div className="muted small lt-truncnote">
+                {copy(pageContract, "section.attention.nudge")}{" "}
+                {copy(pageContract, "section.attention.escalation")}{" "}
+                {copy(pageContract, "section.attention.pace")}
               </div>
             </div>
           ))
@@ -189,12 +221,16 @@ function VerificationCard({
 export function LiveTrackerRail({
   activity,
   attention,
+  attentionTotal,
+  attentionTruncated,
   verification,
   verifyHref,
   pageContract,
 }: {
   activity: LiveTrackerActivity;
   attention: LiveTrackerAttentionRow[];
+  attentionTotal: number;
+  attentionTruncated: boolean;
   verification: LiveTrackerVerification;
   verifyHref: string;
   pageContract: AdminUiPageContract;
@@ -202,7 +238,12 @@ export function LiveTrackerRail({
   return (
     <div className="lt-stack">
       <ActivityCard activity={activity} pageContract={pageContract} />
-      <AttentionCard attention={attention} pageContract={pageContract} />
+      <AttentionCard
+        attention={attention}
+        total={attentionTotal}
+        truncated={attentionTruncated}
+        pageContract={pageContract}
+      />
       <VerificationCard verification={verification} verifyHref={verifyHref} pageContract={pageContract} />
     </div>
   );
