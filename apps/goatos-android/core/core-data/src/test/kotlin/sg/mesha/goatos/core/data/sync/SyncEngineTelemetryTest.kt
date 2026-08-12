@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import java.io.IOException
+import retrofit2.HttpException
 
 /**
  * W-23: driving an outbox row to each of its states must EMIT the corresponding lifecycle signal.
@@ -152,6 +153,37 @@ class SyncEngineTelemetryTest {
             "the server's own copy stays in the row for the operator — it must not ride the telemetry seam",
             telemetry.events.none { it.toString().contains("Not allowed") },
         )
+    }
+
+    @Test
+    fun `auth and access errors terminalize immediately instead of exhausting retry budget`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedShedSubmit(maxAttempts = 8))
+        val api = ScriptedAppApi().apply {
+            submitAppTaskFn = { _, _, _ -> throw HttpException(403) }
+        }
+        val telemetry = RecordingTelemetry()
+
+        engine(store, api, telemetry).drainOnce()
+
+        val row = store.findById("row-1")!!
+        assertEquals(OutboxStatus.FAILED.name, row.status)
+        assertTrue(row.conflict)
+        assertEquals(1, row.attemptCount)
+        assertEquals(Long.MAX_VALUE, row.nextAttemptAt)
+        assertEquals(
+            listOf(
+                OutboxWritePhase.ATTEMPT_STARTED,
+                OutboxWritePhase.ATTEMPT_FAILED,
+                OutboxWritePhase.TERMINAL,
+            ),
+            telemetry.phases(),
+        )
+        assertTrue(OutboxWritePhase.RETRY_SCHEDULED !in telemetry.phases())
+        val terminal = telemetry.first(OutboxWritePhase.TERMINAL)
+        assertEquals(OutboxTerminalReason.CONFLICT, terminal.terminalReason)
+        assertEquals("HttpException", terminal.failureClass)
+        assertEquals(1, terminal.attempt)
     }
 
     @Test
