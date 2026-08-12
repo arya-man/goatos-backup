@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -167,6 +168,8 @@ class SessionViewModelAnalyticsTest {
         )
 
         vm.signInWithEmail("manju@mesha.sg", "secret")
+        advanceUntilIdle()
+        withContext(Dispatchers.IO) { }
         advanceUntilIdle()
 
         assertNotNull("session opened after provider identity was captured", store.tokenFlow.value)

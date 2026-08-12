@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -1374,6 +1375,80 @@ class WeighingViewModelTest {
             assertNull(wizardVm.state.value.savedCampaignId)
         }
 
+    @Test
+    fun `bucket search pages beyond the first cached window`() = runTest(dispatcher) {
+        val pagedBuckets = (1..121).map { n ->
+            WeighingPlannerShed(
+                locationId = "loc-filler-$n",
+                name = "Filler $n",
+                kidCount = 0,
+                category = "individual_animal",
+                operatorUserId = "operator-amit",
+            )
+        } + WeighingPlannerShed(
+            locationId = "loc-sumathi-1-part-1",
+            name = "Sumathi 1 - Part 1",
+            kidCount = 0,
+            category = "individual_animal",
+            operatorUserId = "operator-amit",
+        )
+        val repository = FakeWeighingRepository(
+            plannerCatalogResult = AppResult.Ok(
+                WeighingPlannerCatalog(
+                    parks = listOf(
+                        WeighingPlannerPark(
+                            parkId = "park-cbe",
+                            name = "CBE",
+                            kidCount = 0,
+                            shedCount = pagedBuckets.size,
+                            existingCampaign = null,
+                        ),
+                    ),
+                    operators = listOf(WeighingPlannerOperator("operator-amit", "Amit Kumar", "AMIT")),
+                ),
+            ),
+            pagedPlannerParkBuckets = pagedBuckets,
+        )
+        val wizardVm = WeighingPlanWizardViewModel(
+            repository = repository,
+            repeatSeedStore = WeighingRepeatSeedStore(),
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+        advanceUntilIdle()
+
+        wizardVm.selectDate("2026-08-12")
+        wizardVm.next()
+        wizardVm.selectPark("park-cbe")
+        wizardVm.next()
+        advanceUntilIdle()
+        assertEquals(WeighingWizardStep.BUCKETS, wizardVm.state.value.step)
+        assertTrue(wizardVm.state.value.bucketRows.none { it.name.contains("Sumathi") })
+
+        wizardVm.setBucketQuery("sumathi")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Sumathi 1 - Part 1"), wizardVm.state.value.bucketRows.map { it.name })
+        assertTrue(
+            "search should have appended enough pages to reach the page-7 match",
+            repository.appendedPlannerBucketPages.size >= 6,
+        )
+        assertTrue(
+            "the wizard must observe the full selectable shed catalog while search pages",
+            repository.observedPlannerBucketWindowSizes.any { it == Int.MAX_VALUE },
+        )
+
+        wizardVm.selectPark("park-cbe")
+        advanceUntilIdle()
+
+        assertEquals(
+            7,
+            repository.availabilityRefreshes.lastOrNull()?.third,
+        )
+    }
+
     // ---- weighing analytics coverage -------------------------------------------------------
 
     @Test
@@ -2041,6 +2116,7 @@ class WeighingViewModelTest {
         // every (park, date) with the SAME fixed page, which is enough for a test that only cares
         // about one park on one date.
         private val plannerParkBuckets: WeighingPlannerParkBucketsCache = WeighingPlannerParkBucketsCache(),
+        private val pagedPlannerParkBuckets: List<WeighingPlannerShed>? = null,
         // The FULL server-side keyset for a paginated task list, used only by the append-cursor
         // regression test below. Every OTHER test leaves this null and gets the fixed single-page
         // [taskListCache] behavior unchanged. When set, [observeTaskList] mirrors Room's own bounded
@@ -2062,12 +2138,16 @@ class WeighingViewModelTest {
 
         /** How many of [pagedTasks] the cursor has appended into the fake's "Room" so far. */
         private var pagedTasksLoaded = pagedTasks?.let { minOf(it.size, pagedTasksPageSize) } ?: 0
+        private var pagedPlannerBucketsLoaded =
+            pagedPlannerParkBuckets?.let { minOf(it.size, WEIGHING_LEADERSHIP_PAGE_SIZE) } ?: 0
 
         /** Every distinct windowSize [observeTaskList] was asked to bound its read to, in order. */
         val observedTaskListWindowSizes = mutableListOf<Int>()
 
         /** Every page [appendTaskList] fetched, as the campaign ids it returned, in call order. */
         val appendedTaskListPages = mutableListOf<List<String>>()
+        val observedPlannerBucketWindowSizes = mutableListOf<Int>()
+        val appendedPlannerBucketPages = mutableListOf<List<String>>()
 
         private val pagedTaskListState: MutableStateFlow<WeighingTaskListCache>? = pagedTasks?.let { all ->
             MutableStateFlow(
@@ -2079,6 +2159,17 @@ class WeighingViewModelTest {
                 ),
             )
         }
+        private val pagedPlannerBucketState: MutableStateFlow<WeighingPlannerParkBucketsCache>? =
+            pagedPlannerParkBuckets?.let { all ->
+                MutableStateFlow(
+                    WeighingPlannerParkBucketsCache(
+                        parkId = "park-cbe",
+                        hasCache = false,
+                        sheds = emptyList(),
+                        canLoadMore = true,
+                    ),
+                )
+            }
 
         // Cursor-append stubs. These fakes exercise the READ path; Ok(0) means "no further
         // page", which leaves every existing assertion about page CONTENTS unchanged.
@@ -2106,7 +2197,21 @@ class WeighingViewModelTest {
             periodStartDate: String,
             parkId: String,
             excludeCampaignId: String?,
-        ): AppResult<Int> = AppResult.Ok(0)
+        ): AppResult<Int> {
+            val all = pagedPlannerParkBuckets ?: return AppResult.Ok(0)
+            val state = pagedPlannerBucketState ?: return AppResult.Ok(0)
+            if (pagedPlannerBucketsLoaded >= all.size) return AppResult.Ok(0)
+            val page = all.drop(pagedPlannerBucketsLoaded).take(WEIGHING_LEADERSHIP_PAGE_SIZE)
+            pagedPlannerBucketsLoaded += page.size
+            appendedPlannerBucketPages += page.map { it.locationId }
+            state.value = state.value.copy(
+                parkId = parkId,
+                hasCache = true,
+                sheds = all.take(pagedPlannerBucketsLoaded),
+                canLoadMore = pagedPlannerBucketsLoaded < all.size,
+            )
+            return AppResult.Ok(page.size)
+        }
 
 
         /** Every campaign id this fake was asked to export, in order. */
@@ -2252,7 +2357,17 @@ class WeighingViewModelTest {
             parkId: String,
             windowSize: Int,
             excludeCampaignId: String?,
-        ): Flow<WeighingPlannerParkBucketsCache> = MutableStateFlow(plannerParkBuckets)
+        ): Flow<WeighingPlannerParkBucketsCache> {
+            observedPlannerBucketWindowSizes += windowSize
+            val paged = pagedPlannerBucketState
+            if (paged != null) {
+                val bounded = windowSize.coerceAtLeast(1)
+                return paged.map { cache ->
+                    cache.copy(sheds = cache.sheds.take(bounded))
+                }
+            }
+            return MutableStateFlow(plannerParkBuckets)
+        }
 
         override suspend fun refreshPlannerParkBuckets(
             periodStartDate: String,
@@ -2261,6 +2376,20 @@ class WeighingViewModelTest {
             excludeCampaignId: String?,
         ): AppResult<Int> {
             plannerParkBucketExcludeCalls += excludeCampaignId
+            val all = pagedPlannerParkBuckets
+            val state = pagedPlannerBucketState
+            if (all != null && state != null) {
+                if (reset) {
+                    pagedPlannerBucketsLoaded = minOf(all.size, WEIGHING_LEADERSHIP_PAGE_SIZE)
+                }
+                state.value = state.value.copy(
+                    parkId = parkId,
+                    hasCache = true,
+                    sheds = all.take(pagedPlannerBucketsLoaded),
+                    canLoadMore = pagedPlannerBucketsLoaded < all.size,
+                )
+                return AppResult.Ok(pagedPlannerBucketsLoaded)
+            }
             return AppResult.Ok(0)
         }
 
