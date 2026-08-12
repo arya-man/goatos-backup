@@ -416,6 +416,48 @@ func TestShedCompletionSummaryOneToManyScanProofRegression(t *testing.T) {
 	}
 }
 
+func TestShedCompletionSummaryDualVaccineCountsGoatsForPerGoatProof(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	rule2ID := scanText(t, ctx, pool,
+		`INSERT INTO protocol_rules
+		   (tenant_id, protocol_version_id, dose_code, sequence, trigger_type, offset_days, repeat, catch_up, eligibility_json)
+		 VALUES ($1, $2, 'sheep_pox', 2, 'birth_age', 21, 'none', 'pc_approval', '{}'::jsonb)
+		 RETURNING rule_id::text`, impTenant, versionID)
+	scsSeedRuleDim(t, ctx, pool, versionID, ruleID, "sel-et", "ET+TT")
+	scsSeedRuleDim(t, ctx, pool, versionID, rule2ID, "sel-sp", "Sheep Pox")
+	seedShedOperational(t, ctx, pool, impShed, "Godel 1 - Part 1", true, false, false)
+	taskID, batchID := scsSeedDrive(t, ctx, pool, versionID, impShed, "dual-vaccine", nil)
+
+	for i := 1; i <= 3; i++ {
+		goatID := fmt.Sprintf("31000000-0000-4000-8000-0000000001%02d", i)
+		seedGenGoat(t, ctx, pool, goatID, "alive")
+		scsSeedObligation(t, ctx, pool, versionID, ruleID, batchID, goatID, "scheduled", 1)
+		scsSeedObligation(t, ctx, pool, versionID, rule2ID, batchID, goatID, "scheduled", 2)
+		scsSeedScan(t, ctx, pool, taskID, goatID, fmt.Sprintf("TAG-%d", i))
+		scsSeedGoatProof(t, ctx, pool, taskID, goatID, fmt.Sprintf("dual-clip-%d", i), "completed")
+	}
+
+	vacc := NewRepository(pool, 5*time.Second)
+	got, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, "")
+	if err != nil {
+		t.Fatalf("ShedCompletionSummary: %v", err)
+	}
+	if got.ExpectedCount != 3 || got.HandledCount != 3 || got.ProofReadyCount != 3 {
+		t.Fatalf("dual-vaccine counts = expected=%d handled=%d proof=%d, want goat counts 3/3/3", got.ExpectedCount, got.HandledCount, got.ProofReadyCount)
+	}
+	if !got.SubmitEnabled || got.BlockingReason != nil {
+		t.Fatalf("dual-vaccine submit should be enabled at 3 goats proofed: enabled=%v reason=%v", got.SubmitEnabled, got.BlockingReason)
+	}
+	if len(got.VaccineBreakdown) != 2 {
+		t.Fatalf("vaccine breakdown = %+v, want two vaccine rows", got.VaccineBreakdown)
+	}
+}
+
 // TestShedCompletionSummaryPageBoundary proves the counts are whole-shed totals: a drive with far
 // more animals than any UI page size (25 > the 20-row phone page) reports all 25, and there is no
 // LIMIT/OFFSET truncating the count.

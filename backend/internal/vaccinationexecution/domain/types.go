@@ -382,6 +382,12 @@ type ScanRosterRow struct {
 	Status       string  `json:"status"`
 	ScannedAt    *string `json:"scannedAt,omitempty"`
 	ObligationID string  `json:"obligationId"`
+	ShedName     string  `json:"shedName,omitempty"`
+	// PartitionLabel/SourceShedName let mobile classify a tag from a sibling partition under the
+	// same physical shed as a warning, not as a truly unknown/wrong animal.
+	PartitionLabel             string `json:"partitionLabel,omitempty"`
+	SourceShedName             string `json:"sourceShedName,omitempty"`
+	OperationalLocationDisplay string `json:"operationalLocationDisplay,omitempty"`
 	// ObligationRowVersion is obligation_instances.row_version for this row's obligation. It
 	// bumps every time the obligation transitions (including a verifier rejection reopening it
 	// for re-capture) and is the server-issued cycle discriminator the mobile scan-capture
@@ -403,6 +409,34 @@ type ScanRosterQuery struct {
 	OperatorScopeActorID string
 	Cursor               *ScanRosterCursor
 	Limit                int
+}
+
+type ScanTagClassificationQuery struct {
+	TenantID             string
+	ShedID               string
+	TaskID               string
+	PartitionLabel       string
+	Tag                  string
+	OperatorScopeActorID string
+}
+
+type ScanTagClassification struct {
+	Outcome                    string   `json:"outcome"`
+	Reason                     string   `json:"reason"`
+	Tag                        string   `json:"tag"`
+	GoatID                     string   `json:"goatId,omitempty"`
+	PrimaryTag                 string   `json:"primaryTag,omitempty"`
+	SecondaryTag               *string  `json:"secondaryTag,omitempty"`
+	VaccineLabel               string   `json:"vaccineLabel,omitempty"`
+	Status                     string   `json:"status,omitempty"`
+	ObligationIDs              []string `json:"obligationIds,omitempty"`
+	ObligationRowVersion       int32    `json:"obligationRowVersion,omitempty"`
+	TargetTaskID               string   `json:"targetTaskId,omitempty"`
+	BatchID                    string   `json:"batchId,omitempty"`
+	ShedName                   string   `json:"shedName,omitempty"`
+	PartitionLabel             string   `json:"partitionLabel,omitempty"`
+	SourceShedName             string   `json:"sourceShedName,omitempty"`
+	OperationalLocationDisplay string   `json:"operationalLocationDisplay,omitempty"`
 }
 
 type ScanRosterCursor struct {

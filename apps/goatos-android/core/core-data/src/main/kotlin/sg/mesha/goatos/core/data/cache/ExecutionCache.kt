@@ -134,6 +134,10 @@ data class ScanRosterRowEntity(
      *  after a verifier-rejection reopen is not deduped away as a replay of the prior cycle's
      *  already-synced capture. Defaults to 0 for rows written before this column existed. */
     val obligationRowVersion: Int = 0,
+    val shedName: String = "",
+    val partitionLabel: String = "",
+    val sourceShedName: String = "",
+    val operationalLocationDisplay: String = "",
 )
 
 @Dao
@@ -181,6 +185,24 @@ interface ScanRosterRowDao {
             "LIMIT 1"
     )
     suspend fun findByTag(scopeKey: String, normalizedTag: String): ScanRosterRowEntity?
+
+    /** All obligation rows for the matched animal tag. Multi-vaccine animals intentionally have
+     *  one row per vaccine obligation, so scan-time tag validation must not collapse to LIMIT 1. */
+    @Query(
+        "SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
+            "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) " +
+            "ORDER BY goatId ASC, seq ASC, id ASC"
+    )
+    suspend fun findRowsByTag(scopeKey: String, normalizedTag: String): List<ScanRosterRowEntity>
+
+    /** All cached rows for this task/tag across partition scopes. Used only to classify a miss in
+     *  the current partition as a sibling-partition warning instead of a true unknown tag. */
+    @Query(
+        "SELECT * FROM scan_roster_row WHERE taskId = :taskId AND " +
+            "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) " +
+            "ORDER BY scopeKey ASC, goatId ASC, seq ASC, id ASC"
+    )
+    suspend fun findRowsByTaskAndTag(taskId: String, normalizedTag: String): List<ScanRosterRowEntity>
 
     /** Count one effective status per animal for a shed. A multi-vaccine animal can have several
      *  roster rows; any outstanding sibling obligation keeps the animal open unless the goat-level

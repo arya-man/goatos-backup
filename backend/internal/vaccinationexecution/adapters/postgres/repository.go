@@ -1692,8 +1692,8 @@ stateful AS (
       WHEN COALESCE(enriched.operator_name, enriched.assignment_operator_name) IS NULL
        AND enriched.completed_count < enriched.obligation_count THEN 'blocked'
       WHEN enriched.task_state IN ('rework_requested', 'rejected') THEN 'rejected'
-      WHEN enriched.completion_recorded > 0
-        OR enriched.proof_submitted_count > 0 THEN 'verification_pending'
+      WHEN enriched.task_state IN ('submitted', 'needs_review')
+        AND enriched.proof_submitted_count > 0 THEN 'verification_pending'
       WHEN enriched.in_progress_count > 0
         OR enriched.batch_status = 'in_progress'
         OR enriched.task_state = 'in_progress' THEN 'in_progress'
@@ -2285,7 +2285,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	out := []domain.ScanRosterRow{}
 	for rows.Next() {
 		var row domain.ScanRosterRow
-		var secondaryTag pgtype.Text
+		var secondaryTag, partitionLabel, sourceShedName pgtype.Text
 		var scannedAt pgtype.Timestamptz
 		var protocolName, doseCode string
 		if err := rows.Scan(
@@ -2298,10 +2298,24 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&scannedAt,
 			&row.ObligationID,
 			&row.ObligationRowVersion,
+			&row.ShedName,
+			&partitionLabel,
+			&sourceShedName,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		if partitionLabel.Valid {
+			row.PartitionLabel = strings.TrimSpace(partitionLabel.String)
+		}
+		if sourceShedName.Valid {
+			row.SourceShedName = strings.TrimSpace(sourceShedName.String)
+		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedName,
+			PartitionLabel: row.PartitionLabel,
+			SourceShedName: row.SourceShedName,
+		}.Display()
 		if scannedAt.Valid {
 			value := scannedAt.Time.UTC().Format(time.RFC3339Nano)
 			row.ScannedAt = &value
@@ -2337,6 +2351,76 @@ SELECT EXISTS (
     AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
 )`, tenantID, shedID).Scan(&exists)
 	return exists, err
+}
+
+func (r *Repository) ClassifyScanTag(ctx context.Context, q domain.ScanTagClassificationQuery) (domain.ScanTagClassification, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	out := domain.ScanTagClassification{
+		Outcome: "unknown",
+		Reason:  "unknown_tag",
+		Tag:     strings.TrimSpace(q.Tag),
+	}
+	if strings.TrimSpace(q.TaskID) == "" || strings.TrimSpace(q.ShedID) == "" || strings.TrimSpace(q.Tag) == "" {
+		return out, ports.ErrInvalidArgument
+	}
+	identity, err := r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, q.ShedID)
+	if err != nil {
+		return out, fmt.Errorf("vaccination execution: scan tag identity: %w", err)
+	}
+	restrictParks := authorizedParkFilter(ctx, q.TenantID)
+	var secondaryTag, partitionLabel, sourceShedName pgtype.Text
+	var obligationIDs []string
+	err = r.pool.QueryRow(ctx, scanTagClassificationSQL,
+		q.TenantID,
+		q.ShedID,
+		q.TaskID,
+		identity.BatchID,
+		restrictParks,
+		q.OperatorScopeActorID,
+		strings.TrimSpace(q.PartitionLabel),
+		strings.TrimSpace(q.Tag),
+	).Scan(
+		&out.GoatID,
+		&out.PrimaryTag,
+		&secondaryTag,
+		&out.ShedName,
+		&partitionLabel,
+		&sourceShedName,
+		&out.VaccineLabel,
+		&out.Status,
+		&obligationIDs,
+		&out.ObligationRowVersion,
+		&out.TargetTaskID,
+		&out.BatchID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, nil
+	}
+	if err != nil {
+		return out, fmt.Errorf("vaccination execution: scan tag classify: %w", err)
+	}
+	out.SecondaryTag = textPtr(secondaryTag)
+	if partitionLabel.Valid {
+		out.PartitionLabel = strings.TrimSpace(partitionLabel.String)
+	}
+	if sourceShedName.Valid {
+		out.SourceShedName = strings.TrimSpace(sourceShedName.String)
+	}
+	out.ObligationIDs = obligationIDs
+	out.OperationalLocationDisplay = oploc.OperationalLocation{
+		ShedName:       out.ShedName,
+		PartitionLabel: out.PartitionLabel,
+		SourceShedName: out.SourceShedName,
+	}.Display()
+	if oploc.SamePartition(out.PartitionLabel, q.PartitionLabel) {
+		out.Outcome = "same_partition"
+		out.Reason = "same_partition"
+	} else {
+		out.Outcome = "neighbor_partition"
+		out.Reason = "neighbor_partition"
+	}
+	return out, nil
 }
 
 const scanRosterSQL = `
@@ -2396,11 +2480,14 @@ SELECT
     WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
     ELSE 'pending'
   END AS status,
-  -- NULL for a sent-back animal: it must present as not-yet-scanned so the row carries no
+	  -- NULL for a sent-back animal: it must present as not-yet-scanned so the row carries no
   -- "Proof synced" tick and the client's own done/pending split puts it back in pending.
-  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at) END AS scanned_at,
-  oi.obligation_id::text,
-  oi.row_version
+	  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, goat_proof.proofed_at, vcm.administered_at) END AS scanned_at,
+	  oi.obligation_id::text,
+	  oi.row_version,
+	  loc.name AS shed_name,
+	  COALESCE(gsp.partition_label, 'whole') AS partition_label,
+	  NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
@@ -2422,8 +2509,11 @@ JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
  AND oi.target_type = 'goat'
- AND g.merged_into_goat_id IS NULL
- AND g.lifecycle_status = 'alive'
+	 AND g.merged_into_goat_id IS NULL
+	 AND g.lifecycle_status = 'alive'
+	JOIN locations loc
+	  ON loc.tenant_id = g.tenant_id
+	 AND loc.location_id = g.shed_id
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
@@ -2550,6 +2640,120 @@ WHERE oi.tenant_id = $1::uuid
   AND ($8::uuid[] IS NULL OR g.park_id = ANY($8::uuid[]))
 ORDER BY g.goat_id ASC, oi.obligation_id ASC
 LIMIT $7;
+`
+
+const scanTagClassificationSQL = `
+WITH operator_scope_member AS (
+  SELECT wm.workforce_member_id
+  FROM workforce_members wm
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.status = 'active'
+    AND $6::text <> ''
+    AND (
+      wm.workforce_member_id = NULLIF($6::text, '')::uuid
+      OR wm.user_id = NULLIF($6::text, '')::uuid
+    )
+  ORDER BY CASE WHEN wm.workforce_member_id = NULLIF($6::text, '')::uuid THEN 0 ELSE 1 END,
+           wm.updated_at DESC,
+           wm.workforce_member_id DESC
+  LIMIT 1
+)
+SELECT
+  g.goat_id::text,
+  COALESCE(aid1.identifier_value, '') AS primary_tag,
+  aid2.identifier_value AS secondary_tag,
+  loc.name AS shed_name,
+  COALESCE(gsp.partition_label, 'whole') AS partition_label,
+  NULLIF(btrim(gsp.source_shed_name), '') AS source_shed_name,
+  string_agg(DISTINCT domain_label.label, ' + ' ORDER BY domain_label.label) AS vaccine_label,
+  CASE
+    WHEN bool_or(oi.status IN ('due', 'scheduled', 'in_progress')) THEN 'due'
+    ELSE max(oi.status)
+  END AS status,
+  array_agg(DISTINCT oi.obligation_id::text ORDER BY oi.obligation_id::text) AS obligation_ids,
+  max(oi.row_version)::int AS obligation_row_version,
+  COALESCE(oi.sop_task_id, ob.sop_task_id)::text AS target_task_id,
+  oi.batch_id::text AS batch_id
+FROM obligation_instances oi
+JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND oi.target_type = 'goat'
+ AND g.merged_into_goat_id IS NULL
+ AND g.lifecycle_status = 'alive'
+JOIN locations loc
+  ON loc.tenant_id = g.tenant_id
+ AND loc.location_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id
+ AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1'
+ AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id
+ AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2'
+ AND aid2.status = 'active'
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+ AND pd.category = 'vaccination'
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+CROSS JOIN LATERAL (
+  SELECT pd.name || ' · ' || pr.dose_code AS label
+) domain_label
+LEFT JOIN LATERAL (
+  SELECT 1 AS assigned
+  FROM vaccination_drive_assignments assignment
+  WHERE assignment.tenant_id = oi.tenant_id
+    AND assignment.batch_id = oi.batch_id
+    AND assignment.shed_id = g.shed_id
+    AND (
+      assignment.partition_label = 'whole'
+      OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    )
+    AND (
+      $6::text = ''
+      OR assignment.operator_id IN (SELECT workforce_member_id FROM operator_scope_member)
+    )
+    AND (
+      cardinality(assignment.vaccine_rule_ids) = 0
+      OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
+    )
+  LIMIT 1
+) vda ON true
+WHERE oi.tenant_id = $1::uuid
+  AND g.shed_id = $2::uuid
+  AND (
+    oi.sop_task_id = NULLIF($3, '')::uuid
+    OR ($4 <> '' AND oi.batch_id = NULLIF($4, '')::uuid)
+  )
+  AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
+  AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+  AND vda.assigned IS NOT NULL
+  AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
+  AND (
+    regexp_replace(lower(btrim(COALESCE(aid1.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+      = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
+    OR regexp_replace(lower(btrim(COALESCE(aid2.identifier_value, ''))), '[^a-z0-9]+', '', 'g')
+      = regexp_replace(lower(btrim($8::text)), '[^a-z0-9]+', '', 'g')
+  )
+GROUP BY g.goat_id, aid1.identifier_value, aid2.identifier_value, loc.name, gsp.partition_label, gsp.source_shed_name, COALESCE(oi.sop_task_id, ob.sop_task_id), oi.batch_id
+ORDER BY g.goat_id ASC
+LIMIT 1;
 `
 
 type taskExecutionIdentity struct {

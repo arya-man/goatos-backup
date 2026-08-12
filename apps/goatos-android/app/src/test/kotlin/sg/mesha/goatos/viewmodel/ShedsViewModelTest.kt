@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -34,6 +35,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.feature.sheds.ShedStatusChipKey
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import java.time.LocalDate
 
@@ -317,6 +319,95 @@ class ShedsViewModelTest {
             false,
             row!!.opensRecordOnly,
         )
+    }
+
+    @Test
+    fun `proof uploaded without shed submit does not make the shed record-only or in-review`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-proof-only",
+                        shedName = "Godel 1 - Part 1",
+                        physicalShed = "Godel 1",
+                        partitionLabel = "Part 1",
+                        parkId = "park-cbe",
+                        parkName = "Coimbatore",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 0,
+                        doneCount = 3,
+                        acceptedCount = 0,
+                        workState = "verification_pending",
+                        sopStatus = "pending",
+                        proofStatus = "uploaded",
+                        verificationStatus = "",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.single()
+        assertFalse("per-goat proof upload alone must not lock the card as submitted", row.opensRecordOnly)
+        assertFalse(
+            "proof-only work must not show In review before the operator submits",
+            row.statusChips.any { it.key == ShedStatusChipKey.IN_REVIEW },
+        )
+    }
+
+    @Test
+    fun `backend scan action keeps fully scanned unsubmitted partition openable`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-godel-part-1",
+                        shedName = "Godel 1 - Part 1",
+                        physicalShed = "Godel 1",
+                        partitionLabel = "Part 1",
+                        operationalLocationDisplay = "Godel 1 - Part 1",
+                        parkId = "park-cbe",
+                        parkName = "Coimbatore",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 0,
+                        doneCount = 3,
+                        acceptedCount = 0,
+                        workState = "in_progress",
+                        sopStatus = "not_started",
+                        proofStatus = "missing",
+                        verificationStatus = "not_ready",
+                        primaryActionKey = "scan",
+                        sopTaskId = "task-godel",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.single()
+        assertEquals("Godel 1 - Part 1", row.name)
+        assertEquals("Part 1", row.partitionLabel)
+        assertFalse("backend primaryActionKey=scan must keep the card openable", row.opensRecordOnly)
     }
 }
 

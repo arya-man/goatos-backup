@@ -820,11 +820,9 @@ private fun VaccinationExecutionRowDto.hasOpenOrReviewWork(): Boolean =
     openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
 
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
-    proofStatus.equals("uploaded", ignoreCase = true) ||
-        verificationStatus.equals("pending", ignoreCase = true) ||
+    verificationStatus.equals("pending", ignoreCase = true) ||
         sopStatus.equals("submitted", ignoreCase = true) ||
-        sopStatus.equals("needs_review", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+        sopStatus.equals("needs_review", ignoreCase = true)
 
 /**
  * Overdue-ness is BACKEND-OWNED: `workState` already carries `overdue`/`missed`
@@ -885,6 +883,7 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
  */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
     isNotEmpty() &&
+        none { row -> row.primaryActionKey.equals("scan", ignoreCase = true) } &&
         all { row -> row.hasSubmittedRecord() } &&
         sumOf { row -> row.openCount.coerceAtLeast(0) } == 0
 
@@ -892,9 +891,7 @@ private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
     sopStatus.isSubmissionTerminalStatus() ||
         verificationStatus.equals("pending", ignoreCase = true) ||
         verificationStatus.equals("accepted", ignoreCase = true) ||
-        verificationStatus.equals("verified", ignoreCase = true) ||
-        proofStatus.equals("uploaded", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+        verificationStatus.equals("verified", ignoreCase = true)
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

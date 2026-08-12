@@ -67,6 +67,7 @@ import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.ScanTagClassificationDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -640,6 +641,13 @@ interface AppApi {
         limit: Int? = null,
         partitionLabel: String? = null,
     ): ScanRosterResponseDto
+
+    suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String? = null,
+    ): ScanTagClassificationDto
 
     /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
     suspend fun rescheduleObligation(
@@ -1443,6 +1451,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
         partitionLabel: String?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
+
+    override suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String?,
+    ): ScanTagClassificationDto = ScanTagClassificationDto(tag = tag)
 
     override suspend fun rescheduleObligation(
         obligationId: String,

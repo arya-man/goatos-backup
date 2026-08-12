@@ -83,6 +83,7 @@ import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.ScanTagClassificationDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
@@ -434,6 +435,14 @@ interface AppApiService {
         @Query("limit") limit: Int?,
         @Query("partition_label") partitionLabel: String?,
     ): ScanRosterResponseDto
+
+    @GET("app/vaccination/execution/sheds/{shed_id}/scan-tag")
+    suspend fun classifyScanTag(
+        @Path("shed_id") shedId: String,
+        @Query("task_id") taskId: String,
+        @Query("tag") tag: String,
+        @Query("partition_label") partitionLabel: String?,
+    ): ScanTagClassificationDto
 
     @POST("app/vaccination/obligations/{obligation_id}/reschedule")
     suspend fun rescheduleObligation(
@@ -1066,6 +1075,13 @@ class RetrofitAppApi(
         limit: Int?,
         partitionLabel: String?,
     ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit, partitionLabel)
+
+    override suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String?,
+    ): ScanTagClassificationDto = service.classifyScanTag(shedId, taskId, tag, partitionLabel)
 
     override suspend fun rescheduleObligation(
         obligationId: String,

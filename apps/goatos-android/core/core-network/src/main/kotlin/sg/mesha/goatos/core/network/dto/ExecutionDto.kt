@@ -31,9 +31,9 @@ data class VaccinationExecutionRowDto(
     // matching key and must never be shown. Render operationalLocationDisplay instead --
     // the backend composes it with oploc.Display() so every surface agrees.
     @SerialName("partition") val partition: String = "",
-    @SerialName("partition_label") val partitionLabel: String? = null,
-    @SerialName("source_shed_name") val sourceShedName: String? = null,
-    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("sourceShedName") val sourceShedName: String? = null,
+    @SerialName("operationalLocationDisplay") val operationalLocationDisplay: String = "",
     @SerialName("animalStage") val animalStage: String = "",
     @SerialName("targetCount") val targetCount: Int = 0,
     @SerialName("openCount") val openCount: Int = 0,

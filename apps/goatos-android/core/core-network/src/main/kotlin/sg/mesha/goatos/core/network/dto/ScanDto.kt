@@ -12,6 +12,10 @@ data class ScanRosterRowDto(
     @SerialName("status") val status: String = "",
     @SerialName("scannedAt") val scannedAt: String? = null,
     @SerialName("obligationId") val obligationId: String = "",
+    @SerialName("shedName") val shedName: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("sourceShedName") val sourceShedName: String? = null,
+    @SerialName("operationalLocationDisplay") val operationalLocationDisplay: String = "",
     /** `obligation_instances.row_version` for this row's obligation — bumps on every
      *  transition, including a verifier rejection reopening it for re-capture. The
      *  scan-capture idempotency-key discriminator (see
@@ -31,6 +35,26 @@ data class ScanRosterResponseDto(
     @SerialName("batchId") val batchId: String = "",
     @SerialName("rows") val rows: List<ScanRosterRowDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
+)
+
+@Serializable
+data class ScanTagClassificationDto(
+    @SerialName("outcome") val outcome: String = "unknown",
+    @SerialName("reason") val reason: String = "unknown_tag",
+    @SerialName("tag") val tag: String = "",
+    @SerialName("goatId") val goatId: String = "",
+    @SerialName("primaryTag") val primaryTag: String = "",
+    @SerialName("secondaryTag") val secondaryTag: String? = null,
+    @SerialName("vaccineLabel") val vaccineLabel: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("obligationIds") val obligationIds: List<String> = emptyList(),
+    @SerialName("obligationRowVersion") val obligationRowVersion: Int = 0,
+    @SerialName("targetTaskId") val targetTaskId: String = "",
+    @SerialName("batchId") val batchId: String = "",
+    @SerialName("shedName") val shedName: String = "",
+    @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("sourceShedName") val sourceShedName: String? = null,
+    @SerialName("operationalLocationDisplay") val operationalLocationDisplay: String = "",
 )
 
 @Serializable

@@ -238,9 +238,11 @@ VALUES (
 )
 ON CONFLICT (protocol_version_id) DO NOTHING;
 
-INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json, sop_version_id, proof_policy, sort_order)
-VALUES ('` + qaRuleID + `', $1::uuid, '` + qaVersionID + `', 'ET_TT_QA', 1, 'manual_campaign', 0, 3, 0, 'none', 'immediate', '{"stage":"K2","lifecycle":"alive"}'::jsonb, '` + qaSOPVersionID + `', '` + perGoatProofPolicy + `'::jsonb, 10)
-ON CONFLICT (rule_id) DO NOTHING;
+	INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json, sop_version_id, proof_policy, sort_order)
+	SELECT '` + qaRuleID + `', $1::uuid, '` + qaVersionID + `', 'ET_TT_QA', 1, 'manual_campaign', 0, 3, 0, 'none', 'immediate', '{"stage":"K2","lifecycle":"alive"}'::jsonb, '` + qaSOPVersionID + `', '` + perGoatProofPolicy + `'::jsonb, 10
+	WHERE NOT EXISTS (
+	  SELECT 1 FROM protocol_rules WHERE tenant_id = $1::uuid AND rule_id = '` + qaRuleID + `'
+	);
 
 INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key, dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group, species, animal_stage, sex, breed, lifecycle, health, reproductive, min_age_days, max_age_days, trigger_type, sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json, vaccine_json, schedule_json)
 VALUES ($1::uuid, '` + qaVersionID + `', '` + qaRuleID + `', 'vaccination', 'qa', 'qa-row', 'qa-selector', 'ET_TT_QA', 'ET_TT_QA', 'ET+TT', 'killed', 'bacterial', 'ET+TT', 'goat', 'K2', 'all', 'all', 'alive', 'any', 'any', 0, 180, 'manual_campaign', 1, 0, 3, 0, 'none', 'immediate', '{"stage":"K2","lifecycle":"alive"}'::jsonb, '{"code":"ET+TT"}'::jsonb, '{"dose_code":"ET_TT_QA"}'::jsonb)
@@ -281,12 +283,20 @@ VALUES ('` + qaTaskID + `', $1::uuid, '` + qaSOPID + `', '` + qaSOPVersionID + `
 ON CONFLICT (task_id) DO UPDATE
 SET sop_version_id = EXCLUDED.sop_version_id, state = 'assigned', assigned_to = EXCLUDED.assigned_to, context = EXCLUDED.context, updated_at = now();
 
-INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date, window_start, window_end, status, estimated_targets, planned_quantity, reserved_quantity, used_quantity, quantity_unit, primary_inventory_lot_id, sop_task_id, conducted_by, context)
-VALUES ('` + qaBatchID + `', $1::uuid, '` + qaVersionID + `', 'park', '` + qaParkID + `', 'qa-per-goat-proof', (now() AT TIME ZONE 'Asia/Kolkata')::date, now() - interval '1 hour', now() + interval '3 days', 'in_progress', 5, 5, 0, 0, 'dose', '` + qaStockID + `', '` + qaTaskID + `', '` + qaOperatorID + `', '{"seed":"vaccination-per-goat-qa"}'::jsonb)
-ON CONFLICT (batch_id) DO UPDATE
-SET planned_date = EXCLUDED.planned_date, window_start = EXCLUDED.window_start, window_end = EXCLUDED.window_end, status = 'in_progress', estimated_targets = 5, sop_task_id = EXCLUDED.sop_task_id, conducted_by = EXCLUDED.conducted_by, updated_at = now();
+	INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, session, planned_date, window_start, window_end, status, estimated_targets, planned_quantity, reserved_quantity, used_quantity, quantity_unit, primary_inventory_lot_id, sop_task_id, conducted_by, context)
+	VALUES ('` + qaBatchID + `', $1::uuid, '` + qaVersionID + `', 'park', '` + qaParkID + `', 'qa-per-goat-proof', (now() AT TIME ZONE 'Asia/Kolkata')::date, now() - interval '1 hour', now() + interval '3 days', 'in_progress', 5, 5, 0, 0, 'dose', '` + qaStockID + `', '` + qaTaskID + `', '` + qaOperatorID + `', '{"seed":"vaccination-per-goat-qa"}'::jsonb)
+	ON CONFLICT (batch_id) DO UPDATE
+	SET planned_date = EXCLUDED.planned_date, window_start = EXCLUDED.window_start, window_end = EXCLUDED.window_end, status = 'in_progress', estimated_targets = 5, sop_task_id = EXCLUDED.sop_task_id, conducted_by = EXCLUDED.conducted_by, updated_at = now();
 
-INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
+	DELETE FROM vaccination_drive_assignment_members
+	WHERE tenant_id = $1::uuid
+	  AND assignment_id IN ('` + qaAssign1ID + `', '` + qaAssign2ID + `');
+
+	DELETE FROM vaccination_drive_assignments
+	WHERE tenant_id = $1::uuid
+	  AND assignment_id IN ('` + qaAssign1ID + `', '` + qaAssign2ID + `');
+
+	INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
 VALUES
   ('` + qaAssign1ID + `', $1::uuid, '` + qaBatchID + `', (now() AT TIME ZONE 'Asia/Kolkata')::date, '` + qaOperatorID + `', '` + qaParkID + `', '` + qaShed1ID + `', 'Shed 1', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['` + qaRuleID + `']::uuid[], 3),
   ('` + qaAssign2ID + `', $1::uuid, '` + qaBatchID + `', (now() AT TIME ZONE 'Asia/Kolkata')::date, '` + qaOperatorID + `', '` + qaParkID + `', '` + qaShed2ID + `', 'Shed 2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['` + qaRuleID + `']::uuid[], 2)

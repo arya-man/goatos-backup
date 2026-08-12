@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
+import sg.mesha.goatos.core.network.dto.ScanTagClassificationDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 
@@ -174,6 +175,25 @@ interface ExecutionRepository {
         normalizedTag: String,
         partitionLabel: String? = null,
     ): ScanRosterRowEntity?
+
+    /** Returns every vaccine-obligation row for the animal matching this tag. */
+    suspend fun findScanRosterRowsByTag(
+        shedId: String,
+        taskId: String?,
+        normalizedTag: String,
+        partitionLabel: String? = null,
+    ): List<ScanRosterRowEntity> =
+        listOfNotNull(findScanRosterByTag(shedId, taskId, normalizedTag, partitionLabel))
+
+    /** Finds a tag across cached partition scopes for the same task. */
+    suspend fun findScanRosterRowsByTaskAndTag(taskId: String, normalizedTag: String): List<ScanRosterRowEntity> = emptyList()
+
+    suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String? = null,
+    ): ScanTagClassificationDto = ScanTagClassificationDto(tag = tag)
 
     /** R50-008: Get status-based counts for a shed (full roster, independent of loaded page). */
     suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String? = null): List<StatusCount>
@@ -477,6 +497,19 @@ class DefaultExecutionRepository(
     override suspend fun findScanRosterByTag(shedId: String, taskId: String?, normalizedTag: String, partitionLabel: String?): ScanRosterRowEntity? =
         scanRosterRowDao.findByTag(scanRosterRowScopeKey(shedId, taskId, partitionLabel), normalizedTag)
 
+    override suspend fun findScanRosterRowsByTag(shedId: String, taskId: String?, normalizedTag: String, partitionLabel: String?): List<ScanRosterRowEntity> =
+        scanRosterRowDao.findRowsByTag(scanRosterRowScopeKey(shedId, taskId, partitionLabel), normalizedTag)
+
+    override suspend fun findScanRosterRowsByTaskAndTag(taskId: String, normalizedTag: String): List<ScanRosterRowEntity> =
+        scanRosterRowDao.findRowsByTaskAndTag(taskId, normalizedTag)
+
+    override suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String?,
+    ): ScanTagClassificationDto = api.classifyScanTag(shedId, taskId, tag, partitionLabel)
+
     override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> =
         scanRosterRowDao.countByStatus(scanRosterRowScopeKey(shedId, taskId, partitionLabel))
 
@@ -516,6 +549,10 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     seq = seq,
     updatedAt = now,
     obligationRowVersion = obligationRowVersion,
+    shedName = shedName,
+    partitionLabel = partitionLabel.orEmpty(),
+    sourceShedName = sourceShedName.orEmpty(),
+    operationalLocationDisplay = operationalLocationDisplay,
 )
 
 private fun ScanRosterRowEntity.isServerDone(): Boolean {

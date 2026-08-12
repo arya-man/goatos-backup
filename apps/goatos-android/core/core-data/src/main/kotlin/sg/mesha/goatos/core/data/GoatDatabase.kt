@@ -259,7 +259,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
     ],
-    version = 37,
+    version = 38,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -331,6 +331,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // each other offline.
     // v37 (see [MIGRATION_36_37]) scopes scan and proof capture evidence to the operational
     // partition so one task spanning sibling partitions cannot mix their local submissions.
+    // v38 (see [MIGRATION_37_38]) carries operational-location fields on scan_roster_row so RFID
+    // misses can be classified server-side as sibling-partition warnings instead of unknown tags.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
