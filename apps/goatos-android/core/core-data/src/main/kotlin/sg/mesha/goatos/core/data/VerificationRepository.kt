@@ -17,6 +17,8 @@ import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 
 /**
  * The verifier-only workspace's reusable media queue (context/architecture/verifier-app-and-flow.md
@@ -105,6 +107,9 @@ interface VerificationRepository {
      *  verdict outbox row has SUCCEEDED. This keeps the verifier queue honest when the backend
      *  write landed but the follow-up refresh is temporarily offline/stale. */
     suspend fun markVerificationItemDecidedLocally(itemId: String)
+
+    /** Best-effort backend audit rows for verifier-only review actions. */
+    suspend fun recordReviewEvents(events: List<VerificationReviewEventRequestDto>): Result<Unit> = Result.success(Unit)
 
     /** Cache-first stream for leadership videos (full trail: pending/approved/rejected/closed).
      *  Returns a bounded window of verification items rendered as UI models. */
@@ -272,6 +277,12 @@ class DefaultVerificationRepository(
                     updatedAt = clock(),
                 ),
             )
+        }
+    }
+
+    override suspend fun recordReviewEvents(events: List<VerificationReviewEventRequestDto>): Result<Unit> = runCatching {
+        if (events.isNotEmpty()) {
+            api.recordVerificationReviewEvents(VerificationReviewEventBatchRequestDto(events))
         }
     }
 

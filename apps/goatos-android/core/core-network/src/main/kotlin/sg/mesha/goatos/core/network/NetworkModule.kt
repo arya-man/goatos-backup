@@ -98,6 +98,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
@@ -542,6 +544,12 @@ interface AppApiService {
         @Path("batch_id") batchId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+
+    @POST("verification/review-events")
+    suspend fun recordVerificationReviewEvents(
+        @Body request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto
+
     @GET("herd-register/summary")
     suspend fun getHerdRegisterSummary(
         @Query("lifecycle_status") lifecycleStatus: String?,
@@ -1206,6 +1214,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto =
         service.closeVaccinationBatch(batchId, idempotencyKey)
+
+    override suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto =
+        service.recordVerificationReviewEvents(request)
+
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,

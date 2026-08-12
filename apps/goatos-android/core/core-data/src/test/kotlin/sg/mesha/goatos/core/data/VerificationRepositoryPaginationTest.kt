@@ -18,6 +18,10 @@ import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 
 /**
@@ -246,6 +250,46 @@ class VerificationRepositoryPaginationTest {
             assertEquals(listOf("item-1"), categoryScope.items.map { it.itemId })
             assertEquals(listOf("shed-1"), categoryScope.filterOptions.sheds.orEmpty().map { it.id })
             assertTrue(shedScope.items.none { it.itemId == "item-2" })
+        }
+    }
+
+    @Test
+    fun `review events are posted to backend audit endpoint`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val batches = mutableListOf<VerificationReviewEventBatchRequestDto>()
+        val api = Proxy.newProxyInstance(AppApi::class.java.classLoader, arrayOf(AppApi::class.java)) { proxy, method, args ->
+            when (method.name) {
+                "recordVerificationReviewEvents" -> {
+                    batches += args?.get(0) as VerificationReviewEventBatchRequestDto
+                    VerificationReviewEventBatchResponseDto(inserted = batches.last().events.size)
+                }
+                "toString" -> "VerificationReviewEventsAppApiTestProxy"
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.firstOrNull()
+                else -> error("unexpected AppApi method ${method.name}")
+            }
+        } as AppApi
+        try {
+            val repository = DefaultVerificationRepository(api, database.verificationQueueCacheDao(), clock = { 42L })
+            val event = VerificationReviewEventRequestDto(
+                itemId = "item-1",
+                proofId = "proof-1",
+                sessionId = "session-1",
+                eventType = "video_play",
+                occurredAt = "2026-08-12T05:30:00Z",
+                payload = VerificationReviewEventPayloadDto(videoDurationMs = 25_000L),
+                clientEventId = "client-event-1",
+            )
+
+            repository.recordReviewEvents(listOf(event)).getOrThrow()
+
+            assertEquals(1, batches.size)
+            assertEquals(listOf(event), batches.single().events)
+        } finally {
+            database.close()
         }
     }
 

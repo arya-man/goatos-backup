@@ -31,6 +31,8 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
@@ -42,6 +44,8 @@ import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
 import sg.mesha.goatos.feature.verify.VerifyTone
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
+import java.time.Instant
+import java.util.UUID
 import javax.inject.Inject
 
 /** Transient (non-Room) UI flags, combined with the Room-observed item below. */
@@ -124,6 +128,8 @@ class VerifyDetailViewModel @Inject constructor(
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
     private var trackedItemOpened = false
+    private var activeProofSubject: String? = null
+    private val reviewSessionId = "verify-detail-${itemId}-${UUID.randomUUID()}"
 
     // Item ids for which [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] has already
     // fired with EVIDENCE_UNAVAILABLE this screen visit — the entry map is recomputed on every
@@ -229,6 +235,16 @@ class VerifyDetailViewModel @Inject constructor(
                         itemId = itemId,
                         category = first.category.ifBlank { category.orEmpty() },
                     )
+                    recordBackendReviewEvent(
+                        eventType = "item_opened",
+                        targetItemId = first.itemId,
+                        payload = VerificationReviewEventPayloadDto(
+                            category = first.category.ifBlank { category },
+                            parkId = first.parkId,
+                            shedId = first.shedId,
+                            status = first.status,
+                        ),
+                    )
                 }
             }
         }
@@ -296,6 +312,29 @@ class VerifyDetailViewModel @Inject constructor(
         AnalyticsFunnels.trackVerifyItemClosed(analytics, itemId, reason)
     }
 
+    private fun recordBackendReviewEvent(
+        eventType: String,
+        targetItemId: String = itemId,
+        proofId: String? = null,
+        payload: VerificationReviewEventPayloadDto = VerificationReviewEventPayloadDto(),
+    ) {
+        if (targetItemId.isBlank()) return
+        val event = VerificationReviewEventRequestDto(
+            itemId = targetItemId,
+            proofId = proofId?.takeIf { it.isNotBlank() },
+            sessionId = reviewSessionId,
+            eventType = eventType,
+            occurredAt = Instant.now().toString(),
+            payload = payload,
+            clientEventId = UUID.randomUUID().toString(),
+        )
+        viewModelScope.launch {
+            repo.recordReviewEvents(listOf(event)).onFailure { error ->
+                runCatching { crashReporter.recordException(error, "verification review event upload failed") }
+            }
+        }
+    }
+
     private fun refresh() = viewModelScope.launch {
         _flags.update { it.copy(isRefreshing = true) }
         val result = if (isActionMode) {
@@ -361,6 +400,11 @@ class VerifyDetailViewModel @Inject constructor(
                     }
                     awaitDecidedItemDelivered(targetItemId)
                     AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
+                    recordBackendReviewEvent(
+                        eventType = "verdict_recorded",
+                        targetItemId = targetItemId,
+                        payload = VerificationReviewEventPayloadDto(verdict = decision),
+                    )
                     watchTimeByProof.clear()
                 } else {
                     _flags.update {
@@ -396,9 +440,26 @@ class VerifyDetailViewModel @Inject constructor(
                 )
                 playWatchdogFor(event.proofSubject)
                     .armIntent(props, AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS)
+                if (event.targetAction == "pause") {
+                    recordBackendReviewEvent(
+                        eventType = "video_pause",
+                        targetItemId = itemIdForProof(event.proofSubject),
+                        proofId = event.proofSubject,
+                    )
+                }
             }
             VideoPlaybackAction.PLAY_OUTCOME -> playWatchdogFor(event.proofSubject).disarm()
-            VideoPlaybackAction.PLAY_STARTED ->
+            VideoPlaybackAction.PLAY_STARTED -> {
+                val targetItemId = itemIdForProof(event.proofSubject)
+                val previousProof = activeProofSubject
+                if (previousProof != null && previousProof != event.proofSubject) {
+                    recordBackendReviewEvent(
+                        eventType = "proof_switched",
+                        targetItemId = targetItemId,
+                        proofId = event.proofSubject,
+                    )
+                }
+                activeProofSubject = event.proofSubject
                 AnalyticsFunnels.trackVerifyVideoPlayStarted(
                     analytics = analytics,
                     itemId = itemId,
@@ -406,6 +467,15 @@ class VerifyDetailViewModel @Inject constructor(
                     mimeType = event.mimeType,
                     durationMs = event.durationMs,
                 )
+                recordBackendReviewEvent(
+                    eventType = "video_play",
+                    targetItemId = targetItemId,
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(
+                        videoDurationMs = event.durationMs,
+                    ),
+                )
+            }
             VideoPlaybackAction.WATCH_SUMMARY -> {
                 watchTimeByProof[event.proofSubject] = (watchTimeByProof[event.proofSubject] ?: 0L) + event.watchTimeMs.coerceAtLeast(0)
                 AnalyticsFunnels.trackVerifyVideoWatchSummary(
@@ -421,6 +491,17 @@ class VerifyDetailViewModel @Inject constructor(
                     replayCount = event.replayCount,
                     bufferingTimeMs = event.bufferingTimeMs,
                 )
+                val reachedEnd = event.durationMs > 0L &&
+                    event.positionMs >= (event.durationMs - 750L).coerceAtLeast(0L)
+                recordBackendReviewEvent(
+                    eventType = if (reachedEnd) "video_ended" else "video_pause",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(
+                        videoPositionMs = event.positionMs,
+                        videoDurationMs = event.durationMs,
+                    ),
+                )
             }
             VideoPlaybackAction.PLAYBACK_ERROR -> {
                 val reason = event.reason ?: "unknown"
@@ -430,12 +511,29 @@ class VerifyDetailViewModel @Inject constructor(
                 runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
-            VideoPlaybackAction.FULLSCREEN_OPENED ->
+            VideoPlaybackAction.FULLSCREEN_OPENED -> {
                 AnalyticsFunnels.trackVerifyVideoFullscreenOpened(analytics, itemId, event.proofSubject)
-            VideoPlaybackAction.FULLSCREEN_EXITED ->
+                recordBackendReviewEvent(
+                    eventType = "fullscreen_toggled",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(status = "opened"),
+                )
+            }
+            VideoPlaybackAction.FULLSCREEN_EXITED -> {
                 AnalyticsFunnels.trackVerifyVideoFullscreenExited(analytics, itemId, event.proofSubject)
+                recordBackendReviewEvent(
+                    eventType = "fullscreen_toggled",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(status = "closed"),
+                )
+            }
         }
     }
+
+    private fun itemIdForProof(proofSubject: String): String =
+        observedGroup.value.firstOrNull { item -> item.media.any { it.proofId == proofSubject } }?.itemId ?: itemId
 
     private fun totalWatchTimeMs(): Long = watchTimeByProof.values.sum()
 
