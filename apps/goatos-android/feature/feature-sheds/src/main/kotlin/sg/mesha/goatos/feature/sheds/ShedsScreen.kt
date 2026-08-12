@@ -100,7 +100,7 @@ enum class ShedStatus { DONE, PENDING, DELAYED, SENT_BACK }
 
 enum class ShedStatusTone { OK, WARN, DANGER, INFO }
 
-enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, SENT_BACK, COMPLETE }
+enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, SENT_BACK, COMPLETE, NEIGHBOR_SCAN }
 
 @Immutable
 data class ShedStatusChip(
@@ -154,6 +154,7 @@ data class ProtocolAdherenceSummary(
      * tell "still with the verifier" from "came back and must be redone".
      */
     val sentBackCount: Int = 0,
+    val neighborScanCount: Int = 0,
     val deferredCount: Int,
     val acceptedPercent: Int,
 ) {
@@ -984,6 +985,7 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
     val statusChips = listOfNotNull(
         stateChip,
         ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER).takeIf { summary.overdueItemCount > 0 },
+        ShedStatusChip(ShedStatusChipKey.NEIGHBOR_SCAN, ShedStatusTone.INFO).takeIf { summary.neighborScanCount > 0 },
     )
     val progressLabel = "${summary.submittedCount}/${summary.expectedCount} goats submitted"
     val progressCaption = when {
@@ -1002,6 +1004,11 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
         0 -> null
         1 -> "1 goat sent back to redo"
         else -> "${summary.sentBackCount} goats sent back to redo"
+    }
+    val neighborLine = when (summary.neighborScanCount) {
+        0 -> null
+        1 -> "1 neighbor goat scanned"
+        else -> "${summary.neighborScanCount} neighbor goats scanned"
     }
     val tone = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
@@ -1069,6 +1076,7 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 // Danger tone, and shown before the accepted line: work that came back is the
                 // thing a reader must act on, not a footnote under the good news.
                 sentBackLine?.let { CompactFact(it, color = toneFor(ShedStatus.SENT_BACK).fg) }
+                neighborLine?.let { CompactFact(it, color = toneFor(ShedStatus.PENDING).fg) }
                 CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
             }
         }
@@ -1240,6 +1248,7 @@ private fun ShedStatusChip.label(): String = when (key) {
     ShedStatusChipKey.OVERDUE -> stringResource(R.string.sheds_status_overdue)
     ShedStatusChipKey.SENT_BACK -> stringResource(R.string.sheds_status_sent_back)
     ShedStatusChipKey.COMPLETE -> stringResource(R.string.sheds_status_complete)
+    ShedStatusChipKey.NEIGHBOR_SCAN -> stringResource(R.string.sheds_status_neighbor_scan)
 }
 
 private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {

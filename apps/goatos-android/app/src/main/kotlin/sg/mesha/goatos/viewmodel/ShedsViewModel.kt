@@ -650,6 +650,7 @@ internal fun protocolAdherenceSummary(
         // its own number on the CEO card instead of hiding in the gap between submitted and
         // accepted.
         sentBackCount = rows.filter { it.needsRedo() }.sumOf { it.openCount.coerceAtLeast(0) },
+        neighborScanCount = rows.sumOf { it.neighborScanCount.coerceAtLeast(0) },
         deferredCount = 0,
         acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
     )

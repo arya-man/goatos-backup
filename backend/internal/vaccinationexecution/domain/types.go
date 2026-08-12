@@ -92,6 +92,7 @@ type ExecutionRow struct {
 	OpenCount                  int     `json:"openCount"`
 	DoneCount                  int     `json:"doneCount"`
 	AcceptedCount              int     `json:"acceptedCount"`
+	NeighborScanCount          int     `json:"neighborScanCount"`
 	// ReviewCount is the number of items currently AWAITING A VERDICT (completion recorded but
 	// not yet accepted or rejected) -- it must always match what the verifier's own
 	// /verification/queue returns for the same scope. It EXCLUDES rejected items: a rejection is
@@ -501,6 +502,7 @@ type ExecutionProjection struct {
 	CompletionRejected   int
 	CompletionReversed   int
 	ScannedCount         int
+	NeighborScanCount    int
 	ProofSubmittedCount  int
 	BatchStatus          *string
 	TaskState            *string

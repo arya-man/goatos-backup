@@ -30,6 +30,7 @@
     <string name="sheds_status_overdue">समय से पीछे</string>
     <string name="sheds_status_sent_back">वापस भेजा गया</string>
     <string name="sheds_status_complete">पूर्ण</string>
+    <string name="sheds_status_neighbor_scan">पड़ोसी स्कैन</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">रोस्टर में बदलाव · इस ड्राइव के शेड्यूल होने के बाद से</string>

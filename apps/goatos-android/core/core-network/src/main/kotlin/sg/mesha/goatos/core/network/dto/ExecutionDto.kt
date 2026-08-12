@@ -39,6 +39,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("openCount") val openCount: Int = 0,
     @SerialName("doneCount") val doneCount: Int = 0,
     @SerialName("acceptedCount") val acceptedCount: Int? = null,
+    @SerialName("neighborScanCount") val neighborScanCount: Int = 0,
     @SerialName("reviewCount") val reviewCount: Int? = null,
     @SerialName("driveId") val driveId: String? = null,
     @SerialName("driveName") val driveName: String? = null,

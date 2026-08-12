@@ -431,6 +431,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		OpenCount:                  openCount,
 		DoneCount:                  doneCount,
 		AcceptedCount:              p.CompletionAccepted,
+		NeighborScanCount:          p.NeighborScanCount,
 		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
 		// rejected) -- must match the verifier's own /verification/queue, which only ever
 		// surfaces pending items. A rejected completion is a resolved verdict, not open review

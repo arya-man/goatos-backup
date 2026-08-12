@@ -339,17 +339,18 @@ type VaccineBreakdownItem struct {
 // be enabled or blocked with a human reason. shed_name / drive_name / vaccine names are always
 // human display strings, never raw UUIDs.
 type ShedCompletionSummary struct {
-	TaskID           string
-	ShedName         string
-	DriveName        string
-	ExpectedCount    int64
-	HandledCount     int64
-	ProofReadyCount  int64
-	ProofMode        string
-	VaccineBreakdown []VaccineBreakdownItem
-	SubmitEnabled    bool
-	BlockingReason   *string
-	SubmitState      string // draft | submitted | verified | closed
+	TaskID            string
+	ShedName          string
+	DriveName         string
+	ExpectedCount     int64
+	HandledCount      int64
+	NeighborScanCount int64
+	ProofReadyCount   int64
+	ProofMode         string
+	VaccineBreakdown  []VaccineBreakdownItem
+	SubmitEnabled     bool
+	BlockingReason    *string
+	SubmitState       string // draft | submitted | verified | closed
 	// RoundSubmitted is true only when a live, shed-scoped submission trail exists for THIS
 	// shed's CURRENT round of eligible (non-terminal) obligations: either a still-open
 	// verification item for this shed, an unaccepted vaccination_completions row covering the

@@ -162,7 +162,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		var sopTaskRowVersion pgtype.Int4
 		var dueAt pgtype.Timestamptz
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
-		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, proofSubmittedCount int64
+		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount, scannedCount, neighborScanCount, proofSubmittedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
 		var workState string
 		if err := rows.Scan(
@@ -192,6 +192,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 			&rejectedCount,
 			&reversedCount,
 			&scannedCount,
+			&neighborScanCount,
 			&proofSubmittedCount,
 			&batchStatus,
 			&taskState,
@@ -232,6 +233,7 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 		p.CompletionRejected = int(rejectedCount)
 		p.CompletionReversed = int(reversedCount)
 		p.ScannedCount = int(scannedCount)
+		p.NeighborScanCount = int(neighborScanCount)
 		p.ProofSubmittedCount = int(proofSubmittedCount)
 		p.BatchStatus = textPtr(batchStatus)
 		p.TaskState = textPtr(taskState)
@@ -1250,6 +1252,7 @@ raw AS (
     c.effective_status AS completion_status,
     c.completion_id,
     sc.capture_id IS NOT NULL AS scanned,
+    neighbor_scan.goat_count AS neighbor_scan_count,
     goat_proof.proofed_at IS NOT NULL AS proofed,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
@@ -1381,6 +1384,15 @@ raw AS (
     LIMIT 1
   ) sc ON st.task_id IS NOT NULL
   LEFT JOIN LATERAL (
+    SELECT COUNT(DISTINCT attempt.goat_id)::bigint AS goat_count
+    FROM sop_task_scan_attempts attempt
+    WHERE attempt.tenant_id = oi.tenant_id
+      AND attempt.task_id = st.task_id
+      AND attempt.goat_id = oi.target_id
+      AND attempt.reason = 'neighbor_partition'
+      AND attempt.captured_at <= $7::timestamptz
+  ) neighbor_scan ON st.task_id IS NOT NULL
+  LEFT JOIN LATERAL (
     SELECT proof.created_at AS proofed_at
     FROM proof_artifacts proof
     WHERE proof.tenant_id = oi.tenant_id
@@ -1470,6 +1482,7 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned OR located.proofed) AS has_scan,
+    BOOL_OR(COALESCE(located.neighbor_scan_count, 0) > 0) AS has_neighbor_scan,
     BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
   FROM located
   WHERE located.park_uuid IS NOT NULL
@@ -1499,6 +1512,7 @@ animal_counts AS (
     COUNT(*) FILTER (WHERE animal_rollup.has_rejected_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_rejected,
     COUNT(*) FILTER (WHERE animal_rollup.has_reversed_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_reversed,
     COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count,
+    COUNT(*) FILTER (WHERE animal_rollup.has_neighbor_scan)::bigint AS neighbor_scan_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_shed_proof)::bigint AS proof_submitted_count
   FROM animal_rollup
   GROUP BY animal_rollup.park_uuid, animal_rollup.shed_uuid, animal_rollup.partition_key, animal_rollup.batch_id
@@ -1532,6 +1546,7 @@ grouped AS (
     MAX(animal_counts.completion_rejected) AS completion_rejected,
     MAX(animal_counts.completion_reversed) AS completion_reversed,
     MAX(animal_counts.scanned_count) AS scanned_count,
+    MAX(animal_counts.neighbor_scan_count) AS neighbor_scan_count,
     MAX(animal_counts.proof_submitted_count) AS proof_submitted_count,
     (ARRAY_AGG(located.batch_status ORDER BY
       CASE located.batch_status
@@ -1786,6 +1801,7 @@ SELECT
   grouped.completion_rejected,
   grouped.completion_reversed,
   grouped.scanned_count,
+  grouped.neighbor_scan_count,
   grouped.proof_submitted_count,
   grouped.batch_status,
   grouped.task_state,

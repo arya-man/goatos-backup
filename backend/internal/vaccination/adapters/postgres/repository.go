@@ -1839,17 +1839,18 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 	}
 
 	var (
-		shedName      string
-		driveName     string
-		state         string
-		expectedCount int64
-		handledCount  int64
-		proofReady    int64
-		pendingVerify int64
-		minProofs     int64
-		maxProofs     int64
-		proofMode     string
-		submitState   string
+		shedName          string
+		driveName         string
+		state             string
+		expectedCount     int64
+		handledCount      int64
+		neighborScanCount int64
+		proofReady        int64
+		pendingVerify     int64
+		minProofs         int64
+		maxProofs         int64
+		proofMode         string
+		submitState       string
 	)
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=per-goat mode counts COUNT(DISTINCT subject_id), shed-level mode counts completed shed proof_artifacts) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
 	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only when handled animals match expected and the SOP proof-mode gate is satisfied.
@@ -1914,6 +1915,45 @@ handled AS (
     AND c.task_id = $2
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
+),
+neighbor_scans AS (
+  SELECT count(DISTINCT attempt.goat_id) AS n
+  FROM sop_task_scan_attempts attempt
+  JOIN goats g
+    ON g.tenant_id = attempt.tenant_id
+   AND g.goat_id = attempt.goat_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN locations selected_shed
+    ON selected_shed.tenant_id = $1
+   AND selected_shed.location_id = $4
+   AND selected_shed.location_type = 'shed'
+  LEFT JOIN locations goat_shed
+    ON goat_shed.tenant_id = g.tenant_id
+   AND goat_shed.location_id = g.shed_id
+   AND goat_shed.location_type = 'shed'
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  WHERE attempt.tenant_id = $1
+    AND attempt.task_id = $2
+    AND attempt.reason = 'neighbor_partition'
+    AND attempt.goat_id IS NOT NULL
+    AND (
+      NOT $3::boolean
+      OR g.shed_id = $4
+      OR (
+        selected_shed.location_id IS NOT NULL
+        AND goat_shed.location_id IS NOT NULL
+        AND goat_shed.parent_location_id = selected_shed.parent_location_id
+        AND lower(btrim(goat_shed.name)) = lower(btrim(selected_shed.name))
+      )
+    )
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       <> regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT p.subject_id) AS n
@@ -2018,6 +2058,7 @@ SELECT
   t.max_proofs,
   COALESCE((SELECT n FROM expected), 0),
   COALESCE((SELECT n FROM handled), 0),
+  COALESCE((SELECT n FROM neighbor_scans), 0),
   CASE WHEN t.proof_mode = 'shed_level_video'
     THEN COALESCE((SELECT n FROM proofed_shed), 0)
     ELSE COALESCE((SELECT n FROM proofed_goat), 0)
@@ -2030,7 +2071,7 @@ SELECT
 FROM t
 LEFT JOIN shed ON true`,
 		tenant, task, shed.Valid, shed, partitionLabel,
-	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
+	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &neighborScanCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
@@ -2058,16 +2099,17 @@ LEFT JOIN shed ON true`,
 	roundID, roundState, roundSubmitted := shedCompletionRoundState(roundFacts, pendingVerify)
 
 	summary := domain.ShedCompletionSummary{
-		TaskID:           taskID,
-		ShedName:         shedName,
-		DriveName:        driveName,
-		ExpectedCount:    expectedCount,
-		HandledCount:     handledCount,
-		ProofReadyCount:  proofReady,
-		ProofMode:        proofMode,
-		VaccineBreakdown: breakdown,
-		SubmitState:      submitState,
-		RoundID:          roundID,
+		TaskID:            taskID,
+		ShedName:          shedName,
+		DriveName:         driveName,
+		ExpectedCount:     expectedCount,
+		HandledCount:      handledCount,
+		NeighborScanCount: neighborScanCount,
+		ProofReadyCount:   proofReady,
+		ProofMode:         proofMode,
+		VaccineBreakdown:  breakdown,
+		SubmitState:       submitState,
+		RoundID:           roundID,
 	}
 	if proofMode != "shed_level_video" {
 		// Per-goat mode: derive SubmitState/RoundSubmitted from the shed-scoped round-facts

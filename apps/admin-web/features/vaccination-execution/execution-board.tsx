@@ -42,6 +42,8 @@ import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);
 
+type NeighborScanRow = VaccinationExecutionRow & { neighborScanCount?: number | null };
+
 interface ParkGroup {
   parkId: string;
   parkName: string;
@@ -136,6 +138,7 @@ function OwnerChain({ row, pageContract }: { row: VaccinationExecutionRow; pageC
 }
 
 function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; pageContract: AdminUiPageContract }) {
+  const neighborScanCount = Math.max(0, (row as NeighborScanRow).neighborScanCount ?? 0);
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       {row.sopStatus ? <Tag tone={optionTone(pageContract, "sop_state_chips", row.sopStatus) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sopStatus)}</Tag> : null}
@@ -143,6 +146,7 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
       {row.verificationStatus ? (
         <Tag tone={optionTone(pageContract, "verification_state_chips", row.verificationStatus) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verificationStatus)}</Tag>
       ) : null}
+      {neighborScanCount > 0 ? <Tag tone="info">{neighborScanCount} neighbor {neighborScanCount === 1 ? "goat" : "goats"}</Tag> : null}
     </div>
   );
 }
