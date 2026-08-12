@@ -227,6 +227,8 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
         partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> = error("unused")
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> = error("unused")

@@ -234,7 +234,7 @@ fun RoleBasedPermissionGate(
 /**
  * Derive required permissions from the NavState and modules.
  *
- * Operator: location, camera, BLE (BLUETOOTH_CONNECT on API 31+), notifications
+ * Operator: location, camera, BLE/Nearby Devices (BLUETOOTH_CONNECT + BLUETOOTH_SCAN on API 31+), notifications
  * Verifier/Director/CEO: notifications only (for now)
  *
  * Uses module availability as the source, not hardcoded role strings.
@@ -252,10 +252,8 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
     }
 
     if (isOperator) {
-        // Location is only declared (and therefore only grantable) up to API 30 — the manifest
-        // caps ACCESS_FINE_LOCATION at maxSdkVersion 30 because BLUETOOTH_SCAN is
-        // neverForLocation from Android 12. Requesting it on a newer phone can never succeed and
-        // would strand the operator behind this mandatory gate, so honour the SDK window.
+        // Login-time location follows the role-neutral catalog. Capture entry still blocks on
+        // precise location on every supported Android version before camera opens.
         if (AppPermission.LOCATION in AppPermission.requiredForSdkInt()) {
             required.add(AppPermission.LOCATION.manifestPermission)
         }
@@ -263,9 +261,11 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
         // Operator requires camera for proof capture
         required.add(AppPermission.CAMERA.manifestPermission)
 
-        // Operator requires Bluetooth for RFID reader (API 31+)
+        // Operator requires Android 12+ Nearby Devices permissions for RFID reader readiness and
+        // future scan/pairing affordances.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             required.add(AppPermission.BLUETOOTH_CONNECT.manifestPermission)
+            required.add(AppPermission.BLUETOOTH_SCAN.manifestPermission)
         }
     }
 

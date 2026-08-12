@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.R
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.PhotoCaptureContext
@@ -27,10 +26,11 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionResultUi
@@ -59,6 +59,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val proofCaptureSource: ProofCaptureSource,
     private val photoCaptureSource: PhotoCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
@@ -158,32 +159,33 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
                 return@launch
             }
-            feedWeightPhotoKey.invalidate()
-            val request = ProofUploadRequestDto(
-                proofType = "photo",
-                mimeType = captured.mimeType,
-                scopeType = "shed",
-                scopeId = shedId,
-                subjectType = "shed",
-                subjectId = shedId,
-                metadata = mapOf(
-                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
-                    META_PROOF_SLOT to JsonPrimitive("feed_weight_photo"),
-                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                ),
-            )
             when (
-                val result = syncRepository.enqueueProofUpload(
-                    groupKey = groupKey,
-                    idempotencyKey = feedWeightPhotoKey.current(),
-                    request = request,
-                    localFilePath = captured.localUri,
-                    durationMs = null,
+                val result = proofCaptureRepository.capture(
+                    taskId = groupKey,
+                    fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
+                    subject = ProofSubject.SHED,
+                    subjectId = shedId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = "Feed weight photo session $sessionNo",
+                    scopeType = "shed",
+                    scopeId = shedId,
+                    capturedStartMs = captured.capturedAtMs,
+                    capturedEndMs = captured.capturedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = feedShedProofPolicy(captured.captureSource),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = groupKey,
                 )
             ) {
                 is AppResult.Ok -> {
-                    feedWeightPhotoProofItemId.value = result.value
-                    observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, result.value)
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        _state.update { it.copy(isCapturingFeedWeightPhoto = false, feedWeightPhotoMessage = PROOF_FAILED) }
+                        return@launch
+                    }
+                    feedWeightPhotoProofItemId.value = proofOutboxId
+                    observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
                         mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
@@ -234,37 +236,33 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
-            videoKey.invalidate()
-            val request = ProofUploadRequestDto(
-                proofType = "video",
-                mimeType = captured.mimeType,
-                scopeType = "shed",
-                scopeId = shedId,
-                subjectType = "shed",
-                subjectId = shedId,
-                // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
-                // capture_source + the capture window. This flow permits only the live in-app
-                // camera; omitting them is rejected 400 invalid_proof.
-                metadata = mapOf(
-                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
-                    META_PROOF_SLOT to JsonPrimitive("feed_distribution_video"),
-                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
-                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
-                ),
-            )
             when (
-                val result = syncRepository.enqueueProofUpload(
-                    groupKey = groupKey,
-                    idempotencyKey = videoKey.current(),
-                    request = request,
-                    localFilePath = captured.localUri,
-                    durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+                val result = proofCaptureRepository.capture(
+                    taskId = groupKey,
+                    fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
+                    subject = ProofSubject.SHED,
+                    subjectId = shedId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = "Feed distribution session $sessionNo",
+                    scopeType = "shed",
+                    scopeId = shedId,
+                    capturedStartMs = captured.startedAtMs,
+                    capturedEndMs = captured.endedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = feedShedProofPolicy(captured.captureSource),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = groupKey,
                 )
             ) {
                 is AppResult.Ok -> {
-                    videoProofItemId.value = result.value
-                    observeProofItem(ProofSlot.FEED_VIDEO, result.value)
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                        return@launch
+                    }
+                    videoProofItemId.value = proofOutboxId
+                    observeProofItem(ProofSlot.FEED_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
                         mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
@@ -314,34 +312,33 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingWaterVideo = false) }
                 return@launch
             }
-            waterVideoKey.invalidate()
-            val request = ProofUploadRequestDto(
-                proofType = "video",
-                mimeType = captured.mimeType,
-                scopeType = "shed",
-                scopeId = shedId,
-                subjectType = "shed",
-                subjectId = shedId,
-                metadata = mapOf(
-                    META_SESSION_NO to JsonPrimitive(sessionNo.toString()),
-                    META_PROOF_SLOT to JsonPrimitive("water_distribution_video"),
-                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
-                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
-                ),
-            )
             when (
-                val result = syncRepository.enqueueProofUpload(
-                    groupKey = groupKey,
-                    idempotencyKey = waterVideoKey.current(),
-                    request = request,
-                    localFilePath = captured.localUri,
-                    durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+                val result = proofCaptureRepository.capture(
+                    taskId = groupKey,
+                    fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
+                    subject = ProofSubject.SHED,
+                    subjectId = shedId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = "Water distribution video session $sessionNo",
+                    scopeType = "shed",
+                    scopeId = shedId,
+                    capturedStartMs = captured.startedAtMs,
+                    capturedEndMs = captured.endedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = feedShedProofPolicy(captured.captureSource),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = groupKey,
                 )
             ) {
                 is AppResult.Ok -> {
-                    waterVideoProofItemId.value = result.value
-                    observeProofItem(ProofSlot.WATER_VIDEO, result.value)
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        _state.update { it.copy(isCapturingWaterVideo = false, waterVideoMessage = PROOF_FAILED) }
+                        return@launch
+                    }
+                    waterVideoProofItemId.value = proofOutboxId
+                    observeProofItem(ProofSlot.WATER_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
                         mapOf(AnalyticsEvents.Params.KIND to "water_video"),
@@ -597,11 +594,9 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val KEY_FEED_WEIGHT_PHOTO_PROOF_ITEM_ID = "feedDistribution.feedWeightPhotoProofItemId"
         private const val KEY_VIDEO_PROOF_ITEM_ID = "feedDistribution.videoProofItemId"
         private const val KEY_WATER_VIDEO_PROOF_ITEM_ID = "feedDistribution.waterVideoProofItemId"
-        private const val META_SESSION_NO = "session_no"
-        private const val META_PROOF_SLOT = "proof_slot"
-        private const val META_CAPTURE_SOURCE = "capture_source"
-        private const val META_CAPTURED_START_MS = "captured_start_ms"
-        private const val META_CAPTURED_END_MS = "captured_end_ms"
+        private const val FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
+        private const val FIELD_FEED_DISTRIBUTION_VIDEO = "feed_distribution_video"
+        private const val FIELD_FEED_DISTRIBUTION_WATER_VIDEO = "feed_distribution_water_video"
         private const val QUEUED_MESSAGE = "Sent for verification. A verifier will review the three proofs."
         private const val SYNCED_MESSAGE = "Sent. Waiting for verifier approval before this feeding is counted."
         private const val VIDEO_QUEUED = "Feed video saved on this phone. It will upload automatically."

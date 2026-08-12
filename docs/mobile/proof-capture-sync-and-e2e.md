@@ -93,6 +93,34 @@ Capture is abstracted behind a `ProofCaptureSource` port. Each captured/picked
 video is written to Room first (§3) as a proof row with its SOP subject, then
 queued for upload.
 
+## 2b. Shared video processing before upload
+
+All operator camera video uploads must use the shared pipeline in
+[`proof-video-processing-pipeline.md`](./proof-video-processing-pipeline.md).
+Screens such as weighing, vaccination, feed, shifting, and future proof modules
+must not build their own compression/upload queues.
+
+This pipeline is for operator execution flows only. Leadership, verifier,
+admin, and read-only surfaces may inspect proofs through server-authorized
+review/read flows, but they must not create phone-camera proof videos.
+
+The pipeline:
+
+- stores the original capture in Room/app-owned storage first
+- captures timestamp, logged-in operator, mandatory precise GPS, and
+  best-effort Android `Geocoder` address at recording start
+- burns a compact bottom-right audit overlay into the video file itself
+- applies adaptive WhatsApp-style H.264/AAC compression based on input
+  resolution, original bitrate, proof module, and proof readability needs
+- runs only one compression job at a time; uploads may run in parallel with the
+  next compression job
+- records Firebase Analytics/Performance/Crashlytics signals at every stage
+- uploads the original uncompressed file if compression/overlay/muxing fails
+
+Operator UI may show business status such as `Compressing proof...` and
+`Uploading proof...`, but must not expose codec, Room, outbox, GCS, idempotency,
+or other implementation terms.
+
 ## 3. Room-first, single source of truth, background sync
 
 The on-device database is the single source of truth for both scans and proof
@@ -102,6 +130,11 @@ videos. Nothing is "submitted" straight to the network.
   call, each with an explicit sync status (`PENDING`, `IN_FLIGHT`, `SYNCED`,
   `FAILED`). The UI renders that status per row — identical mental model to the
   Android Photos / Google Drive "uploading / synced" indicators.
+- Video rows include processing state before upload: original captured,
+  location/address resolving, compressing/overlaying, processed, upload queued,
+  uploading, uploaded, failed/retrying, or dead-letter. Processing failure does
+  not lose proof; it flips the row to upload the original file and records the
+  exception through the telemetry ports.
 - Every scan and clip creates its own draft outbox record immediately. Shed and
   drive submit buttons only validate/finalize already-synced records; they are
   not bulk-upload triggers.
@@ -146,14 +179,21 @@ shed-proof hardening fixes.
 
 ## 4. Mandatory permissions gate
 
-Capture needs camera, Bluetooth (HID + connect/scan), location (BT dependency on
-older Android), storage, and notifications. These are **mandatory**:
+Capture needs camera, Bluetooth (HID + connect/scan), precise location, storage,
+and notifications. These are **mandatory**:
 
 - The app requests all required permissions at startup.
-- If any required permission (camera / Bluetooth / location / notifications /
-  storage) is denied, the app **blocks and does not proceed** past the gate until
-  every one is granted. There is no degraded path — a vaccination drive cannot be
-  captured or proven without them.
+- If any required permission (camera / Bluetooth / precise location /
+  notifications / storage) is denied, the app **blocks and does not proceed**
+  past the gate until every one is granted. There is no degraded path — a
+  vaccination drive cannot be captured or proven without them.
+- If Android still allows a runtime permission prompt, the blocked gate asks
+  again from the same screen. If the operator selected "Don't ask again" or the
+  OS will not show the prompt, the gate opens the app's Android Settings page
+  and tells the operator to enable the missing permission there before returning.
+- Video proof recording also blocks until the app has a fresh precise location
+  fix within policy accuracy/age. Android `Geocoder` failure may fall back to
+  lat/lng text, but missing precise location may not.
 
 ## 5. Role gating
 

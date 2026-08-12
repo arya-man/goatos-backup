@@ -5849,7 +5849,7 @@ CASE
     ELSE lower(btrim(partition_label))
 END) STORED,
     CONSTRAINT feed_packing_completions_proof_check CHECK (((status <> ALL (ARRAY['pending_verification'::text, 'completed'::text])) OR ((packing_proof_ref IS NOT NULL) AND (btrim(packing_proof_ref) <> ''::text)))),
-    CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 1)),
+    CONSTRAINT feed_packing_completions_session_no_check CHECK ((session_no >= 0)),
     CONSTRAINT feed_packing_completions_status_check CHECK ((status = ANY (ARRAY['pending_verification'::text, 'completed'::text, 'rework'::text]))),
     CONSTRAINT feed_packing_completions_workflow_check CHECK ((workflow = ANY (ARRAY['normal'::text, 'experiment'::text])))
 );
@@ -11471,6 +11471,13 @@ CREATE UNIQUE INDEX feed_packing_completions_idempotency_uq ON public.feed_packi
 --
 
 CREATE UNIQUE INDEX feed_packing_completions_natural_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow);
+
+
+--
+-- Name: feed_packing_completions_pen_day_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX feed_packing_completions_pen_day_uq ON public.feed_packing_completions USING btree (tenant_id, park_id, shed_id, partition_key, target_date, workflow);
 
 
 --

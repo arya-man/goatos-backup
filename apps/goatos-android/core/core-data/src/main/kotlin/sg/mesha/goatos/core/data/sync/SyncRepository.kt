@@ -652,14 +652,17 @@ class DefaultSyncRepository(
         request: ProofUploadRequestDto,
         localFilePath: String,
         durationMs: Long?,
-    ): AppResult<String> = enqueue(
-        opType = OutboxOpType.PROOF_UPLOAD,
-        groupKey = groupKey,
-        idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(
-            ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
-        ),
-    )
+    ): AppResult<String> {
+        val result = enqueue(
+            opType = OutboxOpType.PROOF_UPLOAD,
+            groupKey = groupKey,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
+            ),
+        )
+        return result
+    }
 
     override suspend fun enqueueVerifyTask(
         taskId: String,

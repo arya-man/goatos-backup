@@ -124,6 +124,16 @@ state, never a screen-wide `actionInFlight`/`busy` gate. Machine guard:
 `make android-row-action-scope-guard` (also included in `make mobile-guard` and
 local CI).
 
+Android proof-video pipeline guardrail:
+operator camera proof work must use the shared proof capture/orchestration path.
+Feature/ViewModel code must not enqueue proof uploads directly, implement media
+compression/overlay locally, or call Firebase SDKs directly. Machine guard:
+`make mobile-guard` runs `check-android-proof-video-pipeline.mjs` and
+`check-android-proof-video-screenshots.mjs`; full legacy audit:
+`node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all`. The same
+guard pins the Android 12+ operator permission contract: both
+`BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN` must stay in the shared gate/catalog.
+
 Android Compose list identity guardrail:
 
 ```text

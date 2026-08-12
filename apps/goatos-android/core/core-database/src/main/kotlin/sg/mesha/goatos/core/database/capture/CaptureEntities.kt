@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.database.capture
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -416,6 +417,81 @@ data class ProofCaptureEntity(
      *  `sg.mesha.goatos.core.data.forms.ProofPolicy.Default.captureSource` (cross-module const cannot
      *  be shared, so both default to [DEFAULT_CAPTURE_SOURCE]). */
     val captureSource: String = DEFAULT_CAPTURE_SOURCE,
+    val featureSurface: String? = null,
+    val proofMode: String? = null,
+    val slotIndex: Int? = null,
+    val slotRequired: Boolean = false,
+    val processingState: String = ProofProcessingState.CAPTURED_ORIGINAL.name,
+    val processingAttempted: Boolean = false,
+    val stateAttempt: Int = 0,
+    val uploadOriginal: Boolean = false,
+    val originalUri: String? = null,
+    val processedUri: String? = null,
+    val originalBytes: Long? = null,
+    val processedBytes: Long? = null,
+    val inputWidth: Int? = null,
+    val inputHeight: Int? = null,
+    val durationMs: Long? = null,
+    val targetVideoBitrate: Int? = null,
+    val targetAudioBitrate: Int? = null,
+    val locationStatus: String? = null,
+    val gpsAccuracyM: Double? = null,
+    val geocoderStatus: String? = null,
+    val lastErrorStage: String? = null,
+    val lastErrorClass: String? = null,
+    val lastErrorRetryable: Boolean? = null,
+    val lastErrorMessageHash: String? = null,
+    val uploadSessionId: String? = null,
+    val objectGeneration: String? = null,
+    val uploadedAtMs: Long? = null,
+    val attachedAtMs: Long? = null,
+    val updatedAtMs: Long = capturedAtMs,
+)
+
+enum class ProofProcessingState {
+    CAPTURED_ORIGINAL,
+    LOCATION_RESOLVING,
+    PROCESSING_MEDIA,
+    PROCESSED,
+    REGISTERING_UPLOAD,
+    UPLOADING,
+    UPLOAD_CONFIRMED,
+    ATTACHED_TO_SUBMISSION,
+    PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED,
+    REGISTER_FAILED_RETRYING,
+    UPLOAD_FAILED_RETRYING,
+    UPLOAD_ORIGINAL_FAILED_RETRYING,
+    DEAD_LETTER,
+}
+
+@Entity(
+    tableName = "proof_capture_state_event",
+    foreignKeys = [
+        ForeignKey(
+            entity = ProofCaptureEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["proofId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["proofId", "occurredAtMs"]),
+        Index(value = ["stage", "occurredAtMs"]),
+    ],
+)
+data class ProofCaptureStateEventEntity(
+    @PrimaryKey val id: String,
+    val proofId: String,
+    val fromState: String?,
+    val toState: String,
+    val stage: String,
+    val attempt: Int,
+    val occurredAtMs: Long,
+    val durationMs: Long? = null,
+    val bytesIn: Long? = null,
+    val bytesOut: Long? = null,
+    val errorClass: String? = null,
+    val retryable: Boolean? = null,
 )
 
 /** Default `capture_source` for live in-app recording. Kept in lockstep with
@@ -548,6 +624,53 @@ interface ProofCaptureDao {
             "lastError = :lastError WHERE id = :id",
     )
     suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?)
+
+    @Query(
+        "UPDATE proof_capture SET processingState = :processingState, stateAttempt = :attempt, " +
+            "processingAttempted = :processingAttempted, uploadOriginal = :uploadOriginal, " +
+            "lastErrorStage = :lastErrorStage, lastErrorClass = :lastErrorClass, " +
+            "lastErrorRetryable = :lastErrorRetryable, lastErrorMessageHash = :lastErrorMessageHash, " +
+            "updatedAtMs = :updatedAtMs WHERE id = :id",
+    )
+    suspend fun updateProcessingState(
+        id: String,
+        processingState: String,
+        attempt: Int,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        lastErrorStage: String?,
+        lastErrorClass: String?,
+        lastErrorRetryable: Boolean?,
+        lastErrorMessageHash: String?,
+        updatedAtMs: Long,
+    )
+
+    @Query(
+        "UPDATE proof_capture SET localUri = :localUri, mimeType = :mimeType, processingState = :processingState, " +
+            "processingAttempted = :processingAttempted, uploadOriginal = :uploadOriginal, processedUri = :processedUri, " +
+            "originalBytes = :originalBytes, processedBytes = :processedBytes, inputWidth = :inputWidth, " +
+            "inputHeight = :inputHeight, targetVideoBitrate = :targetVideoBitrate, " +
+            "targetAudioBitrate = :targetAudioBitrate, updatedAtMs = :updatedAtMs WHERE id = :id",
+    )
+    suspend fun updateProcessingArtifact(
+        id: String,
+        localUri: String,
+        mimeType: String,
+        processingState: String,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        processedUri: String?,
+        originalBytes: Long?,
+        processedBytes: Long?,
+        inputWidth: Int?,
+        inputHeight: Int?,
+        targetVideoBitrate: Int?,
+        targetAudioBitrate: Int?,
+        updatedAtMs: Long,
+    )
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity)
 
     @Query("DELETE FROM proof_capture WHERE id = :id AND taskId = :taskId")
     suspend fun delete(id: String, taskId: String)

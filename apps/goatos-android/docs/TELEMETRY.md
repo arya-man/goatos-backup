@@ -97,6 +97,39 @@ start/end of the relevant action — each viewmodel already receives `AnalyticsP
 `BootstrapViewModel`/`SessionViewModel` do (constructor injection), so no new DI wiring is
 needed, just the call.
 
+### 3.1. Proof video processing events
+
+Shared phone-camera proof processing is documented in
+`docs/mobile/proof-video-processing-pipeline.md`. When implemented, emit these
+events through `AnalyticsPort` and never call Firebase directly from feature
+code:
+
+| Stage | Event |
+|---|---|
+| capture starts/ends | `proof_capture_started`, `proof_capture_completed` |
+| location/address | `proof_location_started`, `proof_location_resolved` |
+| compression/overlay starts | `proof_processing_started` |
+| compression/overlay succeeds | `proof_processing_completed` |
+| compression/overlay fails and original is queued | `proof_processing_failed` |
+| upload registration | `proof_upload_registered` |
+| upload starts/ends | `proof_upload_started`, `proof_upload_completed` |
+| upload retry/dead-letter | `proof_upload_failed`, `proof_dead_lettered` |
+
+Custom Firebase Performance traces:
+
+```text
+proof_location_resolution
+proof_video_processing
+proof_video_upload
+proof_end_to_end_capture_to_uploaded
+```
+
+Crashlytics non-fatals are mandatory for every caught exception. Attach only
+non-PII diagnostic keys such as module, stage, app version, device model, SDK,
+input/output size bucket, target bitrate bucket, and whether original-upload
+fallback was used. Do not attach raw address text, GPS coordinates, local file
+paths, signed URLs, or Firebase tokens.
+
 ## 4. Firebase project per flavor
 
 | Flavor | Firebase project | Evidence | `TELEMETRY_ENABLED` |

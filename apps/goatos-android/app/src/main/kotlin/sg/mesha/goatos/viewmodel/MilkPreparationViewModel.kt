@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
@@ -28,11 +27,13 @@ import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
 import sg.mesha.goatos.feature.counts.MilkPreparationCardUi
 import sg.mesha.goatos.feature.counts.MilkPreparationChipUi
@@ -217,6 +218,7 @@ class MilkPreparationViewModel @Inject constructor(
     private val sync: SyncRepository,
     private val repo: MilkPreparationRepository,
     private val capture: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val drafts: CaptureDraftRepository,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
@@ -395,21 +397,32 @@ class MilkPreparationViewModel @Inject constructor(
         viewModelScope.launch {
             val video = capture.captureVideo(ProofCapturePrompt.MILK_PREPARATION, step.label)
             if (video == null) { setCapturing(stepCode, false); return@launch }
-            val request = ProofUploadRequestDto(
-                proofType = "video", mimeType = video.mimeType, scopeType = "park", scopeId = parkId,
-                subjectType = "park", subjectId = parkId,
-                metadata = mapOf(
-                    "capture_source" to JsonPrimitive(video.captureSource),
-                    "captured_start_ms" to JsonPrimitive(video.startedAtMs),
-                    "captured_end_ms" to JsonPrimitive(video.endedAtMs),
-                    "milk_preparation_step" to JsonPrimitive(stepCode),
-                    "verification_label" to JsonPrimitive(step.label),
-                ),
-            )
-            when (val result = sync.enqueueProofUpload(groupKey(), proofKeys.getValue(stepCode).current(), request, video.localUri, video.endedAtMs - video.startedAtMs)) {
+            when (val result = proofCaptureRepository.capture(
+                taskId = groupKey(),
+                fieldKey = "milk_preparation_$stepCode",
+                subject = ProofSubject.PARK,
+                subjectId = parkId,
+                localUri = video.localUri,
+                mimeType = video.mimeType,
+                caption = step.label,
+                scopeType = "park",
+                scopeId = parkId,
+                capturedStartMs = video.startedAtMs,
+                capturedEndMs = video.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = milkParkProofPolicy(video.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = groupKey(),
+            )) {
                 is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        setCapturing(stepCode, false)
+                        draft.update { it.copy(message = "Proof upload could not be queued") }
+                        return@launch
+                    }
                     // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
-                    drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, result.value)
+                    drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
                     draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
                 }
@@ -493,6 +506,14 @@ internal fun milkPreparationAnswers(state: MilkPreparationUiState): MilkPreparat
         citricAcidGrams = state.citricAcidGrams,
     )
 }
+
+internal fun milkParkProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "park_step_video",
+        subjectScope = ProofSubject.PARK.wireValue,
+        expectedSubjects = listOf(ProofSubject.PARK.wireValue),
+        captureSource = captureSource,
+    )
 
 internal fun sequenceMilkPreparationSteps(
     steps: List<MilkPreparationStepUi>,

@@ -78,8 +78,19 @@ type transportTaskDTO struct {
 	ScheduledAt  time.Time `json:"scheduled_at"`
 }
 type transportListResponse struct {
-	Items      []transportTaskDTO `json:"items"`
-	NextCursor string             `json:"next_cursor,omitempty"`
+	Items      []transportTaskDTO  `json:"items"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+	Filters    transportFiltersDTO `json:"filters"`
+}
+
+type transportFilterOptionDTO struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type transportFiltersDTO struct {
+	Parks []transportFilterOptionDTO `json:"parks"`
+	Sheds []transportFilterOptionDTO `json:"sheds"`
 }
 
 func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +123,21 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 	for _, x := range page.Items {
 		out = append(out, transportTaskDTO{TaskID: x.TaskID, ParkID: x.ParkID, ParkLabel: x.ParkLabel, ShedID: x.ShedID, ShedLabel: x.ShedLabel, BusinessDate: x.BusinessDate, Status: x.Status, OperatorID: x.OperatorID, ReworkReason: x.ReworkReason, ScheduledAt: x.ScheduledAt})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: page.NextCursor})
+	httpresponse.WriteJSON(w, http.StatusOK, transportListResponse{Items: out, NextCursor: page.NextCursor, Filters: transportFiltersFromPort(page.Filters)})
+}
+
+func transportFiltersFromPort(in ports.FeedTransportFilterOptions) transportFiltersDTO {
+	out := transportFiltersDTO{
+		Parks: make([]transportFilterOptionDTO, 0, len(in.Parks)),
+		Sheds: make([]transportFilterOptionDTO, 0, len(in.Sheds)),
+	}
+	for _, option := range in.Parks {
+		out.Parks = append(out.Parks, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
+	}
+	for _, option := range in.Sheds {
+		out.Sheds = append(out.Sheds, transportFilterOptionDTO{ID: option.ID, Label: option.Label})
+	}
+	return out
 }
 
 type transportSubmitRequest struct {

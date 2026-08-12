@@ -66,7 +66,7 @@ are BOM-managed, so no per-lib Compose version.
 | Key-value | DataStore (Proto) | 1.2.1 | session flags, language, device/reader state, bootstrap revision |
 | Network | Retrofit + OkHttp + kotlinx.serialization | Retrofit 3.x · OkHttp 5.x · serialization-json 1.11.0 | generated client (below); ETag/If-None-Match for config |
 | API client | **OpenAPI-generated Kotlin client** | — | from backend app-api contract; never hand-written DTOs |
-| Images/video | CameraX (video capture) + Coil 3 (thumbnails) | CameraX 1.6.1 · Coil 3.x | bounded bitmap sizes |
+| Images/video | CameraX (video capture) + AndroidX Media3 Transformer (proof compression + burned overlay) + Coil 3 (thumbnails) | CameraX 1.6.1 · Media3 1.8.x · Coil 3.x | bounded bitmap sizes; see `proof-video-processing-pipeline.md` |
 | RFID reader | Bluetooth HID keyboard-wedge behind `RfidReaderPort` for V1; vendor `.aar` adapter only if a future reader needs SDK/BLE control | platform + optional vendor-pinned | Current reader types tag IDs as hardware key events; Android owns HID pairing/connection; no visible or hidden `EditText` on scan |
 | Haptics + sound | `Vibrator` + short tone (`ToneGenerator`/`SoundPool`) behind a `FeedbackPort` | platform | scan feedback; distinct not-due alert tone; fake in tests |
 | Media upload / background | WorkManager | 2.11.2 | resumable signed-URL upload, sync, retry, dead-letter — **not** reminder timing (kernel-owned via `NotificationGateway`/FCM; the app only renders received pushes) |
@@ -110,6 +110,7 @@ apps/goatos-android/
   device/
     device-rfid/               # RfidReaderPort + keyboard-wedge adapter + fake reader (+ future vendor SDK adapter)
     device-camera/             # CameraCapturePort + CameraX adapter + fake
+    device-media/              # proof video processor: Media3 transcode, burned overlay, metadata extraction, fakes
     device-feedback/           # FeedbackPort (haptics + alert tones) + fake
   :buildSrc / gradle/libs.versions.toml
 ```
@@ -191,6 +192,13 @@ budgets: [performance-and-memory.md](performance-and-memory.md).
 - `viewModelScope` for UI-scoped work; **WorkManager** for background/sync/upload;
   **no `GlobalScope`**. Children cancel with their parent (`coroutineScope` /
   `supervisorScope`).
+- Proof video compression/overlay/upload follows
+  [`proof-video-processing-pipeline.md`](proof-video-processing-pipeline.md):
+  operator-only capture, mandatory precise location before recording, one
+  compression job at a time, up to two uploads in parallel, adaptive bitrate
+  buckets, AAC speech compression, Android `Geocoder` best-effort address,
+  compact bottom-right burned overlay, and original-file upload fallback on any
+  processing failure.
 - Inject a `DispatcherProvider`: IO on `Dispatchers.IO`, CPU on `Default`, never
   block Main; Room/Retrofit are `suspend` and run off-main.
 - Repositories expose cold `Flow`; UI state via
@@ -372,8 +380,10 @@ force-connect a HID keyboard through hidden Android APIs.
 
 Android 10/11 use legacy `BLUETOOTH` for paired/ACL state; `BLUETOOTH_ADMIN` and
 `ACCESS_FINE_LOCATION` are only needed if the app actively scans/discovers
-devices. Android 12+ uses runtime `BLUETOOTH_CONNECT`, and `BLUETOOTH_SCAN` only
-if active scanning is added. Full details live in
+devices. Android 12+ operator routes request both Nearby Devices runtime
+permissions, `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN`, before camera/proof
+capture can proceed, even though V1 reader status remains keyboard-wedge first.
+Full details live in
 [`rfid-keyboard-reader.md`](rfid-keyboard-reader.md).
 
 ### Sync status surface (what the operator sees)
@@ -464,6 +474,9 @@ only via an ADR in `docs/decisions/` filed **before** that screen is built.
   - **Sync engine**: outbox enqueue, per-item upload/submit start+result, retry
     count/backoff, conflict, dead-letter, applied server result.
   - **Camera/proof**: capture start/stop, duration/size, upload signed-URL result.
+  - **Proof processing**: location/address resolution, compression/overlay start
+    and result, input/output size buckets, target bitrate bucket, processing
+    duration, original-upload fallback, upload start/result, and dead-letter.
   - **Config**: applied bootstrap **revision**, fetch latency, 304 ratio, schema
     drops (see backend-driven-config.md).
   - **Firebase Performance custom traces**: `cold_start`, `scan_tap_feedback`,

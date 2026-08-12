@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
@@ -258,8 +259,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingAlertsCacheEntity::class,
         VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
+        ProofCaptureStateEventEntity::class,
     ],
-    version = 37,
+    version = 38,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -331,6 +333,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // each other offline.
     // v37 (see [MIGRATION_36_37]) scopes scan and proof capture evidence to the operational
     // partition so one task spanning sibling partitions cannot mix their local submissions.
+    // v38 (see [MIGRATION_37_38]) adds shared proof-video processing state, metrics, and
+    // append-only state events for support/debug breadcrumbs.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

@@ -2691,7 +2691,7 @@ class WeighingViewModel @Inject constructor(
         val captured = proofCaptureSource.captureVideo(
             ProofCaptureContext(
                 title = "Weighing proof",
-                primaryTag = row.displayAnimalId,
+                primaryTag = row.primaryTag.ifBlank { row.displayAnimalId },
                 secondaryTag = null,
                 workLabel = "Weight needed",
             ),
@@ -2717,7 +2717,7 @@ class WeighingViewModel @Inject constructor(
             subjectId = null,
             localUri = captured.localUri,
             mimeType = captured.mimeType,
-            caption = row.animalId,
+            caption = row.displayAnimalId,
             scopeType = "shed",
             scopeId = row.expectedLocationId,
             capturedStartMs = captured.startedAtMs,

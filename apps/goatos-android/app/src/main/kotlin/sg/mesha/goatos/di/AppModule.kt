@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
@@ -109,6 +110,7 @@ import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.core.data.sync.LocalBackendConnectivityGate
+import sg.mesha.goatos.core.data.sync.MediaStoreGalleryProofSaver
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -130,6 +132,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.capture.DelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
+import sg.mesha.goatos.capture.AppProofMediaProcessor
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
@@ -589,13 +592,19 @@ object AppModule {
     @Provides
     @Singleton
     fun provideProofCaptureRepository(
+        @ApplicationContext context: Context,
         dao: ProofCaptureDao,
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
+        analytics: AnalyticsPort,
+        mediaProcessor: AppProofMediaProcessor,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
         dao = dao,
         syncRepository = syncRepository,
         appScope = appScope,
+        mediaProcessor = mediaProcessor,
+        galleryProofSaver = MediaStoreGalleryProofSaver(context),
+        telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
 
     // --- Offline sync engine (outbox) --------------------------------------------------
@@ -739,6 +748,7 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSyncRepository(
+        @ApplicationContext context: Context,
         store: OutboxStore,
         engine: SyncEngine,
         connectivityGate: ConnectivityGate,

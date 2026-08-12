@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/analytics/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mirror one Android analytics event into backend audit storage.
+         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in audit_log with action=app.analytics.event so scan/proof journeys can be queried even when Firebase UI is delayed.
+         */
+        post: operations["recordAppAnalyticsEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin-web/bootstrap": {
         parameters: {
             query?: never;
@@ -3290,6 +3310,7 @@ export interface components {
             /** Format: uuid */
             task_id: string;
             shed_name: string;
+            operational_location_display?: string;
             partition_label?: string;
             drive_name: string;
             expected_count: number;
@@ -3742,7 +3763,7 @@ export interface components {
             redirect_goat_id?: string | null;
         };
         LocationPath: {
-            display: string;
+            operational_location_display: string;
             /** Format: uuid */
             farm_id?: string | null;
             farm_code?: string | null;
@@ -3755,6 +3776,7 @@ export interface components {
             shed_id?: string | null;
             shed_code?: string | null;
             shed_name?: string | null;
+            partition_label?: string | null;
             /** Format: uuid */
             cohort_id?: string | null;
             cohort_code?: string | null;
@@ -3913,6 +3935,8 @@ export interface components {
             /** Format: uuid */
             shed_id: string | null;
             shed_name: string | null;
+            partition_label?: string;
+            operational_location_display?: string;
             /** Format: uuid */
             cohort_id: string | null;
             cohort_name: string | null;
@@ -3992,6 +4016,8 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            partition_label?: string;
+            operational_location_display?: string;
             total_animals: number;
         };
         CalendarPresentationQuery: {
@@ -4186,6 +4212,9 @@ export interface components {
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
             shed_name?: string | null;
+            partition_label?: string | null;
+            operational_location_display?: string | null;
+            source_shed_name?: string | null;
             stage?: string | null;
             lifecycle_status?: string | null;
             health_status?: string | null;
@@ -4298,6 +4327,8 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** Format: uuid */
             cohort_id?: string;
             /** Format: uuid */
@@ -4388,6 +4419,7 @@ export interface components {
         AdherenceRow: {
             row_id: string;
             shed_name: string;
+            operational_location_display?: string;
             partition_label?: string;
             expected: string;
             actual: string;
@@ -4440,6 +4472,7 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            operational_location_display?: string;
             partition_label?: string;
             drive_name?: string;
             owner: components["schemas"]["ProcessIntegrityOwner"];
@@ -4507,6 +4540,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition. */
             physicalShed?: string;
             /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
@@ -4525,6 +4560,8 @@ export interface components {
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
+            /** @description All vaccine labels represented by this execution row. Mobile shed cards render these as vaccine chips; driveName is only the primary/back-compat label. */
+            vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
             workState: components["schemas"]["VaccinationExecutionWorkState"];
@@ -4612,6 +4649,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             stage: string;
             ageBand?: string;
             animals: number;
@@ -4667,6 +4706,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
             doseRule: string;
             /**
@@ -4726,6 +4767,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Dose rule identifier or human label. */
             doseRule: string;
             /** @description Count of completions awaiting verification (status=recorded, verified_at=null). */
@@ -4795,6 +4838,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             animalStages: string[];
             drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
             rows: components["schemas"]["VaccinationExecutionRow"][];
@@ -5316,6 +5361,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             animals: number;
             due: number;
             done: number;
@@ -5352,6 +5399,8 @@ export interface components {
             shedId?: string | null;
             physicalShed: string;
             partitionLabel: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
             /** @description Assigned animals still planned or in progress and not yet overdue. */
@@ -5407,9 +5456,15 @@ export interface components {
             /** Format: uuid */
             operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Business date originally planned for this operator task.
+             */
             planned_business_date?: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Current due business date after roll-forward.
+             */
             due_business_date?: string;
             /** @description Number of submitted weighing videos in this bucket that a verifier sent back for rework. */
             rework_count: number;
@@ -5609,6 +5664,8 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             shed_name: string;
+            partition_label?: string;
+            operational_location_display?: string;
             weighing_category: components["schemas"]["WeighingCategory"];
             status: string;
             individual: components["schemas"]["WeighingObservation"][];
@@ -5654,6 +5711,8 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            partition_label?: string;
+            operational_location_display?: string;
             animals: number;
             due: number;
             done: number;
@@ -5821,6 +5880,8 @@ export interface components {
             /** Format: uuid */
             shedId?: string;
             shedName?: string;
+            partition_label?: string;
+            operational_location_display?: string;
             reasonCode: components["schemas"]["VaccinationGapReasonCode"];
             reasonLabel: string;
         };
@@ -5902,6 +5963,8 @@ export interface components {
             shed_id?: string | null;
             /** @description Shed name or code; empty when the goat has no shed assigned. */
             shed_label?: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
             management_stage: string;
             breed: string;
@@ -5995,6 +6058,8 @@ export interface components {
             shed_id?: string;
             /** @description Backend-owned display label for shed_id. Never a raw UUID. */
             shed_label?: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** Format: uuid */
             park_id?: string;
             /** @description Backend-owned display label for park_id. Never a raw UUID. */
@@ -6062,6 +6127,8 @@ export interface components {
             shed_id: string;
             /** @description Display name for the shed option. NOT unique across parks; only meaningful within its parent park. */
             name: string;
+            partition_label?: string;
+            operational_location_display?: string;
             /** @description Distinct stages currently represented by live animals in this shed. */
             management_stages: string[];
         };
@@ -6083,6 +6150,10 @@ export interface components {
             destination_park_id: string;
             /** Format: uuid */
             destination_shed_id: string;
+            /** @description Optional partition inside the destination shed for partition-to-partition moves. */
+            destination_partition_label?: string;
+            /** @description Optional partition inside the source shed when the request snapshots origin. */
+            source_partition_label?: string;
             /**
              * @description Mandatory raise-time decision for the post-shift management stage.
              * @enum {string}
@@ -6294,6 +6365,8 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
+            partition_label?: string;
+            operational_location_display?: string;
             breed: string;
             /** @enum {string} */
             sex: "female" | "male";
@@ -6848,6 +6921,46 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    recordAppAnalyticsEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    event_name: string;
+                    properties?: {
+                        [key: string]: string;
+                    };
+                    /** Format: int64 */
+                    client_event_time_ms: number;
+                    flavor: string;
+                    app_version_name: string;
+                    app_version_code: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Analytics event accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
         };
     };
     adminWebBootstrap: {
@@ -9960,6 +10073,10 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
+                            originalShed?: string;
+                            originalPartitionLabel?: string;
+                            detectedShed?: string;
+                            detectedPartitionLabel?: string;
                             /**
                              * Format: date-time
                              * @description Exact RFID scan timestamp persisted by the backend for this task row.

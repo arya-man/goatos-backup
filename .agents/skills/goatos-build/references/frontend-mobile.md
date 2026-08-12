@@ -231,6 +231,17 @@ Calendar or dashboard label.
   and screenshot fixtures for leaked internal words from the copy firewall. A
   screenshot that contains implementation terms is a failed UI review even when
   the build and tests pass.
+- Android proof-video capture, compression, burned overlay, upload queue,
+  original-upload fallback, and Firebase step telemetry must follow
+  `docs/mobile/proof-video-processing-pipeline.md`. Reuse the shared pipeline for
+  weighing, vaccination, feed, shifting, and future camera-proof modules; do not
+  create per-screen compression/upload implementations. Camera proof creation is
+  operator-only and must block until precise location is available. If Android
+  can still show the runtime prompt, ask again from the blocked permission gate;
+  if the operator selected "Don't ask again", open the app's Android Settings
+  page for manual enablement. Operator UI may show product states like
+  "Compressing proof..." and "Uploading proof...", but never codec, Room, outbox,
+  Media3, GCS, idempotency, signed URL, or bitrate.
 
 For Next.js, React, TypeScript, Node, TanStack Query, Playwright, accessibility,
 visual review, and CI practice, follow

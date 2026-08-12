@@ -167,6 +167,7 @@ class WorkflowDeathDraftPresentationTest {
         repo = repo,
         syncRepository = FakeWorkflowSyncRepository(),
         proofCaptureSource = NoopProofCaptureSource(),
+        proofCaptureRepository = FakeProofCaptureRepository(),
         analytics = NoopAnalytics(),
         crashReporter = NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(mapOf(WorkflowDetailViewModel.ARG_WORKFLOW_ID to WORKFLOW_ID)),
