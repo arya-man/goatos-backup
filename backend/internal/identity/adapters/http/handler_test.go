@@ -701,6 +701,14 @@ func (h handlerRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveG
 	}, nil
 }
 
+func (h handlerRepo) PreviewReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStagePreview, error) {
+	return &ports.ReclassifyShedStagePreview{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Changing: 1}, nil
+}
+
+func (h handlerRepo) ReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStageResult, error) {
+	return &ports.ReclassifyShedStageResult{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Reclassified: 1}, nil
+}
+
 func (h handlerRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	goat := handlerPassport().Summary
 	return &ports.AdminGoatMutationResult{

@@ -62,6 +62,20 @@ const (
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
 	GoatWriteHealth   = "goat.write_health"
+	// GoatReclassifyShedStage authorizes the whole-pen cohort reclassification behind the Counts
+	// screen's "Change stage" action: retag every live animal in one shed+partition at once.
+	//
+	// It is DELIBERATELY separate from GoatWriteIdentity, which retags ONE animal against a
+	// row_version the caller had to read first. This one retags a whole pen from a picker, applies
+	// immediately with no approval and no proof, and moves every affected animal's vaccination
+	// schedule by flipping kid/adult. Folding it into GoatWriteIdentity would hand that to every
+	// holder of the ordinary goat write -- including park_head -- which is the widening the
+	// per-person grant rule exists to prevent.
+	//
+	// Maintainer decision 2026-08-12: ceo_internal ONLY. Not operator, not park_head, and not
+	// counts_approver (approving a movement someone else raised is not the same authority as
+	// unilaterally reclassifying a pen).
+	GoatReclassifyShedStage = "goat.reclassify_shed_stage"
 	// HealthRead renders backend-owned disease-course work. HealthReport RAISES a sick-goat
 	// report from the field; HealthDiagnose is the clinical authority over the configured
 	// course; HealthExecute records the operator's treatment session. They are deliberately
@@ -706,7 +720,11 @@ var rolePermissions = map[string]map[string]struct{}{
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
-		LocationsRead: {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
+		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
+		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole
+		// pen. It is granted here and nowhere else.
+		GoatReclassifyShedStage: {},
+		LocationsRead:           {}, LocationsWrite: {}, LocationsReview: {}, LocationsRetire: {},
 		OperatorsRead: {}, OperatorsWrite: {}, OperatorsActivate: {}, OperatorsDeactivate: {},
 		OperatorsManageDevice: {}, OperatorsManageCapability: {},
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},

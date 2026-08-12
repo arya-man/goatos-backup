@@ -14,15 +14,18 @@ import sg.mesha.goatos.core.network.dto.FeedTransportFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 
+/**
+ * Transport is one task per PHYSICAL SHED per day, so there is no pen to filter by: a shed's whole
+ * load leaves on one trip and is proved by one video. Pen grain belongs to packing and distribution.
+ */
 data class FeedTransportQuery(
     val businessDate: String,
     val parkId: String = "",
     val shedId: String = "",
-    val partitionLabel: String = "",
     val status: String = "",
 ) {
     internal val scopeKey: String
-        get() = listOf(businessDate, parkId, shedId, partitionLabel, status).joinToString("|")
+        get() = listOf(businessDate, parkId, shedId, status).joinToString("|")
 }
 
 class FeedTransportRepository(
@@ -54,6 +57,10 @@ class FeedTransportRepository(
         val page = fetch(query, cursor = null)
         val now = clock()
         db.withTransaction {
+            // One-shot sweep of rows cached under the retired pen-grain key shape; a no-op once
+            // they are gone.
+            db.feedTransportScopedItemDao().deleteLegacyPartitionScopes()
+            db.feedTransportScopedRemoteKeyDao().deleteLegacyPartitionScopes()
             db.feedTransportScopedItemDao().deleteScope(query.scopeKey)
             db.feedTransportScopedItemDao().upsertAll(page.items.toEntities(query.scopeKey, 0, now))
             db.feedTransportScopedRemoteKeyDao().upsert(page.toRemoteKey(query.scopeKey, now))
@@ -77,7 +84,6 @@ class FeedTransportRepository(
             businessDate = query.businessDate,
             parkId = query.parkId.takeIf { it.isNotBlank() },
             shedId = query.shedId.takeIf { it.isNotBlank() },
-            partitionLabel = query.partitionLabel.takeIf { it.isNotBlank() },
             status = query.status.takeIf { it.isNotBlank() },
             cursor = cursor,
             limit = PAGE_SIZE,

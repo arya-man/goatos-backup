@@ -65,9 +65,29 @@ all share so a tab badge cannot advertise work the tab hides.
 - Low-priority operator completion requires one live-camera shifting video in
   `shifting_events.proof_ref`; that existing flow is unchanged.
 - High-priority shifting embeds feed packing and feeding inside Shifting. It shows the exact
-  destination ration resolved from active Feed Config against the snapshotted target management
+  destination ration resolved from active Feed Config against the movement's EFFECTIVE management
   stage and the moved animals' breed groups. Three live-camera videos are mandatory: shifting,
   feed packing, and feed being given to the animal(s).
+- **Effective stage = the snapshotted target stage, or, when that is blank, each ANIMAL's own current
+  stage (maintainer decision 2026-08-12).** The target is blank whenever
+  `ResolveShiftingDestinationStage` declines to adopt a destination cohort -- an EMPTY pen, a pen
+  holding more than one cohort, a Flushing pen, or a cohort the relocation cannot write. That is a
+  normal outcome meaning "keep each animal's current stage", not a missing input, and since the
+  2026-08-03 decision the raiser is never asked for a stage at all. Pricing the ration off the blank
+  target therefore hard-blocked EVERY high-priority movement into an empty pen with
+  `selected destination management stage is missing` -- naming a choice the phone does not offer.
+  The fallback prices exactly the cohort each animal keeps, and it is per ANIMAL: a movement
+  carrying two cohorts prices each on its own grid and sums them.
+  - Still blocked, because there is genuinely no cohort to price: an animal with no stage on either
+    side. Its message names the herd-data gap rather than blaming the raiser.
+  - The ration RATE and the shed TAG must key off the same effective stage; keying one off the
+    target and the other off the animal would price one cohort against another's grid.
+  - The config fingerprint's `string_agg` orders by breed, effective stage and pen. Breed alone
+    stopped being unique once one breed can appear under two stages, and an unstable order would
+    report `feed_config_changed` for a config nobody touched.
+  - Pinned by `TestHighPriorityShiftingPricesRationPerAnimalStageWhenTargetStageIsBlank`
+    (mutation-tested: restoring either pricing key to `target_stage` turns it red with the old
+    blocked reason) and `TestHighPriorityShiftingStillBlocksWhenAnimalHasNoStageAtAll`.
 - Embedded packing evidence is shifting-scoped only. It never creates or completes a separate Feed
   Packing or Feed Distribution session.
 - Missing high-priority feed config blocks the task. The app echoes a semantic config fingerprint;

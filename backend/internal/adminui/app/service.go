@@ -2360,6 +2360,33 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.breakdown_filtered":    "No animals match these filters.",
 			"state.breakdown_unavailable": "Breakdown unavailable",
 			"state.stage_unrecorded":      "No stage is recorded against any animal in this scope, so every row groups under a single blank stage. This is a source-data gap, not a display error — stage is imported from the source sheet and has not been populated for this herd.",
+
+			// Whole-pen stage change (maintainer decision 2026-08-12). Copy is deliberately plain
+			// farm language: the operator is retagging a pen, not "reclassifying a cohort".
+			"stage_change.title":              "Change stage",
+			"stage_change.heading":            "Change stage for a shed",
+			"stage_change.caption":            "Every animal in the selected pen moves to the stage you pick. Kid or adult follows the stage.",
+			"stage_change.shed_label":         "Shed",
+			"stage_change.shed_hint":          "Pick the pen. Sheds split into pens list each pen separately.",
+			"stage_change.stage_label":        "New stage",
+			"stage_change.reason_label":       "Reason",
+			"stage_change.reason_hint":        "Recorded against every animal that changes.",
+			"stage_change.preview_action":     "Check",
+			"stage_change.submit_action":      "Change stage",
+			"stage_change.cancel_action":      "Cancel",
+			"stage_change.close_action":       "Close",
+			"stage_change.preview_title":      "What will change",
+			"stage_change.current_title":      "In this pen now",
+			"stage_change.changing_label":     "Will change",
+			"stage_change.unchanged_label":    "Already on this stage",
+			"stage_change.total_label":        "Animals in pen",
+			"stage_change.age_kid":            "Kids",
+			"stage_change.age_adult":          "Adults",
+			"stage_change.age_unchanged":      "Kid or adult stays as it is",
+			"stage_change.applies_now":        "This applies straight away. There is no approval step.",
+			"stage_change.no_change":          "Every animal in this pen is already on that stage. Nothing to change.",
+			"stage_change.done":               "Stage changed.",
+			"stage_change.disabled_no_access": "Only the CEO can change a whole shed's stage.",
 		}
 	case "milk-preparation":
 		return map[string]string{

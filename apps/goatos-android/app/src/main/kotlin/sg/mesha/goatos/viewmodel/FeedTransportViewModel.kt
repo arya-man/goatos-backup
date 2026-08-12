@@ -108,14 +108,15 @@ class FeedTransportViewModel @Inject constructor(
                 selectedParkLabel = parks.firstOrNull { it.key == selected.parkId }?.label,
                 sheds = sheds,
                 selectedShedId = selected.shedId,
-                selectedShedLabel = sheds.firstOrNull {
-                    it.key == feedTransportShedFilterKey(selected.shedId, selected.partitionLabel)
-                }?.label,
+                // The option key IS the shed id: one shed is one transport task, so there is no
+                // pen key to reassemble.
+                selectedShedLabel = sheds.firstOrNull { it.key == selected.shedId }?.label,
                 status = selected.status,
             ),
             rows = page.items.map {
-                // Prefer the backend-composed operational location: shedLabel alone drops the
-                // partition, so a task in "Godel 1 - Part 3" would read as bare "Godel 1".
+                // Render the backend-composed location verbatim. A transport task is shed-grain, so
+                // this is the bare shed name; the fallback still composes a partition because a
+                // task recorded while the grain was briefly per-pen keeps naming its pen.
                 FeedTransportRowUi(
                     it.taskId,
                     it.parkId,
@@ -151,16 +152,13 @@ class FeedTransportViewModel @Inject constructor(
             FeedTransportEvent.LoadMore -> loadMore()
             is FeedTransportEvent.SelectDate -> selectDate(event.date)
             is FeedTransportEvent.SelectPark -> selectPark(event.parkId)
-            is FeedTransportEvent.SelectShed -> {
-                val (shedId, partitionLabel) = parseFeedTransportShedFilterKey(event.shedId)
-                if (updateQuery(query.value.copy(shedId = shedId, partitionLabel = partitionLabel))) {
-                    trackFilter(DIMENSION_SHED, event.shedId)
-                }
+            is FeedTransportEvent.SelectShed -> if (updateQuery(query.value.copy(shedId = event.shedId))) {
+                trackFilter(DIMENSION_SHED, event.shedId)
             }
             is FeedTransportEvent.SelectStatus -> if (updateQuery(query.value.copy(status = event.status))) {
                 trackFilter(DIMENSION_STATUS, event.status)
             }
-            FeedTransportEvent.ClearFilters -> if (updateQuery(query.value.copy(parkId = "", shedId = "", partitionLabel = "", status = ""))) {
+            FeedTransportEvent.ClearFilters -> if (updateQuery(query.value.copy(parkId = "", shedId = "", status = ""))) {
                 trackFilter(DIMENSION_ALL, "")
             }
             is FeedTransportEvent.Open -> analytics.track(
@@ -241,7 +239,7 @@ class FeedTransportViewModel @Inject constructor(
     }
 
     private fun selectPark(parkId: String) {
-        if (updateQuery(query.value.copy(parkId = parkId, shedId = "", partitionLabel = ""))) {
+        if (updateQuery(query.value.copy(parkId = parkId, shedId = ""))) {
             trackFilter(DIMENSION_FARM, parkId)
         }
     }
@@ -277,16 +275,6 @@ class FeedTransportViewModel @Inject constructor(
 
 private fun analyticsReason(error: Throwable): String =
     error::class.java.simpleName.ifBlank { "unknown" }
-
-private fun feedTransportShedFilterKey(shedId: String, partitionLabel: String): String =
-    if (shedId.isBlank()) "" else shedId + "\u001f" + partitionLabel
-
-private fun parseFeedTransportShedFilterKey(key: String): Pair<String, String> {
-    if (key.isBlank()) return "" to ""
-    val parts = key.split("\u001f", limit = 2)
-    val partition = parts.getOrElse(1) { "" }
-    return parts[0] to partition
-}
 
 /**
  * The Feed Transport per-shed capture screen.

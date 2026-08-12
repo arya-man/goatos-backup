@@ -661,12 +661,13 @@ interface AppApiService {
     @POST("app/counts/milk-feeding/tasks/{task_id}/submit")
     suspend fun submitMilkFeedingTask(@Path("task_id") taskId: String, @Header("Idempotency-Key") idempotencyKey: String, @Body request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto
 
+    // No partition filter: transport is one task per physical shed, so shed_id is the finest
+    // location this list narrows to.
     @GET("feed-transport/tasks")
     suspend fun getFeedTransportTasks(
         @Query("business_date") businessDate: String,
         @Query("park_id") parkId: String?,
         @Query("shed_id") shedId: String?,
-        @Query("partition_label") partitionLabel: String?,
         @Query("status") status: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
@@ -1332,11 +1333,10 @@ class RetrofitAppApi(
         businessDate: String,
         parkId: String?,
         shedId: String?,
-        partitionLabel: String?,
         status: String?,
         cursor: String?,
         limit: Int?,
-    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, partitionLabel, status, cursor, limit)
+    ): FeedTransportTaskPageDto = service.getFeedTransportTasks(businessDate, parkId, shedId, status, cursor, limit)
     override suspend fun submitFeedTransport(taskId: String, idempotencyKey: String, request: FeedTransportSubmitRequestDto): FeedTransportSubmitResponseDto = service.submitFeedTransport(taskId, idempotencyKey, request)
 
     override suspend fun recordCountsShiftingEvent(
