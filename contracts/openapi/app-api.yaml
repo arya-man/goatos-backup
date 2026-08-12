@@ -8566,6 +8566,8 @@ components:
           format: uuid
         shed_name:
           type: string
+        operational_location_display:
+          type: string
         partition_label:
           type: string
         drive_name:
@@ -9889,9 +9891,9 @@ components:
       type: object
       additionalProperties: false
       required:
-        - display
+        - operational_location_display
       properties:
-        display:
+        operational_location_display:
           type: string
           minLength: 1
           maxLength: 200
@@ -9940,6 +9942,11 @@ components:
             - string
             - "null"
           maxLength: 200
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 120
         cohort_id:
           type:
             - string
@@ -10522,6 +10529,10 @@ components:
           type:
             - string
             - "null"
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         cohort_id:
           type:
             - string
@@ -10729,6 +10740,10 @@ components:
           type: string
           format: uuid
         shed_name:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         total_animals:
           type: integer
@@ -11319,6 +11334,18 @@ components:
           type:
             - string
             - "null"
+        partition_label:
+          type:
+            - string
+            - "null"
+        operational_location_display:
+          type:
+            - string
+            - "null"
+        source_shed_name:
+          type:
+            - string
+            - "null"
         stage:
           type:
             - string
@@ -11650,6 +11677,10 @@ components:
           format: uuid
         shed_name:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         cohort_id:
           type: string
           format: uuid
@@ -11877,6 +11908,8 @@ components:
           type: string
         shed_name:
           type: string
+        operational_location_display:
+          type: string
         partition_label:
           type: string
         expected:
@@ -12021,6 +12054,8 @@ components:
           type: string
           format: uuid
         shed_name:
+          type: string
+        operational_location_display:
           type: string
         partition_label:
           type: string
@@ -12212,6 +12247,10 @@ components:
           type: string
           format: uuid
         shedName:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         physicalShed:
           type: string
@@ -12452,6 +12491,10 @@ components:
           format: uuid
         shedName:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         stage:
           type: string
         ageBand:
@@ -12589,6 +12632,10 @@ components:
           format: uuid
         shedName:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         doseRule:
           type: string
           description: Dose rule identifier (e.g., et_tt_adult_w1) or human label.
@@ -12671,6 +12718,10 @@ components:
           type: string
           format: uuid
         shedName:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         doseRule:
           type: string
@@ -12836,6 +12887,10 @@ components:
           type: string
           format: uuid
         shedName:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         animalStages:
           type: array
@@ -14060,6 +14115,10 @@ components:
           format: uuid
         shedName:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         animals:
           type: integer
         due:
@@ -14148,6 +14207,10 @@ components:
         physicalShed:
           type: string
         partitionLabel:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         animals:
           type: integer
@@ -14778,6 +14841,10 @@ components:
           format: uuid
         shed_name:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         weighing_category:
           $ref: "#/components/schemas/WeighingCategory"
         status:
@@ -14907,6 +14974,10 @@ components:
           type: string
           format: uuid
         shedName:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
           type: string
         animals:
           type: integer
@@ -15340,6 +15411,10 @@ components:
           format: uuid
         shedName:
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         reasonCode:
           $ref: "#/components/schemas/VaccinationGapReasonCode"
         reasonLabel:
@@ -15578,6 +15653,10 @@ components:
         shed_label:
           type: string
           description: Shed name or code; empty when the goat has no shed assigned.
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         management_stage:
           type: string
           description: >-
@@ -15838,6 +15917,10 @@ components:
         shed_label:
           type: string
           description: Backend-owned display label for shed_id. Never a raw UUID.
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         park_id:
           type: string
           format: uuid
@@ -15995,6 +16078,10 @@ components:
             Display name for the shed option. NOT unique across parks; only meaningful within its
             parent park.
           type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
         management_stages:
           description: Distinct stages currently represented by live animals in this shed.
           type: array
@@ -16025,6 +16112,12 @@ components:
         destination_shed_id:
           type: string
           format: uuid
+        destination_partition_label:
+          description: Optional partition inside the destination shed for partition-to-partition moves.
+          type: string
+        source_partition_label:
+          description: Optional partition inside the source shed when the request snapshots origin.
+          type: string
         management_stage_mode:
           description: Mandatory raise-time decision for the post-shift management stage.
           type: string
@@ -16593,6 +16686,12 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        partition_label:
+          type: string
+          maxLength: 120
+        operational_location_display:
+          type: string
+          maxLength: 240
         breed:
           type: string
           minLength: 1
