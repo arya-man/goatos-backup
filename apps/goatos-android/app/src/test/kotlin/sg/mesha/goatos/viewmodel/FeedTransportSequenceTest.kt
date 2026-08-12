@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.network.dto.FeedTransportFilterOptionDto
 import sg.mesha.goatos.core.network.dto.FeedTransportFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
 import sg.mesha.goatos.feature.feed.FeedTransportResultUi
@@ -51,10 +52,19 @@ class FeedTransportSequenceTest {
     fun `submit follows distribution proof gating`() {
         assertFalse(FeedTransportCaptureUiState().submitEnabled)
         assertFalse(FeedTransportCaptureUiState(isCapturing = true, videoCaptured = true).submitEnabled)
-        assertTrue(FeedTransportCaptureUiState(videoCaptured = true).submitEnabled)
+        assertFalse(FeedTransportCaptureUiState(videoCaptured = true).submitEnabled)
+        assertTrue(
+            FeedTransportCaptureUiState(
+                videoCaptured = true,
+                videoStatus = FeedDistributionProofStatus.SYNCED,
+                canSubmit = true,
+            ).submitEnabled,
+        )
         assertFalse(
             FeedTransportCaptureUiState(
                 videoCaptured = true,
+                videoStatus = FeedDistributionProofStatus.SYNCED,
+                canSubmit = true,
                 result = FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED, "Submitted"),
             ).submitEnabled,
         )

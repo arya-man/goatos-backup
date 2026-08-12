@@ -4,6 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteUiState
+import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedStatus
 import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 
@@ -88,6 +89,7 @@ class FeedCaptureAvailabilityTest {
     fun `an open session still offers capture and submit`() {
         val open = FeedPackingCompleteUiState(
             videoCaptured = true,
+            videoStatus = FeedDistributionProofStatus.SYNCED,
             canComplete = true,
             alreadySubmitted = false,
         )
