@@ -163,8 +163,8 @@ export function buildShedFilterOptions(
 
     for (const row of partitionedRows) {
       options.push({
-        key: `${parkId}|${shedId}|${row.partition_label}`,
-        value: `${shedId}|${row.partition_label}`,
+        key: `${parkId}|${row.shed_id}`,
+        value: row.shed_id,
         label: withPark(
           row.operational_location_display || operationalLocationLabel({
             shedName: row.label,

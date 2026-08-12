@@ -512,7 +512,7 @@ export async function VaccinationExecutionBoard({
 }
 
 function shedEventId(row: VaccinationExecutionRow): string {
-  return `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? "drive"}|${row.animalStage}`;
+  return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
 }
 
 function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typeof parseScope>, pageContract: AdminUiPageContract): LocalOverlayDrawerItem {
@@ -521,7 +521,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
     `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`,
     scope,
     { mode: "park", park: row.parkId },
-    { partition_label: row.partition_label ?? undefined },
+    {},
   );
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return {

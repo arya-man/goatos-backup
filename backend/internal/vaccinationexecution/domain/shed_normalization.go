@@ -1,28 +1,15 @@
 package domain
 
-import (
-	"regexp"
-	"strings"
-)
+import "strings"
 
-var (
-	drivePartPattern   = regexp.MustCompile(`(?i)^(.+?)\s*-\s*(part\s+\d+)$`)
-	driveNumberPattern = regexp.MustCompile(`^(.+?)\s+(\d+)$`)
-)
-
-// NormalizeDriveShed splits source labels like "Gandhi 1" and "Godel 1 - Part 3"
-// into physical shed and partition labels used by drive planning/read models.
+// NormalizeDriveShed returns the exact shed name. Older code split names such as
+// "Gandhi 1" into shed "Gandhi" + partition "1"; that is no longer valid because
+// "Gandhi 1" is itself the shed.
 func NormalizeDriveShed(raw string) (physicalShed, partition string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", ""
 	}
 	raw = strings.Join(strings.Fields(raw), " ")
-	if matches := drivePartPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
-	if matches := driveNumberPattern.FindStringSubmatch(raw); len(matches) == 3 {
-		return strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2])
-	}
 	return raw, "whole"
 }

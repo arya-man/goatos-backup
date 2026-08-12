@@ -877,7 +877,7 @@ func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T)
 		physical, _ := normalizeAssignmentShed(row.ShedName)
 		gotByShed[physical]++
 	}
-	want := map[string]int{"Gandhi": 114, "Godel 2": 32, "Mandela 2": 47}
+	want := map[string]int{"Gandhi 1": 114, "Godel 2 - Part 4": 32, "Mandela 2 - Part 8": 47}
 	if !reflect.DeepEqual(gotByShed, want) {
 		t.Fatalf("admitted shed rollup = %#v, want %#v", gotByShed, want)
 	}

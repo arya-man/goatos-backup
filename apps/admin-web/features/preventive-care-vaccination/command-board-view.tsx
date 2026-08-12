@@ -283,14 +283,13 @@ function buildShedGrid(
   byShed: ShedGridRow[];
 } {
   const doseSet = new Set<string>();
-  // BUG FIX: Key by shedId + partition_label (using shedId|partition_label format) instead of shedName.
-  // Two same-named sheds in different parks and two partitions of the same shed must remain as separate rows
-  // with separate animal counts. Keying by shedName alone caused them to merge, silently summing counts.
+  // Key by exact shed id. The shed id already points at the physical shed; partition_label is
+  // compatibility metadata and must not split a shed row.
   const shedMap = new Map<string, ShedGridRow>();
 
   matrix.forEach((cell) => {
     doseSet.add(cell.doseRule);
-    const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+    const shedKey = cell.shedId;
     if (!shedMap.has(shedKey)) {
       shedMap.set(shedKey, {
         shedName: cell.shedName,
@@ -419,12 +418,11 @@ function enrichDriveOptions(
       if (option.status !== "planned") return true;
       return (!start || date >= start) && (!end || date <= end);
     });
-    // BUG FIX (2026-08-07): OL-2 partition collapse. Key by shedId + partition_label instead of shedName.
-    // Two same-named sheds across parks and two partitions of one shed must contribute separate counts.
-    // Keying by shedName alone merged them, silently summing counts from disjoint physical locations.
+    // Key by exact shed id. Two same-named sheds across parks still have different ids; partition
+    // labels are not part of current location identity.
     const byShedKey = new Map<string, { shedId: string; shedName: string; partitionLabel: string | null; operationalLocationDisplay: string | null; animalCount: number }>();
     cells.forEach((cell) => {
-      const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+      const shedKey = cell.shedId;
       const existing = byShedKey.get(shedKey);
       if (!existing || cell.animalCount > existing.animalCount) {
         byShedKey.set(shedKey, {
@@ -443,10 +441,9 @@ function enrichDriveOptions(
       .map((entry) => ({
         shedId: entry.shedId,
         shedName: entry.shedName,
-        ...(entry.partitionLabel ? { partition_label: entry.partitionLabel } : {}),
         operational_location_display: entry.operationalLocationDisplay || entry.shedName,
       }))
-      .sort((a, b) => `${a.shedId}|${a.partition_label ?? ""}`.localeCompare(`${b.shedId}|${b.partition_label ?? ""}`));
+      .sort((a, b) => a.shedId.localeCompare(b.shedId));
     const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
     let targetCount = 0;
     if ((option.driveName || option.label).includes(" + ")) {
@@ -778,14 +775,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             counts and no future dates by design — a count invites reconciling it against the dose
             matrix, and the two use different grains. */}
         {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
-	          // Keyed by exact shed id. partition_label is compatibility metadata; including it here
-	          // makes duplicate rows like "Castro 2 2" survive as separate UI entries.
+          // Keyed by exact shed id. Partitioned physical sheds are already separate shed ids.
           const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
           const shedOrder: string[] = [];
           const shedLabel = new Map<string, { name: string; park?: string }>();
           const nameCount = new Map<string, Set<string>>();
           view.shedVaccineMatrix.forEach((cell) => {
-	            const opKey = cell.shedId;
+            const opKey = cell.shedId;
             let row = cellsByShed.get(opKey);
             if (!row) {
               row = new Map();
@@ -923,8 +919,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           const queueAgeDays = new Map<string, number>();
           (view.verificationQueue ?? []).forEach((q) => {
             if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
-              // Key by shedId + partition to match the grid's row keys.
-              const shedKey = `${q.shedId}|${q.partition_label ?? ""}`;
+              const shedKey = q.shedId;
               queueAgeDays.set(`${shedKey}|${q.doseRule}`, q.daysInQueue);
             }
           });
@@ -946,8 +941,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   </thead>
                   <tbody>
                     {grid.byShed.map((row) => {
-                      // Use shedId + partition for unique keying; render via operational_location_display or helper.
-                      const shedKey = `${row.shedId}|${row.partitionLabel ?? ""}`;
+                      const shedKey = row.shedId;
                       const shedLabel = row.operational_location_display || operationalLocationLabel({
                         shedName: row.shedName,
                         partitionLabel: row.partitionLabel,

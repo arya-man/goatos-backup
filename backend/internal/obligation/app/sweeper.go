@@ -1976,7 +1976,7 @@ func driveAssignmentsForUnbatched(batchID string, batch domain.NewBatch, rows []
 			ParkID:         bucket.parkID,
 			ShedID:         bucket.shedID,
 			PhysicalShed:   bucket.physicalShed,
-			PartitionLabel: bucket.partition,
+			PartitionLabel: "whole",
 			AnimalCount:    int32(len(bucket.targets)),
 			VaccineRuleIDs: sortedStringSet(bucket.ruleIDs),
 			TotalDoses:     int32(len(bucket.doseKeys)),

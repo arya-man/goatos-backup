@@ -18,7 +18,6 @@ import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-sche
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
 import { HashSectionScroller } from "./hash-section-scroller";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
-import { hasOperationalPartition } from "@/lib/operational-location";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -82,15 +81,8 @@ function dateEyebrow(date: string): string {
   return new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "Asia/Kolkata" }).format(new Date(`${date}T00:00:00+05:30`));
 }
 
-function partitionLabel(pageContract: AdminUiPageContract, label: string): string {
-  const trimmed = label.trim();
-  if (!hasOperationalPartition(trimmed)) return copy(pageContract, "schedule.partition.whole_shed");
-  return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
-}
-
 function shedPartitionTitle(pageContract: AdminUiPageContract, shed: OperatorDayScheduleRow["sheds"][number]): string {
-  const partitions = shed.partitions.map((partition) => `${partitionLabel(pageContract, partition.label)} ${partition.animals}`);
-  return partitions.length > 0 ? `${shed.name}: ${partitions.join(", ")}` : shed.name;
+  return shed.name || copy(pageContract, "schedule.partition.whole_shed");
 }
 
 function capacityRank(status: string): number {
@@ -287,7 +279,6 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
       group.sheds.push(shed);
     }
     shed.animals += row.animals;
-    shed.partitions.push({ label: row.partitionLabel, animals: row.animals });
   }
 
   return Array.from(groups.values()).sort((a, b) => {

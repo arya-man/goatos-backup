@@ -78,10 +78,10 @@ func TestDriveAssignmentsForUnbatchedPersistPhysicalShedPartitions(t *testing.T)
 		got[assignment.PhysicalShed+"|"+assignment.PartitionLabel] = assignment.AnimalCount
 	}
 	want := map[string]int32{
-		"Gandhi|Part 1":     2,
-		"Gandhi|Part 2":     1,
-		"Gandhi|3":          1,
-		"Old Yashoda|whole": 1,
+		"Gandhi - Part 1|whole": 2,
+		"Gandhi - Part 2|whole": 1,
+		"Gandhi 3|whole":        1,
+		"Old Yashoda|whole":     1,
 	}
 	for key, count := range want {
 		if got[key] != count {
@@ -102,8 +102,8 @@ func TestDriveAssignmentsForParkConsolidationPersistPartSuffixPartitions(t *test
 	if len(assignments) != 1 {
 		t.Fatalf("assignments = %d, want 1: %#v", len(assignments), assignments)
 	}
-	if assignments[0].PhysicalShed != "Godel 1" || assignments[0].PartitionLabel != "Part 4" || assignments[0].AnimalCount != 1 {
-		t.Fatalf("assignment = %#v, want Godel 1 Part 4 with one distinct animal", assignments[0])
+	if assignments[0].PhysicalShed != "Godel 1 - Part 4" || assignments[0].PartitionLabel != "whole" || assignments[0].AnimalCount != 1 {
+		t.Fatalf("assignment = %#v, want exact shed Godel 1 - Part 4 with one distinct animal", assignments[0])
 	}
 }
 
@@ -2920,8 +2920,8 @@ func TestBatchDueGroupPartialAttachDoesNotPersistStaleDriveAssignmentForUnattach
 	if len(final) != 1 {
 		t.Fatalf("final persisted assignment set = %#v, want exactly 1 (attached shed only)", final)
 	}
-	if final[0].PhysicalShed != "Gandhi" || final[0].PartitionLabel != "1" {
-		t.Fatalf("final persisted assignment = %#v, want physical_shed=Gandhi partition=1 (obl-1's shed), not the unattached Godel/2 shed", final[0])
+	if final[0].PhysicalShed != "Gandhi 1" || final[0].PartitionLabel != "whole" {
+		t.Fatalf("final persisted assignment = %#v, want physical_shed=Gandhi 1 whole (obl-1's shed), not the unattached Godel/2 shed", final[0])
 	}
 	if final[0].AnimalCount != 1 {
 		t.Fatalf("final persisted assignment animal_count = %d, want 1", final[0].AnimalCount)
