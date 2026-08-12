@@ -1902,6 +1902,99 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/live-tracker:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationLiveTracker
+      summary: Live drive-day tracker — KPIs, operator board, shed proof progress, combo doses, activity feed, attention, verification.
+      description: >-
+        One read backing the whole live drive tracker. Every section derives from a single membership
+        set (the day's vaccination obligations at ADMINISTRATION grain), so the KPI tiles reconcile
+        with the tables beneath them and one filter set narrows tiles, tables and feed together.
+      parameters:
+        - name: business_date
+          in: query
+          required: false
+          description: >-
+            Drive day in the business timezone (defaults to today). This is a BUSINESS DATE, not a
+            projection as_of: the response is always reconstructed from canonical rows, so a past
+            drive day is a supported read. Bounded to the last seven days.
+          schema:
+            type: string
+            format: date
+        - name: park_id
+          in: query
+          required: false
+          description: Optional park narrowing. Clamped server-side to the caller's vaccination park grants.
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            Partition within the shed. Normalised server-side ("Part 3" and "3" are the same
+            partition) because the goat-side and assignment-side tables spell them differently.
+          schema:
+            type: string
+            maxLength: 64
+        - name: operator_id
+          in: query
+          required: false
+          description: workforce_members.workforce_member_id of the drive operator.
+          schema:
+            type: string
+            format: uuid
+        - name: vaccine_code
+          in: query
+          required: false
+          description: Antigen family code from filter_options.vaccines (for example goat_pox).
+          schema:
+            type: string
+            maxLength: 64
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, done, pending, review]
+        - name: activity_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 40
+        - name: activity_before
+          in: query
+          required: false
+          description: Keyset cursor for the activity feed — return events strictly older than this instant.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: The live drive tracker for one business date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationLiveTrackerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/operations:
     get:
       tags:
@@ -12713,6 +12806,356 @@ components:
         windowEnd:
           type: string
           format: date-time
+    VaccinationLiveTrackerParkCount:
+      type: object
+      additionalProperties: false
+      required: [park_id, park_name, count]
+      properties:
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        count:
+          type: integer
+          description: Scheduled ADMINISTRATIONS in this park on the drive day.
+    VaccinationLiveTrackerKPIs:
+      type: object
+      additionalProperties: false
+      required:
+        - scheduled_administrations
+        - scheduled_by_park
+        - proof_videos_received
+        - scan_captures
+        - remaining
+        - combo_animals
+        - attention_count
+        - active_parks
+      properties:
+        scheduled_administrations:
+          type: integer
+          description: >-
+            ADMINISTRATION grain — one obligation is one administration. Equals the sum of the
+            operator board's scheduled column and of the shed board's scheduled column for the same
+            filter set.
+        scheduled_by_park:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerParkCount" }
+        proof_videos_received:
+          type: integer
+          description: Administrations whose animal has a completed vaccination video proof on the drive day.
+        scan_captures:
+          type: integer
+          description: Administrations whose animal has an RFID scan capture on the drive day.
+        remaining:
+          type: integer
+          description: scheduled_administrations minus proofed, floored at zero.
+        combo_animals:
+          type: integer
+          description: ANIMAL grain — animals carrying two or more distinct same-day obligations.
+        attention_count:
+          type: integer
+          description: Exactly len(attention). Never a constant.
+        active_parks:
+          type: integer
+          description: Distinct parks that produced proof or scan evidence on the drive day.
+    VaccinationLiveTrackerOperatorRow:
+      type: object
+      additionalProperties: false
+      required:
+        - operator_id
+        - operator_name
+        - operator_display_code
+        - identity_resolved
+        - park_id
+        - park_name
+        - park_code
+        - current_shed_id
+        - current_shed_label
+        - current_partition_label
+        - current_vaccine_label
+        - scheduled_administrations
+        - proof_videos
+        - scan_captures
+        - remaining
+        - last_activity_at
+        - idle_minutes
+        - state
+      properties:
+        operator_id: { type: string }
+        operator_name: { type: string }
+        operator_display_code:
+          type: string
+          description: >-
+            Seeded workforce display code. May be an "auth:<uuid>" placeholder in environments where
+            operator identity is only partially seeded; identity_resolved reports which.
+        identity_resolved: { type: boolean }
+        park_id: { type: string }
+        park_name: { type: string }
+        park_code: { type: string }
+        current_shed_id: { type: string }
+        current_shed_label: { type: string }
+        current_partition_label: { type: string }
+        current_vaccine_label: { type: string }
+        scheduled_administrations: { type: integer }
+        proof_videos: { type: integer }
+        scan_captures: { type: integer }
+        remaining: { type: integer }
+        last_activity_at: { type: string, format: date-time, nullable: true }
+        idle_minutes: { type: integer, nullable: true }
+        state:
+          type: string
+          enum: [active, done, not_started, idle]
+    VaccinationLiveTrackerShedRow:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - physical_shed
+        - partition_label
+        - shed_label
+        - park_id
+        - park_name
+        - vaccine_code
+        - vaccine_label
+        - operator_id
+        - operator_name
+        - scheduled_administrations
+        - proof_videos_received
+        - remaining
+        - last_proof_at
+        - extra_attempt_count
+        - state
+      properties:
+        shed_id: { type: string }
+        shed_name: { type: string }
+        physical_shed: { type: string }
+        partition_label: { type: string }
+        shed_label: { type: string }
+        park_id: { type: string }
+        park_name: { type: string }
+        vaccine_code: { type: string }
+        vaccine_label: { type: string }
+        operator_id: { type: string }
+        operator_name: { type: string }
+        scheduled_administrations: { type: integer }
+        proof_videos_received: { type: integer }
+        remaining: { type: integer }
+        last_proof_at: { type: string, format: date-time, nullable: true }
+        extra_attempt_count:
+          type: integer
+          description: Duplicate / not-due / unknown scan attempts recorded against this shed's animals today.
+        state:
+          type: string
+          enum: [receiving, slow, done, not_started, review]
+    VaccinationLiveTrackerComboDose:
+      type: object
+      additionalProperties: false
+      required: [obligation_id, vaccine_code, vaccine_label, state]
+      properties:
+        obligation_id: { type: string }
+        vaccine_code: { type: string }
+        vaccine_label: { type: string }
+        state:
+          type: string
+          enum: [closed, awaiting_proof, scheduled]
+    VaccinationLiveTrackerComboRow:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - primary_tag
+        - secondary_tag
+        - shed_label
+        - proof_state
+        - proof_count
+        - doses
+      properties:
+        goat_id: { type: string }
+        display_id: { type: string }
+        primary_tag:
+          type: string
+          description: The animal's REAL active primary identifier. No synthetic id is ever generated.
+        secondary_tag:
+          type: string
+          description: Second active tag where the animal is dual-tagged; empty otherwise.
+        shed_label: { type: string }
+        proof_state:
+          type: string
+          enum: [video, uploading, none]
+        proof_count: { type: integer }
+        doses:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerComboDose" }
+    VaccinationLiveTrackerCombo:
+      type: object
+      additionalProperties: false
+      required: [animal_count, vaccine_labels, rows, rows_truncated]
+      properties:
+        animal_count:
+          type: integer
+          description: Exact total combo ANIMALS, computed before the row cap.
+        vaccine_labels:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerComboRow" }
+        rows_truncated: { type: boolean }
+    VaccinationLiveTrackerActivityItem:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - occurred_at
+        - kind
+        - actor_id
+        - actor_name
+        - park_name
+        - shed_label
+        - vaccine_label
+        - goat_id
+        - goat_display_id
+        - scanned_identifier
+        - detail_code
+      properties:
+        event_id:
+          type: string
+          description: "<kind>:<primary key> — stable dedupe key across polls."
+        occurred_at: { type: string, format: date-time }
+        kind:
+          type: string
+          enum: [proof_video, scan_capture, scan_duplicate, scan_unknown, administration, shed_submitted]
+        actor_id: { type: string }
+        actor_name: { type: string }
+        park_name: { type: string }
+        shed_label: { type: string }
+        vaccine_label: { type: string }
+        goat_id: { type: string }
+        goat_display_id: { type: string }
+        scanned_identifier:
+          type: string
+          description: The tag actually scanned, or the animal's active primary identifier. Never generated.
+        detail_code: { type: string }
+    VaccinationLiveTrackerActivity:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, observed_per_min, window_minutes]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerActivityItem" }
+        next_cursor: { type: string, format: date-time, nullable: true }
+        observed_per_min:
+          type: number
+          nullable: true
+          description: >-
+            Events per minute OBSERVED over the returned window. Null when fewer than two events were
+            returned — the rate is measured, never assumed.
+        window_minutes: { type: integer }
+    VaccinationLiveTrackerAttentionRow:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - subject_label
+        - operator_id
+        - shed_id
+        - metric_count
+        - total_count
+        - elapsed_minutes
+        - since_at
+        - severity
+      properties:
+        kind:
+          type: string
+          enum: [extra_attempts, idle_operator, slow_shed]
+        subject_label: { type: string }
+        operator_id: { type: string }
+        shed_id: { type: string }
+        metric_count: { type: integer }
+        total_count: { type: integer }
+        elapsed_minutes: { type: integer }
+        since_at: { type: string, format: date-time, nullable: true }
+        severity:
+          type: string
+          enum: [warn, dng]
+    VaccinationLiveTrackerVerification:
+      type: object
+      additionalProperties: false
+      required:
+        - awaiting_review_items
+        - awaiting_review_sheds
+        - verified_today_items
+        - verified_today_sheds
+        - rework_requested
+      properties:
+        awaiting_review_items: { type: integer }
+        awaiting_review_sheds: { type: integer }
+        verified_today_items: { type: integer }
+        verified_today_sheds: { type: integer }
+        rework_requested: { type: integer }
+    VaccinationLiveTrackerFilterOption:
+      type: object
+      additionalProperties: false
+      required: [id, code, partition_label, label]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        partition_label: { type: string }
+        label: { type: string }
+    VaccinationLiveTrackerFilterOptions:
+      type: object
+      additionalProperties: false
+      required: [parks, vaccines, operators, sheds]
+      description: >-
+        The filter bar's vocabulary, compiled from the day's own rows with only park scope applied.
+        Because it comes from real administrations, an option that matches zero rows cannot be
+        offered, and choosing one operator does not collapse the operator list.
+      properties:
+        parks:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        vaccines:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        operators:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        sheds:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+    VaccinationLiveTrackerResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - generated_at
+        - kpis
+        - operators
+        - sheds
+        - combo
+        - activity
+        - attention
+        - verification
+        - filter_options
+      properties:
+        business_date: { type: string, format: date }
+        generated_at: { type: string, format: date-time }
+        freshness: { $ref: "#/components/schemas/VaccinationProjectionFreshness" }
+        kpis: { $ref: "#/components/schemas/VaccinationLiveTrackerKPIs" }
+        operators:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerOperatorRow" }
+        sheds:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerShedRow" }
+        combo: { $ref: "#/components/schemas/VaccinationLiveTrackerCombo" }
+        activity: { $ref: "#/components/schemas/VaccinationLiveTrackerActivity" }
+        attention:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerAttentionRow" }
+        verification: { $ref: "#/components/schemas/VaccinationLiveTrackerVerification" }
+        filter_options: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOptions" }
     VaccinationCommandBoardResponse:
       type: object
       additionalProperties: false

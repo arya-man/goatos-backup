@@ -437,6 +437,8 @@ const SCOPE_AWARE_FILES = new Set([
   "features/preventive-care-vaccination/execution-section.tsx",
   "features/vaccination-execution/execution-board.tsx",
   "features/vaccination-execution/shed-drilldown.tsx",
+  "features/vaccination-live-tracker/live-tracker-board.tsx",
+  "features/vaccination-live-tracker/params.ts",
 ]);
 const SCOPE_KEY_READ = /\bone\([^,]+,\s*["'`](?:park|as_of|range|scope_mode|date_from|date_to)["'`]\)|\.get\(\s*["'`](?:park|as_of|range|scope_mode|date_from|date_to)["'`]\s*\)/;
 const MANUAL_QS = /new URLSearchParams\(/;

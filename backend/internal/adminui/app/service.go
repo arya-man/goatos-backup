@@ -118,6 +118,7 @@ func navigation() domain.NavigationContract {
 				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true, BadgeKey: "pc_open_work",
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
+					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination_live", nil),
 				},
 			},
 			{
@@ -233,6 +234,9 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
+		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
+		// crumb resolves to the parent label.
+		{Pattern: "/vaccination/live-tracker", Label: "Live Drive Tracker", Match: "exact"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
@@ -374,6 +378,19 @@ func pages() []domain.PageContract {
 				vaccinationShedTable(),
 				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "sheds", "partitions", "animals", "capacity"}, "schedule_row"),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
+			}),
+		// Live drive-day tracker. Sibling of /vaccination, not a child of it: it answers a different
+		// question (what is landing RIGHT NOW, per operator and per shed) at administration grain,
+		// where /vaccination answers current status at animal grain.
+		page("vaccination-live-tracker", "/vaccination/live-tracker", "/vaccination/live-tracker", "Live Drive Tracker",
+			"Field proof arriving in real time — videos, scan captures and per-animal submissions per operator and per shed.",
+			"module-surface", []domain.TableContract{
+				table("live-operators", "Operators — live", "/vaccination/live-tracker",
+					[]string{"operator", "park", "now_at", "scheduled", "videos", "scans", "remaining", "progress", "status"}, "lt_operator"),
+				tableP("live-sheds", "Sheds — proof progress", "/vaccination/live-tracker",
+					[]string{"shed", "vaccine", "operator", "scheduled", "received", "remaining", "progress", "last_proof", "status"}, "lt_shed", []int{25, 50, 100}),
+				table("live-combo", "Combo doses", "/vaccination/live-tracker",
+					[]string{"animal", "shed", "proof", "doses"}, "goat_id"),
 			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
 			[]domain.TableContract{
@@ -1334,6 +1351,118 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.linked":                       "Linked",
 			"label.placeholder":                  "—",
 			"label.more":                         "more",
+		}
+	case "vaccination-live-tracker":
+		// Every visible string on /vaccination/live-tracker originates here. The page renders no
+		// English literal of its own, so a missing key throws at render rather than shipping a blank
+		// cell — that is deliberate.
+		return map[string]string{
+			"crumb":                              "Preventive Care (PC) · Vaccination",
+			"page.heading_prefix":                "Drive Day",
+			"chip.parks_running_one":             "park running",
+			"chip.parks_running_many":            "parks running",
+			"action.full_schedule":               "Full Schedule",
+			"action.command_board":               "Command Board",
+			"action.open_verify":                 "Open Verify →",
+			"action.all_combo_animals":           "All combo animals →",
+			"action.reset_filters":               "Clear all filters",
+			"kpi.scheduled.label":                "Scheduled today",
+			"kpi.scheduled.detail":               "administrations",
+			"kpi.proofs.label":                   "Proofs received",
+			"kpi.proofs.detail":                  "videos landed",
+			"kpi.scans.label":                    "Scan captures",
+			"kpi.scans.detail":                   "RFID confirmed",
+			"kpi.remaining.label":                "Remaining",
+			"kpi.remaining.detail":               "not yet submitted",
+			"kpi.combo.label":                    "Combo animals",
+			"kpi.combo.detail":                   "1 proof → 2 obligations",
+			"kpi.attention.label":                "Attention",
+			"kpi.attention.detail":               "extra attempts · idle operator",
+			"kpi.live_tick":                      "▲ live",
+			"kpi.cross_filter_disabled":          "Tile cross-filtering is not wired. Use the filter bar above to narrow every section at once.",
+			"live.badge_live":                    "LIVE",
+			"live.badge_paused":                  "PAUSED",
+			"live.toggle_title":                  "Click to pause or resume live updates",
+			"live.updated_prefix":                "Updated",
+			"live.updated_suffix":                "IST",
+			"live.interval_label":                "Refresh interval",
+			"live.stale_prefix":                  "Live updates paused — data shown as of",
+			"live.stale_suffix":                  "IST. Click LIVE to resume.",
+			"live.newest_first":                  "newest first",
+			"live.feed_rate_suffix":              "/min",
+			"live.feed_rate_unavailable":         "rate pending",
+			"live.feed_aria":                     "Live vaccination activity",
+			"filter.apply_note":                  "Filters apply to tiles, tables and the live feed together",
+			"filter.all_parks":                   "All parks",
+			"filter.all_vaccines":                "All vaccines",
+			"filter.all_operators":               "All operators",
+			"filter.all_sheds":                   "All sheds",
+			"filter.all_statuses":                "All statuses",
+			"filter.park_label":                  "Park",
+			"filter.vaccine_label":               "Vaccine",
+			"filter.operator_label":              "Operator",
+			"filter.shed_label":                  "Shed",
+			"filter.status_label":                "Status",
+			"filter.clear_all":                   "clear all",
+			"filter.remove_one":                  "Remove filter",
+			"section.operators.title":            "Operators — live",
+			"section.operators.count_suffix":     "operators",
+			"section.operators.park_suffix":      "parks",
+			"section.operators.drilldown_note":   "Shed drill-down opens from the Sheds table below",
+			"section.operators.empty_title":      "No operator has drive work on this day",
+			"section.operators.empty_body":       "Operator rows appear once the day's vaccination drive assignments exist for a shed in scope.",
+			"section.operators.filtered_title":   "No operator matches these filters",
+			"section.operators.filtered_body":    "Clear a filter to see the other operators on this drive day.",
+			"section.operators.unavailable":      "Operator display code is not seeded in this environment.",
+			"section.sheds.title":                "Sheds — proof progress",
+			"section.sheds.empty_title":          "No shed has drive work on this day",
+			"section.sheds.empty_body":           "Shed rows appear once the day's obligations resolve to a shed and partition in scope.",
+			"section.sheds.filtered_title":       "No shed matches these filters",
+			"section.sheds.filtered_body":        "Clear a filter to see the other sheds on this drive day.",
+			"section.combo.title":                "Combo doses — one proof, two obligations",
+			"section.combo.count_suffix":         "animals today",
+			"section.combo.note":                 "When a shed gets a combo day, each animal receives 2 administrations in one handling. The operator scans once and uploads one video proof per animal; the system closes both obligations from that single proof. Tiles above therefore count administrations — a combo animal contributes 2 to Scheduled and 2 to Proofs received when its single proof lands. Animals and administrations are never mixed in one number.",
+			"section.combo.empty_title":          "No combo animal on this drive day",
+			"section.combo.empty_body":           "A row appears when one animal carries two or more distinct vaccination obligations on the same day.",
+			"section.combo.all_listed":           "Every combo animal on this drive day is already listed.",
+			"section.combo.header_animal":        "Animal",
+			"section.combo.header_shed":          "Shed",
+			"section.combo.header_proof":         "Proof",
+			"section.combo.header_doses":         "Doses",
+			"section.activity.title":             "Live activity",
+			"section.activity.empty_title":       "No field activity yet on this drive day",
+			"section.activity.empty_body":        "Rows appear as video proofs land, RFID scans are captured, and sheds are submitted.",
+			"section.attention.title":            "Attention",
+			"section.attention.empty":            "Nothing needs attention on this drive day.",
+			"section.attention.nudge":            "Nudge dispatch is not recorded against drive operators.",
+			"section.attention.escalation":       "An idle-escalation deadline is not configured for drive operators.",
+			"section.attention.pace":             "Shed close time is not configured, so a finish estimate cannot be computed.",
+			"section.attention.nudge_label":      "Nudge sent",
+			"section.attention.escalate_label":   "Escalates",
+			"section.attention.pace_label":       "Finishes at current pace",
+			"section.verification.title":         "Verification queue",
+			"section.verification.badge":         "post-drive",
+			"section.verification.awaiting":      "Awaiting verifier review",
+			"section.verification.verified":      "Verified today",
+			"section.verification.rework":        "Rework requested",
+			"section.verification.sheds_suffix":  "sheds",
+			"drawer.passport.aria":               "Goat Passport",
+			"drawer.passport.close_label":        "Close Goat Passport",
+			"drawer.passport.tag_1":              "Tag 1",
+			"drawer.passport.tag_2":              "Tag 2",
+			"drawer.passport.shed":               "Shed",
+			"drawer.passport.next_due":           "Next due",
+			"drawer.passport.no_upcoming":        "No upcoming dose",
+			"drawer.passport.open_obligations":   "Open obligations",
+			"drawer.passport.empty_open":         "No open vaccination obligation for this animal.",
+			"drawer.passport.unavailable_prefix": "Vaccination passport is unavailable",
+			"drawer.passport.full_history":       "Full change history",
+			"label.park_scope_note":              "Park scope also follows the top bar.",
+			"legend.label":                       "Legend",
+			"state.error_title":                  "Live drive tracker is unavailable",
+			"state.error_body":                   "The vaccination live tracker service did not return data. Resolve the error below, then reload.",
+			"state.empty_title":                  "No vaccination drive work on this day",
+			"state.empty_body":                   "Every section is shown at zero. Rows appear once the day's obligations, drive assignments and field evidence exist.",
 		}
 	case "vaccination":
 		return map[string]string{
@@ -3974,6 +4103,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				option("close", "Completion posted", "dose consumed · booster scheduled if due", "ok"),
 			},
 		}}), processIntegrityOptionGroups()...)
+	case "vaccination-live-tracker":
+		return withGenericOptionGroups(liveTrackerOptionGroups())
 	case "vaccination":
 		return append(withGenericOptionGroups([]domain.OptionGroup{
 			shedStatusOptionGroup(),
@@ -4870,6 +5001,93 @@ func genericOptionGroups() []domain.OptionGroup {
 
 func withGenericOptionGroups(groups []domain.OptionGroup) []domain.OptionGroup {
 	return append(genericOptionGroups(), groups...)
+}
+
+// liveTrackerOptionGroups is the /vaccination/live-tracker vocabulary.
+//
+// Every one of these is a CLOSED set defined by this read model's own state machine (an operator is
+// exactly one of four states; a shed exactly one of five; an activity row exactly one of six kinds),
+// so declaring them here freezes nothing that live tenant data could extend. Parks, sheds, operators
+// and vaccines are deliberately absent: those are live rows and arrive in the response's own
+// filter_options, which is how an option that matches zero administrations becomes impossible to
+// offer.
+func liveTrackerOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "live_refresh_interval",
+			Options: []domain.Option{
+				option("10", "10s", "Refresh every 10 seconds", ""),
+				option("30", "30s", "Refresh every 30 seconds", ""),
+				option("60", "1m", "Refresh every minute", ""),
+			},
+		},
+		{
+			ID: "live_operator_state",
+			Options: []domain.Option{
+				option("active", "active now", "producing proof or scans right now", "live"),
+				option("done", "done", "every assigned administration has a proof", "ok"),
+				option("not_started", "not started", "no proof and no scan yet today", "dng"),
+				option("idle", "idle", "no activity for over 90 minutes with work remaining", "dng"),
+			},
+		},
+		{
+			// The mock's legend declares four shed states but its rows render five. `review` is the
+			// fifth — a shed that finished but re-scanned animals along the way — and it is declared
+			// here so the legend and the rows finally agree.
+			ID: "live_shed_state",
+			Options: []domain.Option{
+				option("receiving", "receiving", "proof landing at a normal rate", "live"),
+				option("slow", "slow start", "under a quarter done well into the drive", "warn"),
+				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "warn"),
+				option("done", "done", "every administration proofed, no extra attempts", "ok"),
+				option("not_started", "not started", "no proof received yet", "dng"),
+			},
+		},
+		{
+			ID: "live_proof_state",
+			Options: []domain.Option{
+				option("video", "1 video", "one completed video proof for this animal today", "ok"),
+				option("uploading", "uploading…", "a proof upload is in flight", "warn"),
+				option("none", "—", "no proof yet", "mut"),
+			},
+		},
+		{
+			ID: "live_dose_state",
+			Options: []domain.Option{
+				option("closed", "closed", "this obligation is closed by the animal's proof", "ok"),
+				option("awaiting_proof", "awaiting proof", "in progress, proof not yet landed", "mut"),
+				option("scheduled", "scheduled", "not started yet", "mut"),
+			},
+		},
+		{
+			ID: "live_activity_kind",
+			Options: []domain.Option{
+				option("proof_video", "video proof landed", "", "ok"),
+				option("scan_capture", "scan capture", "", "info"),
+				option("scan_duplicate", "duplicate scan attempt", "", "warn"),
+				option("scan_unknown", "unrecognised scan attempt", "", "warn"),
+				option("administration", "dose recorded", "", "pur"),
+				option("shed_submitted", "shed submitted", "", "info"),
+			},
+		},
+		{
+			ID: "live_attention_kind",
+			Options: []domain.Option{
+				option("extra_attempts", "extra attempts", "same animals re-scanned; duplicates ignored, flagged for verifier note", "warn"),
+				option("idle_operator", "idle operator", "no field activity for over 90 minutes with work remaining", "dng"),
+				option("slow_shed", "slow shed", "well under a quarter done this far into the drive", "warn"),
+			},
+		},
+		{
+			ID: "live_status_filter",
+			Options: []domain.Option{
+				option("active", "Active now", "", "live"),
+				option("done", "Done", "", "ok"),
+				option("pending", "Not started", "", "dng"),
+				option("review", "Needs review", "", "warn"),
+			},
+		},
+	}
 }
 
 // countsBreakdownOptionGroups holds only the option group whose vocabulary is a fixed schema

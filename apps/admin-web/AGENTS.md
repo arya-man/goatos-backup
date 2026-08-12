@@ -576,6 +576,9 @@ Only these routes are current implemented product routes:
 /vaccination               Preventive Care (PC) Vaccination module surface (NOT Action Center);
                            includes status matrix, cohort detail, and execution
 /vaccination/execution/sheds/[shedId]
+/vaccination/live-tracker   Live Drive Tracker — today's drive at ADMINISTRATION grain: per-operator
+                           and per-shed proof progress, combo doses, live activity feed, attention,
+                           verification queue. Polls by re-running the server tree (router.refresh).
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd                 Herd Register for vaccination trigger closure
