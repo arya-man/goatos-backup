@@ -422,9 +422,18 @@ SELECT
   vi.shed_id::text,
   COALESCE(shed_loc.name, vi.shed_id::text) AS shed_label,
   COALESCE(MAX(sp.partition_label), MAX(NULLIF(btrim(vi.partition_label), ''))) AS partition_label,
-  `+shedPartitionPredicate+` AS partition_key
+  `+shedPartitionPredicate+` AS partition_key,
+  -- Agree-or-go-bare, the same discipline oploc applies to a partition: a shed belongs to one
+  -- park, so every row in this group should carry one park_id, and if they ever disagree the
+  -- honest answer is no park rather than whichever MAX() happens to win. An option with no park
+  -- still filters correctly -- the ID is the shed -- it just cannot be grouped.
+  -- MAX over the TEXT form: Postgres has no max(uuid), and the group is already known to hold
+  -- exactly one park_id when this branch is taken, so the aggregate is only picking that value.
+  CASE WHEN count(DISTINCT vi.park_id) = 1 THEN COALESCE(MAX(vi.park_id::text), '') ELSE '' END AS park_id,
+  CASE WHEN count(DISTINCT vi.park_id) = 1 THEN COALESCE(MAX(park_loc.name), '') ELSE '' END AS park_label
 FROM verification_items vi
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
+LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
 LEFT JOIN shed_partitions sp
   ON sp.tenant_id = vi.tenant_id
  AND sp.shed_id = vi.shed_id
@@ -443,7 +452,9 @@ WHERE vi.tenant_id = $1::uuid
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
   AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
 GROUP BY vi.shed_id, shed_loc.name, `+shedPartitionPredicate+`
-ORDER BY shed_label, partition_key, vi.shed_id::text`,
+-- Park first so a park's sheds arrive contiguously and a client can group without sorting.
+-- shed_id still breaks the final tie, so two identically-named sheds in ONE park stay stable.
+ORDER BY park_label, shed_label, partition_key, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
@@ -453,9 +464,9 @@ ORDER BY shed_label, partition_key, vi.shed_id::text`,
 	}
 	defer shedRows.Close()
 	for shedRows.Next() {
-		var id, shedLabel, partitionKey string
+		var id, shedLabel, partitionKey, parkID, parkLabel string
 		var partitionLabel *string
-		if err := shedRows.Scan(&id, &shedLabel, &partitionLabel, &partitionKey); err != nil {
+		if err := shedRows.Scan(&id, &shedLabel, &partitionLabel, &partitionKey, &parkID, &parkLabel); err != nil {
 			return options, err
 		}
 		loc := oploc.OperationalLocation{ShedID: id, ShedName: shedLabel}
@@ -463,8 +474,12 @@ ORDER BY shed_label, partition_key, vi.shed_id::text`,
 			loc.PartitionLabel = *partitionLabel
 		}
 		options.Sheds = append(options.Sheds, domain.LocationFilterOption{
-			ID:                         id + "#" + partitionKey,
-			Label:                      loc.Display(),
+			ID:    id + "#" + partitionKey,
+			Label: loc.Display(),
+			// Carried beside the label, never folded into it: the label is the shed's
+			// operational location and oploc owns that string.
+			ParkID:                     parkID,
+			ParkLabel:                  parkLabel,
 			PartitionLabel:             partitionLabel,
 			OperationalLocationDisplay: loc.Display(),
 		})

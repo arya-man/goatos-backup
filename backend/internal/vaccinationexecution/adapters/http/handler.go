@@ -1770,10 +1770,31 @@ func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Requ
 		parkIDPtr = &parkID
 	}
 
+	// The selected drive's park. It narrows the board sections only; the picker stays at park_id's
+	// scope so the other parks' drives remain selectable. Clamped through the same authorization as
+	// park_id -- a park-bound actor must not reach another park's numbers by naming them here.
+	requestedDrivePark := r.URL.Query().Get("drive_park_id")
+	if requestedDrivePark != "" && !uuidutil.IsUUIDString(requestedDrivePark) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_drive_park_id", Message: "drive_park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+		return
+	}
+	var drivePartIDPtr *string
+	if requestedDrivePark != "" {
+		drivePark, ok := h.authorizedParkID(w, r, requestedDrivePark)
+		if !ok {
+			return
+		}
+		if drivePark != "" {
+			drivePartIDPtr = &drivePark
+		}
+	}
+
 	resp, err := h.reader.VaccinationCommandBoard(r.Context(), vaccexecd.CommandBoardQuery{
 		TenantID:     tenantID,
 		DriveBatchID: driveBatchIDPtr,
 		ParkID:       parkIDPtr,
+		DriveParkID:  drivePartIDPtr,
 		AsOf:         asOf,
 	})
 	if err != nil {

@@ -55,7 +55,20 @@ async function VaccinationCommandBoardContent({
   driveParkId,
 }: VaccinationCommandBoardProps) {
   const { parkId } = vaccinationCurrentViewScope(parseScope(searchParams ?? {}));
-  const result = await getVaccinationCommandBoard({ parkId });
+
+  // ONE request, whether or not a drive is selected.
+  //
+  // It used to be two, awaited in sequence: a wide read kept ONLY for its drive catalogue, then a
+  // park-narrowed read for the numbers. That cost the sum of two ~1s server reads on every filter
+  // change and built the endpoint's most expensive query — the catalogue — twice, discarding one
+  // copy. The backend now takes the drive's park separately (drive_park_id), so the sections narrow
+  // to the selected operator day while driveOptions stays at the top bar's scope and keeps offering
+  // the other parks' drives.
+  const result = await getVaccinationCommandBoard({
+    parkId,
+    driveBatchId,
+    driveParkId: driveBatchId ? driveParkId : undefined,
+  });
   // telemetry: covered by parent /vaccination page-level Faro tracking
   if (!result.ok) return <CommandBoardUnavailable pageContract={pageContract} />;
 
@@ -68,11 +81,19 @@ async function VaccinationCommandBoardContent({
     return <CommandBoardView board={result.data} pageContract={pageContract} />;
   }
 
-  const selectedParkId = selectedDrive.parkId || driveParkId || parkId;
-  const driveResult = await getVaccinationCommandBoard({
-    driveBatchId: selectedDrive.driveBatchId,
-    parkId: selectedParkId,
-  });
+  // The catalogue can resolve a batch to a park the URL did not carry. When it does, the board just
+  // rendered is scoped to the WRONG park (or to every park), and a board narrowed to the wrong park
+  // is a wrong board rather than a slow one — so that one case re-reads. An in-app click always
+  // carries the park, so this is the typed/stale-URL path, not the normal one.
+  const resolvedParkId = selectedDrive.parkId || driveParkId || parkId;
+  const driveResult =
+    resolvedParkId === (driveParkId || parkId)
+      ? result
+      : await getVaccinationCommandBoard({
+          parkId,
+          driveBatchId: selectedDrive.driveBatchId,
+          driveParkId: resolvedParkId,
+        });
   // A FAILED narrowed read used to fall through to the still-loaded all-drives payload while the
   // selector kept showing the chosen drive: the heading named one operator day and every number
   // underneath was the whole programme's. A wrong number that looks right is worse than no number,
@@ -81,14 +102,15 @@ async function VaccinationCommandBoardContent({
 
   return (
     <CommandBoardView
-      // The narrowed read is park-scoped, so ITS driveOptions only cover the selected drive's park.
-      // The option list is a selector catalogue rather than board data, so it keeps the wider
-      // scope's list -- otherwise picking one park's drive would delete every other park's drive
-      // from the dropdown and strand the user on that park.
+      // driveOptions travels on the SAME response now: the backend scopes the catalogue to the top
+      // bar while narrowing the sections to the drive's park, so picking one park's drive can no
+      // longer delete every other park's drive from the dropdown.
       board={{ ...driveResult.data, driveOptions }}
       pageContract={pageContract}
       driveBatchId={selectedDrive.driveBatchId}
-      driveParkId={selectedParkId}
+      // The RESOLVED park (the catalogue's answer for this batch), not the URL's — the selector
+      // must echo the park whose numbers are on screen.
+      driveParkId={resolvedParkId}
     />
   );
 }

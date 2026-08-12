@@ -4096,6 +4096,140 @@ ORDER BY eff_date::date, protocol_name, dose_code
 
 // VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
 // weekly given, and verification queue. All reads are indexed canonical SQL (5k-50k envelope).
+// driveOptionsSQL is the command board's drive picker catalogue. Package-level so the rewrite
+// regression test can run it side by side with the query it replaced (see
+// commandboard_drive_option_rewrite_test.go).
+const driveOptionsSQL = `
+WITH scoped AS (
+  -- One row per in-scope obligation. protocol_rules stays an INNER join (an obligation whose rule
+  -- is missing was never offered) and both locations joins are 1:1, so this CTE does not fan out.
+  SELECT
+    oi.batch_id,
+    oi.obligation_id,
+    oi.target_id,
+    oi.scope_id,
+    pr.dose_code,
+    loc.location_id AS shed_id,
+    loc.name        AS shed_name,
+    loc.location_code AS shed_code,
+    park.location_id AS park_id,
+    park.name        AS park_name
+  FROM obligation_instances oi
+  JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+  LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+  LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
+  WHERE oi.tenant_id = $1::uuid
+    AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
+),
+counts AS (
+  SELECT
+    batch_id,
+    park_id,
+    MAX(park_name) AS park_name,
+    array_agg(DISTINCT dose_code) AS dose_codes,
+    COUNT(DISTINCT target_id)::int AS target_count,
+    COUNT(DISTINCT obligation_id)::int AS dose_count,
+    COALESCE(array_agg(DISTINCT shed_name) FILTER (WHERE shed_name IS NOT NULL), ARRAY[]::text[]) AS shed_names
+  FROM scoped
+  GROUP BY batch_id, park_id
+),
+shed_locs AS (
+  -- The ONLY place the per-goat partition table is touched, and it is reduced to its distinct
+  -- (shed, partition) pairs BEFORE aggregating rather than multiplying every other column by the
+  -- animals in a shed. jsonb_agg(... ORDER BY ...) over a pre-DISTINCTed set is what
+  -- jsonb_agg(DISTINCT ...) did: same members, same jsonb sort order.
+  SELECT batch_id, park_id, jsonb_agg(shed_obj ORDER BY shed_obj) AS shed_locations
+  FROM (
+    SELECT DISTINCT
+      s.batch_id,
+      s.park_id,
+      jsonb_build_object(
+        'shedId', s.shed_id::text,
+        'shedName', COALESCE(NULLIF(s.shed_name, ''), s.shed_code, ''),
+        'partition_label', CASE
+          WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+          ELSE btrim(gsp.partition_label)
+        END
+      ) AS shed_obj
+    FROM scoped s
+    LEFT JOIN goat_shed_partitions gsp
+      ON gsp.tenant_id = $1::uuid AND gsp.goat_id = s.target_id AND gsp.shed_id = s.scope_id
+    WHERE s.shed_id IS NOT NULL
+  ) pairs
+  GROUP BY batch_id, park_id
+),
+day_park AS (
+  -- The former LATERAL, evaluated ONCE per (batch, park) instead of once per fanned row.
+  SELECT
+    vc.batch_id,
+    day_loc.parent_location_id AS park_id,
+    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+    COUNT(DISTINCT vc.goat_id)::int AS target_count,
+    COUNT(DISTINCT vc.obligation_id)::int AS dose_count
+  FROM vaccination_completions vc
+  JOIN obligation_instances day_oi ON day_oi.obligation_id = vc.obligation_id AND day_oi.tenant_id = vc.tenant_id
+  LEFT JOIN locations day_loc ON day_oi.scope_id = day_loc.location_id AND day_oi.tenant_id = day_loc.tenant_id
+  WHERE vc.tenant_id = $1::uuid
+  GROUP BY 1, 2, 3
+),
+day_park_json AS (
+  SELECT batch_id, park_id,
+         jsonb_agg(jsonb_build_object('date', to_char(day, 'YYYY-MM-DD'), 'targetCount', target_count, 'doseCount', dose_count) ORDER BY day) AS days
+  FROM day_park
+  WHERE park_id IS NOT NULL
+  GROUP BY batch_id, park_id
+),
+day_any AS (
+  -- A group whose shed resolves to no park took the LATERAL's park-is-null branch,
+  -- which counted the batch's completions across EVERY park. Distinct-counting cannot be summed
+  -- out of day_park, so that case is aggregated separately at its own grain.
+  SELECT
+    vc.batch_id,
+    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+    COUNT(DISTINCT vc.goat_id)::int AS target_count,
+    COUNT(DISTINCT vc.obligation_id)::int AS dose_count
+  FROM vaccination_completions vc
+  WHERE vc.tenant_id = $1::uuid
+  GROUP BY 1, 2
+),
+day_any_json AS (
+  SELECT batch_id,
+         jsonb_agg(jsonb_build_object('date', to_char(day, 'YYYY-MM-DD'), 'targetCount', target_count, 'doseCount', dose_count) ORDER BY day) AS days
+  FROM day_any
+  GROUP BY batch_id
+)
+SELECT
+  b.batch_id,
+  COALESCE(c.park_id::text, '') AS park_id,
+  COALESCE(c.park_name, '') AS park_name,
+  b.status,
+  b.planned_date,
+  b.window_start,
+  b.window_end,
+  c.dose_codes,
+  c.target_count,
+  c.dose_count,
+  COALESCE(CASE WHEN c.park_id IS NULL THEN day_any_json.days ELSE day_park_json.days END, '[]'::jsonb) AS operator_days,
+  c.shed_names,
+  COALESCE(shed_locs.shed_locations, '[]'::jsonb) AS shed_locations
+FROM counts c
+JOIN obligation_batches b ON b.batch_id = c.batch_id AND b.tenant_id = $1::uuid
+LEFT JOIN shed_locs ON shed_locs.batch_id = c.batch_id AND shed_locs.park_id IS NOT DISTINCT FROM c.park_id
+LEFT JOIN day_park_json ON day_park_json.batch_id = c.batch_id AND day_park_json.park_id = c.park_id
+LEFT JOIN day_any_json ON day_any_json.batch_id = c.batch_id
+ORDER BY
+  CASE b.status
+    WHEN 'in_progress' THEN 0
+    WHEN 'completed' THEN 1
+    ELSE 2
+  END,
+  b.planned_date DESC NULLS LAST,
+  b.window_start DESC NULLS LAST,
+  b.batch_id,
+  c.park_name NULLS LAST
+LIMIT $3
+`
+
 func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -4283,9 +4417,26 @@ SELECT
   COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
 FROM per_animal
 `
-	var parkID *string
+	// TWO park scopes, because the board and its drive picker answer different questions.
+	//
+	// catalogParkID scopes the PICKER and is the caller's own park scope: the list of drives that
+	// can be chosen must not shrink to the park of the drive already chosen, or selecting one park's
+	// drive deletes every other park's drive from the dropdown and strands the reader there.
+	//
+	// parkID scopes the BOARD SECTIONS and additionally honours DriveParkID: a batch can span parks,
+	// so "this drive" means one park's operator day, and its numbers must be that park's.
+	//
+	// They were one variable, which is why the console had to issue TWO requests for a selected
+	// drive -- a wide one purely to keep the catalogue and a narrow one for the numbers -- and the
+	// catalogue, the single most expensive query on the endpoint, was therefore built twice and
+	// thrown away once.
+	var catalogParkID *string
 	if q.ParkID != nil && strings.TrimSpace(*q.ParkID) != "" {
-		parkID = q.ParkID
+		catalogParkID = q.ParkID
+	}
+	parkID := catalogParkID
+	if q.DriveParkID != nil && strings.TrimSpace(*q.DriveParkID) != "" {
+		parkID = q.DriveParkID
 	}
 	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead, &resp.KPIs.ClosedWithoutDose); err != nil {
@@ -5581,75 +5732,20 @@ ORDER BY shed_name, partition_label, pr.dose_code
 	// (batch_id, park_id, status, planned_date, window_start, window_end). Row multiplicity: obligation_instances N:1 to
 	// batch (pre-aggregated), protocol_rules 1:1 to obligation, locations 1:1 to obligation scope.
 	// No ratio or cap check is computed, so there is no numerator/denominator key set to compare.
-	driveOptionsSQL := `
-SELECT
-  b.batch_id,
-  COALESCE(park.location_id::text, '') AS park_id,
-  COALESCE(park.name, '') AS park_name,
-  b.status,
-  b.planned_date,
-  b.window_start,
-  b.window_end,
-  array_agg(DISTINCT pr.dose_code) AS dose_codes,
-  COUNT(DISTINCT oi.target_id)::int AS target_count,
-  COUNT(DISTINCT oi.obligation_id)::int AS dose_count,
-  COALESCE(operator_days.days, '[]'::jsonb) AS operator_days,
-  COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names,
-  COALESCE(
-    jsonb_agg(DISTINCT jsonb_build_object(
-      'shedId', loc.location_id::text,
-      'shedName', COALESCE(NULLIF(loc.name, ''), loc.location_code, ''),
-      'partition_label', CASE
-        WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-        ELSE btrim(gsp.partition_label)
-      END
-    )) FILTER (WHERE loc.location_id IS NOT NULL),
-    '[]'::jsonb
-  ) AS shed_locations
-FROM obligation_batches b
-JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
-JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
-LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id AND gsp.shed_id = oi.scope_id
-LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
-LEFT JOIN LATERAL (
-  SELECT jsonb_agg(
-    jsonb_build_object(
-      'date', to_char(day_row.day, 'YYYY-MM-DD'),
-      'targetCount', day_row.target_count,
-      'doseCount', day_row.dose_count
-    )
-    ORDER BY day_row.day
-  ) AS days
-  FROM (
-    SELECT
-      (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
-      COUNT(DISTINCT vc.goat_id)::int AS target_count,
-      COUNT(DISTINCT vc.obligation_id)::int AS dose_count
-    FROM vaccination_completions vc
-    JOIN obligation_instances day_oi ON day_oi.obligation_id = vc.obligation_id AND day_oi.tenant_id = vc.tenant_id
-    LEFT JOIN locations day_loc ON day_oi.scope_id = day_loc.location_id AND day_oi.tenant_id = day_loc.tenant_id
-    WHERE vc.tenant_id = b.tenant_id
-      AND vc.batch_id = b.batch_id
-      AND (park.location_id IS NULL OR day_loc.parent_location_id = park.location_id)
-    GROUP BY 1
-  ) day_row
-) operator_days ON true
-WHERE b.tenant_id = $1::uuid
-  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
-GROUP BY b.batch_id, park.location_id, park.name, b.status, b.planned_date, b.window_start, b.window_end, operator_days.days
-ORDER BY
-  CASE b.status
-    WHEN 'in_progress' THEN 0
-    WHEN 'completed' THEN 1
-    ELSE 2
-  END,
-  b.planned_date DESC NULLS LAST,
-  b.window_start DESC NULLS LAST,
-  b.batch_id,
-  park.name NULLS LAST
-LIMIT $3
-`
+	// SHAPE (rewritten 2026-08-12, same rows, ~15x less work): every many-side is pre-aggregated to
+	// the (batch, park) grain in its OWN CTE and joined 1:1, instead of being de-duplicated with
+	// COUNT(DISTINCT)/jsonb_agg(DISTINCT) after one wide join.
+	//
+	// The previous shape joined batch x obligation x rule x shed x goat_shed_partitions and then
+	// collapsed it. Two costs came out of that on a SMALL dataset (98 batches, 14,486 obligations):
+	// it materialised 4,121 rows to emit 52 options, and -- the expensive part -- the operator_days
+	// LATERAL, whose only correlations are batch_id and park, sat INSIDE that fan-out and therefore
+	// ran once per fanned row rather than once per option: 4,121 executions wrapping a sequential
+	// scan of all 14,455 obligation rows, measured at 528ms of a 900ms request. The per-goat
+	// partition join was the multiplier, and it exists only to collect a shed's partition labels.
+	//
+	// Nothing about the RESULT changes -- same rows, same columns, same order, same truncation
+	// probe. Pinned byte-for-byte by TestDriveOptionsRewriteMatchesLegacyShape.
 	driveOptionsLimit := r.driveOptionsLimit
 	if driveOptionsLimit <= 0 {
 		// A Repository built as a zero value (or by a future constructor that forgets the field)
@@ -5657,7 +5753,7 @@ LIMIT $3
 		// "no drives are scheduled".
 		driveOptionsLimit = defaultDriveOptionsLimit
 	}
-	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, parkID, driveOptionsLimit+1)
+	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, catalogParkID, driveOptionsLimit+1)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: drive options query: %w", err)
 	}
