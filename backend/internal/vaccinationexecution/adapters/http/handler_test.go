@@ -40,6 +40,8 @@ type fakeReader struct {
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
+	scanTag       domain.ScanTagClassification
+	lastScanTag   domain.ScanTagClassificationQuery
 	gaps          domain.GapsResponse
 	lastGaps      domain.GapsQuery
 	coverage      domain.CoverageResponse
@@ -113,6 +115,11 @@ func (f *fakeReader) ShedDrilldown(_ context.Context, q domain.ExecutionQuery) (
 func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	f.lastRoster = q
 	return domain.ScanRosterResult{Rows: f.roster, NextCursor: f.rosterNext}, nil
+}
+
+func (f *fakeReader) ClassifyScanTag(_ context.Context, q domain.ScanTagClassificationQuery) (domain.ScanTagClassification, error) {
+	f.lastScanTag = q
+	return f.scanTag, nil
 }
 
 func (f *fakeReader) TaskOptionValues(context.Context, string, string) (domain.TaskOptionValuesResponse, error) {

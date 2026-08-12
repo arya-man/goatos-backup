@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormOption
@@ -1095,6 +1096,143 @@ class SubmitViewModelFormTest {
         advanceUntilIdle()
 
         assertNotNull("tapping Submit must enqueue the shed acknowledgement", sync.lastRequest)
+    }
+
+    @Test
+    fun `dual-vaccine per-goat submit summary counts goats not vaccine obligations`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-dual-vaccine-submit",
+            sopVersionId = "sop-dual-vaccine-submit",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-godel-part-1",
+            rowVersion = 1,
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera"),
+        )
+        val summary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Godel 1 - Part 1",
+            driveName = "Per-animal vaccination proof QA",
+            expectedCount = 6,
+            handledCount = 6,
+            proofReadyCount = 3,
+            vaccineBreakdown = listOf(
+                VaccineBreakdownItemDto(vaccine = "ET+TT", count = 3),
+                VaccineBreakdownItemDto(vaccine = "Sheep Pox", count = 3),
+            ),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "draft",
+        )
+        val scans = FakeScanCaptureRepository()
+        val proofs = FakeProofCaptureRepository()
+        (1..3).forEach { index ->
+            scans.recordScan(
+                taskId = task.taskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-$index",
+                goatId = "goat-$index",
+                obligationId = null,
+                obligationRowVersion = 1,
+                capturedAtMs = index.toLong(),
+                partitionLabel = null,
+            )
+            val proof = proofs.capture(
+                taskId = task.taskId,
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-$index",
+                localUri = "file://goat-$index.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "task",
+                scopeId = task.taskId,
+                capturedStartMs = index * 1_000L,
+                capturedEndMs = index * 1_000L + 500L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+                partitionLabel = null,
+            )
+            proofs.markSynced((proof as AppResult.Ok).value.id, "server-proof-$index")
+        }
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, FormSpec.Empty, proofPolicy = policy, shedSummary = summary),
+            CapturingSyncRepository(),
+            task.taskId,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("3 of 3 goats synced", viewModel.state.value.proofSummarySyncedLabel)
+        assertEquals(3, viewModel.state.value.shedCompletionSummary?.expectedCount)
+        assertEquals(3, viewModel.state.value.shedCompletionSummary?.handledCount)
+        assertEquals(3, viewModel.state.value.shedCompletionSummary?.proofReadyCount)
+        assertNull(viewModel.state.value.blockingReason)
+        assertTrue("local per-goat scan/proof subjects must override stale obligation-count backend disabled state", viewModel.state.value.canSubmit)
+    }
+
+    @Test
+    fun `dual-vaccine per-goat backend summary alone enables submit by goat count`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-dual-vaccine-summary-only-submit",
+            sopVersionId = "sop-dual-vaccine-summary-only-submit",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-godel-part-1",
+            rowVersion = 1,
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera"),
+        )
+        val summary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Godel 1 - Part 1",
+            driveName = "Per-animal vaccination proof QA",
+            expectedCount = 6,
+            handledCount = 6,
+            proofReadyCount = 3,
+            vaccineBreakdown = listOf(
+                VaccineBreakdownItemDto(vaccine = "ET+TT", count = 3),
+                VaccineBreakdownItemDto(vaccine = "Sheep Pox", count = 3),
+            ),
+            submitEnabled = false,
+            blockingReason = "3 proofs missing",
+            submitState = "draft",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, FormSpec.Empty, proofPolicy = policy, shedSummary = summary),
+            sync,
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("3 of 3 goats synced", viewModel.state.value.proofSummarySyncedLabel)
+        assertEquals(3, viewModel.state.value.shedCompletionSummary?.expectedCount)
+        assertEquals(3, viewModel.state.value.shedCompletionSummary?.handledCount)
+        assertNull("per-goat goat-count readiness should ignore obligation-count backend blocker", viewModel.state.value.blockingReason)
+        assertTrue("submit button must enable when 3 goats have proof for 6 vaccine obligations", viewModel.state.value.canSubmit)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertNotNull("defensive submit guard must use the same goat-count readiness as the button", sync.lastRequest)
     }
 
     @Test

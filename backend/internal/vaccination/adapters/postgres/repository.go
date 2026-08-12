@@ -1901,7 +1901,7 @@ eligible AS (
 -- materialize", so drive-% is correct across re-reads and an over-scan can never be masked by a
 -- stale, inflated expected_count.
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (

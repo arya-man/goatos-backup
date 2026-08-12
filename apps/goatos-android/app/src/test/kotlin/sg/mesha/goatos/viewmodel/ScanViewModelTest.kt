@@ -53,6 +53,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
+import sg.mesha.goatos.core.network.dto.ScanTagClassificationDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskPresentationDto
@@ -61,6 +62,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanError
+import sg.mesha.goatos.feature.scan.ProofUploadStatus
+import sg.mesha.goatos.feature.scan.ScanFeedTone
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -200,6 +203,67 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `neighbor partition RFID scan is accepted with amber warning and scoped to animal partition`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+                classifiedTag = ScanTagClassificationDto(
+                    outcome = "neighbor_partition",
+                    reason = "neighbor_partition",
+                    tag = "TAG-200",
+                    goatId = "goat-2",
+                    primaryTag = "TAG-200",
+                    vaccineLabel = "ET+TT + Sheep Pox",
+                    status = "due",
+                    obligationIds = listOf("obl-2-et", "obl-2-sp"),
+                    targetTaskId = "task-2",
+                    batchId = "batch-2",
+                    shedName = "Godel 1",
+                    partitionLabel = "Part 2",
+                    sourceShedName = "Godel 1",
+                    operationalLocationDisplay = "Godel 1 - Part 2",
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1", "partitionLabel" to "Part 1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, scanVm.state.value.ringDone)
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+
+        assertEquals(
+            "neighbor vaccination must not inflate the current partition roster count",
+            0,
+            scanVm.state.value.ringDone,
+        )
+        assertEquals(1, scanCaptures.recordScanCalls)
+        assertTrue("neighbor must not be persisted as a current-task scan", scanCaptures.rowsForTask("task-1").isEmpty())
+        assertEquals("2", scanCaptures.rowsForTask("task-2").single().partitionKey)
+        assertEquals("neighbor_partition", scanAttempts.calls.single().reason)
+        assertEquals(RfidScanAttemptOutcome.ACCEPTED, scanAttempts.calls.single().outcome)
+        assertTrue("current roster feed stays separate from neighbor animals", scanVm.state.value.feed.isEmpty())
+        val feed = scanVm.state.value.neighborRows.first()
+        assertEquals(ScanFeedTone.DUPLICATE, feed.tone)
+        assertEquals(ScanStatus.DONE, feed.status)
+        assertTrue(feed.vaccineLabel.contains("Godel 1 - Part 2"))
+        assertNull("neighbor is amber, not red error", scanVm.state.value.error)
+    }
+
+    @Test
     fun `persisted RFID capture restores done state after process recreation`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         scanCaptures.recordScan(
@@ -325,6 +389,97 @@ class ScanViewModelTest {
         assertEquals("already scanned duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
         assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
+    fun `one RFID scan completes all vaccine obligations for a dual-vaccine goat`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-et", vaccineLabel = "ET+TT"),
+                        scanRow("goat-1", "TAG-100", "obl-sp", vaccineLabel = "Sheep Pox"),
+                    ),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("ET+TT + Sheep Pox", scanVm.state.value.roster.single().vaccineLabel)
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        val scanned = scanVm.state.value
+        assertEquals("one animal should render green after a single scan", ScanStatus.DONE, scanned.roster.single().status)
+        assertEquals(1, scanned.doneCount)
+        assertEquals(0, scanned.pendingCount)
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals("one animal scan should create one durable capture, not one per vaccine", 1, scanCaptures.recordScanCalls)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
+        assertEquals("ET+TT + Sheep Pox", scanned.feed.single().vaccineLabel)
+
+        seedSyncedProof(proofRepo, "goat-1")
+        advanceUntilIdle()
+
+        assertTrue("dual-vaccine goat should submit after one scan and one proof", scanVm.state.value.canSubmit)
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("duplicate scan should still not create another capture", 1, scanCaptures.recordScanCalls)
+        assertEquals("Already scanned · ET+TT + Sheep Pox", scanVm.state.value.duplicateNotice)
+    }
+
+    @Test
+    fun `captured proof uploading still renders accepted green instead of duplicate yellow`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource(
+            mutableListOf(CapturedVideo(localUri = "file://goat-1.mp4", startedAtMs = 10, endedAtMs = 20)),
+        )
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        val state = scanVm.state.value
+        assertEquals(ScanStatus.DONE, state.roster.single().status)
+        assertEquals(ProofUploadStatus.UPLOADING, state.roster.single().proofUploadStatus)
+        assertTrue(state.roster.single().evidenceUploading)
+        assertEquals(
+            "saved local proof must render as accepted/green while upload is in flight",
+            ScanFeedTone.ACCEPTED,
+            state.feed.single().tone,
+        )
+        assertTrue("camera binding must stay mounted until that proof syncs", state.captureAccessRequired)
     }
 
     /**
@@ -967,6 +1122,7 @@ class ScanViewModelTest {
 
         assertTrue("all done animals proof-synced ⇒ submit allowed", vm.state.value.canSubmit)
         assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+        assertFalse("proof-ready done shed must open without the capture permission gate", vm.state.value.captureAccessRequired)
     }
 
     @Test
@@ -1004,6 +1160,7 @@ class ScanViewModelTest {
         assertEquals("shed-1", tasks.refreshedShedIds.single())
         assertTrue("server-confirmed shed proof readiness clears stale local orange state", vm.state.value.canSubmit)
         assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+        assertFalse("server-proof-ready shed must not be blocked by capture permissions before submit", vm.state.value.captureAccessRequired)
     }
 
     @Test
@@ -1492,12 +1649,18 @@ class ScanViewModelTest {
 
 }
 
-private fun scanRow(goatId: String, tag: String, obligationId: String, secondaryTag: String? = null): ScanRosterRowDto =
+private fun scanRow(
+    goatId: String,
+    tag: String,
+    obligationId: String,
+    secondaryTag: String? = null,
+    vaccineLabel: String = "ET",
+): ScanRosterRowDto =
     ScanRosterRowDto(
         goatId = goatId,
         primaryTag = tag,
         secondaryTag = secondaryTag,
-        vaccineLabel = "ET",
+        vaccineLabel = vaccineLabel,
         status = "pending",
         obligationId = obligationId,
     )
@@ -1527,6 +1690,7 @@ private class FakeScanExecutionRepository(
     warmCache: ScanRosterResponseDto? = null,
     private val refreshStarted: CompletableDeferred<Unit>? = null,
     private val refreshGate: CompletableDeferred<Unit>? = null,
+    private val classifiedTag: ScanTagClassificationDto = ScanTagClassificationDto(),
 ) : ExecutionRepository {
     // In-memory per-row SSOT — the fake mirrors the production contract: refreshScanRoster walks the
     // WHOLE roster into this list (with backend seq order); every read is a bounded/aggregate query
@@ -1597,6 +1761,23 @@ private class FakeScanExecutionRepository(
         rows.value.firstOrNull {
             it.normalizedPrimaryTag == normalizedTag || it.normalizedSecondaryTag == normalizedTag
         }
+
+    override suspend fun findScanRosterRowsByTag(
+        shedId: String,
+        taskId: String?,
+        normalizedTag: String,
+        partitionLabel: String?,
+    ): List<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity> =
+        rows.value.filter {
+            it.normalizedPrimaryTag == normalizedTag || it.normalizedSecondaryTag == normalizedTag
+        }
+
+    override suspend fun classifyScanTag(
+        shedId: String,
+        taskId: String,
+        tag: String,
+        partitionLabel: String?,
+    ): ScanTagClassificationDto = classifiedTag.copy(tag = classifiedTag.tag.ifBlank { tag })
 
     override fun observeScanRosterStatusCounts(
         shedId: String,

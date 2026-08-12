@@ -1788,11 +1788,11 @@ fun AppNavHost(
                         ScanEvent.Back -> navController.popBackStack()
                         ScanEvent.ReconnectReader -> navController.navigate(Routes.RFID) { launchSingleTop = true }
                         else -> vm.onEvent(event)
-                    }
                 }
+            }
+            BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
             if (state.captureAccessRequired) {
                 CaptureAccessGate {
-                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                     ScanScreen(state = state, onEvent = onScanEvent)
                 }
             } else {

@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
  *  observable contract closely enough to drive [SubmitViewModel] tests. */
 class FakeScanCaptureRepository : ScanCaptureRepository {
     private val rows = mutableListOf<ScannedGoatRow>()
+    private val rowTaskIds = mutableListOf<String>()
     private val flow = MutableStateFlow<List<ScannedGoatRow>>(emptyList())
     var recordScanCalls: Int = 0
         private set
@@ -68,6 +69,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
                 capturedAtMs = capturedAtMs ?: rows.size.toLong(),
                 partitionKey = partitionKey,
             )
+            rowTaskIds += taskId
             flow.value = rows.toList()
         }
     }
@@ -102,10 +104,12 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> =
         rows.filter { it.partitionKey == testPartitionKey(partitionLabel) }.map { it.tag }
 
-    fun rowsForTask(taskId: String): List<ScannedGoatRow> = rows.filter { it.fieldKey.isNotBlank() }
+    fun rowsForTask(taskId: String): List<ScannedGoatRow> =
+        rows.zip(rowTaskIds).filter { (_, rowTaskId) -> rowTaskId == taskId }.map { (row, _) -> row }
 
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
+        rowTaskIds.clear()
         flow.value = emptyList()
     }
 }

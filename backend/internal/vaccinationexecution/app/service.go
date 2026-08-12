@@ -390,7 +390,9 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	verificationStatus := verificationStatus(p)
 	workState := p.WorkState
 	computedWorkState := workStateFromProjection(p, q)
-	if workState == "" || computedWorkState == domain.WorkStateVerificationPending {
+	if workState == "" ||
+		workState == domain.WorkStateVerificationPending ||
+		computedWorkState == domain.WorkStateVerificationPending {
 		workState = computedWorkState
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
@@ -509,7 +511,7 @@ func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQue
 	if p.OperatorName == nil && p.CompletedCount < p.ObligationCount {
 		return domain.WorkStateBlocked
 	}
-	if p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0 {
+	if taskStateIs(p, "submitted", "needs_review") && p.ProofSubmittedCount > 0 {
 		return domain.WorkStateVerificationPending
 	}
 	if p.InProgressCount > 0 || batchStatusIs(p, "in_progress") || taskStateIs(p, "in_progress") {
@@ -586,9 +588,9 @@ func sopStatusFromProjection(p domain.ExecutionProjection) domain.SOPStatus {
 	switch {
 	case p.CompletionRejected > 0 || taskStateIs(p, "rework_requested", "rejected"):
 		return domain.SOPStatusRework
-	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
+	case taskStateIs(p, "accepted") || (p.CompletionAccepted > 0 && p.CompletionRecorded == 0):
 		return domain.SOPStatusAccepted
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case taskStateIs(p, "submitted", "needs_review") && p.ProofSubmittedCount > 0:
 		return domain.SOPStatusSubmitted
 	case taskStateIs(p, "in_progress"):
 		return domain.SOPStatusInProgress
@@ -601,9 +603,9 @@ func proofStatus(p domain.ExecutionProjection) domain.ProofStatus {
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.ProofStatusRejected
-	case p.CompletionAccepted > 0 && p.CompletionRecorded == 0:
+	case taskStateIs(p, "accepted") || (p.CompletionAccepted > 0 && p.CompletionRecorded == 0):
 		return domain.ProofStatusAccepted
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case taskStateIs(p, "submitted", "needs_review") && p.ProofSubmittedCount > 0:
 		return domain.ProofStatusUploaded
 	default:
 		return domain.ProofStatusMissing
@@ -614,12 +616,10 @@ func verificationStatus(p domain.ExecutionProjection) domain.VerificationStatus 
 	switch {
 	case p.CompletionRejected > 0:
 		return domain.VerificationStatusRejected
-	case p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0:
+	case taskStateIs(p, "accepted") || (p.ObligationCount > 0 && p.CompletionAccepted == p.ObligationCount && p.CompletionRecorded == 0):
 		return domain.VerificationStatusVerified
-	case p.CompletionRecorded > 0 || p.ProofSubmittedCount > 0:
+	case taskStateIs(p, "submitted", "needs_review") && p.ProofSubmittedCount > 0:
 		return domain.VerificationStatusPending
-	case p.CompletionAccepted > 0 && p.CompletedCount == p.ObligationCount:
-		return domain.VerificationStatusVerified
 	default:
 		return domain.VerificationStatusNotReady
 	}
@@ -720,11 +720,14 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 }
 
 func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, openCount int) string {
-	if p.SOPTaskID == nil || *p.SOPTaskID == "" || openCount <= 0 {
+	if p.SOPTaskID == nil || *p.SOPTaskID == "" {
 		return "none"
 	}
 	switch workState {
 	case domain.WorkStateDue, domain.WorkStateOverdue, domain.WorkStateInProgress, domain.WorkStateProofPending:
+		if openCount <= 0 && workState != domain.WorkStateInProgress && workState != domain.WorkStateProofPending {
+			return "none"
+		}
 		return "scan"
 	default:
 		return "none"
@@ -735,6 +738,10 @@ func primaryActionKey(p domain.ExecutionProjection, workState domain.WorkState, 
 // Used by the mobile scan screen to match keyboard-wedge tag captures.
 func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	return s.repo.ScanRoster(ctx, q)
+}
+
+func (s *Service) ClassifyScanTag(ctx context.Context, q domain.ScanTagClassificationQuery) (domain.ScanTagClassification, error) {
+	return s.repo.ClassifyScanTag(ctx, q)
 }
 
 func (s *Service) TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error) {

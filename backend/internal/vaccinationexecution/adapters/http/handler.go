@@ -40,6 +40,7 @@ type Reader interface {
 	VaccinationSchedule(ctx context.Context, q vaccexecd.ScheduleQuery) (vaccexecd.OperationsResponse, error)
 	DriveAssignments(ctx context.Context, q vaccexecd.DriveAssignmentQuery) (vaccexecd.DriveAssignmentResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
+	ClassifyScanTag(ctx context.Context, q vaccexecd.ScanTagClassificationQuery) (vaccexecd.ScanTagClassification, error)
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
 	VaccinationGaps(ctx context.Context, q vaccexecd.GapsQuery) (vaccexecd.GapsResponse, error)
@@ -170,6 +171,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
+	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/scan-tag", h.ClassifyScanTag)
 	mux.HandleFunc("GET /app/vaccination/tasks/{task_id}/option-values", h.TaskOptionValues)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
@@ -779,6 +781,43 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		response["next_cursor"] = encoded
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) ClassifyScanTag(w http.ResponseWriter, r *http.Request) {
+	shedID := r.PathValue("shed_id")
+	if !uuidutil.IsUUIDString(shedID) {
+		h.badRequest(w, r, "invalid_shed_id", "shed_id must be a UUID")
+		return
+	}
+	query := r.URL.Query()
+	taskID := query.Get("task_id")
+	if taskID == "" || !uuidutil.IsUUIDString(taskID) {
+		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
+		return
+	}
+	tag := strings.TrimSpace(query.Get("tag"))
+	if tag == "" {
+		h.badRequest(w, r, "invalid_tag", "tag is required")
+		return
+	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" || !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "operator_scope_required", "app vaccination scan tag classification requires an authenticated operator scope")
+		return
+	}
+	result, err := h.reader.ClassifyScanTag(r.Context(), vaccexecd.ScanTagClassificationQuery{
+		TenantID:             tenantID(r),
+		ShedID:               shedID,
+		TaskID:               taskID,
+		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
+		Tag:                  tag,
+		OperatorScopeActorID: actorID,
+	})
+	if err != nil {
+		h.writeReadError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
 }
 
 func isAppExecutionRoute(r *http.Request) bool {

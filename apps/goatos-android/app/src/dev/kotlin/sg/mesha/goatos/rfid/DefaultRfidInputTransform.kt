@@ -24,7 +24,7 @@ class DefaultRfidInputTransform @Inject constructor() : RfidInputTransform {
     private companion object {
         val phoneFixtureShedPrefixes = mapOf(
             // Godel 1 (CBE) holds the raw tags, so it is intentionally absent from this map.
-            "91000000-0000-4000-8000-000000000203" to "Y1-", // Yashoda 1 (CBE)
+            "91000000-0000-4000-8000-000000000203" to "GD2-", // Godel 1 - Part 2 (CBE)
             "9c000000-0000-4000-8000-000000000301" to "G1-", // Gandhi 1 (CBE)
             "9c000000-0000-4000-8000-000000000302" to "G2-", // Gandhi 2 (CBE)
             "91000000-0000-4000-8000-000000000202" to "M2-", // Mandela 2 (CPT)

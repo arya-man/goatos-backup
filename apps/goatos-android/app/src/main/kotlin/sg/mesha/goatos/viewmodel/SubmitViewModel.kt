@@ -596,19 +596,25 @@ class SubmitViewModel @Inject constructor(
         // shed-completion summary is present, never enqueue the acknowledgement unless the
         // backend reports submit_enabled — the empty SOP form otherwise has no client gate.
         if (currentShedCompletionSummary != null) {
+            val summary = currentShedCompletionSummary
+            val perGoatReadiness = currentPerGoatProofReadiness()
             val proofReadiness = currentShedProofReadiness()
             val formBlock = if (currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(currentForm, current)?.blockedReason
             val ready = if (currentProofPolicy.isShedLevelVideo) {
-                currentShedCompletionSummary?.handledCount == currentShedCompletionSummary?.expectedCount &&
+                summary?.handledCount == summary?.expectedCount &&
                     proofReadiness.blockingReason == null &&
                     formBlock == null
             } else {
-                currentShedCompletionSummary?.submitEnabled == true && formBlock == null
+                (summary?.submitEnabled == true || perGoatReadiness.ready) && formBlock == null
             }
             if (!ready) {
                 // Distinguishes "operator tapped a blocked submit" from "never tried" — the
                 // disabled-button dead end previously recorded nothing at all.
-                val reason = proofReadiness.blockingReason ?: formBlock ?: "shed_not_ready"
+                val reason = if (currentProofPolicy.isPerGoatVideo) {
+                    perGoatReadiness.blockingReason
+                } else {
+                    proofReadiness.blockingReason
+                } ?: formBlock ?: "shed_not_ready"
                 AnalyticsFunnels.trackSubmitBlocked(analytics, current.taskId, reason)
                 return
             }
@@ -948,9 +954,9 @@ class SubmitViewModel @Inject constructor(
         // shed-level proof-video field on the submit screen. Hide the form only for the legacy
         // per-goat proof mode where proof capture lives on each goat row.
         val formRunner = if (summary != null && currentProofPolicy.isPerGoatVideo) null else buildFormRunnerState(form, task)
-        val goatIds = currentScans
-            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
-            .distinct()
+        val perGoatReadiness = currentPerGoatProofReadiness()
+        val goatIds = perGoatReadiness.scannedGoatIds
+        val localAnimalIds = perGoatReadiness.localAnimalIds
         // R50-029: group once instead of re-filtering the full proof list 3x per goat below.
         val proofsByGoat = currentProofs.filter { it.proofSubject == ProofSubject.GOAT }.groupBy { it.subjectId }
         fun proofsFor(goatId: String): List<ProofCaptureRow> = proofsByGoat[goatId].orEmpty()
@@ -980,8 +986,11 @@ class SubmitViewModel @Inject constructor(
                 failed = shedProofReadiness.failed,
             )
         } else {
-            val expectedProofCount = summary?.expectedCount ?: goatIds.size
-            val readyProofCount = summary?.proofReadyCount ?: syncedProofs
+            // The backend summary can be obligation-based for dual-vaccine sheds (3 goats x 2
+            // vaccine obligations = expectedCount 6). This screen is per-goat proof, so render the
+            // animal denominator from distinct goat ids whenever Room has the scan/proof subjects.
+            val expectedProofCount = perGoatReadiness.expectedCount.takeIf { it > 0 } ?: summary?.expectedCount ?: goatIds.size
+            val readyProofCount = perGoatReadiness.readyCount.coerceAtMost(expectedProofCount)
             ProofSummaryState(
                 title = "Goat camera proof",
                 label = "$readyProofCount of $expectedProofCount goats synced",
@@ -993,16 +1002,26 @@ class SubmitViewModel @Inject constructor(
             )
         }
         val shedCompletionSummary = if (summary != null) {
+            val animalExpectedCount = if (currentProofPolicy.isPerGoatVideo) {
+                perGoatReadiness.expectedCount.takeIf { it > 0 } ?: summary.expectedCount
+            } else {
+                summary.expectedCount
+            }
+            val animalHandledCount = if (currentProofPolicy.isPerGoatVideo) {
+                goatIds.size.takeIf { it > 0 } ?: summary.handledCount
+            } else {
+                summary.handledCount
+            }
             ShedCompletionSummary(
                 taskId = summary.taskId,
                 shedName = summary.shedName,
                 driveName = summary.driveName,
-                expectedCount = summary.expectedCount,
-                handledCount = summary.handledCount,
+                expectedCount = animalExpectedCount,
+                handledCount = animalHandledCount.coerceAtMost(animalExpectedCount),
                 proofReadyCount = if (currentProofPolicy.isShedLevelVideo) {
                     shedProofReadiness.synced
                 } else {
-                    summary.proofReadyCount
+                    proofSummary.synced
                 },
                 proofMode = summary.proofMode,
                 submitState = summary.submitState,
@@ -1012,6 +1031,8 @@ class SubmitViewModel @Inject constructor(
             .map { VaccineSummaryItem(vaccine = it.vaccine, count = it.count) }
         val summaryReady = if (summary != null && currentProofPolicy.isShedLevelVideo) {
             summary.handledCount == summary.expectedCount && shedProofReadiness.blockingReason == null
+        } else if (summary != null && currentProofPolicy.isPerGoatVideo) {
+            summary.submitEnabled || perGoatReadiness.ready
         } else {
             summary?.submitEnabled ?: true
         }
@@ -1022,7 +1043,7 @@ class SubmitViewModel @Inject constructor(
                 else -> null
             }
         } else {
-            summary?.blockingReason
+            summary?.blockingReason?.takeUnless { perGoatReadiness.ready }
         }
         return submitPlaceholder().copy(
             eyebrow = task.presentation?.eyebrow.orEmpty(),
@@ -1065,6 +1086,78 @@ class SubmitViewModel @Inject constructor(
         val failed: Int,
         val blockingReason: String?,
     )
+
+    private data class PerGoatProofReadiness(
+        val expectedCount: Int,
+        val readyCount: Int,
+        val scannedGoatIds: List<String>,
+        val localAnimalIds: List<String>,
+        val ready: Boolean,
+        val blockingReason: String?,
+    )
+
+    private fun currentPerGoatProofReadiness(): PerGoatProofReadiness {
+        val summary = currentShedCompletionSummary
+        val scannedGoatIds = currentScans
+            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
+            .distinct()
+        val proofGoatIds = currentProofs
+            .filter { it.proofSubject == ProofSubject.GOAT }
+            .mapNotNull { it.subjectId?.takeIf(String::isNotBlank) }
+            .distinct()
+        val localAnimalIds = (scannedGoatIds + proofGoatIds).distinct()
+        val completedProofGoatIds = currentProofs
+            .filter { it.proofSubject == ProofSubject.GOAT && it.isCompletedProofRef() }
+            .mapNotNull { it.subjectId?.takeIf(String::isNotBlank) }
+            .distinct()
+        val vaccineCounts = summary?.vaccineBreakdown
+            ?.map { it.count }
+            ?.filter { it > 0 }
+            .orEmpty()
+        val expectedFromDuplicatedObligations = vaccineCounts
+            .takeIf { counts ->
+                summary != null &&
+                    counts.size > 1 &&
+                    counts.sum() == summary.expectedCount &&
+                    counts.maxOrNull() != summary.expectedCount
+            }
+            ?.maxOrNull()
+        val expectedCount = localAnimalIds.size.takeIf { it > 0 }
+            ?: expectedFromDuplicatedObligations
+            ?: summary?.expectedCount
+            ?: scannedGoatIds.size
+        val localReadyCount = if (scannedGoatIds.isNotEmpty()) {
+            scannedGoatIds.count { it in completedProofGoatIds }
+        } else {
+            completedProofGoatIds.size
+        }
+        val readyCount = maxOf(summary?.proofReadyCount ?: 0, localReadyCount)
+            .coerceAtMost(expectedCount.coerceAtLeast(0))
+        val handledReady = when {
+            expectedCount <= 0 -> false
+            localAnimalIds.size >= expectedCount -> true
+            summary != null && summary.handledCount >= summary.expectedCount -> true
+            summary != null && summary.handledCount >= expectedCount -> true
+            else -> false
+        }
+        val ready = currentProofPolicy.isPerGoatVideo &&
+            expectedCount > 0 &&
+            readyCount >= expectedCount &&
+            handledReady
+        val blockingReason = if (ready) {
+            null
+        } else {
+            summary?.blockingReason ?: "Add and sync a camera clip for every scanned goat before submitting."
+        }
+        return PerGoatProofReadiness(
+            expectedCount = expectedCount,
+            readyCount = readyCount,
+            scannedGoatIds = scannedGoatIds,
+            localAnimalIds = localAnimalIds,
+            ready = ready,
+            blockingReason = blockingReason,
+        )
+    }
 
     private fun currentShedProofReadiness(): ShedProofReadiness {
         val required = currentProofPolicy.minimumCount.coerceAtLeast(1)

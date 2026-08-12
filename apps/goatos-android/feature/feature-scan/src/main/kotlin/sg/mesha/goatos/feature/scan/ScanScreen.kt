@@ -258,6 +258,7 @@ data class ScanUiState(
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
     val proofActionNeeded: List<RosterRow> = emptyList(),
+    val neighborRows: List<ScanFeedEntry> = emptyList(),
     val duplicateNotice: String? = null,
     val readerConnection: ScanReaderConnection? = null,
     val shedId: String? = null,
@@ -461,11 +462,27 @@ fun ScanScreen(
                         }
                     }
                 }
+                if (state.neighborRows.isNotEmpty()) {
+                    item { NeighborRosterHeader(count = state.neighborRows.size) }
+                    itemsIndexed(
+                        state.neighborRows,
+                        key = { index, entry -> "neighbor|${entry.goatId}|${entry.primaryTag}|$index" },
+                        contentType = { _, _ -> "neighbor_row" },
+                    ) { _, entry ->
+                        FeedRow(
+                            entry = entry,
+                            armedForReplacement = state.proofReplacementGoatId == entry.goatId,
+                            onReplace = { onEvent(ScanEvent.ArmProofReplacement(entry.goatId)) },
+                        )
+                    }
+                }
                 val proofActionTags = state.proofActionNeeded.flatMap { row ->
                     listOfNotNull(row.primaryTag, row.secondaryTag)
                 }.toSet()
                 val visibleFeed = state.feed.filterNot { entry ->
-                    entry.primaryTag in proofActionTags || entry.secondaryTag in proofActionTags
+                    entry.primaryTag in proofActionTags ||
+                        entry.secondaryTag in proofActionTags ||
+                        state.neighborRows.any { neighbor -> feedIdentity(neighbor) == feedIdentity(entry) }
                 }
                 if (visibleFeed.isEmpty()) {
                     if (state.proofActionNeeded.isEmpty()) {
@@ -520,6 +537,9 @@ fun ScanScreen(
         ShedSwitcherOverlay(state = state, onEvent = onEvent)
     }
 }
+
+private fun feedIdentity(entry: ScanFeedEntry): String =
+    entry.goatId.takeIf { it.isNotBlank() } ?: entry.primaryTag
 
 @Composable
 private fun ReaderConnectionBanner(
@@ -1124,7 +1144,7 @@ private fun FeedRow(
         entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
             if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.brandD else toneColor
         entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
-        entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.warning
+        entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.brandD
         entry.tone == ScanFeedTone.ACCEPTED -> ScanTokens.brandD
         else -> toneColor
     }
@@ -1187,6 +1207,20 @@ private fun ProofGate(rows: List<RosterRow>) {
     Text(
         text = copy,
         color = if (failed) ScanTokens.danger else ScanTokens.warning,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun NeighborRosterHeader(count: Int) {
+    Text(
+        text = "Neighbor animals · $count",
+        color = ScanTokens.warning,
         fontSize = 13.sp,
         lineHeight = 18.sp,
         fontWeight = FontWeight.Bold,
@@ -1367,12 +1401,12 @@ private fun TagLine(primaryTag: String, secondaryTag: String?, color: Color) {
 }
 
 private fun proofLineAndTone(row: RosterRow): Pair<String, ScanFeedTone> = when {
-    row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
-        (row.proofStatusLabel ?: "Uploading proof · retrying if needed") to ScanFeedTone.DUPLICATE
     row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
         (row.proofStatusLabel ?: "Upload failed · scan again to replace") to ScanFeedTone.REJECTED
     row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
         (row.proofStatusLabel ?: "Proof synced") to ScanFeedTone.ACCEPTED
+    row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
+        (row.proofStatusLabel ?: "Proof saved · syncing") to ScanFeedTone.ACCEPTED
     else ->
         "Scan again to record proof" to ScanFeedTone.DUPLICATE
 }
@@ -1634,6 +1668,7 @@ private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) 
     }
     val proofColor = when {
         row.evidenceSyncedCount > 0 -> ScanTokens.brand
+        row.evidenceUploading -> ScanTokens.brand
         row.evidenceFailed -> ScanTokens.danger
         else -> ScanTokens.warning
     }
@@ -1699,7 +1734,9 @@ private fun ScanListRow(row: RosterRow) {
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed -> ScanFeedTone.REJECTED
         row.status == ScanStatus.DONE && row.proofRequired &&
             row.proofUploadStatus != ProofUploadStatus.SYNCED &&
-            row.evidenceSyncedCount <= 0 -> ScanFeedTone.DUPLICATE
+            row.evidenceSyncedCount <= 0 &&
+            row.proofUploadStatus != ProofUploadStatus.UPLOADING &&
+            !row.evidenceUploading -> ScanFeedTone.DUPLICATE
         else -> ScanFeedTone.ACCEPTED
     }
     val secondaryLine = when {
@@ -1708,10 +1745,10 @@ private fun ScanListRow(row: RosterRow) {
         // also claim its proof is still uploading.
         row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
             row.proofStatusLabel ?: row.scannedAtLabel
-        row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
-            row.proofStatusLabel ?: "Uploading proof · retrying if needed"
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
             row.proofStatusLabel ?: "Upload failed · retry or scan again"
+        row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
+            row.proofStatusLabel ?: "Proof saved · syncing"
         row.scannedAtLabel != null -> row.scannedAtLabel
         row.status == ScanStatus.DONE && tone == ScanFeedTone.DUPLICATE -> "Scan again to record proof"
         else -> null

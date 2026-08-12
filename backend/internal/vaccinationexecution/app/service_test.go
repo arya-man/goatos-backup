@@ -90,6 +90,10 @@ func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) (domai
 	return domain.ScanRosterResult{Rows: r.roster}, nil
 }
 
+func (r fakeRepo) ClassifyScanTag(_ context.Context, _ domain.ScanTagClassificationQuery) (domain.ScanTagClassification, error) {
+	return domain.ScanTagClassification{}, r.err
+}
+
 func (r fakeRepo) TaskOptionValues(_ context.Context, _, _ string) (domain.TaskOptionValuesResponse, error) {
 	return domain.TaskOptionValuesResponse{}, r.err
 }
@@ -154,6 +158,7 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 	dueTomorrow := asOf.Add(24 * time.Hour)
 	operator := "Operator A"
 	parkHead := "Park Head"
+	submittedState := "submitted"
 	rows := []domain.ExecutionProjection{
 		projection("shed-overdue", dueYesterday, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
@@ -165,7 +170,9 @@ func TestVaccinationExecutionMapsProcessStates(t *testing.T) {
 		projection("shed-proof", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.ParkHeadName = &parkHead
+			p.TaskState = &submittedState
 			p.CompletionRecorded = 1
+			p.ProofSubmittedCount = 1
 		}),
 		projection("shed-blocked", dueTomorrow, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
@@ -384,15 +391,73 @@ func TestVaccinationExecutionSharedTaskReviewDoesNotLeakToShedWithoutSubmittedPr
 	}
 }
 
+func TestVaccinationExecutionScannedShedWithoutSubmitStaysOpenable(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	due := asOf.Add(24 * time.Hour)
+	operator := "Operator A"
+	taskState := "assigned"
+	batchStatus := "in_progress"
+	taskID := "9b000000-0000-4000-8000-000000000701"
+	rows := []domain.ExecutionProjection{
+		projection("godel-1-part-1", due, 1, func(p *domain.ExecutionProjection) {
+			p.OperatorName = &operator
+			p.TaskState = &taskState
+			p.SOPTaskID = &taskID
+			p.BatchStatus = &batchStatus
+			p.ObligationCount = 3
+			p.ScheduledCount = 3
+			p.InProgressCount = 3
+			p.ScannedCount = 3
+			p.ProofSubmittedCount = 3
+			p.WorkState = domain.WorkStateVerificationPending
+		}),
+	}
+	svc := NewService(fakeRepo{rows: rows})
+
+	got, err := svc.VaccinationExecution(context.Background(), domain.ExecutionQuery{
+		TenantID:  "tenant",
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecution() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows want 1", len(got))
+	}
+	row := got[0]
+	if row.WorkState != domain.WorkStateInProgress {
+		t.Fatalf("workState = %q want in_progress before shed submit", row.WorkState)
+	}
+	if row.SOPStatus != domain.SOPStatusNotStarted {
+		t.Fatalf("sopStatus = %q want not_started before shed submit", row.SOPStatus)
+	}
+	if row.ProofStatus != domain.ProofStatusMissing || row.VerificationStatus != domain.VerificationStatusNotReady {
+		t.Fatalf("proof/verification = %q/%q want missing/not_ready before shed submit", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.PrimaryActionKey != "scan" {
+		t.Fatalf("primaryActionKey = %q want scan before shed submit", row.PrimaryActionKey)
+	}
+	if row.TargetCount != 3 || row.OpenCount != 0 || row.DoneCount != 3 {
+		t.Fatalf("counts = target %d open %d done %d want 3/0/3", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+}
+
 func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	asOf := time.Date(2026, 6, 24, 10, 0, 0, 0, time.UTC)
 	due := asOf.Add(24 * time.Hour)
 	operator := "Operator A"
 	state := domain.WorkStateVerificationPending
+	submittedState := "submitted"
 	svc := NewService(fakeRepo{rows: []domain.ExecutionProjection{
 		projection("shed-1", due, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
+			p.TaskState = &submittedState
 			p.CompletionRecorded = 1
+			p.ProofSubmittedCount = 1
 			p.PhysicalShed = "Godel 1"
 			p.Partition = "Part 3"
 		}),

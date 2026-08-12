@@ -43,6 +43,9 @@ type Repository interface {
 	// (Rows + NextCursor); the shed's completion counts are computed server-side, not by loading the
 	// full roster on the device.
 	ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error)
+	// ClassifyScanTag returns one RFID's relationship to the current scan partition so mobile can
+	// show sibling-partition warnings without downloading every partition roster.
+	ClassifyScanTag(ctx context.Context, q domain.ScanTagClassificationQuery) (domain.ScanTagClassification, error)
 	// TaskOptionValues returns the authored option sources (vaccine lots FEFO-ranked, route/site) for a
 	// SOP task's capture form, so the device never enumerates inventory to populate a picker.
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error)

@@ -193,7 +193,7 @@ class ScanViewModel @Inject constructor(
     // goat is queued here and [requestGoatProof]'s own `finally` opens its camera automatically
     // the instant the in-flight job completes. Only the LAST queued goat survives a later scan —
     // see the drop notice in [requestGoatProof].
-    private var pendingProofRow: RosterRow? = null
+    private var pendingProofRow: PendingProofRequest? = null
     // Flips true the instant `proofCaptureSource.captureVideo(...)` RETURNS a non-null
     // [sg.mesha.goatos.capture.CapturedVideo] for the in-flight goat — i.e. once a real, complete
     // recording exists and hand-off to Room/the outbox has begun. From that point the capture must
@@ -228,6 +228,7 @@ class ScanViewModel @Inject constructor(
     // requiring proof); rebuilt from the SSOT after a refresh via [persistedDoneGoatIds].
     private val _localDoneGoatIds = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
+    private val _neighborFeed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
     // Transient "already scanned ·" strip shown under the tap-hint card on a re-scan of an
     // already-DONE tag. Does NOT add a feed row (that would pile up duplicates) — cleared on the
@@ -254,6 +255,7 @@ class ScanViewModel @Inject constructor(
         _localDone,
         _localDoneGoatIds,
         _feed,
+        _neighborFeed,
         reader.status,
         reader.readerName,
         statusCounts,
@@ -282,20 +284,21 @@ class ScanViewModel @Inject constructor(
         val localDone = persistedDone + (values[10] as Set<String>)
         val localDoneGoats = values[11] as Set<String>
         val feed = values[12] as List<ScanFeedEntry>
-        val readerStatus = values[13] as RfidReaderStatus
-        val readerName = values[14] as String?
-        val counts = values[15] as List<StatusCount>
-        val proofs = values[16] as List<ProofCaptureRow>?
+        val neighborFeed = values[13] as List<ScanFeedEntry>
+        val readerStatus = values[14] as RfidReaderStatus
+        val readerName = values[15] as String?
+        val counts = values[16] as List<StatusCount>
+        val proofs = values[17] as List<ProofCaptureRow>?
         val proofRows = proofs.orEmpty()
-        val operatorAllowed = values[17] as Boolean?
-        val refreshError = values[18] as String?
-        val policy = values[19] as ProofPolicy
-        val duplicateNotice = values[20] as String?
-        val scanErrorNotice = values[21] as ScanError?
-        val detail = values[22] as TaskDetail?
-        val proofReplacementGoatId = values[23] as String?
-        val proofSyncingStartedAt = values[24] as Map<String, Long>
-        val shedSummary = values[25] as ShedCompletionSummaryDto?
+        val operatorAllowed = values[18] as Boolean?
+        val refreshError = values[19] as String?
+        val policy = values[20] as ProofPolicy
+        val duplicateNotice = values[21] as String?
+        val scanErrorNotice = values[22] as ScanError?
+        val detail = values[23] as TaskDetail?
+        val proofReplacementGoatId = values[24] as String?
+        val proofSyncingStartedAt = values[25] as Map<String, Long>
+        val shedSummary = values[26] as ShedCompletionSummaryDto?
         // Cold cache (no rows persisted) + failed refresh → error/retry state. A warm cache stays on
         // screen; the refresh failure only flips the offline indicator.
         val error = if (total == 0 && refreshError != null) {
@@ -394,7 +397,12 @@ class ScanViewModel @Inject constructor(
         val serverFeed = gate.roster
             .asSequence()
             .filter { it.status == ScanStatus.DONE && !it.scannedAtLabel.isNullOrBlank() }
-            .filterNot { it.goatId in proofActionGoatIds }
+            .filterNot {
+                it.goatId in proofActionGoatIds &&
+                    it.proofUploadStatus != ProofUploadStatus.UPLOADING &&
+                    !it.evidenceUploading &&
+                    it.evidenceSyncedCount <= 0
+            }
             .map {
                 ScanFeedEntry(
                     primaryTag = it.primaryTag,
@@ -412,7 +420,9 @@ class ScanViewModel @Inject constructor(
                     tone = if (
                         policy.isPerGoatVideo &&
                         it.proofUploadStatus != ProofUploadStatus.SYNCED &&
-                        it.evidenceSyncedCount <= 0
+                        it.evidenceSyncedCount <= 0 &&
+                        it.proofUploadStatus != ProofUploadStatus.UPLOADING &&
+                        !it.evidenceUploading
                     ) {
                         ScanFeedTone.DUPLICATE
                     } else {
@@ -421,11 +431,35 @@ class ScanViewModel @Inject constructor(
                 )
             }
             .toList()
-        val serverFeedKeys = serverFeed.map { it.primaryTag to it.vaccineLabel }.toSet()
-        val mergedFeed = serverFeed + feed.filterNot { (it.primaryTag to it.vaccineLabel) in serverFeedKeys }
+        val serverFeedKeys = serverFeed.map { feedKey(it.goatId, it.primaryTag, it.vaccineLabel) }.toSet()
+        val rosterProofByFeedKey = gate.roster
+            .associateBy { feedKey(it.goatId, it.primaryTag, it.vaccineLabel) }
+        val mergedFeed = (serverFeed + feed.filterNot { feedKey(it.goatId, it.primaryTag, it.vaccineLabel) in serverFeedKeys })
+            .map { entry ->
+                val rosterRow = rosterProofByFeedKey[feedKey(entry.goatId, entry.primaryTag, entry.vaccineLabel)]
+                    ?: return@map entry
+                if (
+                    rosterRow.proofUploadStatus == ProofUploadStatus.UPLOADING ||
+                    rosterRow.evidenceUploading ||
+                    rosterRow.proofUploadStatus == ProofUploadStatus.SYNCED ||
+                    rosterRow.evidenceSyncedCount > 0
+                ) {
+                    entry.copy(
+                        proofStatusLabel = rosterRow.proofStatusLabel,
+                        proofUploadStatus = rosterRow.proofUploadStatus,
+                        evidenceSyncedCount = rosterRow.evidenceSyncedCount,
+                        evidenceUploading = rosterRow.evidenceUploading,
+                        evidenceFailed = rosterRow.evidenceFailed,
+                        tone = ScanFeedTone.ACCEPTED,
+                    )
+                } else {
+                    entry
+                }
+            }
         gate.copy(
             cohortLabel = scanHeaderTitle(routeScanTitle, detail),
             feed = mergedFeed,
+            neighborRows = neighborFeed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
             lastSyncedAt = rows.maxOfOrNull { it.updatedAt } ?: gate.lastSyncedAt,
@@ -588,8 +622,64 @@ class ScanViewModel @Inject constructor(
         val target = normalize(tag)
         if (target.isEmpty()) return
         viewModelScope.launch {
-            // R50-007: Find by tag in full shed roster via bounded indexed Room query
-            val dbRow = repo.findScanRosterByTag(id, taskId, target, partitionLabel) ?: run {
+            // R50-007: Find by tag in full shed roster via bounded indexed Room query.
+            // A dual-vaccine animal has one roster row per vaccine obligation, so keep the
+            // whole matched goat group instead of taking LIMIT 1 and hiding the sibling vaccine.
+            val tagRows = repo.findScanRosterRowsByTag(id, taskId, target, partitionLabel)
+            if (tagRows.isEmpty()) {
+                val classified = taskId?.takeIf(String::isNotBlank)
+                    ?.let { selectedTaskId ->
+                        runCatching { repo.classifyScanTag(id, selectedTaskId, tag, partitionLabel) }.getOrNull()
+                    }
+                if (classified?.outcome == "neighbor_partition") {
+                    val selectedTaskId = taskId?.takeIf(String::isNotBlank) ?: return@launch
+                    val obligationIds = classified.obligationIds.filterTo(mutableSetOf()) { it.isNotBlank() }
+                    if (classified.goatId.isBlank() || obligationIds.isEmpty()) {
+                        _proofReplacementGoatId.value = null
+                        _duplicateNotice.value = null
+                        _scanErrorNotice.value = ScanError(message = "Unknown tag · not in this shed", tag = tag)
+                        recordScanAttempt(tag, null, RfidScanAttemptOutcome.UNKNOWN, RfidScanTagRole.UNKNOWN, "unknown_tag", capturedAtMs)
+                        return@launch
+                    }
+                    _proofReplacementGoatId.value = null
+                    _scanErrorNotice.value = null
+                    val location = classified.operationalLocationDisplay.ifBlank {
+                        operationalLocationLabel(classified.shedName, classified.partitionLabel)
+                    }.ifBlank { "another partition" }
+                    val vaccineLabel = classified.vaccineLabel.ifBlank { "vaccination" }
+                    val message = "Neighbor partition · $location · $vaccineLabel"
+                    _duplicateNotice.value = message
+                    val row = RosterRow(
+                        primaryTag = classified.primaryTag.ifBlank { tag },
+                        secondaryTag = classified.secondaryTag,
+                        vaccineLabel = vaccineLabel,
+                        status = ScanStatus.PENDING,
+                        goatId = classified.goatId,
+                        obligationId = obligationIds.first(),
+                        obligationRowVersion = classified.obligationRowVersion,
+                    )
+                    recordScanAttempt(
+                        tag = tag,
+                        row = row,
+                        outcome = RfidScanAttemptOutcome.ACCEPTED,
+                        tagRole = row.tagRoleFor(target),
+                        reason = "neighbor_partition",
+                        capturedAtMs = capturedAtMs,
+                    )
+                    markRowDone(
+                        row,
+                        capturedAtMs,
+                        obligationIds,
+                        feedLabel = message,
+                        feedTone = ScanFeedTone.DUPLICATE,
+                        countInCurrentScope = false,
+                        neighborScope = true,
+                    )
+                    val targetTaskId = classified.targetTaskId.ifBlank { selectedTaskId }
+                    recordRosterScan(row, tag, capturedAtMs, classified.partitionLabel, targetTaskId)
+                    requestGoatProof(row, classified.partitionLabel, targetTaskId)
+                    return@launch
+                }
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
                 _scanErrorNotice.value = ScanError(message = "Unknown tag · not in this shed", tag = tag)
@@ -609,15 +699,30 @@ class ScanViewModel @Inject constructor(
                 }
                 return@launch
             }
+            val sameGoatRows = tagRows
+                .groupBy { it.goatId.ifBlank { it.id } }
+                .values
+                .maxBy { it.size }
+            val dbRow = sameGoatRows.collapseByGoat().first()
+            val obligationIds = sameGoatRows
+                .mapNotNull { it.obligationId.takeIf(String::isNotBlank) }
+                .toSet()
             // Map DB row to UI row for status and tag-role matching, overlaying the session's
             // local unsynced DONE edits (same overlay as applyResource) so a re-scan of an
             // already-locally-done goat takes the DUPLICATE path, not a second capture.
-            val locallyDone = dbRow.obligationId.isNotBlank() && dbRow.obligationId in draftDoneIds()
+            val draftDone = draftDoneIds()
+            val locallyDone = obligationIds.isNotEmpty() && obligationIds.all { it in draftDone }
+            val locallyPending = obligationIds.any { it !in draftDone }
+            val status = when {
+                locallyDone -> ScanStatus.DONE
+                locallyPending && sameGoatRows.any { statusOf(it.status) == ScanStatus.PENDING } -> ScanStatus.PENDING
+                else -> statusOf(dbRow.status)
+            }
             val row = RosterRow(
                 primaryTag = dbRow.primaryTag,
                 secondaryTag = dbRow.secondaryTag,
                 vaccineLabel = dbRow.vaccineLabel,
-                status = if (locallyDone) ScanStatus.DONE else statusOf(dbRow.status),
+                status = status,
                 unsynced = locallyDone,
                 goatId = dbRow.goatId,
                 obligationId = dbRow.obligationId,
@@ -627,8 +732,8 @@ class ScanViewModel @Inject constructor(
             when (row.status) {
                 ScanStatus.PENDING -> {
                     _proofReplacementGoatId.value = null
-                    markRowDone(row, capturedAtMs)
-                    _manualDone.update { it - row.obligationId }
+                    markRowDone(row, capturedAtMs, obligationIds)
+                    _manualDone.update { it - obligationIds }
                     _duplicateNotice.value = null
                     _scanErrorNotice.value = null
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null, capturedAtMs)
@@ -696,33 +801,55 @@ class ScanViewModel @Inject constructor(
     /** Used by a real tag-match ([onTagRead]) only -- there is no manual completion path: records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
-    private fun markRowDone(row: RosterRow, capturedAtMs: Long = System.currentTimeMillis()) {
-        if (row.obligationId.isBlank()) return
-        _localDone.update { it + row.obligationId }
-        // Track the goat as done this session so the submit proof gate requires its proof video even
-        // before a refresh syncs the backend status (option 2: proof over the full roster).
-        if (row.goatId.isNotBlank()) _localDoneGoatIds.update { it + row.goatId }
-        _feed.update {
+    private fun markRowDone(
+        row: RosterRow,
+        capturedAtMs: Long = System.currentTimeMillis(),
+        obligationIds: Set<String> = setOf(row.obligationId).filterTo(mutableSetOf()) { it.isNotBlank() },
+        feedLabel: String = row.vaccineLabel,
+        feedTone: ScanFeedTone? = null,
+        countInCurrentScope: Boolean = true,
+        neighborScope: Boolean = false,
+    ) {
+        if (obligationIds.isEmpty()) return
+        if (countInCurrentScope) {
+            _localDone.update { it + obligationIds }
+            // Track the goat as done this session so the submit proof gate requires its proof video even
+            // before a refresh syncs the backend status (option 2: proof over the full roster).
+            if (row.goatId.isNotBlank()) _localDoneGoatIds.update { it + row.goatId }
+        }
+        val entry = ScanFeedEntry(
+            row.primaryTag,
+            row.secondaryTag,
+            feedLabel,
+            ScanStatus.DONE,
+            scanTimeLabel(capturedAtMs),
+            goatId = row.goatId,
+            proofRequired = row.proofRequired,
+            proofUploadStatus = row.proofUploadStatus,
+            evidenceSyncedCount = row.evidenceSyncedCount,
+            tone = feedTone ?: if (proofPolicy.value.isPerGoatVideo && row.proofRequired) {
+                ScanFeedTone.DUPLICATE
+            } else {
+                ScanFeedTone.ACCEPTED
+            },
+        )
+        val targetFeed = if (neighborScope) _neighborFeed else _feed
+        targetFeed.update {
             prependFeed(
-                ScanFeedEntry(
-                    row.primaryTag,
-                    row.secondaryTag,
-                    row.vaccineLabel,
-                    ScanStatus.DONE,
-                    scanTimeLabel(capturedAtMs),
-                    goatId = row.goatId,
-                    proofRequired = row.proofRequired,
-                    proofUploadStatus = row.proofUploadStatus,
-                    evidenceSyncedCount = row.evidenceSyncedCount,
-                    tone = if (proofPolicy.value.isPerGoatVideo) ScanFeedTone.DUPLICATE else ScanFeedTone.ACCEPTED,
-                ),
+                entry,
                 it,
             )
         }
     }
 
-    private fun recordRosterScan(row: RosterRow, tag: String, capturedAtMs: Long) {
-        val selectedTaskId = taskId ?: return
+    private fun recordRosterScan(
+        row: RosterRow,
+        tag: String,
+        capturedAtMs: Long,
+        scanPartitionLabel: String? = partitionLabel,
+        scanTaskId: String? = taskId,
+    ) {
+        val selectedTaskId = scanTaskId?.takeIf { it.isNotBlank() } ?: return
         val capturedTag = tag.ifBlank { row.primaryTag }
         if (normalize(capturedTag).isEmpty()) return
         viewModelScope.launch {
@@ -737,7 +864,7 @@ class ScanViewModel @Inject constructor(
                 obligationId = null,
                 obligationRowVersion = row.obligationRowVersion,
                 capturedAtMs = capturedAtMs,
-                partitionLabel = partitionLabel,
+                partitionLabel = scanPartitionLabel,
             )
         }
     }
@@ -822,6 +949,9 @@ class ScanViewModel @Inject constructor(
             skippedCount = dbSkipped,
         )
     }
+
+    private fun feedKey(goatId: String, primaryTag: String, vaccineLabel: String): Pair<String, String> =
+        (goatId.takeIf { it.isNotBlank() } ?: primaryTag) to vaccineLabel
 
     /** Builds the visible scan-list rows from the BOUNDED SSOT window (never a whole-collection blob).
      *  Counters here are provisional window-derived values overridden by [applyFullRosterCounts]; the
@@ -940,7 +1070,7 @@ class ScanViewModel @Inject constructor(
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
         val latestSyncedProof = goatProofs
-            .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
             .maxByOrNull { it.capturedAtMs }
         val hasSyncedProof = latestSyncedProof != null || serverProofReady
         // A completed proof is terminal for this goat: a stale optimistic "uploading" marker (its
@@ -1010,6 +1140,7 @@ class ScanViewModel @Inject constructor(
             return base.copy(
                 canSubmit = canSubmit,
                 proofActionNeeded = emptyList(),
+                captureAccessRequired = false,
             )
         }
         val id = shedId ?: return base
@@ -1028,7 +1159,11 @@ class ScanViewModel @Inject constructor(
             .filter { currentRosterGoatIds.isEmpty() || it in currentRosterGoatIds }
             .toSet()
         if (proofs == null && !shedSummary.allHandledProofsReady()) {
-            return base.copy(canSubmit = false, proofActionNeeded = emptyList())
+            return base.copy(
+                canSubmit = false,
+                proofActionNeeded = emptyList(),
+                captureAccessRequired = base.captureAccessRequired,
+            )
         }
         val proofRows = proofs.orEmpty()
         val rosterSyncedGoatIds = base.roster
@@ -1040,13 +1175,17 @@ class ScanViewModel @Inject constructor(
             .map { it.goatId }
             .toSet()
         val syncedGoatIds = proofRows
-            .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
+            .filter { it.proofSubject == ProofSubject.GOAT && it.syncStatus == CaptureSyncStatus.SYNCED }
             .mapNotNull { it.subjectId }
             .toSet() + rosterSyncedGoatIds
         if (shedSummary.allHandledProofsReady()) {
             val canSubmit = base.ringTotal > 0 && base.pendingCount == 0
             maybeTrackScanCompleted(canSubmit, base.ringDone)
-            return base.copy(canSubmit = canSubmit, proofActionNeeded = emptyList())
+            return base.copy(
+                canSubmit = canSubmit,
+                proofActionNeeded = emptyList(),
+                captureAccessRequired = false,
+            )
         }
         val missingGoatIds = requiredGoatIds - syncedGoatIds
         val proofComplete = missingGoatIds.isEmpty()
@@ -1056,6 +1195,7 @@ class ScanViewModel @Inject constructor(
             emptyList()
         } else {
             repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds.toList(), partitionLabel)
+                .collapseByGoat()
                 .sortedBy { it.seq }
                 .map { row ->
                     val mapped = row.toRosterRow(emptySet(), goatProofsBySubject)
@@ -1071,7 +1211,11 @@ class ScanViewModel @Inject constructor(
         }
         val canSubmit = base.ringTotal > 0 && base.pendingCount == 0 && proofComplete
         maybeTrackScanCompleted(canSubmit, base.ringDone)
-        return base.copy(canSubmit = canSubmit, proofActionNeeded = actionNeeded)
+        return base.copy(
+            canSubmit = canSubmit,
+            proofActionNeeded = actionNeeded,
+            captureAccessRequired = if (proofComplete) false else base.captureAccessRequired || actionNeeded.isNotEmpty(),
+        )
     }
 
     /** Fires funnel_scan_completed the first time the shed's scan step is fully done (roster
@@ -1105,7 +1249,7 @@ class ScanViewModel @Inject constructor(
     // retry/upload rows and a stale optimistic marker for the same goat must not keep the scan row
     // orange (or labelled "uploading") after the valid proof has reached the backend.
     private fun proofStatus(proofs: List<ProofCaptureRow>, optimisticProofUploadingAtMs: Long? = null): ProofUploadStatus = when {
-        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
+        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED } ->
             ProofUploadStatus.SYNCED
         optimisticProofUploadingAtMs != null ||
             proofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ->
@@ -1165,8 +1309,12 @@ class ScanViewModel @Inject constructor(
      *  animal currently in front of the camera) is refused with the busy notice, same as before —
      *  restarting a capture already in progress for the same animal has no benefit and would just
      *  reopen the same camera on itself. */
-    private fun requestGoatProof(row: RosterRow) {
-        val selectedTaskId = taskId ?: return
+    private fun requestGoatProof(
+        row: RosterRow,
+        proofPartitionLabel: String? = partitionLabel,
+        proofTaskId: String? = taskId,
+    ) {
+        val selectedTaskId = proofTaskId?.takeIf { it.isNotBlank() } ?: return
         val policy = proofPolicy.value
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
 
@@ -1182,19 +1330,19 @@ class ScanViewModel @Inject constructor(
             // recording, or already captured and mid-upload. The camera can never be cancelled to
             // serve this new scan (that is the defect this fix removes), so queue it instead.
             val replaced = pendingProofRow
-            if (replaced != null && replaced.goatId != row.goatId) {
+            if (replaced != null && replaced.row.goatId != row.goatId) {
                 // An earlier queued goat is overtaken before its camera ever opened — a genuine
                 // drop, not a silent one.
                 analytics.track(
                     AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
                     mapOf(AnalyticsEvents.Params.KIND to "vaccination"),
                 )
-                _duplicateNotice.value = "${replaced.primaryTag} still needs its video — dropped for ${row.primaryTag}."
+                _duplicateNotice.value = "${replaced.row.primaryTag} still needs its video — dropped for ${row.primaryTag}."
             } else {
                 val strandedTag = strandedGoatTag ?: strandedGoatId
                 _duplicateNotice.value = "${row.primaryTag} queued — camera opens once $strandedTag's video is saved."
             }
-            pendingProofRow = row
+            pendingProofRow = PendingProofRequest(row, proofPartitionLabel, selectedTaskId)
             analytics.track(
                 AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED,
                 mapOf(
@@ -1260,7 +1408,7 @@ class ScanViewModel @Inject constructor(
                     capturedEndMs = captured.endedAtMs,
                     capturedByPrincipalId = currentPrincipalId,
                     proofPolicy = policy,
-                    partitionLabel = partitionLabel,
+                    partitionLabel = proofPartitionLabel,
                     )
                 ) {
                     is AppResult.Ok -> analytics.track(
@@ -1328,7 +1476,7 @@ class ScanViewModel @Inject constructor(
                     val queued = pendingProofRow
                     pendingProofRow = null
                     if (queued != null) {
-                        requestGoatProof(queued)
+                        requestGoatProof(queued.row, queued.partitionLabel, queued.taskId)
                     }
                 }
             }
@@ -1369,6 +1517,20 @@ class ScanViewModel @Inject constructor(
     }
 
 private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+
+private fun operationalLocationLabel(shedName: String, partitionLabel: String?): String {
+    val shed = shedName.trim()
+    val label = partitionLabel.orEmpty().trim()
+    if (label.isBlank() || label.equals("whole", ignoreCase = true)) return shed
+    if (shed.isBlank()) return label
+    return "$shed - $label"
+}
+
+private data class PendingProofRequest(
+    val row: RosterRow,
+    val partitionLabel: String?,
+    val taskId: String,
+)
 
 private fun RosterRow.matchesTag(normalizedTag: String): Boolean =
     normalize(primaryTag) == normalizedTag || secondaryTag?.let { normalize(it) == normalizedTag } == true

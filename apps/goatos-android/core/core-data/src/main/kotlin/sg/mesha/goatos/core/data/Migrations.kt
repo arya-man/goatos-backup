@@ -1052,3 +1052,16 @@ val MIGRATION_36_37: Migration = object : Migration(36, 37) {
         )
     }
 }
+
+/**
+ * v37 -> v38: scan roster rows carry the backend operational-location metadata used to classify
+ * a tag from a sibling partition as an amber warning instead of a red unknown.
+ */
+val MIGRATION_37_38: Migration = object : Migration(37, 38) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `shedName` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `partitionLabel` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `sourceShedName` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `operationalLocationDisplay` TEXT NOT NULL DEFAULT ''")
+    }
+}
