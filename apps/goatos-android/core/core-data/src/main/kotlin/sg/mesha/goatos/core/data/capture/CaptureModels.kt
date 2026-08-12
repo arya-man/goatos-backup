@@ -113,6 +113,7 @@ data class RfidScanAttemptRow(
 enum class ProofSubject(val wireValue: String) {
     GOAT("goat"),
     SHED("shed"),
+    PARK("park"),
     VIAL_LOT("vial_lot"),
     ADMINISTRATION("administration"),
     OTHER("other"),
@@ -141,6 +142,7 @@ data class ProofCaptureRow(
     val capturedByPrincipalId: String?,
     val syncStatus: CaptureSyncStatus,
     val serverProofId: String?,
+    val outboxItemId: String? = null,
     val lastError: String?,
     /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
     val partitionKey: String = "whole",

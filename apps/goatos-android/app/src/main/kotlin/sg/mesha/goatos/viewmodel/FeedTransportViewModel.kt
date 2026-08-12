@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -23,9 +22,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.core.ui.operationalLocationLabel
-import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -36,11 +34,11 @@ import sg.mesha.goatos.core.data.FeedTransportQuery
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
-import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -48,7 +46,6 @@ import sg.mesha.goatos.feature.feed.FeedTransportFilterUi
 import sg.mesha.goatos.feature.feed.FeedTransportResultUi
 import sg.mesha.goatos.feature.feed.FeedTransportRowUi
 import sg.mesha.goatos.feature.feed.FeedTransportSubmitStatus
-import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedTransportUiState
 import sg.mesha.goatos.feature.feed.FeedDropdownOption
 
@@ -286,11 +283,9 @@ private fun analyticsReason(error: Throwable): String =
  * task: they used to sit in `SavedStateHandle`, so Back + re-entry lost the clip and asked for it
  * again while the first one uploaded anyway (maintainer report 2026-07-30).
  */
-@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,saved:SavedStateHandle):ViewModel(){
+@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,saved:SavedStateHandle):ViewModel(){
     private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel));val state:StateFlow<FeedTransportCaptureUiState> = _state
-    private var proofStatusJob:Job?=null
-    private var proofSyncedTracked=false
-    init{analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,mapOf(AnalyticsEvents.Params.SHED_ID to shedId));observeSyncStatus();viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.proofs[STEP_VIDEO]?.let(::observeProofItem);draft.submitOutboxItemId?.let(::observeOutboxItem)}}
+    init{analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,mapOf(AnalyticsEvents.Params.SHED_ID to shedId));viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.submitOutboxItemId?.let(::observeOutboxItem)}}
 
     /**
      * Follow the queued submit to its REAL outcome.
@@ -319,21 +314,17 @@ private fun analyticsReason(error: Throwable): String =
                 }
         }
     }
-    fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.ReRecordVideo->reRecord();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.SyncNow->syncNow();FeedTransportCaptureEvent.Back->Unit}}
+    fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.ReRecordVideo->reRecord();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.Back->Unit}}
     /** Drops the discarded take's queued upload so the verifier never receives two clips, then re-captures. */
-    private fun reRecord(){if(_state.value.isCapturing)return;analytics.track(AnalyticsEvents.FEED_TRANSPORT_REUPLOAD_TAPPED);viewModelScope.launch{draft.proofs[STEP_VIDEO]?.let{sync.deleteOutboxItem(it)};drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);proofKey.invalidate();proofStatusJob?.cancel();proofSyncedTracked=false;_state.update{it.copy(videoCaptured=false,videoMessage=null,videoPreviewPath=null,videoStatus=FeedDistributionProofStatus.EMPTY,canSubmit=false)};record()}}
-    private fun record(){if(_state.value.isCapturing||_state.value.videoCaptured)return;analytics.track(AnalyticsEvents.FEED_TRANSPORT_CAPTURE_TAPPED);_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCaptureContext(title="Record transport video",primaryTag=shedLabel.ifBlank{shedId},headerTitle="Record transport video"));if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};val req=ProofUploadRequestDto(proofType="video",mimeType=v.mimeType,scopeType="shed",scopeId=shedId,subjectType="shed",subjectId=shedId,metadata=mapOf("capture_source" to JsonPrimitive(v.captureSource),"captured_start_ms" to JsonPrimitive(v.startedAtMs),"captured_end_ms" to JsonPrimitive(v.endedAtMs)));when(val r=sync.enqueueProofUpload(group,proofKey.current(),req,v.localUri,(v.endedAtMs-v.startedAtMs).takeIf{it>0})){is AppResult.Ok->{drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeProofItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED);_state.update{it.copy(isCapturing=false,videoCaptured=true,videoPreviewPath=v.localUri,videoStatus=FeedDistributionProofStatus.QUEUED,videoMessage=PROOF_QUEUED)}};is AppResult.Err->{proofKey.invalidate();r.cause?.let{crashReporter.recordException(it,"feed transport video enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("video_enqueue_failed")));_state.update{it.copy(isCapturing=false,videoMessage=r.message,videoStatus=FeedDistributionProofStatus.FAILED)}}}}}
+    private fun reRecord(){if(_state.value.isCapturing)return;viewModelScope.launch{draft.proofs[STEP_VIDEO]?.let{sync.deleteOutboxItem(it)};drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);proofKey.invalidate();_state.update{it.copy(videoCaptured=false,videoMessage=null)};record()}}
+    private fun record(){if(_state.value.isCapturing||_state.value.videoCaptured)return;_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCapturePrompt.FEED_TRANSPORT);if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};when(val r=proofCaptureRepository.capture(taskId=group,fieldKey=FIELD_FEED_TRANSPORT_VIDEO,subject=ProofSubject.SHED,subjectId=shedId,localUri=v.localUri,mimeType=v.mimeType,caption="Feed transport proof",scopeType="shed",scopeId=shedId,capturedStartMs=v.startedAtMs,capturedEndMs=v.endedAtMs,capturedByPrincipalId=null,proofPolicy=feedShedProofPolicy(v.captureSource),awaitUploadEnqueue=true,uploadGroupKey=group)){is AppResult.Ok->{val proofOutboxId=r.value.outboxItemId;if(proofOutboxId.isNullOrBlank()){_state.update{it.copy(isCapturing=false,videoMessage="Video could not be queued")};return@launch};drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,proofOutboxId);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);analytics.track(AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED);_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();r.cause?.let{crashReporter.recordException(it,"feed transport video enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("video_enqueue_failed")));_state.update{it.copy(isCapturing=false,videoMessage=r.message)}}}}}
     private var statusJob:Job?=null
-    private fun submit(){val current=_state.value;val proof=draft.proofs[STEP_VIDEO];if(!current.submitEnabled||proof.isNullOrBlank()){analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMIT_BLOCKED,mapOf("video_status" to current.videoStatus.name.lowercase(Locale.ROOT)));return};viewModelScope.launch{
+    private fun submit(){val proof=draft.proofs[STEP_VIDEO]?:return;viewModelScope.launch{
         // STABLE per task and durable, so a re-entered screen resends the SAME key.
         val submitIdempotencyKey=draft.submitIdempotencyKey?:"feed-transport-submit:$taskId"
         if(draft.submitIdempotencyKey==null){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
         when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed")));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
-    private fun observeProofItem(itemId:String){proofStatusJob?.cancel();proofStatusJob=viewModelScope.launch{sync.observeItem(itemId).filterNotNull().distinctUntilChanged().collect(::updateProofStatus)}}
-    private fun updateProofStatus(item:SyncQueueItem){val proofStatus=when(item.status){SyncItemStatus.QUEUED->FeedDistributionProofStatus.QUEUED;SyncItemStatus.IN_FLIGHT->FeedDistributionProofStatus.UPLOADING;SyncItemStatus.SUCCEEDED->FeedDistributionProofStatus.SYNCED;SyncItemStatus.FAILED->FeedDistributionProofStatus.FAILED};val message=when(proofStatus){FeedDistributionProofStatus.QUEUED->PROOF_QUEUED;FeedDistributionProofStatus.UPLOADING->PROOF_UPLOADING;FeedDistributionProofStatus.SYNCED->PROOF_SYNCED;FeedDistributionProofStatus.FAILED->item.lastError?:PROOF_FAILED;FeedDistributionProofStatus.EMPTY->null};_state.update{it.copy(videoCaptured=it.videoCaptured||item.localFilePath!=null,videoPreviewPath=it.videoPreviewPath?:item.localFilePath,videoStatus=proofStatus,videoMessage=message,canSubmit=proofStatus==FeedDistributionProofStatus.SYNCED)};if(proofStatus==FeedDistributionProofStatus.SYNCED&&!proofSyncedTracked){proofSyncedTracked=true;analytics.track(AnalyticsEvents.FEED_TRANSPORT_PROOF_UPLOAD_SYNCED)}}
-    private fun observeSyncStatus(){viewModelScope.launch{sync.observeStatus().map{it.inFlightCount>0}.distinctUntilChanged().collect{syncing->_state.update{it.copy(isSyncing=syncing)}}}}
-    private fun syncNow(){analytics.track(AnalyticsEvents.FEED_TRANSPORT_SYNC_TAPPED);viewModelScope.launch{sync.triggerDrain()}}
-    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";private const val STEP_VIDEO="video";private const val PROOF_QUEUED="Proof saved on this phone. It will upload automatically.";private const val PROOF_UPLOADING="Proof upload is in progress.";private const val PROOF_SYNCED="Proof is ready.";private const val PROOF_FAILED="Couldn't save that proof. Please capture it again."}
+    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video"}
 }
 
 private fun SyncQueueItem.writeFailureReason(): String = when {

@@ -13,21 +13,21 @@ artifact before upload: processed media when the processor succeeds, original
 media when processing fails, then saves that same artifact to Gallery and queues
 that same artifact for upload.
 
-Current coverage is intentionally explicit:
+Current coverage is intentionally explicit. The shared path now covers:
 
-- Covered by the shared path: vaccination scan proof, vaccination submit video
-  fields, weighing individual proof, and weighing lump-sum/shed proof.
-- Not yet migrated: feed complete, feed distribution feed video, feed
-  distribution water photo/video, feed packing, feed transport, shifting execute,
-  milk preparation, milk feeding, workflow action videos, and death workflow
-  draft videos uploaded on submit.
+- Vaccination scan proof and vaccination submit video fields.
+- Weighing individual proof and weighing lump-sum/shed proof.
+- Feed complete proof, feed distribution feed proof, feed distribution water
+  photo/video proof, feed packing proof, and feed transport proof.
+- Shifting execute proof.
+- Milk preparation proof and milk feeding proof.
+- Workflow action videos and death workflow draft videos uploaded on submit.
 
-Until those legacy direct-upload call sites are migrated, they still upload the
-captured original file directly through `SyncRepository.enqueueProofUpload` and
-do not receive the shared processing/Gallery/fallback/state-event behavior. The
-CI guard blocks any new or touched Android feature/ViewModel code from adding
-direct proof-upload enqueue calls; run the full `--all` audit to see the
-remaining legacy bypasses.
+Feature/ViewModel code must not upload captured files directly through
+`SyncRepository.enqueueProofUpload`. The CI guard blocks direct feature-layer
+proof-upload enqueue calls so any new operator camera surface goes through the
+shared processing, Gallery-save, fallback, Room state-event, Firebase analytics,
+and backend-event path.
 
 This doc extends:
 

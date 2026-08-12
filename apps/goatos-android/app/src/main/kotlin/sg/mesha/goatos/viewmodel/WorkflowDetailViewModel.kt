@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -19,9 +18,11 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionDto
 import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.feature.counts.WorkflowActionSection
@@ -62,6 +63,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private val repo: WorkflowsRepository,
     private val syncRepository: SyncRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -270,39 +272,33 @@ class WorkflowDetailViewModel @Inject constructor(
                 }
                 return@launch
             }
-            val proofResult = syncRepository.enqueueProofUpload(
-                // Group by the WORKFLOW so the proof drains strictly before the completion
-                // enqueued on the same group; the completion resolves this proof's id.
-                groupKey = workflowId,
-                // A verifier rework or a failed/canceled earlier upload must be able to create a
-                // new proof round. The capture timestamp is stable for this file/retry but differs
-                // for a genuine re-shoot, avoiding same-key/different-payload outbox conflicts.
-                idempotencyKey = workflowProofUploadKey(actionId, captured.startedAtMs),
-                request = ProofUploadRequestDto(
-                    proofType = "video",
-                    mimeType = captured.mimeType,
-                    scopeType = "goat",
-                    scopeId = goatId,
-                    subjectType = "goat",
-                    subjectId = goatId,
-                    metadata = mapOf(
-                        META_WORKFLOW_ID to JsonPrimitive(workflowId),
-                        META_ACTION_ID to JsonPrimitive(actionId),
-                        META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                        META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
-                        META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
-                    ),
-                ),
-                localFilePath = captured.localUri,
-                durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+            val proofResult = proofCaptureRepository.capture(
+                taskId = workflowId,
+                fieldKey = workflowProofFieldKey(actionId),
+                subject = ProofSubject.GOAT,
+                subjectId = goatId,
+                localUri = captured.localUri,
+                mimeType = captured.mimeType,
+                caption = action?.title ?: actionId,
+                scopeType = "goat",
+                scopeId = goatId,
+                capturedStartMs = captured.startedAtMs,
+                capturedEndMs = captured.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = workflowGoatProofPolicy(captured.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = workflowId,
             )
             val proofItemId = when (proofResult) {
-                is AppResult.Ok -> proofResult.value
+                is AppResult.Ok -> proofResult.value.outboxItemId
                 is AppResult.Err -> {
                     _state.update { it.copy(isCapturingVideo = false) }
                     onWriteFailed("workflow_video", proofResult)
                     return@launch
                 }
+            } ?: run {
+                _state.update { it.copy(isCapturingVideo = false, message = "Video upload could not be queued.", isErrorMessage = true) }
+                return@launch
             }
             analytics.track(AnalyticsEvents.WORKFLOW_VIDEO_CAPTURED)
             val writeResult = if (answerValue != null) {
@@ -359,30 +355,39 @@ class WorkflowDetailViewModel @Inject constructor(
             }
             for (action in actions) {
                 val draft = drafts.getValue(action.actionId)
-                val proof = syncRepository.enqueueProofUpload(
-                    groupKey = workflowId,
-                    idempotencyKey = workflowProofUploadKey(action.actionId, draft.startedAtMs),
-                    request = ProofUploadRequestDto(
-                        proofType = "video",
-                        mimeType = draft.mimeType,
-                        scopeType = "goat",
-                        scopeId = draft.subjectGoatId,
-                        subjectType = "goat",
-                        subjectId = draft.subjectGoatId,
-                        metadata = mapOf(
-                            META_WORKFLOW_ID to JsonPrimitive(workflowId),
-                            META_ACTION_ID to JsonPrimitive(action.actionId),
-                            META_CAPTURE_SOURCE to JsonPrimitive(draft.captureSource),
-                            META_CAPTURED_START_MS to JsonPrimitive(draft.startedAtMs),
-                            META_CAPTURED_END_MS to JsonPrimitive(draft.endedAtMs),
-                        ),
-                    ),
-                    localFilePath = draft.localUri,
-                    durationMs = (draft.endedAtMs - draft.startedAtMs).takeIf { it > 0 },
+                val proof = proofCaptureRepository.capture(
+                    taskId = workflowId,
+                    fieldKey = workflowProofFieldKey(action.actionId),
+                    subject = ProofSubject.GOAT,
+                    subjectId = draft.subjectGoatId,
+                    localUri = draft.localUri,
+                    mimeType = draft.mimeType,
+                    caption = action.title,
+                    scopeType = "goat",
+                    scopeId = draft.subjectGoatId,
+                    capturedStartMs = draft.startedAtMs,
+                    capturedEndMs = draft.endedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = workflowGoatProofPolicy(draft.captureSource),
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = workflowId,
                 )
-                val proofId = (proof as? AppResult.Ok)?.value ?: run {
-                    _state.update { it.copy(isSubmittingDeath = false) }
-                    onWriteFailed("workflow_video_submit", proof as AppResult.Err)
+                val proofId = when (proof) {
+                    is AppResult.Ok -> proof.value.outboxItemId
+                    is AppResult.Err -> {
+                        _state.update { it.copy(isSubmittingDeath = false) }
+                        onWriteFailed("workflow_video_submit", proof)
+                        return@launch
+                    }
+                }
+                if (proofId.isNullOrBlank()) {
+                    _state.update {
+                        it.copy(
+                            isSubmittingDeath = false,
+                            message = "Video upload could not be queued.",
+                            isErrorMessage = true,
+                        )
+                    }
                     return@launch
                 }
                 val complete = syncRepository.enqueueWorkflowActionComplete(
@@ -649,12 +654,6 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ANSWER_NO_VALUE = "no"
         private const val ANSWER_NO_LABEL = "No"
 
-        private const val META_WORKFLOW_ID = "workflow_id"
-        private const val META_ACTION_ID = "action_id"
-        private const val META_CAPTURE_SOURCE = "capture_source"
-        private const val META_CAPTURED_START_MS = "captured_start_ms"
-        private const val META_CAPTURED_END_MS = "captured_end_ms"
-
         private const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         private const val VIDEO_QUEUED_MESSAGE =
             "Video saved on this phone. It will upload and submit automatically."
@@ -762,6 +761,12 @@ internal fun operatorFinishedWorkflowStatus(status: String): Boolean =
 
 internal fun workflowProofUploadKey(actionId: String, capturedStartedAtMs: Long): String =
     "wf-proof:$actionId:$capturedStartedAtMs"
+
+internal fun workflowProofFieldKey(actionId: String): String =
+    "workflow_${actionId}_video"
+
+private fun workflowGoatProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(captureSource = captureSource)
 
 internal fun workflowVideoCompletionKey(actionId: String, proofOutboxItemId: String): String =
     "wf-complete:$actionId:$proofOutboxItemId"

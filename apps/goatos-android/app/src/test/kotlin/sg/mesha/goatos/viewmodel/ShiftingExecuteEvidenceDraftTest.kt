@@ -162,6 +162,7 @@ class ShiftingExecuteEvidenceDraftTest {
         drafts = drafts,
         syncRepository = sync,
         proofCaptureSource = AlwaysCapturingProofSource(),
+        proofCaptureRepository = FakeProofCaptureRepository(),
         analytics = NoopEvidenceAnalytics(),
         crashReporter = NoopEvidenceCrashReporter(),
         // A FRESH handle every time: this is what "Back then re-open" does to the destination.
