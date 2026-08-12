@@ -641,7 +641,8 @@ func hasPermission(grants []domain.GrantSummary, permission string) bool {
 }
 
 func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
-	return hasRole(grants, permissions.RoleCEOInternal)
+	return hasRole(grants, permissions.RoleCEOInternal) ||
+		hasRole(grants, permissions.RolePCDirector)
 }
 
 func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
