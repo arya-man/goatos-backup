@@ -299,6 +299,7 @@ fun VerifyDetailScreen(
     // the wrong verdict once entries re-sort after a refresh.
     var rejectDialogForItemId by remember { mutableStateOf<String?>(null) }
     var approveDialogForItemId by remember { mutableStateOf<String?>(null) }
+    var activeProofSubject by rememberSaveable { mutableStateOf<String?>(null) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
     // The scrollable viewport's own bounds, in window coordinates. Each row's [VerifyVideoPlayer]
@@ -386,6 +387,8 @@ fun VerifyDetailScreen(
                             isCloseMode = state.isCloseMode,
                             videoControlsEnabled = videoControlsEnabled,
                             viewportBounds = viewportBounds,
+                            activeProofSubject = activeProofSubject,
+                            onActiveProofSubjectChange = { activeProofSubject = it },
                             onPlayback = { onEvent(it) },
                             onApprove = {
                                 if (APPROVE_NEEDS_CONFIRMATION) {
@@ -455,6 +458,8 @@ private fun VerifyEntryCard(
     isCloseMode: Boolean,
     videoControlsEnabled: Boolean,
     viewportBounds: Rect?,
+    activeProofSubject: String?,
+    onActiveProofSubjectChange: (String?) -> Unit,
     onPlayback: (VerifyDetailEvent) -> Unit,
     onApprove: () -> Unit,
     onReject: () -> Unit,
@@ -510,6 +515,8 @@ private fun VerifyEntryCard(
                         onPlayback = onPlayback,
                         controlsEnabled = videoControlsEnabled,
                         viewportBounds = viewportBounds,
+                        activeProofSubject = activeProofSubject,
+                        onActiveProofSubjectChange = onActiveProofSubjectChange,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -665,6 +672,8 @@ private fun VerifyVideoPlayer(
     modifier: Modifier = Modifier,
     controlsEnabled: Boolean = false,
     viewportBounds: Rect? = null,
+    activeProofSubject: String? = null,
+    onActiveProofSubjectChange: (String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     // Telemetry-instrumented player (W-22): media3 must fetch over the app's OkHttp client, or a
@@ -798,6 +807,9 @@ private fun VerifyVideoPlayer(
         if (armed && player.isPlaying && !isRowVisibleInViewport(row, viewport)) {
             player.playWhenReady = false
             player.stop()
+            if (activeProofSubject == media.proofSubject) {
+                onActiveProofSubjectChange(null)
+            }
         }
     }
     // Backgrounding the app (lock screen, home button, task switch) is its own case: nothing
@@ -808,6 +820,15 @@ private fun VerifyVideoPlayer(
         if (armed && player.isPlaying) {
             player.playWhenReady = false
             player.stop()
+            if (activeProofSubject == media.proofSubject) {
+                onActiveProofSubjectChange(null)
+            }
+        }
+    }
+    LaunchedEffect(activeProofSubject, player) {
+        if (activeProofSubject != null && activeProofSubject != media.proofSubject && player.isPlaying) {
+            player.playWhenReady = false
+            player.stop()
         }
     }
     Box(
@@ -815,6 +836,22 @@ private fun VerifyVideoPlayer(
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Bg)
+            .clickable(enabled = isPlaying) {
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_INTENT,
+                        playerState = player.playbackState.toPlayerStateLabel(),
+                        armed = armed,
+                        targetAction = "pause",
+                    ),
+                )
+                player.pause()
+                if (activeProofSubject == media.proofSubject) {
+                    onActiveProofSubjectChange(null)
+                }
+            }
             .onGloballyPositioned { rowBounds = it.boundsInWindow() },
     ) {
         AndroidView(
@@ -887,6 +924,7 @@ private fun VerifyVideoPlayer(
                     // nothing whatsoever happens. Re-watching a 3-second proof is the core of the
                     // job, so this path must never depend on effect ordering.
                     armed = true
+                    onActiveProofSubjectChange(media.proofSubject)
                     when (player.playbackState) {
                         Player.STATE_IDLE -> player.prepare()
                         Player.STATE_ENDED -> player.seekTo(0)
@@ -928,6 +966,9 @@ private fun VerifyVideoPlayer(
                     // closing fullscreen and pressing play still works.
                     player.playWhenReady = false
                     player.stop()
+                    if (activeProofSubject == media.proofSubject) {
+                        onActiveProofSubjectChange(null)
+                    }
                     isFullscreen = true
                 },
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
