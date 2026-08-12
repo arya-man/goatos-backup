@@ -43,8 +43,8 @@ mk() { # <name> ; reads a transform from stdin-less sed/grep pipeline via "$@"
 f="$(mk ok cat)"
 expect 0 "unmodified run-local-ci.sh should pass" "$f"
 
-# (a) delete every step line -> fail
-f="$(mk deleted grep -v 'step "android screenshots"')"
+# (a) delete every screenshot step line -> fail
+f="$(mk deleted grep -Ev 'step(_cached)? "android screenshots')"
 expect 1 "removing the screenshot step must fail" "$f"
 
 # (b) narrow with --tests -> fail
@@ -80,8 +80,9 @@ expect 1 "flipping the opt-in default to ON must fail" "$f"
 # (h) THE FAST-ARM HOLE. There are TWO Paparazzi call sites. Delete ONLY the
 #     FAST (GOATOS_FAST_LOCAL_CI=1) one — the normal arm, every string, and the
 #     invocation-count check all stay satisfied — and a probe that only drives
-#     the normal lane stays green. The FAST arm is the one WITHOUT --no-daemon.
-f="$(mk fastarm awk '!(/step "android screenshots"/ && !/--no-daemon/)')"
+#     the normal lane stays green. The FAST arm is the first call to the shared
+#     screenshot runner inside the FAST branch.
+f="$(mk fastarm awk 'BEGIN{fast=0} /fast_local_ci_enabled/{fast=1} fast && /run_android_screenshots/{next} {print}')"
 expect 1 "deleting only the FAST-lane screenshot arm must fail" "$f"
 
 # (g) trace mode must never look green: nothing executed, exit 3, NO receipt.

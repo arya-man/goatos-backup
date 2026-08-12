@@ -211,7 +211,7 @@ fi
 
 receipt="$(receipt_file)"
 if [ ! -f "$receipt" ]; then
-  fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it writes NO receipt (partial run), so following the instruction can never clear the block — the only exits left are an env var or the bypass"
+  fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it writes NO receipt (partial run), so following the instruction can never clear the block"
   exit "$rc"
 fi
 shots="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).screenshots))' "$receipt" 2>/dev/null)"

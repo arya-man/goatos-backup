@@ -17,6 +17,10 @@
   "ciCommonOnly": {
     "files": [
       "tools/ci/android-ui-diff.sh",
+      "tools/ci/android-screenshot-scope.sh",
+      "tools/ci/check-android-screenshot-proof.sh",
+      "tools/ci/check-android-screenshot-proof.test.sh",
+      "tools/ci/check-android-screenshot-scope.test.sh",
       "tools/ci/check-android-ui-diff.test.sh",
       "tools/ci/check-local-ci-evidence.mjs",
       "tools/ci/check-screenshot-remediation.sh",

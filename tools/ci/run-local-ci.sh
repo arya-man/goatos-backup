@@ -283,6 +283,8 @@ changed_since_base() {
 # detector is independently testable — see tools/ci/check-android-ui-diff.test.sh.
 # shellcheck source=tools/ci/android-ui-diff.sh
 . "$(dirname "${BASH_SOURCE[0]}")/android-ui-diff.sh"
+# shellcheck source=tools/ci/android-screenshot-scope.sh
+. "$(dirname "${BASH_SOURCE[0]}")/android-screenshot-scope.sh"
 
 # Machine-wide advisory Gradle mutex. job_group() serialises `android` within ONE
 # dispatch; this serialises it across WORKTREES. FAIL-OPEN on every path — it
@@ -334,10 +336,21 @@ gradle_lock_selftest_changed() {
 # The real check lives in its own file so it greps this script from OUTSIDE and
 # cannot satisfy itself with its own function body (the previous in-file version
 # self-matched on ':app:verifyPaparazziDevDebug' and was inert). Intent is
-# unchanged and unnarrowed: WHEN the Paparazzi proof runs it must run the full
-# task, and the on-demand opt-in must stay reachable.
+# unchanged in safety: WHEN the Paparazzi proof runs it must run the full task
+# or the guarded diff-mapped target set, and the on-demand opt-in must stay
+# reachable.
 android_screenshot_proof_coverage_guard() {
   bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh
+}
+
+run_android_screenshots() {
+  local filter_args
+  if filter_args="$(android_screenshot_gradle_filter_args)"; then
+    echo "ci-local: Android screenshot scope mapped to targeted Paparazzi filters: ${filter_args}"
+    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
+  else
+    step_cached "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  fi
 }
 
 # ceo_ai_eval_live_enabled: the CEO-AI answer-quality eval calls a live assistant
@@ -429,6 +442,7 @@ run_common() {
   if ci_tooling_changed; then
     step "ci-local parallel dispatch self-test" bash tools/ci/check-run-local-ci-parallel.test.sh
     step "android ui-diff detector self-test" bash tools/ci/check-android-ui-diff.test.sh
+    step "android screenshot scope self-test" bash tools/ci/check-android-screenshot-scope.test.sh
     step "screenshot proof guard self-test" bash tools/ci/check-android-screenshot-proof.test.sh
     step "screenshot remediation guard self-test" bash tools/ci/check-screenshot-remediation.test.sh
     step "ci-local attribution self-test" bash tools/ci/check-run-local-ci-attribution.test.sh
@@ -696,7 +710,7 @@ run_android() {
     case "${GOATOS_RUN_ANDROID_SCREENSHOTS:-0}" in
       1|true|TRUE|True)
         screenshots_ran="yes"
-        step "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+        run_android_screenshots
         ;;
       *)
         # FAST mode writes no receipt, so it cannot authorise anything — but it
@@ -753,7 +767,7 @@ run_android() {
   case "${GOATOS_RUN_ANDROID_SCREENSHOTS:-0}" in
     1|true|TRUE|True)
       screenshots_ran="yes"
-      step_cached "android screenshots"  bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+      run_android_screenshots
       ;;
     *)
       if android_ui_diff_detected; then

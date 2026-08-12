@@ -140,7 +140,9 @@ The anti-narrowing guard moved to `tools/ci/check-android-screenshot-proof.sh`
 function body, so it was inert). Its negative self-test is
 `tools/ci/check-android-screenshot-proof.test.sh`, wired into
 `make land-main-self-test`. Intent is unchanged: **when** screenshots run they
-must run the full `:app:verifyPaparazziDevDebug`, never narrowed with `--tests`.
+must run `:app:verifyPaparazziDevDebug`; raw ad-hoc `--tests` narrowing is
+blocked, and guarded targeted filters must come from
+`tools/ci/android-screenshot-scope.sh`.
 
 ---
 
