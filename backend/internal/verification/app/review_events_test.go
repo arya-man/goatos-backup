@@ -33,6 +33,10 @@ func (f *fakeReviewEventRepo) ItemReviewFacts(_ context.Context, _, _ string) ([
 	return nil, nil
 }
 
+func (f *fakeReviewEventRepo) WatchStates(_ context.Context, _ string, _ []string) (map[string]domain.ItemWatchState, error) {
+	return nil, nil
+}
+
 func newServiceWithItem(t *testing.T, category string) (*Service, *fakeRepo, domain.Item) {
 	t.Helper()
 	repo := newFakeRepo()

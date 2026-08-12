@@ -124,3 +124,88 @@ func (h *Handler) GetItemReviewFacts(w nethttp.ResponseWriter, r *nethttp.Reques
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, itemReviewFactsResponse{Facts: entries, TraceID: traceID(r)})
 }
+
+type oversightAnalyticsResponse struct {
+	KPIs             oversightKPIsResponse          `json:"kpis"`
+	PendingByModule  []modulePendingBacklogResponse `json:"pending_by_module"`
+	VerifierActivity []verifierActivityResponse     `json:"verifier_activity"`
+	TraceID          string                         `json:"trace_id"`
+}
+
+type oversightKPIsResponse struct {
+	VideosWaiting                     int                     `json:"videos_waiting"`
+	OldestPendingAgeHours             *float64                `json:"oldest_pending_age_hours,omitempty"`
+	VerdictsPerActiveDayLast7d        float64                 `json:"verdicts_per_active_day_last_7d"`
+	EstDaysToClearBacklog             *float64                `json:"est_days_to_clear_backlog,omitempty"`
+	PerModuleMedianReviewLatencyHours []moduleLatencyResponse `json:"per_module_median_review_latency_hours"`
+	RejectRateLast30d                 *float64                `json:"reject_rate_last_30d,omitempty"`
+}
+
+type moduleLatencyResponse struct {
+	Module      string  `json:"module"`
+	MedianHours float64 `json:"median_hours"`
+}
+
+type modulePendingBacklogResponse struct {
+	Module string `json:"module"`
+	Count  int    `json:"count"`
+}
+
+type verifierActivityResponse struct {
+	VerifierID         string `json:"verifier_id"`
+	VerifierName       string `json:"verifier_name,omitempty"`
+	Verdicts           int    `json:"verdicts"`
+	Approved           int    `json:"approved"`
+	Rejected           int    `json:"rejected"`
+	BusiestDay         string `json:"busiest_day,omitempty"`
+	ItemsTracked       int    `json:"items_tracked"`
+	WatchedToEndCount  int    `json:"watched_to_end_count"`
+	VerdictWithoutPlay int    `json:"verdict_without_play_count"`
+}
+
+// GetOversightAnalytics serves the CEO/PC-Director-only aggregate analytics rendered above the
+// /verify queue table. Authorization is enforced entirely at the route-permission layer
+// (permissions.VerificationOversee on this route in routes.go) -- there is no in-handler role
+// check, matching every other route in this module.
+func (h *Handler) GetOversightAnalytics(w nethttp.ResponseWriter, r *nethttp.Request) {
+	result, err := h.service.OversightAnalytics(r.Context(), tenantID(r))
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	modules := make([]moduleLatencyResponse, len(result.KPIs.PerModuleMedianReviewLatencyHours))
+	for i, m := range result.KPIs.PerModuleMedianReviewLatencyHours {
+		modules[i] = moduleLatencyResponse{Module: m.Module, MedianHours: m.MedianHours}
+	}
+	backlog := make([]modulePendingBacklogResponse, len(result.PendingByModule))
+	for i, b := range result.PendingByModule {
+		backlog[i] = modulePendingBacklogResponse{Module: b.Module, Count: b.Count}
+	}
+	activity := make([]verifierActivityResponse, len(result.VerifierActivity))
+	for i, a := range result.VerifierActivity {
+		activity[i] = verifierActivityResponse{
+			VerifierID:         a.VerifierID,
+			VerifierName:       a.VerifierName,
+			Verdicts:           a.Verdicts,
+			Approved:           a.Approved,
+			Rejected:           a.Rejected,
+			BusiestDay:         a.BusiestDay,
+			ItemsTracked:       a.ItemsTracked,
+			WatchedToEndCount:  a.WatchedToEndCount,
+			VerdictWithoutPlay: a.VerdictWithoutPlay,
+		}
+	}
+	httpresponse.WriteJSON(w, nethttp.StatusOK, oversightAnalyticsResponse{
+		KPIs: oversightKPIsResponse{
+			VideosWaiting:                     result.KPIs.VideosWaiting,
+			OldestPendingAgeHours:             result.KPIs.OldestPendingAgeHours,
+			VerdictsPerActiveDayLast7d:        result.KPIs.VerdictsPerActiveDayLast7d,
+			EstDaysToClearBacklog:             result.KPIs.EstDaysToClearBacklog,
+			PerModuleMedianReviewLatencyHours: modules,
+			RejectRateLast30d:                 result.KPIs.RejectRateLast30d,
+		},
+		PendingByModule:  backlog,
+		VerifierActivity: activity,
+		TraceID:          traceID(r),
+	})
+}

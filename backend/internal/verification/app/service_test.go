@@ -315,6 +315,10 @@ func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModu
 	return withdrawn, nil
 }
 
+func (r *fakeRepo) OversightAnalytics(_ context.Context, _ string) (domain.OversightAnalytics, error) {
+	return domain.OversightAnalytics{}, nil
+}
+
 var _ ports.Repository = (*fakeRepo)(nil)
 
 type fakeMedia struct{}

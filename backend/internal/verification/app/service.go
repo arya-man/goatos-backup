@@ -942,3 +942,14 @@ func isAlreadyDecided(err error) bool {
 	decided := &ports.AlreadyDecidedError{}
 	return errors.As(err, &decided)
 }
+
+// OversightAnalytics returns the CEO/PC-Director oversight aggregate. The permission check
+// (verification.oversee) is enforced at the HTTP layer via the route permission table, matching
+// every other endpoint in this module -- the service trusts its caller, same as ListQueue.
+func (s *Service) OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return domain.OversightAnalytics{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	return s.repo.OversightAnalytics(ctx, tenantID)
+}
