@@ -175,15 +175,24 @@ make release-tag \
 Do not call the Firebase release closed until the GitHub tag exists and includes
 the Android version/code and Firebase release URL.
 
-## Mandatory mirror: same APK to mesha.sg/app.apk
+## Mandatory employee distribution: Firebase + Play + mesha.sg/app.apk
 
 Trigger phrases that require this section: "Firebase publish", "upload to
-Firebase", "Firebase App Distribution", "release Android STG", "push APK", and
-any STG deploy that includes an Android release artifact.
+Firebase", "Firebase App Distribution", "release Android STG", "push APK",
+"internal test", "Play internal testing", and any STG deploy that includes an
+Android release artifact.
 
 This section is a release gate, not an optional operator convenience. Do not
-report an Android STG/Firebase release as complete until this mirror is live and
-verified.
+report an Android STG/Firebase release as complete until all three employee
+distribution channels are updated and verified:
+
+1. Firebase App Distribution for dev/QA testers.
+2. Google Play Internal Testing for employees/operators who install from Play.
+3. `https://mesha.sg/app.apk` for direct operator download / rescue install.
+
+Goat OS is an internal employee app. Do not publish the STG app to production or
+public Play tracks unless the maintainer explicitly asks for a separate public
+release plan.
 
 Every successful `appDistributionUploadStgRelease` must also publish the exact
 same release APK to the stable operator download URL:
@@ -195,6 +204,73 @@ https://mesha.sg/app.apk
 This URL is for field operators who cannot reliably use Firebase App Tester. It
 must download the APK directly; it must never render the Mesha website, a helper
 page, or a Firebase tester page.
+
+## Google Play Internal Testing
+
+Play Internal Testing is the preferred install/update path for employees and
+operators because it appears in Play Store after the tester accepts the opt-in
+link once. Keep Firebase App Distribution and the direct APK URL as backup
+channels.
+
+Use the STG package for the internal-only employee app:
+
+```text
+sg.mesha.goatos.stg
+```
+
+Play releases use an Android App Bundle (`.aab`), not the APK uploaded to
+Firebase. Build the Play bundle from the same source commit, `versionName`, and
+`versionCode` as the Firebase APK:
+
+```bash
+cd apps/goatos-android
+./gradlew :app:bundleStgRelease --no-configuration-cache
+
+AAB=app/build/outputs/bundle/stgRelease/app-stg-release.aab
+test -f "$AAB"
+```
+
+Do not rebuild with a different version for Play. A release may contain
+different file formats, but it must have one release identity:
+
+```text
+Firebase: APK, versionName/versionCode/source commit X
+Play internal: AAB, same versionName/versionCode/source commit X
+Website: APK bytes identical to Firebase APK
+```
+
+The Play internal tester list must be the same email IDs that have access to
+Firebase App Distribution for the employee/operator test group. Do not maintain
+a separate hand-picked Play tester list. Before publishing the Play internal
+release, verify Play Console contains the same email set as Firebase App
+Distribution, or sync Play from the Firebase tester group export/source-of-truth
+list. If this cannot be verified, do not say employees can get the build from
+Play yet.
+
+Initial Play setup is manual in Play Console:
+
+1. Create the Mesha/Goat OS STG app if it does not exist.
+2. Create/enable the Internal testing track.
+3. Add the Firebase tester emails to the Play internal tester list.
+4. Upload the STG release AAB to Internal testing.
+5. Copy the Play opt-in link and share it with employees/operators.
+
+After the app exists and Play Developer API access is configured, future agents
+may automate the AAB upload to the `internal` track. The automation must still
+preserve the same source commit/version identity and tester-list alignment.
+Email-list mutation through the Play Developer API is not always equivalent to
+the Play Console UI, so verify the actual tester access before claiming the
+release is available in Play.
+
+Operator success criteria:
+
+1. Tester opens the Play internal opt-in link once.
+2. Tester joins the test.
+3. Tester can install/update Mesha from Play Store.
+4. The installed app shows the same version name/code as Firebase and
+   `mesha.sg/app.apk`.
+
+## Mandatory mirror: same APK to mesha.sg/app.apk
 
 Use the APK produced by the same Gradle invocation above:
 
