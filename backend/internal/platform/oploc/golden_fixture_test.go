@@ -33,23 +33,23 @@ type goldenFixtureRow struct {
 // all three language files -- it is how a human maps a failure across surfaces.
 var goldenFixture = []goldenFixtureRow{
 	{
-		name:      "subdivided shed, numeric-suffixed name, worded partition",
+		name:      "exact partition shed, worded compatibility partition",
 		shedID:    "shed-godel-1",
-		shedName:  "Godel 1",
+		shedName:  "Godel 1 - Part 3",
 		partition: "Part 3",
 		want:      "Godel 1 - Part 3",
 	},
 	{
-		name:      "subdivided shed, numeric-suffixed name, two-digit worded partition",
+		name:      "exact partition shed, two-digit worded compatibility partition",
 		shedID:    "shed-godel-1",
-		shedName:  "Godel 1",
+		shedName:  "Godel 1 - Part 10",
 		partition: "Part 10",
 		want:      "Godel 1 - Part 10",
 	},
 	{
-		name:      "subdivided shed, plain name, bare numeric partition",
+		name:      "exact numbered shed, bare numeric compatibility partition",
 		shedID:    "shed-castro-cbe",
-		shedName:  "Castro",
+		shedName:  "Castro 2",
 		partition: "2",
 		want:      "Castro 2",
 	},
@@ -84,14 +84,14 @@ var goldenFixture = []goldenFixtureRow{
 	{
 		name:      "two same-named sheds, different parks -- CBE",
 		shedID:    "shed-castro-cbe",
-		shedName:  "Castro",
+		shedName:  "Castro 1",
 		partition: "1",
 		want:      "Castro 1",
 	},
 	{
 		name:      "two same-named sheds, different parks -- CPT",
 		shedID:    "shed-castro-cpt",
-		shedName:  "Castro",
+		shedName:  "Castro 1",
 		partition: "1",
 		want:      "Castro 1",
 	},

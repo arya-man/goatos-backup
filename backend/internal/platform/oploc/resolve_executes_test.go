@@ -60,7 +60,7 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')`, tenantID, shedID, labe
 	for _, tc := range []struct {
 		name, shedID, want string
 	}{
-		{"exactly one partition resolves", onePartition, "Godel 1 - Part 3"},
+		{"single compatibility partition does not change shed name", onePartition, "Godel 1"},
 		// AGREE-OR-GO-BARE: several partitions is ambiguous at shed grain, so it goes bare.
 		{"several partitions go bare", twoPartitions, "Mandela 2"},
 		// An undivided shed whose NAME ends in a number stays whole.

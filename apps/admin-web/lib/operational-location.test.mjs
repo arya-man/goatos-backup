@@ -16,20 +16,30 @@ test("operationalLocationLabel: never renders the literal string 'whole'", () =>
   assert.equal(operationalLocationLabel({ shedName: "Yashoda", partitionLabel: "WHOLE" }), "Yashoda");
 });
 
-test("operationalLocationLabel: numeric partition joins as an exact numbered shed", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Castro", partitionLabel: "2" }), "Castro 2");
-  assert.equal(operationalLocationLabel({ shedName: "Gandhi", partitionLabel: "1" }), "Gandhi 1");
+test("operationalLocationLabel: numeric partition metadata does not change a shed name", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Castro", partitionLabel: "2" }), "Castro");
+  assert.equal(operationalLocationLabel({ shedName: "Castro 2", partitionLabel: "2" }), "Castro 2");
+  assert.equal(operationalLocationLabel({ shedName: "Gandhi 1", partitionLabel: "1" }), "Gandhi 1");
 });
 
-test("operationalLocationLabel: prefixed partition convention joins with a dash", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "Part 3" }), "Godel 1 - Part 3");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "part 3" }), "Godel 1 - part 3");
+test("operationalLocationLabel: worded partition metadata does not change a shed name", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "Part 3" }), "Godel 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1 - Part 3", partitionLabel: "Part 3" }), "Godel 1 - Part 3");
+  assert.equal(operationalLocationLabel({ shedName: "Mandela 2 Part 1", partitionLabel: "Part 1" }), "Mandela 2 Part 1");
 });
 
-test("operationalLocationLabel: bare numeric labels use numbered shed spelling", () => {
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "10" }), "Godel 1 10");
-  assert.equal(operationalLocationLabel({ shedName: "Sumathi 2", partitionLabel: "7" }), "Sumathi 2 7");
+test("operationalLocationLabel: bare numeric labels are ignored when shed name is present", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "1" }), "Godel 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "10" }), "Godel 1");
+  assert.equal(operationalLocationLabel({ shedName: "Sumathi 2", partitionLabel: "7" }), "Sumathi 2");
+});
+
+test("operationalLocationLabel: exact shed names never re-append stale compatibility partition", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Castro 2", partitionLabel: "2" }), "Castro 2");
+  assert.equal(operationalLocationLabel({ shedName: "Castro 3", partitionLabel: "3" }), "Castro 3");
+  assert.equal(operationalLocationLabel({ shedName: "Gandhi 1", partitionLabel: "1" }), "Gandhi 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 2 - Part 1", partitionLabel: "Part 1" }), "Godel 2 - Part 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 2 - Part 1", partitionLabel: "1" }), "Godel 2 - Part 1");
 });
 
 test("operationalLocationLabel: sourceShedName is already partition-bearing, never re-suffixed", () => {
@@ -40,9 +50,9 @@ test("operationalLocationLabel: sourceShedName is already partition-bearing, nev
     operationalLocationLabel({ shedName: null, sourceShedName: "Castro 1", partitionLabel: "1" }),
     "Castro 1",
   );
-  // And when a real shed name IS present, numeric labels use numbered shed spelling.
+  // And when a real shed name IS present, partition metadata is ignored.
   assert.equal(
-    operationalLocationLabel({ shedName: "Castro", partitionLabel: "1" }),
+    operationalLocationLabel({ shedName: "Castro 1", partitionLabel: "1" }),
     "Castro 1",
   );
 });
@@ -64,23 +74,23 @@ test("hasOperationalPartition: distinguishes real partitions from sentinels", ()
 // Keep row `name` identical across all three files when adding/changing a row.
 const goldenFixture = [
   {
-    name: "subdivided shed, numeric-suffixed name, worded partition",
+    name: "exact partition shed, worded compatibility partition",
     shedId: "shed-godel-1",
-    shedName: "Godel 1",
+    shedName: "Godel 1 - Part 3",
     partitionLabel: "Part 3",
     want: "Godel 1 - Part 3",
   },
   {
-    name: "subdivided shed, numeric-suffixed name, two-digit worded partition",
+    name: "exact partition shed, two-digit worded compatibility partition",
     shedId: "shed-godel-1",
-    shedName: "Godel 1",
+    shedName: "Godel 1 - Part 10",
     partitionLabel: "Part 10",
     want: "Godel 1 - Part 10",
   },
   {
-    name: "subdivided shed, plain name, bare numeric partition",
+    name: "exact numbered shed, bare numeric compatibility partition",
     shedId: "shed-castro-cbe",
-    shedName: "Castro",
+    shedName: "Castro 2",
     partitionLabel: "2",
     want: "Castro 2",
   },
@@ -115,14 +125,14 @@ const goldenFixture = [
   {
     name: "two same-named sheds, different parks -- CBE",
     shedId: "shed-castro-cbe",
-    shedName: "Castro",
+    shedName: "Castro 1",
     partitionLabel: "1",
     want: "Castro 1",
   },
   {
     name: "two same-named sheds, different parks -- CPT",
     shedId: "shed-castro-cpt",
-    shedName: "Castro",
+    shedName: "Castro 1",
     partitionLabel: "1",
     want: "Castro 1",
   },
