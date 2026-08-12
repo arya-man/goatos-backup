@@ -16,8 +16,9 @@ import android.os.Build
  *    (no permission) plus `BluetoothAdapter.getBondedDevices()` / ACL broadcasts as a
  *    secondary signal, which is what needs runtime `BLUETOOTH_CONNECT` on API 31+.
  *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` is deliberately not
- *    part of this login-time catalog. LOCATION is mandatory for operators (maintainer 2026-08-02).
- *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture, FCM alerts.
+ *    part of this login-time catalog. Precise location is mandatory for operators.
+ *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture with compulsory
+ *    microphone audio, FCM alerts.
  */
 // Permission constants added after minSdk (BLUETOOTH_CONNECT API 31, POST_NOTIFICATIONS
 // API 33) are referenced here as plain catalog data, gated at USE time by minSdkInt via
@@ -28,15 +29,24 @@ enum class AppPermission(
     val minSdkInt: Int,
     val optional: Boolean,
     /** Highest SDK on which this permission is declared in the manifest and can therefore be
-     *  granted. Requesting past it can never succeed, which would strand the operator behind a
-     *  mandatory gate forever (seen live: ACCESS_FINE_LOCATION is capped at 30, so on Android 13
-     *  `pm grant` silently fails and the app is unusable). Int.MAX_VALUE = no cap. */
+     *  granted. Requesting past a manifest cap can never succeed, which would strand the operator
+     *  behind a mandatory gate forever. Int.MAX_VALUE = no cap. */
     val maxSdkInt: Int = Int.MAX_VALUE,
 ) {
     /** CameraX proof capture (shed-record submit video/photo evidence). Needed on every
      *  supported OS version (minSdk 29). */
     CAMERA(
         manifestPermission = Manifest.permission.CAMERA,
+        minSdkInt = 0,
+        optional = true,
+    ),
+
+    /** Audio is compulsory for in-app proof clips. Request it with the operator profile
+     *  permission bundle so CameraX launch is not the first place the operator sees it.
+     *  CaptureAccessGate still keeps RECORD_AUDIO in its blocking set as a route-level
+     *  safety net. */
+    MICROPHONE(
+        manifestPermission = Manifest.permission.RECORD_AUDIO,
         minSdkInt = 0,
         optional = true,
     ),
@@ -58,16 +68,22 @@ enum class AppPermission(
         optional = true,
     ),
 
-    /** Location for operator field work (maintainer directive 2026-08-02). NOTE the manifest
-     *  declares ACCESS_FINE_LOCATION with android:maxSdkVersion="30": from Android 12 the RFID
-     *  reader scans with BLUETOOTH_SCAN android:usesPermissionFlags="neverForLocation", so
-     *  location is neither needed nor grantable there. Capping it here keeps the mandatory gate
-     *  satisfiable on modern phones instead of locking the operator out. */
-    LOCATION(
+    /** Android 12+ shows the precise/approximate selector only when the app requests
+     *  coarse and fine location together. Fine remains the mandatory permission below;
+     *  coarse is requested alongside it so the OS presents the accuracy choice correctly. */
+    APPROXIMATE_LOCATION(
+        manifestPermission = Manifest.permission.ACCESS_COARSE_LOCATION,
+        minSdkInt = Build.VERSION_CODES.S,
+        optional = true,
+    ),
+
+    /** Precise location for operator capture context. On Android 12+, if the operator
+     *  chooses approximate only, this permission stays denied and the mandatory gate
+     *  remains closed. */
+    PRECISE_LOCATION(
         manifestPermission = Manifest.permission.ACCESS_FINE_LOCATION,
         minSdkInt = 0,
         optional = true,
-        maxSdkInt = Build.VERSION_CODES.R,
     ),
     ;
 

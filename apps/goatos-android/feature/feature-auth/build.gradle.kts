@@ -35,6 +35,10 @@ dependencies {
     // rememberLauncherForActivityResult(RequestMultiplePermissions()) for the permission gate.
     implementation(libs.androidx.activity.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test"))
+    testImplementation(libs.robolectric)
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

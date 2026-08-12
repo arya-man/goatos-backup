@@ -18,11 +18,11 @@ import kotlin.test.assertTrue
 // telemetry:exempt unit test of permission derivation; emits no user-facing surface.
 
 @RunWith(RobolectricTestRunner::class)
-@Config(minSdk = Build.VERSION_CODES.S)
 class RoleBasedPermissionGateTest {
 
     @Test
-    fun `operator requires location, camera, bluetooth, and notifications`() {
+    @Config(sdk = [Build.VERSION_CODES.S])
+    fun `operator on android 12 requires camera microphone and bluetooth`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
             items = emptyList(),
@@ -42,16 +42,20 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Operator requires notifications, location, camera, and BLE
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
-        assertTrue(required.contains(AppPermission.LOCATION.manifestPermission))
+        // Android 12+ operator requires proof capture and RFID permissions. Location is capped
+        // before Android 12; notifications start at Android 13.
         assertTrue(required.contains(AppPermission.CAMERA.manifestPermission))
+        assertTrue(required.contains(AppPermission.MICROPHONE.manifestPermission))
+        assertTrue(required.contains(AppPermission.APPROXIMATE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.PRECISE_LOCATION.manifestPermission))
         assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
-        assertEquals(4, required.size)
+        assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertEquals(5, required.size)
     }
 
     @Test
-    fun `verifier requires only notifications`() {
+    @Config(sdk = [Build.VERSION_CODES.S])
+    fun `verifier on android 12 requires no runtime permissions`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
             items = emptyList(),
@@ -72,15 +76,17 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Verifier requires only notifications
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        // Android 12 has no runtime notification permission.
+        assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
         assertFalse(required.contains(AppPermission.CAMERA.manifestPermission))
+        assertFalse(required.contains(AppPermission.MICROPHONE.manifestPermission))
         assertFalse(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
-        assertEquals(1, required.size)
+        assertEquals(0, required.size)
     }
 
     @Test
-    fun `weighing operator requires location, camera, bluetooth, and notifications`() {
+    @Config(sdk = [Build.VERSION_CODES.S])
+    fun `weighing operator on android 12 requires camera microphone and bluetooth`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
             items = emptyList(),
@@ -93,15 +99,18 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Weighing operator requires location, camera, BLE, and notifications
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
-        assertTrue(required.contains(AppPermission.LOCATION.manifestPermission))
+        // Weighing proof capture is also video+audio.
         assertTrue(required.contains(AppPermission.CAMERA.manifestPermission))
+        assertTrue(required.contains(AppPermission.MICROPHONE.manifestPermission))
+        assertTrue(required.contains(AppPermission.APPROXIMATE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.PRECISE_LOCATION.manifestPermission))
         assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
-        assertEquals(4, required.size)
+        assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertEquals(5, required.size)
     }
 
     @Test
+    @Config(sdk = [Build.VERSION_CODES.S])
     fun `director requires only notifications`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
@@ -123,13 +132,14 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Director only gets notifications
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
-        assertEquals(1, required.size)
+        // Android 12 has no runtime notification permission.
+        assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertEquals(0, required.size)
     }
 
     @Test
-    fun `no permissions required when empty feature flags`() {
+    @Config(sdk = [Build.VERSION_CODES.S])
+    fun `no permissions required when empty feature flags on android 12`() {
         val navState = NavState(
             chrome = NavChrome.MINIMAL,
             items = emptyList(),
@@ -139,12 +149,11 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Still requires notifications (all roles)
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertTrue(required.isEmpty())
     }
 
     @Test
-    @Config(minSdk = Build.VERSION_CODES.R) // SDK 30, before BLUETOOTH_CONNECT was added
+    @Config(sdk = [Build.VERSION_CODES.R]) // SDK 30, before BLUETOOTH_CONNECT was added
     fun `operator on pre-api31 does not require bluetooth`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
@@ -155,15 +164,18 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Location, camera, and notifications still required, but not BLUETOOTH_CONNECT
-        assertTrue(required.contains(AppPermission.LOCATION.manifestPermission))
+        // Location, camera, and microphone still required, but not BLUETOOTH_CONNECT.
+        // Runtime notifications do not exist before Android 13.
+        assertFalse(required.contains(AppPermission.APPROXIMATE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.PRECISE_LOCATION.manifestPermission))
         assertTrue(required.contains(AppPermission.CAMERA.manifestPermission))
-        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertTrue(required.contains(AppPermission.MICROPHONE.manifestPermission))
+        assertFalse(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
         assertFalse(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
     }
 
     @Test
-    @Config(minSdk = Build.VERSION_CODES.S)
+    @Config(sdk = [Build.VERSION_CODES.S])
     fun `permissions list respects SDK minimums`() {
         val navState = NavState(
             chrome = NavChrome.EXPANDED,
@@ -176,6 +188,29 @@ class RoleBasedPermissionGateTest {
 
         // On SDK 31+, BLUETOOTH_CONNECT should be included (added in S)
         val hasBluetoothConnect = required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission)
+        assertTrue(required.contains(AppPermission.MICROPHONE.manifestPermission))
+        assertTrue(required.contains(AppPermission.APPROXIMATE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.PRECISE_LOCATION.manifestPermission))
         assertEquals(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S, hasBluetoothConnect)
+    }
+
+    @Test
+    @Config(sdk = [Build.VERSION_CODES.TIRAMISU])
+    fun `operator on android 13 adds notifications to capture and bluetooth permissions`() {
+        val navState = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = emptyList(),
+            modules = emptyList(),
+            featureFlags = mapOf("vaccination_execute" to true),
+        )
+
+        val required = deriveRequiredPermissions(navState)
+
+        assertTrue(required.contains(AppPermission.CAMERA.manifestPermission))
+        assertTrue(required.contains(AppPermission.MICROPHONE.manifestPermission))
+        assertTrue(required.contains(AppPermission.APPROXIMATE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.PRECISE_LOCATION.manifestPermission))
+        assertTrue(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
+        assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
     }
 }
