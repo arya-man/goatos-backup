@@ -66,7 +66,7 @@ Common media properties expected inside `media[]`:
 - Verify the expected category and app claim, not a casual video summary.
 - Require visible evidence for the critical action or state.
 - Use `needs_human_review` when media is dark, shaky, cropped, occluded, ambiguous, or missing metadata.
-- Never invent goat identity, shed, weight, vaccine, batch, feed quantity, person identity, count, or action completion.
+- Never invent shed, weight, feed quantity, person identity, count, or action completion.
 - AI output is advisory evidence; it must not close a workflow directly.
 
 ## Category Instructions
@@ -87,18 +87,9 @@ What the video can prove:
 - the clip shows action, not only setup before action
 - the clip is clear enough or must go to human review
 
-What Gemini must not require from the video:
-- visible RFID
-- visible goat ID
-- readable ear tag
-- vaccine name
-- dose amount
-- dose/stage text
-- batch/vial label, unless a separate workflow explicitly asks for label proof
-
 Required app claim properties:
 - `task_id`: `string|null`
-- `capture_context`: `rfid_scanned_before_camera|task_selected_before_camera|unknown`
+- `capture_context`: `task_selected_before_camera|unknown`
 - `expected_action`: `injection|oral_dose|spray|topical|other`
 - `route_site_expected`: `string|null`
 
@@ -109,7 +100,6 @@ Gemini must verify:
 - administration contact/injection moment visible
 - clip continuity proves dose not setup only
 - route/site plausible only when supplied as a visual requirement
-- do not fail only because RFID, ear tag, goat id, vaccine name, or dose label is not visible
 
 Failure/review reasons include:
 - `wrong_category`
@@ -144,7 +134,6 @@ Gemini must verify:
 - visible reading matches app value within tolerance
 - no hand/foot/body/rope pressure affecting scale
 - tare/gross/net supported when applicable
-- do not fail individual weighing only because RFID, ear tag, or goat id is not visible
 
 Failure/review reasons include:
 - `wrong_category`
@@ -665,7 +654,7 @@ Purpose: Prove the vaccination/injection action is visible in the video.
 
 Properties Gemini needs:
 - `task_id`: `string|null`
-- `capture_context`: `rfid_scanned_before_camera|task_selected_before_camera|unknown`
+- `capture_context`: `task_selected_before_camera|unknown`
 - `expected_action`: `injection|oral_dose|spray|topical|other`
 - `route_site_expected`: `string|null`
 
@@ -677,13 +666,6 @@ Checks written for vaccination:
 - clip continuity proves dose not setup only
 - route/site plausible only when supplied as visual requirement
 
-Do not require from normal vaccination video:
-- visible RFID
-- visible goat ID or readable ear tag
-- vaccine name
-- dose amount/stage
-- vial or batch label, unless a separate label-proof workflow asks for it
-
 It should fail or route to human review for:
 - `wrong_category`
 - `goat_not_visible`
@@ -691,7 +673,6 @@ It should fail or route to human review for:
 - `administration_contact_not_visible`
 - `setup_only_no_dose`
 - `action_hidden`
-- `ambiguous_multiple_animals`
 - `route_site_contradiction`
 
 ## Output Contract
