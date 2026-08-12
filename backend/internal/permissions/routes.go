@@ -498,6 +498,12 @@ var protectedRoutes = []Route{
 	// they cannot write. See context/architecture/verifier-app-and-flow.md -> Roles.
 	{OperationID: "recordVerificationReviewEvents", Method: "POST", Pattern: "/verification/review-events", Permissions: []string{VerificationVerdict}},
 	{OperationID: "getVerificationItemReviewFacts", Method: "GET", Pattern: "/verification/items/{item_id}/review-facts", Permissions: []string{VerificationReview}},
+	// CEO/PC-Director oversight analytics (KPI strip, pending backlog by module, per-verifier
+	// activity + watch integrity). Gated on verification.oversee -- the SAME capability as the
+	// /verify page contract's oversight_analytics/oversight_filters controls, never role strings.
+	// A verifier holds verification.review/verdict but NOT verification.oversee, so this route
+	// 403s for her even though she can read the plain queue. See permissions.VerificationOversee.
+	{OperationID: "getVerificationOversightAnalytics", Method: "GET", Pattern: "/verification/oversight-analytics", Permissions: []string{VerificationOversee}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.
