@@ -106,6 +106,7 @@ data class ShedCompletionSummaryDto(
     @SerialName("drive_name") val driveName: String = "",
     @SerialName("expected_count") val expectedCount: Int = 0,
     @SerialName("handled_count") val handledCount: Int = 0,
+    @SerialName("neighbor_scan_count") val neighborScanCount: Int = 0,
     @SerialName("proof_ready_count") val proofReadyCount: Int = 0,
     @SerialName("proof_mode") val proofMode: String = "",
     @SerialName("vaccine_breakdown") val vaccineBreakdown: List<VaccineBreakdownItemDto> = emptyList(),

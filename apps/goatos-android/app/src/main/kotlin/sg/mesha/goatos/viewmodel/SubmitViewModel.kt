@@ -1015,7 +1015,12 @@ class SubmitViewModel @Inject constructor(
             ShedCompletionSummary(
                 taskId = summary.taskId,
                 shedName = summary.shedName,
-                driveName = summary.driveName,
+                driveName = summary.vaccineBreakdown
+                    .map { it.vaccine }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .joinToString(" + ")
+                    .ifBlank { summary.driveName },
                 expectedCount = animalExpectedCount,
                 handledCount = animalHandledCount.coerceAtMost(animalExpectedCount),
                 proofReadyCount = if (currentProofPolicy.isShedLevelVideo) {
@@ -1029,6 +1034,27 @@ class SubmitViewModel @Inject constructor(
         } else null
         val vaccineBreakdown = summary?.vaccineBreakdown.orEmpty()
             .map { VaccineSummaryItem(vaccine = it.vaccine, count = it.count) }
+        val currentPartitionKey = activePartitionLabel()?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole"
+        val localNeighborGoatCount = currentScans
+            .filter { it.partitionKey != currentPartitionKey }
+            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
+            .distinct()
+            .size
+        val neighborGoatCount = maxOf(summary?.neighborScanCount ?: 0, localNeighborGoatCount)
+        val summaryItems = task.presentation?.summaryItems.orEmpty()
+            .filter { it.label.isNotBlank() && it.value.isNotBlank() }
+            .map { SubmitSummaryItem(it.key, it.label, it.value) }
+            .let { items ->
+                if (neighborGoatCount == 0) {
+                    items
+                } else {
+                    items + SubmitSummaryItem(
+                        key = "neighbor_captures",
+                        label = "Neighbor captures",
+                        value = "$neighborGoatCount goats saved separately",
+                    )
+                }
+            }
         val summaryReady = if (summary != null && currentProofPolicy.isShedLevelVideo) {
             summary.handledCount == summary.expectedCount && shedProofReadiness.blockingReason == null
         } else if (summary != null && currentProofPolicy.isPerGoatVideo) {
@@ -1051,9 +1077,7 @@ class SubmitViewModel @Inject constructor(
             shed = "",
             cohort = "",
             date = "",
-            summaryItems = task.presentation?.summaryItems.orEmpty()
-                .filter { it.label.isNotBlank() && it.value.isNotBlank() }
-                .map { SubmitSummaryItem(it.key, it.label, it.value) },
+            summaryItems = summaryItems,
             groups = emptyList(),
             formRunner = formRunner,
             syncState = SyncState.DRAFT,
