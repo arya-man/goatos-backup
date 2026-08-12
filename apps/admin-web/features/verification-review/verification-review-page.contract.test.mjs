@@ -46,7 +46,12 @@ test("the capture-date range picker is gated on oversightFiltersEnabled", () => 
 // commit fe06be1ed, the screen's first commit; shed filter: commit 89b16c0fa, the same commit
 // that introduced this screen). They must stay UNGATED so a verifier's queue is unaffected.
 test("status chips and the shed filter are not gated behind oversightFiltersEnabled", () => {
-  const statusBlock = source.match(/\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n\s*<div className="vr-secthd">/);
+  // The oversight analytics section (gated on its own "oversight_analytics" control) may render
+  // between the status chip block and the results table heading -- it is optional additive
+  // chrome, not part of this filter row, so the regex tolerates it sitting in between.
+  const statusBlock = source.match(
+    /\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n[\s\S]{0,600}?<div className="vr-secthd">/,
+  );
   assert.ok(statusBlock, "expected the status chip block ahead of the results table heading");
   assert.ok(
     !/oversightFiltersEnabled/.test(statusBlock[1]),

@@ -76,6 +76,20 @@ export function todayIso(): string {
   return istDate(new Date());
 }
 
+// humanizeDurationMs renders a non-negative millisecond span as a compact "Nd Nh" / "Nh Nm" / "Nm"
+// string, "just now" under a minute. Used by the Verify queue table's "In queue" (age since
+// captured_at) and "Review took" (verified_at - captured_at) columns.
+export function humanizeDurationMs(ms: number): string {
+  const clamped = Math.max(0, ms);
+  const minutes = Math.floor(clamped / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
 /**
  * Shifts a "YYYY-MM-DD" Goat OS business day by whole days.
  *
