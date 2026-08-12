@@ -6463,6 +6463,36 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /verification/oversight-analytics:
+    get:
+      tags:
+        - Verification
+      operationId: getVerificationOversightAnalytics
+      summary: CEO/PC-Director-only aggregate analytics for the Verify oversight view.
+      description: >-
+        Server-computed aggregates rendered ABOVE the /verify queue table when the caller's page
+        contract carries the oversight_analytics control: a KPI strip (videos waiting, oldest
+        pending age, review speed, estimated days to clear the backlog, per-module median review
+        latency, reject rate), pending backlog by module, and per-verifier last-14-day activity
+        plus a watch-integrity aggregate. Gated on permissions.VerificationOversee -- the SAME
+        capability as the oversight_analytics/oversight_filters page-contract controls, never a
+        role string. A verifier who holds verification.review/verdict but not
+        verification.oversee receives 403 here even though she can read the plain queue. All
+        numbers are bounded, tenant-scoped aggregate reads, never a client-side mega-fetch or
+        per-verifier fan-out.
+      responses:
+        "200":
+          description: The tenant's oversight analytics aggregate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationOversightAnalyticsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting/destinations:
     get:
       tags:
@@ -22056,6 +22086,28 @@ components:
             $ref: "#/components/schemas/VerificationMediaItem"
         source:
           $ref: "#/components/schemas/VerificationSourceRef"
+        watch:
+          $ref: "#/components/schemas/VerificationWatchState"
+    VerificationWatchState:
+      type: object
+      additionalProperties: false
+      description: >-
+        Lightweight per-item watch-telemetry summary for the queue table's "Watch" column, derived
+        from verification_review_events. Absent from the item entirely when review-event telemetry
+        is not wired for this deployment (distinct from "not opened", which is a real fact).
+      required:
+        - opened
+      properties:
+        opened:
+          type: boolean
+          description: True when at least one item_opened telemetry event exists for this item.
+        percent_watched:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            max(video_position_ms)/max(video_duration_ms) across all actors' telemetry for this
+            item, clamped to 0-100. Absent when no proof duration was ever reported.
     VerificationQueueResponse:
       type: object
       additionalProperties: false
@@ -22491,6 +22543,119 @@ components:
             $ref: "#/components/schemas/VerificationItemReviewFactsEntry"
         trace_id:
           type: string
+    VerificationOversightAnalyticsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - kpis
+        - pending_by_module
+        - verifier_activity
+        - trace_id
+      properties:
+        kpis:
+          $ref: "#/components/schemas/VerificationOversightKPIs"
+        pending_by_module:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationModulePendingBacklog"
+        verifier_activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationVerifierActivity"
+        trace_id:
+          type: string
+    VerificationOversightKPIs:
+      type: object
+      additionalProperties: false
+      required:
+        - videos_waiting
+        - verdicts_per_active_day_last_7d
+        - per_module_median_review_latency_hours
+      properties:
+        videos_waiting:
+          type: integer
+          description: CEO-plain "videos waiting for review" count over the whole open queue.
+        oldest_pending_age_hours:
+          type: number
+          description: Age in hours of the oldest still-pending item. Absent when the queue is empty.
+        verdicts_per_active_day_last_7d:
+          type: number
+          description: >-
+            Verdicts recorded in the last 7 days divided by the number of DISTINCT days in that
+            window with at least one verdict.
+        est_days_to_clear_backlog:
+          type: number
+          description: >-
+            videos_waiting / verdicts_per_active_day_last_7d. Absent when the review rate is zero.
+        per_module_median_review_latency_hours:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationModuleLatency"
+        reject_rate_last_30d:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >-
+            rejected / (approved + rejected) over verdicts recorded in the last 30 days. Absent
+            when there were no verdicts in that window.
+    VerificationModuleLatency:
+      type: object
+      additionalProperties: false
+      required:
+        - module
+        - median_hours
+      properties:
+        module:
+          type: string
+        median_hours:
+          type: number
+    VerificationModulePendingBacklog:
+      type: object
+      additionalProperties: false
+      required:
+        - module
+        - count
+      properties:
+        module:
+          type: string
+        count:
+          type: integer
+    VerificationVerifierActivity:
+      type: object
+      additionalProperties: false
+      required:
+        - verifier_id
+        - verdicts
+        - approved
+        - rejected
+        - items_tracked
+        - watched_to_end_count
+        - verdict_without_play_count
+      properties:
+        verifier_id:
+          type: string
+          format: uuid
+        verifier_name:
+          type: string
+          description: Backend-owned display label for verifier_id. Never a raw UUID.
+        verdicts:
+          type: integer
+        approved:
+          type: integer
+        rejected:
+          type: integer
+        busiest_day:
+          type: string
+          format: date
+          description: Asia/Kolkata calendar date with the most verdicts in the last 14 days.
+        items_tracked:
+          type: integer
+          description: Items this verifier decided in the window that carry any review-event telemetry.
+        watched_to_end_count:
+          type: integer
+        verdict_without_play_count:
+          type: integer
+          description: Items this verifier decided with no video_play telemetry event beforehand.
     VerificationCloseSubmissionResponse:
       type: object
       additionalProperties: false

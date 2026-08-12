@@ -7,13 +7,14 @@ import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime, todayIso } from "@/lib/format";
+import { fmtDateTime, humanizeDurationMs, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
 import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, and every date selection silently fell back to today.
 import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
+import { OversightAnalytics } from "./oversight-analytics";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
@@ -143,6 +144,12 @@ export async function VerificationReviewPage({
   // verifier's original working-queue screen, commit 89b16c0fa / fe06be1ed) and stay available to
   // every role that can open this page.
   const oversightFiltersEnabled = controlEnabled(pageContract, "oversight_filters", false);
+  // Gates the CEO/PC-Director-only analytics section rendered ABOVE the queue table (KPI strip,
+  // pending-by-module, per-verifier activity + watch integrity). Same capability
+  // (permissions.VerificationOversee) as oversightFiltersEnabled above, but a DISTINCT contract
+  // control -- see compileVerificationReviewControls's oversight_analytics doc comment for why
+  // this is not folded into oversight_filters.
+  const oversightAnalyticsEnabled = controlEnabled(pageContract, "oversight_analytics", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -355,6 +362,8 @@ export async function VerificationReviewPage({
           </div>
         ) : null}
 
+        {oversightAnalyticsEnabled ? <OversightAnalytics pageContract={pageContract} /> : null}
+
         <div className="vr-secthd">
           <h2>{tableContract.title}</h2>
           <span className="hint">{copy(pageContract, "table.hint")}</span>
@@ -502,14 +511,66 @@ function QueueRow({
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(fmtDateTime(item.captured_at))}
       </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(inQueueCell(item))}
+      </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(item.verified_at ? fmtDateTime(item.verified_at) : <span className="small">—</span>)}
+      </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(reviewTookCell(item))}
+      </td>
       <td>
         {cell(<Tag tone={item.status === "rejected" ? "dng" : item.status === "approved" ? "ok" : "warn"}>{statusLabels[item.status] || item.status}</Tag>)}
       </td>
       <td>
         {cell(<span className="muted small">{item.verdict_reason || "—"}</span>)}
       </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(watchCell(item))}
+      </td>
     </tr>
   );
+}
+
+// IN_QUEUE_AMBER_MS / IN_QUEUE_RED_MS are the "In queue" column's age thresholds for a still-
+// pending item: amber past 4 hours, red past 7 days. Reviewed/decided items never age, so this
+// only applies to status === "pending".
+const IN_QUEUE_AMBER_MS = 4 * 60 * 60 * 1000;
+const IN_QUEUE_RED_MS = 7 * 24 * 60 * 60 * 1000;
+
+// inQueueCell renders the age since captured_at for a still-pending item, colored amber past 4h
+// and red past 7d; decided items show "—" (their age in the pending queue no longer matters --
+// "Review took" answers the equivalent question for them).
+function inQueueCell(item: VerificationQueueItem): React.ReactNode {
+  if (item.status !== "pending") return <span className="small">—</span>;
+  const capturedMs = Date.parse(item.captured_at);
+  if (Number.isNaN(capturedMs)) return <span className="small">—</span>;
+  const ageMs = Date.now() - capturedMs;
+  const tone = ageMs >= IN_QUEUE_RED_MS ? "dng" : ageMs >= IN_QUEUE_AMBER_MS ? "warn" : undefined;
+  return <span className={tone ? `small ${tone === "dng" ? "vr-age-red" : "vr-age-amber"}` : "small"}>{humanizeDurationMs(ageMs)}</span>;
+}
+
+// reviewTookCell renders the elapsed time between capture and verdict for a decided item; absent
+// for a still-pending item, which has not been reviewed yet.
+function reviewTookCell(item: VerificationQueueItem): React.ReactNode {
+  if (!item.verified_at) return <span className="small">—</span>;
+  const capturedMs = Date.parse(item.captured_at);
+  const verifiedMs = Date.parse(item.verified_at);
+  if (Number.isNaN(capturedMs) || Number.isNaN(verifiedMs)) return <span className="small">—</span>;
+  return <span className="small">{humanizeDurationMs(verifiedMs - capturedMs)}</span>;
+}
+
+// watchCell renders the queue row's watch-telemetry summary: "not opened" when the verifier never
+// opened the item, "N%" when a video position/duration pair was reported, "—" when the item was
+// opened but no duration telemetry exists, or when telemetry is unavailable for this deployment
+// (item.watch absent -- see domain.ItemWatchState's doc comment).
+function watchCell(item: VerificationQueueItem): React.ReactNode {
+  const watch = item.watch;
+  if (!watch) return <span className="small">—</span>;
+  if (!watch.opened) return <span className="small">not opened</span>;
+  if (watch.percent_watched === undefined || watch.percent_watched === null) return <span className="small">—</span>;
+  return <span className="small">{watch.percent_watched}%</span>;
 }
 
 /**
