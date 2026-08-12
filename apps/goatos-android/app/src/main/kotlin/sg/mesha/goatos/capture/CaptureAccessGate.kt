@@ -39,7 +39,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
  * MANDATORY, blocking permission gate for the capture/submit surface
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
- * microphone, precise location, OS-applicable notifications, and Android-12+ Bluetooth.
+ * microphone, precise location, OS-applicable notifications, and Android-12+ Nearby Devices
+ * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`).
  * There is no degraded operator capture path: if any required
  * permission is denied, [content] never composes. Runtime notification permission exists
  * only on Android 13+, so Android 12 must never include it in the all-granted check.
@@ -61,6 +62,7 @@ internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buil
     }
     if (sdkInt >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
+        add(Manifest.permission.BLUETOOTH_SCAN)
     }
 }
 
@@ -160,7 +162,8 @@ fun CaptureAccessGate(
 internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
     Manifest.permission.RECORD_AUDIO -> "Microphone"
-    Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth (RFID reader)"
+    Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth connect (RFID reader)"
+    Manifest.permission.BLUETOOTH_SCAN -> "Bluetooth scan (RFID reader)"
     Manifest.permission.ACCESS_FINE_LOCATION -> "Precise location"
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
     else -> permission

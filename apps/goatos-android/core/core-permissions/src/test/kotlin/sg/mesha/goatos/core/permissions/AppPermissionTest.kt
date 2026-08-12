@@ -8,8 +8,9 @@ import org.junit.Test
 /**
  * Verifies the OS-version-aware required set at each SDK boundary named in
  * docs/mobile/rfid-keyboard-reader.md and trd-operator-mobile.md §7: CAMERA on every
- * supported OS (minSdk 29), BLUETOOTH_CONNECT only from API 31 (S), POST_NOTIFICATIONS
- * only from API 33 (TIRAMISU). The login-time catalog keeps legacy pre-Android-12 location
+ * supported OS (minSdk 29), Nearby Devices permissions only from API 31 (S),
+ * POST_NOTIFICATIONS only from API 33 (TIRAMISU). The login-time catalog keeps legacy
+ * pre-Android-12 location
  * because that permission is grantable there; modern operator proof-capture location is enforced
  * by CaptureAccessGate, not by this role-neutral catalog.
  */
@@ -27,15 +28,15 @@ class AppPermissionTest {
     }
 
     @Test
-    fun `android 12 (31, S) adds bluetooth connect`() {
+    fun `android 12 (31, S) adds nearby devices permissions`() {
         val required = AppPermission.requiredForSdkInt(Build.VERSION_CODES.S)
-        assertEquals(listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT), required)
+        assertEquals(listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.BLUETOOTH_SCAN), required)
     }
 
     @Test
-    fun `android 12L (32) still has camera + bluetooth connect only`() {
+    fun `android 12L (32) still has camera plus nearby devices only`() {
         assertEquals(
-            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT),
+            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.BLUETOOTH_SCAN),
             AppPermission.requiredForSdkInt(32),
         )
     }
@@ -44,7 +45,7 @@ class AppPermissionTest {
     fun `android 13+ (33, TIRAMISU) adds notifications`() {
         val required = AppPermission.requiredForSdkInt(Build.VERSION_CODES.TIRAMISU)
         assertEquals(
-            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.NOTIFICATIONS),
+            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.BLUETOOTH_SCAN, AppPermission.NOTIFICATIONS),
             required,
         )
     }
@@ -52,7 +53,7 @@ class AppPermissionTest {
     @Test
     fun `android 16 (36, current target) still requires the same three`() {
         assertEquals(
-            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.NOTIFICATIONS),
+            listOf(AppPermission.CAMERA, AppPermission.BLUETOOTH_CONNECT, AppPermission.BLUETOOTH_SCAN, AppPermission.NOTIFICATIONS),
             AppPermission.requiredForSdkInt(36),
         )
     }
@@ -63,9 +64,8 @@ class AppPermissionTest {
     }
 
     @Test
-    fun `catalog never requests bluetooth scan or coarse location`() {
+    fun `catalog never requests coarse location`() {
         val allManifestPermissions = AppPermission.entries.map { it.manifestPermission }
-        assertEquals(false, allManifestPermissions.contains(Manifest.permission.BLUETOOTH_SCAN))
         assertEquals(false, allManifestPermissions.contains(Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 }
