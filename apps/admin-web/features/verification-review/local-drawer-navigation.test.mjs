@@ -5,6 +5,7 @@ import test from "node:test";
 const pageSource = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./verification-review-drawer.tsx", import.meta.url), "utf8");
 const shellSource = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+const actionsRedirectSource = readFileSync(new URL("../../app/(admin)/actions/page.tsx", import.meta.url), "utf8");
 
 test("Verification review records open and close locally without route navigation", () => {
   assert.match(pageSource, /LocalOverlayLink/);
@@ -24,6 +25,8 @@ test("Verification review records open and close locally without route navigatio
   // redirects, so a link minted before the rename still lands here.
   assert.match(pageSource, /const PATHNAME = "\/verify"/);
   assert.match(drawerSource, /const PATHNAME = "\/verify"/);
+  assert.match(actionsRedirectSource, /searchParams\?: Promise<Record<string, string \| string\[\] \| undefined>>/);
+  assert.match(actionsRedirectSource, /redirect\(query \? `\/verify\?\$\{query\}` : "\/verify"\)/);
 });
 
 test("Actions filters and video links are backend-contract driven", () => {

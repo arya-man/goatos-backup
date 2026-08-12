@@ -74,7 +74,7 @@ function selectedWindow(params: RouteSearchParams, today: string): { from: strin
 }
 
 function defaultWindow(today: string): { from: string; to: string } {
-  return { from: istDayPlus(today, -DEFAULT_WINDOW_DAYS), to: today };
+  return { from: istDayPlus(today, -(DEFAULT_WINDOW_DAYS - 1)), to: today };
 }
 
 function kg(value: number, fractionDigits = 1): string {

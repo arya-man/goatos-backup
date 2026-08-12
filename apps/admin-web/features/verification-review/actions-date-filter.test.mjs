@@ -85,4 +85,3 @@ test("every visible string on the picker is backend-contract copy", () => {
     assert.match(pageSource, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`), key);
   }
 });
-
