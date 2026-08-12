@@ -40,7 +40,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
  * microphone, precise location, OS-applicable notifications, and Android-12+ Nearby Devices
- * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`).
+ * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`). Android 12+ requires
+ * the location dialog to request coarse alongside fine; fine remains mandatory
+ * for operator proof capture, so approximate-only grants keep the gate closed.
  * There is no degraded operator capture path: if any required
  * permission is denied, [content] never composes. Runtime notification permission exists
  * only on Android 13+, so Android 12 must never include it in the all-granted check.
@@ -56,6 +58,7 @@ internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
 internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
     add(Manifest.permission.RECORD_AUDIO)
+    add(Manifest.permission.ACCESS_COARSE_LOCATION)
     add(Manifest.permission.ACCESS_FINE_LOCATION)
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
         add(Manifest.permission.POST_NOTIFICATIONS)
@@ -162,6 +165,7 @@ fun CaptureAccessGate(
 internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
     Manifest.permission.RECORD_AUDIO -> "Microphone"
+    Manifest.permission.ACCESS_COARSE_LOCATION -> "Approximate location"
     Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth connect (RFID reader)"
     Manifest.permission.BLUETOOTH_SCAN -> "Bluetooth scan (RFID reader)"
     Manifest.permission.ACCESS_FINE_LOCATION -> "Precise location"
