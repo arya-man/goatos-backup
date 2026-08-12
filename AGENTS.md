@@ -867,7 +867,7 @@ whole shed. Migration `000143` fanned the materializer out over `shed_partitions
 and a partitioned shed began listing `Castro - 1`, `Castro - 2`, `Castro - 3` as
 three transport tasks -- three videos of one load. That was never a recorded
 decision; it contradicted this rule and `docs/decisions/feed-transport-verification.md`
-at the same time. `000152_feed_transport_restore_shed_grain.sql` is the forward
+at the same time. `000155_feed_transport_restore_shed_grain.sql` is the forward
 repair (`000143`/`000146` are NOT amended -- STG records checksums). It retires only
 UNSTARTED pen tasks; a pen task already carrying an attempt keeps its status and its
 proof, because an operator really filmed it. `partition_label` is kept and stops
