@@ -166,7 +166,7 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	// lives here, in goat_shed_partitions, and must move atomically with the shed/park write -- in the
 	// SAME transaction -- or a reader combining the two tables would observe an animal whose shed says
 	// "moved" but whose partition still names its old location.
-	if err := r.upsertGoatShedPartitionsInTx(ctx, tx, cmd, moved); err != nil {
+	if err := r.upsertGoatShedPartitionsInTx(ctx, tx, cmd, toLocationID, moved); err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
 	// Re-derive vaccination_drive_assignment_members for whichever moved goats still have open,
@@ -194,25 +194,23 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 // callers already only ever moved goats into non-partitioned sheds). cmd.DestinationShedName, when
 // supplied, avoids a redundant shed-name lookup the caller may already have; when blank this reads
 // the name from `locations` so source_shed_name is a real display string and not the shed uuid.
-func (r *Repository) upsertGoatShedPartitionsInTx(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, goatIDs []string) error {
+func (r *Repository) upsertGoatShedPartitionsInTx(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, exactShedID string, goatIDs []string) error {
 	if len(goatIDs) == 0 {
 		return nil
 	}
 	partitionLabel := oploc.WholeSentinel
-	if cmd.DestinationPartitionLabel != nil {
-		if trimmed := strings.TrimSpace(*cmd.DestinationPartitionLabel); trimmed != "" {
-			partitionLabel = trimmed
-		}
-	}
 	shedName := strings.TrimSpace(cmd.DestinationShedName)
+	if exactShedID != cmd.ToShedID {
+		shedName = ""
+	}
 	if shedName == "" {
 		if err := tx.QueryRow(ctx, `SELECT name FROM locations WHERE tenant_id = $1::uuid AND location_id = $2::uuid`,
-			cmd.TenantID, cmd.ToShedID).Scan(&shedName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			cmd.TenantID, exactShedID).Scan(&shedName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("identity: relocate goats: destination shed name: %w", err)
 		}
 	}
 	sourceShedName := oploc.OperationalLocation{
-		ParkID: cmd.ToParkID, ShedID: cmd.ToShedID, ShedName: shedName, PartitionLabel: partitionLabel,
+		ParkID: cmd.ToParkID, ShedID: exactShedID, ShedName: shedName, PartitionLabel: partitionLabel,
 	}.Display()
 	if strings.TrimSpace(sourceShedName) == "" {
 		// goat_shed_partitions_source_nonblank requires a non-blank value; a shed name lookup miss
@@ -229,7 +227,7 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
     partition_label = EXCLUDED.partition_label,
     source_shed_name = EXCLUDED.source_shed_name,
     updated_at = now()`,
-		cmd.TenantID, cmd.ToShedID, partitionLabel, sourceShedName, goatIDs); err != nil {
+		cmd.TenantID, exactShedID, partitionLabel, sourceShedName, goatIDs); err != nil {
 		return fmt.Errorf("identity: relocate goats: upsert goat_shed_partitions: %w", err)
 	}
 	return nil

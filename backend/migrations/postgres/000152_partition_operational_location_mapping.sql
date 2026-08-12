@@ -65,15 +65,18 @@ CREATE OR REPLACE FUNCTION public.operational_location_display(
 ) RETURNS text
 LANGUAGE sql
 AS $$
-  SELECT NULLIF(
-    BTRIM(
-      regexp_replace(
-        format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(COALESCE(p_partition_label, ''))),
-        ' - (whole)?\s*$', '', 'i'
-      )
-    ),
-    ''
-  );
+  SELECT NULLIF(BTRIM(
+    CASE
+      WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
+        OR lower(BTRIM(p_partition_label)) = 'whole'
+        THEN BTRIM(COALESCE(p_shed_name, ''))
+      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
+        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
+        THEN format('%s - Part %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+    END
+  ), '');
 $$;
 
 CREATE OR REPLACE FUNCTION public.shed_partition_lock_key(
@@ -536,13 +539,23 @@ WHERE sp.operational_location_id IS NOT NULL;
 -- partition location is the shed. The old parent shed remains only in
 -- goat_shed_partitions/shed_partitions as the grouping bridge.
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
-  FROM public.shed_partitions
-  WHERE status = 'active'
-    AND operational_location_id IS NOT NULL
+  SELECT sp.tenant_id,
+         sp.shed_id AS group_shed_id,
+         sp.operational_location_id AS exact_shed_id,
+         sp.partition_label,
+         sp.normalized_label,
+         exact.name AS exact_shed_name
+  FROM public.shed_partitions sp
+  JOIN public.locations exact
+    ON exact.tenant_id = sp.tenant_id
+   AND exact.location_id = sp.operational_location_id
+  WHERE sp.status = 'active'
+    AND sp.operational_location_id IS NOT NULL
 )
 UPDATE public.vaccination_drive_assignments vda
 SET shed_id = ep.exact_shed_id,
+    physical_shed = COALESCE(NULLIF(ep.exact_shed_name, ''), vda.physical_shed),
+    partition_label = 'whole',
     updated_at = now()
 FROM exact_partition ep
 WHERE vda.tenant_id = ep.tenant_id
@@ -558,6 +571,7 @@ WITH exact_partition AS (
 )
 UPDATE public.vaccination_eligibility_rollups ver
 SET shed_id = ep.exact_shed_id,
+    partition_label = NULL,
     updated_at = now()
 FROM exact_partition ep
 WHERE ver.tenant_id = ep.tenant_id
@@ -573,6 +587,7 @@ WITH exact_partition AS (
 )
 UPDATE public.verification_items vi
 SET shed_id = ep.exact_shed_id,
+    partition_label = NULL,
     updated_at = now(),
     row_version = vi.row_version + 1
 FROM exact_partition ep
@@ -589,6 +604,7 @@ WITH exact_partition AS (
 )
 UPDATE public.health_cases hc
 SET shed_id = ep.exact_shed_id,
+    partition_label = NULL,
     updated_at = now(),
     row_version = hc.row_version + 1
 FROM exact_partition ep
@@ -605,6 +621,7 @@ WITH exact_partition AS (
 )
 UPDATE public.feed_transport_tasks ftt
 SET shed_id = ep.exact_shed_id,
+    partition_label = '',
     updated_at = now(),
     row_version = ftt.row_version + 1
 FROM exact_partition ep
@@ -624,6 +641,7 @@ WITH exact_partition AS (
 )
 UPDATE public.feed_distribution_completions fdc
 SET shed_id = ep.exact_shed_id,
+    partition_label = '',
     updated_at = now(),
     row_version = fdc.row_version + 1
 FROM exact_partition ep
@@ -647,6 +665,7 @@ WITH exact_partition AS (
 )
 UPDATE public.feed_packing_completions fpc
 SET shed_id = ep.exact_shed_id,
+    partition_label = '',
     updated_at = now(),
     row_version = fpc.row_version + 1
 FROM exact_partition ep
@@ -663,6 +682,7 @@ WITH exact_partition AS (
 )
 UPDATE public.feed_direction_issue_rows fdir
 SET shed_id = ep.exact_shed_id,
+    partition_label = '',
     updated_at = now()
 FROM exact_partition ep
 WHERE fdir.tenant_id = ep.tenant_id
@@ -678,11 +698,46 @@ WITH exact_partition AS (
 )
 UPDATE public.feed_experiment_config fec
 SET shed_id = ep.exact_shed_id,
+    partition_label = '',
     updated_at = now()
 FROM exact_partition ep
 WHERE fec.tenant_id = ep.tenant_id
   AND fec.shed_id = ep.group_shed_id
   AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fec.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.shifting_events se
+SET source_shed_id = ep.exact_shed_id,
+    source_partition_label = NULL,
+    updated_at = now(),
+    row_version = se.row_version + 1
+FROM exact_partition ep
+WHERE se.tenant_id = ep.tenant_id
+  AND se.source_shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(se.source_partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  FROM public.shed_partitions
+  WHERE status = 'active'
+    AND operational_location_id IS NOT NULL
+)
+UPDATE public.shifting_events se
+SET destination_shed_id = ep.exact_shed_id,
+    destination_partition_label = NULL,
+    updated_at = now(),
+    row_version = se.row_version + 1
+FROM exact_partition ep
+WHERE se.tenant_id = ep.tenant_id
+  AND se.destination_shed_id = ep.group_shed_id
+  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(se.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
@@ -1123,94 +1178,130 @@ DROP FUNCTION IF EXISTS public.reject_active_location_under_inactive_parent();
 DROP FUNCTION IF EXISTS public.ensure_shed_partition_operational_location();
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
-  FROM public.shed_partitions
-  WHERE operational_location_id IS NOT NULL
+  SELECT sp.tenant_id,
+         sp.shed_id AS group_shed_id,
+         sp.operational_location_id AS exact_shed_id,
+         sp.normalized_label,
+         sp.partition_label,
+         parent.name AS group_shed_name
+  FROM public.shed_partitions sp
+  JOIN public.locations parent
+    ON parent.tenant_id = sp.tenant_id
+   AND parent.location_id = sp.shed_id
+  WHERE sp.operational_location_id IS NOT NULL
 )
 UPDATE public.vaccination_drive_assignments vda
 SET shed_id = ep.group_shed_id,
+    physical_shed = COALESCE(NULLIF(ep.group_shed_name, ''), vda.physical_shed),
+    partition_label = ep.partition_label,
     updated_at = now()
 FROM exact_partition ep
 WHERE vda.tenant_id = ep.tenant_id
   AND vda.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vda.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(vda.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vda.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label, partition_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.vaccination_eligibility_rollups ver
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now()
 FROM exact_partition ep
 WHERE ver.tenant_id = ep.tenant_id
   AND ver.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ver.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    ver.partition_label IS NULL
+    OR COALESCE(NULLIF(btrim(ver.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ver.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label, partition_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.verification_items vi
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now(),
     row_version = vi.row_version + 1
 FROM exact_partition ep
 WHERE vi.tenant_id = ep.tenant_id
   AND vi.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    vi.partition_label IS NULL
+    OR COALESCE(NULLIF(btrim(vi.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label, partition_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.health_cases hc
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now(),
     row_version = hc.row_version + 1
 FROM exact_partition ep
 WHERE hc.tenant_id = ep.tenant_id
   AND hc.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(hc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    hc.partition_label IS NULL
+    OR COALESCE(NULLIF(btrim(hc.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(hc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.feed_transport_tasks ftt
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now(),
     row_version = ftt.row_version + 1
 FROM exact_partition ep
 WHERE ftt.tenant_id = ep.tenant_id
   AND ftt.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ftt.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(ftt.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(ftt.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 ALTER TABLE public.feed_distribution_completions
   DROP CONSTRAINT IF EXISTS feed_distribution_completions_weight_proof_check;
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.feed_distribution_completions fdc
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now(),
     row_version = fdc.row_version + 1
 FROM exact_partition ep
 WHERE fdc.tenant_id = ep.tenant_id
   AND fdc.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(fdc.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 ALTER TABLE public.feed_distribution_completions
@@ -1221,46 +1312,98 @@ ALTER TABLE public.feed_distribution_completions
   ) NOT VALID;
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.feed_packing_completions fpc
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now(),
     row_version = fpc.row_version + 1
 FROM exact_partition ep
 WHERE fpc.tenant_id = ep.tenant_id
   AND fpc.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fpc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(fpc.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fpc.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.shifting_events se
+SET source_shed_id = ep.group_shed_id,
+    source_partition_label = ep.partition_label,
+    updated_at = now(),
+    row_version = se.row_version + 1
+FROM exact_partition ep
+WHERE se.tenant_id = ep.tenant_id
+  AND se.source_shed_id = ep.exact_shed_id
+  AND (
+    se.source_partition_label IS NULL
+    OR COALESCE(NULLIF(btrim(se.source_partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(se.source_partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
+  FROM public.shed_partitions
+  WHERE operational_location_id IS NOT NULL
+)
+UPDATE public.shifting_events se
+SET destination_shed_id = ep.group_shed_id,
+    destination_partition_label = ep.partition_label,
+    updated_at = now(),
+    row_version = se.row_version + 1
+FROM exact_partition ep
+WHERE se.tenant_id = ep.tenant_id
+  AND se.destination_shed_id = ep.exact_shed_id
+  AND (
+    se.destination_partition_label IS NULL
+    OR COALESCE(NULLIF(btrim(se.destination_partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(se.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
+  AND ep.normalized_label <> 'whole';
+
+WITH exact_partition AS (
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.feed_direction_issue_rows fdir
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now()
 FROM exact_partition ep
 WHERE fdir.tenant_id = ep.tenant_id
   AND fdir.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdir.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(fdir.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fdir.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (
-  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, normalized_label
+  SELECT tenant_id, shed_id AS group_shed_id, operational_location_id AS exact_shed_id, partition_label, normalized_label
   FROM public.shed_partitions
   WHERE operational_location_id IS NOT NULL
 )
 UPDATE public.feed_experiment_config fec
 SET shed_id = ep.group_shed_id,
+    partition_label = ep.partition_label,
     updated_at = now()
 FROM exact_partition ep
 WHERE fec.tenant_id = ep.tenant_id
   AND fec.shed_id = ep.exact_shed_id
-  AND ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fec.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  AND (
+    COALESCE(NULLIF(btrim(fec.partition_label), ''), 'whole') = 'whole'
+    OR ep.normalized_label = regexp_replace(lower(btrim(COALESCE(fec.partition_label, 'whole'))), '^part[[:space:]]+', '')
+  )
   AND ep.normalized_label <> 'whole';
 
 WITH exact_partition AS (

@@ -751,8 +751,6 @@ internal fun executionCardId(
 ): String = buildString {
     append("shed:")
     append(shedId)
-    append("|partition:")
-    append(executionPartitionKey(partitionLabel))
     when {
         !taskId.isNullOrBlank() -> append("|task:").append(taskId)
         !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
@@ -766,7 +764,7 @@ internal fun VaccinationExecutionRowDto.executionCardId(): String =
         taskId = sopTaskId,
         batchId = batchId,
         driveId = driveId,
-        partitionLabel = partitionLabel ?: partition,
+        partitionLabel = null,
     )
 
 private fun executionPartitionKey(raw: String?): String {

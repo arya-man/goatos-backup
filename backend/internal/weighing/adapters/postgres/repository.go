@@ -323,7 +323,7 @@ SET status='canceled', updated_at=now()
 WHERE weighing_campaign_sheds.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed', 'closed', 'canceled')
-  AND NOT (location_id::text || '#' || COALESCE(partition_label, '') = ANY($3::text[]))`, cmd.TenantID, campaignID, selectedOperationalKeys); err != nil {
+	  AND NOT (location_id::text = ANY($3::text[]))`, cmd.TenantID, campaignID, selectedOperationalKeys); err != nil {
 		return domain.Campaign{}, err
 	}
 	// DUPLICATE WORK BLOCK, same rule as create. This campaign is excluded from the
@@ -3166,7 +3166,7 @@ WITH open_claims AS (
 )
 SELECT DISTINCT display_name
 FROM open_claims
-WHERE location_id || '#' || partition_label = ANY($4::text[])
+WHERE location_id = ANY($4::text[])
 ORDER BY display_name`, tenantID, parkID, weighDate, operationalKeys, nullableString(strings.TrimSpace(excludeCampaignID)))
 	if err != nil {
 		return nil, err
@@ -3364,7 +3364,7 @@ func mapObservationUniqueViolation(err error) error {
 }
 
 func createCampaignShedOperationalKey(shed domain.CreateCampaignShed) string {
-	return shed.LocationID + "#" + strings.TrimSpace(shed.PartitionLabel)
+	return shed.LocationID
 }
 
 func (r *Repository) hydrateCreateCampaignShedPartitions(ctx context.Context, tx pgx.Tx, tenantID string, sheds []domain.CreateCampaignShed) ([]domain.CreateCampaignShed, error) {

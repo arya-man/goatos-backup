@@ -838,7 +838,7 @@ private fun shedIdFromTarget(target: String): String? {
 private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
     selected.opensRecordOnly -> fallbackRoute
-    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId, selected.partitionLabel)
+    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId, null)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
         driveId = selected.driveId,
@@ -847,7 +847,7 @@ private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Strin
         sopVersionId = selected.sopVersionId,
         taskRowVersion = selected.taskRowVersion,
         scanTitle = selected.scanDisplayTitle(),
-        partitionLabel = selected.partitionLabel,
+        partitionLabel = null,
     )
 }
 

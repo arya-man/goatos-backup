@@ -2610,7 +2610,10 @@ WHERE g.tenant_id = $1
 // label conventions group together. Keep this expression byte-for-byte identical to the
 // operator-execution normalizer at vaccinationexecution/adapters/postgres/repository.go and to
 // oploc.NormalizePartition -- see internal/platform/oploc for the shared Go-side contract.
-const partitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')`
+const partitionKeyExpr = `CASE
+      WHEN exact_sp.operational_location_id IS NOT NULL THEN 'whole'
+      ELSE regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    END`
 
 const countsBreakdownGroupedCTE = `
 WITH grouped AS MATERIALIZED (
@@ -2621,11 +2624,16 @@ WITH grouped AS MATERIALIZED (
     COALESCE(g.breed, '')            AS breed,
     g.sex,
     ` + partitionKeyExpr + ` AS partition_key,
-    -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
-    -- display can preserve each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
-    -- representative among rows sharing the same normalized key (both conventions never coexist
-    -- for one shed in real data).
-    min(gsp.partition_label) AS partition_label_raw,
+    -- source_shed_name is the legacy bridge to the exact physical shed name for pre-cutover rows.
+    -- partition_label remains only a matching key; it must not be composed into a live location
+    -- name.
+    min(CASE
+      WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
+      WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
+      WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
+      ELSE btrim(gsp.source_shed_name)
+    END) AS source_shed_name_raw,
+    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
     count(*) AS animal_count,
     -- COALESCE is load-bearing: herd_register_is_kid returns NULL when age_band is NULL (NULL='kid'
     -- propagates), and a bare NOT would then drop those animals from BOTH buckets, so kid+adult
@@ -2638,6 +2646,10 @@ WITH grouped AS MATERIALIZED (
   -- no row here is not partitioned and normalizes to 'whole'.
   LEFT JOIN goat_shed_partitions gsp
          ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  LEFT JOIN shed_partitions exact_sp
+         ON exact_sp.tenant_id = g.tenant_id
+        AND exact_sp.operational_location_id = g.shed_id
+        AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -2692,7 +2704,7 @@ SELECT
   gr.park_id::text,
   COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
   gr.shed_id::text,
-  COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  COALESCE(gr.source_shed_name_raw, NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
   -- '' when partition_key is 'whole' (non-partitioned): never surface the sentinel to a client.
   CASE WHEN gr.partition_key = 'whole' THEN '' ELSE gr.partition_label_raw END AS partition_label,
   gr.management_stage,
@@ -2768,7 +2780,7 @@ SELECT * FROM (
          -- pen. Same key shape the facets branch emits, so the two describe locations identically.
          COALESCE(gr.shed_id::text, '') ||
            CASE WHEN gr.partition_key = 'whole' THEN '' ELSE '#' || gr.partition_key END AS series_key,
-         COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
+         COALESCE(min(gr.source_shed_name_raw), NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
          sum(gr.animal_count) AS series_count,
          COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
          -- partition_label_raw, never partition_key: the key is a scrubbed MATCHING value ('3') and
@@ -2897,72 +2909,6 @@ WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.shed_id::text, ''), COALESCE(g.park_id::text, ''), shed.name, shed.location_code
-UNION ALL
--- Specific-partition options ("Castro 2"): key is shed_id + normalized partition so it never
--- collides across parks (Key() convention from internal/platform/oploc). Non-partitioned goats
--- (no goat_shed_partitions row) are excluded here -- they are only offered via the parent-shed
--- aggregate above, since there is no real partition to select.
-SELECT 'shed',
-       COALESCE(g.shed_id::text, '') || '#' || ` + partitionKeyExpr + `,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || gsp.partition_label,
-       count(*), COALESCE(g.park_id::text, ''), btrim(gsp.partition_label)
-FROM goats g
-JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
-WHERE g.tenant_id = $1::uuid
-  AND g.merged_into_goat_id IS NULL
-  AND ($2 = '' OR g.lifecycle_status = $2)
-  AND ` + partitionKeyExpr + ` <> 'whole'
-GROUP BY g.shed_id, COALESCE(g.park_id::text, ''), shed.name, shed.location_code,
-         ` + partitionKeyExpr + `, gsp.partition_label
-UNION ALL
--- projection-review: membership=shed_partitions catalog rows (status='active') for the tenant, which is the AUTHORITATIVE list of partitions that physically exist, restricted by NOT EXISTS to those holding no live animal; group_key=(shed_id, normalized_label) which is the catalog's own primary key so each partition can appear at most once; join_cardinality=locations joined once on (tenant_id, location_id), that table's primary key, so 1:{0,1} label lookup with no fan-out, and the NOT EXISTS is a semi-join that cannot duplicate a catalog row; pagination=whole-result rollup, never paged and never capped, exactly like the sibling facet branches; scope=tenant_id plus the same optional lifecycle predicate the occupied branches apply, and the park key is taken from the same denormalized goats.park_id the occupied branches use so an empty partition keys to the same park as its shed's occupied ones
--- EMPTY partitions. The two branches above are derived from goats, so a partition that currently
--- holds ZERO animals is invisible to them -- and a partition can be genuinely empty (CBE
--- "Yashoda 5" is a real pen with no animals in it right now). Leaving it out of the facet means a
--- CEO filtering the census cannot even ask about it, and it reads as though the pen does not
--- exist. The authoritative list of which partitions EXIST is the shed_partitions catalog
--- (migration 000112), not the per-goat goat_shed_partitions table.
---
--- Only partitions with no live goats are added here; the branch above already emits every occupied
--- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.
-SELECT 'shed',
-       sp.shed_id::text || '#' || sp.normalized_label,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || sp.partition_label,
-       0,
-       -- park, then the raw partition label (last column)
-       -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands
-       -- under a different park key than its own shed's occupied partitions and the option
-       -- disappears when that park is selected. Those branches read the DENORMALIZED goats.park_id,
-       -- so prefer the same value (any goat in this shed carries it) and fall back to the
-       -- locations parentage only when the shed holds no animals at all -- the one case where no
-       -- goats row exists to read.
-       COALESCE(
-         (SELECT g3.park_id::text
-            FROM goats g3
-           WHERE g3.tenant_id = sp.tenant_id
-             AND g3.shed_id = sp.shed_id
-             AND g3.merged_into_goat_id IS NULL
-           LIMIT 1),
-         shed.parent_location_id::text,
-         ''
-       ),
-       btrim(sp.partition_label)
-FROM shed_partitions sp
-JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
-WHERE sp.tenant_id = $1::uuid
-  AND sp.status = 'active'
-  AND NOT EXISTS (
-    SELECT 1
-    FROM goats g2
-    JOIN goat_shed_partitions gsp2 ON gsp2.tenant_id = g2.tenant_id AND gsp2.goat_id = g2.goat_id
-    WHERE g2.tenant_id = sp.tenant_id
-      AND g2.shed_id = sp.shed_id
-      AND g2.merged_into_goat_id IS NULL
-      AND ($2 = '' OR g2.lifecycle_status = $2)
-      AND regexp_replace(lower(btrim(COALESCE(gsp2.partition_label, 'whole'))), '^part[[:space:]]+', '')
-          = sp.normalized_label
-  )
 ORDER BY 1, 2, 5`
 
 const (

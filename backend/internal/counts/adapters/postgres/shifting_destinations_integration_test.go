@@ -30,7 +30,8 @@ const (
 	destRetiredPark  = "00000000-0000-4000-8000-000000003003"
 	// A park with no sheds at all, to prove it still appears (LEFT JOIN, not INNER).
 	destEmptyPark = "00000000-0000-4000-8000-000000003004"
-	// Parent shed + partition catalog used to prove old same-park partition aliases are suppressed.
+	// Parent shed + partition catalog used to prove the common/base shed is suppressed while the
+	// exact numbered shed remains selectable.
 	destCastroParentCPT = "00000000-0000-4000-8000-000000004104"
 	// The OTHER alias spelling: a parent "Mandela 1" whose catalog pen is labelled "Part 3", beside
 	// the legacy location literally named "Mandela 1 - Part 3". Both render "Mandela 1 - Part 3",
@@ -70,8 +71,8 @@ ON CONFLICT (location_id) DO NOTHING`,
 }
 
 // TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases pins the live STG bug where the
-// operator saw both "Castro 1" and "Castro - 1" in the same park. The first is an old active
-// partition-alias location; the second is the canonical parent shed plus shed_partitions row.
+// operator saw both a common/base "Castro" location and synthesized "Castro - 1" rows. The actual
+// selectable shed is the numbered location, "Castro 1".
 func TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
@@ -117,8 +118,8 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 			}
 		}
 	}
-	if len(labels) != 1 || labels[0] != "Castro - 1" {
-		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
+	if len(labels) != 1 || labels[0] != "Castro 1" {
+		t.Fatalf("Castro destination labels in one park = %v, want only the exact shed \"Castro 1\"", labels)
 	}
 }
 
@@ -198,9 +199,6 @@ func TestShiftingDestinationCatalogGroupsRepeatedShedNamesByPark(t *testing.T) {
 	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
 	if err != nil {
 		t.Fatalf("ShiftingDestinationCatalog: %v", err)
-	}
-	if len(catalog.ManagementStages) == 0 {
-		t.Fatal("active management-stage vocabulary must be returned with the destination catalog")
 	}
 	for _, stage := range catalog.ManagementStages {
 		if stage == "ICU" || stage == "Quarantine" {

@@ -22,18 +22,20 @@
 //                   location_type is an ENUM (shed/partition kind). Weighing
 //                   once assigned it where a partition LABEL belongs. It is
 //                   never a partition label.
-//   counts-grain    a counts/breakdown aggregation that GROUPs BY shed without
-//                   any partition dimension collapses partitions into the
-//                   parent and makes the dropdown lie.
+//   counts-grain    a counts/breakdown aggregation that GROUPs BY the legacy
+//                   shed_group_id as residence collapses exact sheds into the
+//                   parent/header and makes the dropdown lie. GROUP BY
+//                   goats.shed_id is correct: after the exact-shed cutover,
+//                   goats.shed_id is the real physical shed id.
 //   alias-locations a selectable-location catalog must derive partitions from
 //                   goat_shed_partitions, never from `locations` rows. Rows
 //                   named "Castro 1"/"Godel 1 - Part 3" exist there with
 //                   status='inactive' and 0 animals; surfacing them shows fake
 //                   empty sheds and lets an operator move goats onto a dead id.
 //   missing-partition-column
-//                   a user-facing/read-model table with shed_id MUST carry
-//                   partition_label when partitions exist. Allowlist legitimate
-//                   shed-grain-only tables in SHED_GRAIN_ONLY_TABLES with WHY.
+//                   legacy-only check for pre-cutover tables. New user-facing
+//                   tables should store the exact shed id; partition_label is
+//                   compatibility/history, not live identity.
 //   sql-display-drift
 //                   CASE statements that compose display strings must use or
 //                   reference oploc.Display() / PartitionLabel.render() /
@@ -186,19 +188,15 @@ const CHECKS = [
   },
   {
     id: "counts-grain",
-    // Check for GROUP BY shed_id without partition across multiple lines in counts module.
-    // CLOSURE: multi-line GROUP BY where partition mention might be on another line.
-    // Use a bounded window (next ~3 lines) to catch cases where GROUP BY spans lines.
+    // Exact-shed model: goats.shed_id is the physical shed. The dangerous
+    // collapse is grouping by shed_group_id as if it were residence.
     test: (line, file, lines, lineIndex) => {
       if (!/\/counts\//.test(file)) return false;
       if (!/GROUP\s+BY/i.test(line)) return false;
-      // Look for shed_id in the GROUP BY and surrounding ~3 lines context
       const window = lines.slice(lineIndex, Math.min(lineIndex + 3)).join(" ");
-      const hasGroupByShedId = /GROUP\s+BY[^;]*shed_id/i.test(window);
-      const hasPartition = /partition/i.test(window);
-      return hasGroupByShedId && !hasPartition;
+      return /GROUP\s+BY[^;]*\bshed_group_id\b/i.test(window);
     },
-    msg: "counts aggregation groups by shed without a partition dimension; partitions collapse into the parent shed",
+    msg: "counts aggregation groups by shed_group_id as residence; group by the exact goats.shed_id so partition sheds do not collapse into the parent/header",
   },
   {
     id: "alias-locations",
@@ -682,6 +680,7 @@ const CHECKS = [
         /partition_label|normalized_label/i.test(line) &&
         /\b(?:shed|location)?[._]?name\b/i.test(line) &&
         !/Display\s*\(|render\s*\(|operational_location_display/i.test(line);
+      if (/AS\s+(?:partition_key|partition_label_raw|source_partition_label|destination_partition_label)\b/i.test(line)) return false;
       if (bareConcat) return true;
       // MULTI-LINE concatenation. The single-line check above needs the name AND the partition
       // on one line. Real drift does not oblige: a Feed Transport list query composed
@@ -712,15 +711,17 @@ const CHECKS = [
       const window = lines
         .slice(Math.max(0, lineIndex - 1), Math.min(lines.length, lineIndex + 6))
         .join(" ");
+      if (/AS\s+(?:partition_key|partition_label_raw|source_partition_label|destination_partition_label)\b/i.test(window)) return false;
       // Must have both CASE/WHEN and partition_label mention
       if (!/CASE[^;]*WHEN[^;]*partition_label/i.test(window)) return false;
-      // Must show string concatenation (||, +, CONCAT) in the THEN clause
-      if (!/(THEN[^;]{0,150}(?:\|\||[\+]|CONCAT))/i.test(window)) return false;
+      // Must show SQL string concatenation (|| or CONCAT) in the THEN clause.
+      // Do not treat `+` inside regex literals (`[[:space:]]+`) as display composition.
+      if (!/(THEN[^;]{0,150}(?:\|\||CONCAT))/i.test(window)) return false;
       // OK if it uses the shared primitive instead of hand-rolling
       if (/Display\s*\(|render\s*\(|operational_location_display/i.test(window)) return false;
       return true;
     },
-    msg: "CASE statement composes a display string from partition_label instead of calling the shared primitive (backend/internal/platform/oploc.Display, PartitionLabel.render, operational_location_display)",
+    msg: "CASE statement composes a display string from partition_label instead of calling the shared primitive; partition_label is not live shed identity",
   },
   {
     id: "missing-partition-column",
@@ -925,12 +926,17 @@ function selfTest() {
     [
       "backend/internal/counts/q.go",
       `q := "SELECT x FROM goats g GROUP BY g.shed_id, g.park_id"`,
-      "counts-grain",
+      null,
     ],
     [
       "backend/internal/counts/ok.go",
       `q := "SELECT x FROM goats g GROUP BY g.shed_id, gsp.partition_label"`,
       null,
+    ],
+    [
+      "backend/internal/counts/bad_group.go",
+      `q := "SELECT x FROM goats g GROUP BY g.shed_group_id, g.park_id"`,
+      "counts-grain",
     ],
     [
       "b/dest.go",
@@ -1083,7 +1089,7 @@ function selfTest() {
     [
       "backend/internal/counts/q2.go",
       `q := "SELECT x FROM goats g\nGROUP BY g.shed_id"`,
-      "counts-grain",
+      null,
     ],
     // CLOSURE: counts-grain ok when partition is on another line
     [
@@ -1213,6 +1219,13 @@ function selfTest() {
     [
       "backend/internal/counts/q_ok.go",
       `q := "SELECT COUNT(*) FROM goats g GROUP BY g.shed_id, gsp.partition_label, g.park_id"`,
+      null,
+    ],
+    [
+      "backend/internal/counts/q_partition_key_ok.go",
+      `CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN 'whole'
+            ELSE regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       END AS partition_key`,
       null,
     ],
 

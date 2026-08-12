@@ -74,14 +74,9 @@ type OperationalLocation struct {
 
 // Display renders the user-facing operational location.
 //
-//	non-partitioned:      "Yashoda"
-//	numeric convention:   "Castro 2", "Gandhi 3"
-//	prefixed convention:  "Godel 1 - Part 3"
-//
-// The stored label is preserved verbatim rather than rewritten, so the text an
-// operator reads on screen matches the text painted on the shed. Bare numeric
-// labels use the existing shed-number convention ("Castro 2"); worded labels
-// keep the explicit separator ("Godel 1 - Part 3").
+// After the partition-is-shed cutover, ShedName is already the exact physical
+// shed name. PartitionLabel is compatibility/history metadata and must not be
+// appended to live display text.
 //
 // Keep this identical to PartitionLabel.kt (Android) and
 // lib/operational-location.ts (admin-web); the same animal must never read two
@@ -101,31 +96,17 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
-	lowerShed := strings.ToLower(shed)
-	lowerLabel := strings.ToLower(label)
-	if strings.EqualFold(shed, label) ||
-		strings.HasSuffix(lowerShed, " - "+lowerLabel) {
-		return shed
-	}
-	if strings.HasPrefix(strings.ToLower(label), "part ") || strings.HasPrefix(strings.ToLower(label), "parts ") {
-		return shed + " - " + label
-	}
-	if NormalizePartition(label) != strings.ToLower(label) {
-		return shed + " - " + label
-	}
-	if numericLabel.MatchString(label) {
-		return shed + " " + label
-	}
-	return shed + " - " + label
+	return shed
 }
 
 // IsPartitioned reports whether this location names a real partition.
 func (l OperationalLocation) IsPartitioned() bool { return IsPartitioned(l.PartitionLabel) }
 
-// Key returns a stable identity for grouping and de-duplication: parent shed
-// uuid plus the normalized partition key. Park is implied by ShedID.
+// Key returns a stable identity for grouping and de-duplication. ShedID is the
+// exact physical shed, so compatibility partition metadata is deliberately not
+// part of the live identity.
 func (l OperationalLocation) Key() string {
-	return l.ShedID + "#" + NormalizePartition(l.PartitionLabel)
+	return l.ShedID
 }
 
 // shedPartitionSuffix matches the EXACTLY TWO partition-naming conventions the locations catalog

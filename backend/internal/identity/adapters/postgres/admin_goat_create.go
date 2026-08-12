@@ -497,7 +497,7 @@ FROM locations
 WHERE tenant_id = $1::uuid
   AND location_id = $2::uuid
   AND location_type = 'shed'
-  AND status = 'active'`, cmd.TenantID, cmd.ShedID).Scan(&shedName); err != nil {
+  AND status = 'active'`, cmd.TenantID, goatShedID).Scan(&shedName); err != nil {
 			return nil, fmt.Errorf("identity: create admin goat: resolve partition source shed: %w", err)
 		}
 		sourceShedName := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
@@ -509,7 +509,7 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
     partition_label = EXCLUDED.partition_label,
     source_shed_name = EXCLUDED.source_shed_name,
     updated_at = now()`,
-			cmd.TenantID, goatID, cmd.ShedID, label, sourceShedName); err != nil {
+			cmd.TenantID, goatID, goatShedID, oploc.WholeSentinel, sourceShedName); err != nil {
 			return nil, fmt.Errorf("identity: create admin goat: upsert goat_shed_partitions: %w", err)
 		}
 	}

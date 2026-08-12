@@ -117,6 +117,221 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 	}
 }
 
+func TestCompleteDistributionEnqueueRequestCarriesPartition(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	seedFeedDirectionPartition(t, ctx, pool, fdShedA, "2")
+
+	enq := &recordingDistributionEnqueuer{}
+	svc := feeddirectionapp.NewService(nil, nil).
+		WithDistributionStore(repo).
+		WithDistributionVerificationEnqueuer(enq)
+
+	_, err := svc.CompleteDistribution(ctx, feeddirectionapp.CompleteDistributionInput{
+		TenantID:             fdTenant,
+		ParkID:               fdPark,
+		ShedID:               fdShedA,
+		PartitionLabel:       "2",
+		SessionNo:            1,
+		TargetDate:           businessDay(2026, 7, 22),
+		Workflow:             domain.WorkflowNormal,
+		FeedWeightProofRef:   "proof-weight-0001",
+		DistributionProofRef: "proof-distribution-0001",
+		WaterProofRef:        "proof-water-0001",
+		CompletedBy:          fdActor,
+		IdempotencyKey:       "feed-distribution-partition-enqueue-0001",
+		ActorID:              fdActor,
+		ActorType:            "operator",
+	})
+	if err != nil {
+		t.Fatalf("CompleteDistribution: %v", err)
+	}
+	if len(enq.calls) != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", len(enq.calls))
+	}
+	if enq.calls[0].PartitionLabel != "" {
+		t.Fatalf("enqueue partition = %q, want blank because shed id is already exact", enq.calls[0].PartitionLabel)
+	}
+}
+
+// The weight photo REACHES THE COLUMN, and the enqueued item carries all three refs in CAPTURE ORDER.
+//
+// This is the assertion that a field-presence test cannot make: a struct field that is declared and
+// threaded through the app layer but never projected into the INSERT compiles, passes every unit test,
+// and writes NULL. It reads the value back out of Postgres and checks the enqueue payload the verifier
+// queue is actually built from.
+func TestCompleteDistributionPersistsWeightPhotoAndEnqueuesThreeProofsInCaptureOrder(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	enq := &recordingDistributionEnqueuer{}
+	svc := feeddirectionapp.NewService(nil, nil).
+		WithDistributionStore(repo).
+		WithDistributionVerificationEnqueuer(enq)
+
+	res, err := svc.CompleteDistribution(ctx, feeddirectionapp.CompleteDistributionInput{
+		TenantID:             fdTenant,
+		ParkID:               fdPark,
+		ShedID:               fdShedA,
+		SessionNo:            1,
+		TargetDate:           businessDay(2026, 7, 22),
+		Workflow:             domain.WorkflowNormal,
+		FeedWeightProofRef:   "proof-weight-0001",
+		DistributionProofRef: "proof-distribution-0001",
+		WaterProofRef:        "proof-water-0001",
+		CompletedBy:          fdActor,
+		IdempotencyKey:       "feed-distribution-weight-persist-0001",
+		ActorID:              fdActor,
+		ActorType:            "operator",
+	})
+	if err != nil {
+		t.Fatalf("CompleteDistribution: %v", err)
+	}
+
+	var storedWeight *string
+	if err := pool.QueryRow(ctx, `
+SELECT feed_weight_proof_ref FROM feed_distribution_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, res.CompletionID).Scan(&storedWeight); err != nil {
+		t.Fatalf("read weight proof: %v", err)
+	}
+	if storedWeight == nil || *storedWeight != "proof-weight-0001" {
+		t.Fatalf("stored feed_weight_proof_ref = %v, want proof-weight-0001", storedWeight)
+	}
+
+	if len(enq.calls) != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", len(enq.calls))
+	}
+	got := enq.calls[0]
+	if got.FeedWeightProofRef != "proof-weight-0001" {
+		t.Fatalf("enqueued weight ref = %q, want proof-weight-0001", got.FeedWeightProofRef)
+	}
+	if got.DistributionProofRef != "proof-distribution-0001" || got.WaterProofRef != "proof-water-0001" {
+		t.Fatalf("enqueued refs = %+v, want the distribution and water proofs preserved", got)
+	}
+}
+
+// A row submitted BEFORE the weight photo existed keeps its two proofs and stays verdictable.
+//
+// This is the grandfathering half of migration 000151, and it has to REPRODUCE THE DEPLOY ORDER to
+// mean anything. NOT VALID exempts the rows already on disk when the constraint is added; it does not
+// exempt new inserts (a first attempt at this test inserted a legacy-shaped row after the migration
+// and was correctly rejected -- the constraint was right, the test was wrong). So the sequence here
+// is the real one: legacy row exists, THEN the migration runs over it.
+//
+// The load-bearing assertion is the ADD CONSTRAINT itself. Drop the NOT VALID and that statement
+// fails on exactly the rows this decision protects -- every item sitting in a verifier's queue on
+// deploy day.
+func TestGrandfatheredDistributionRowWithoutWeightPhotoStillVerifies(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	// (1) Rewind to before 000151: the constraint did not exist yet.
+	if _, err := pool.Exec(ctx, `
+ALTER TABLE feed_distribution_completions
+  DROP CONSTRAINT feed_distribution_completions_weight_proof_check`); err != nil {
+		t.Fatalf("rewind to pre-000151 schema: %v", err)
+	}
+
+	// (2) The PREVIOUS binary writes a completion with two proofs and no weight photo.
+	var completionID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO feed_distribution_completions (
+  tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
+  distribution_proof_ref, water_proof_ref, idempotency_key
+) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::date, $5, 'pending_verification',
+  'legacy-distribution-proof', 'legacy-water-photo', 'legacy-key-0001')
+RETURNING completion_id::text`,
+		fdTenant, fdPark, fdShedA, businessDay(2026, 7, 22).Format("2006-01-02"), domain.WorkflowNormal).
+		Scan(&completionID); err != nil {
+		t.Fatalf("insert pre-migration row: %v", err)
+	}
+
+	// (3) The migration runs over that row. This is the grandfathering assertion: it must SUCCEED.
+	// The CHECK text mirrors 000151 exactly -- including the narrowing to 'pending_verification',
+	// which is what keeps step (4) below possible.
+	if _, err := pool.Exec(ctx, `
+ALTER TABLE feed_distribution_completions
+  ADD CONSTRAINT feed_distribution_completions_weight_proof_check CHECK (
+    status <> 'pending_verification'
+    OR (feed_weight_proof_ref IS NOT NULL AND btrim(feed_weight_proof_ref) <> '')
+  ) NOT VALID`); err != nil {
+		t.Fatalf("000151 must not reject rows already on disk: %v", err)
+	}
+
+	// (4) And the verifier can still APPROVE it. This is the assertion that caught the first draft of
+	// 000151: approval is an UPDATE, a NOT VALID check IS enforced on UPDATE, and a check that also
+	// covered 'completed' made every in-flight queue item permanently un-approvable on deploy day.
+
+	// It is still a normal queue item: a verifier can approve it and it completes.
+	applied, err := repo.ApplyVerifiedDistribution(ctx, ports.ApplyDistributionParams{
+		TenantID:     fdTenant,
+		CompletionID: completionID,
+		VerifiedBy:   fdActor,
+		TraceID:      "trace-verify-grandfathered",
+	})
+	if err != nil {
+		t.Fatalf("ApplyVerifiedDistribution on grandfathered row: %v", err)
+	}
+	if !applied {
+		t.Fatal("grandfathered row applied = false, want true (it must stay verdictable)")
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `
+SELECT status FROM feed_distribution_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, completionID).Scan(&status); err != nil {
+		t.Fatalf("read grandfathered row: %v", err)
+	}
+	if status != domain.DistributionStatusCompleted {
+		t.Fatalf("grandfathered status = %q, want completed", status)
+	}
+}
+
+// A grandfathered row that is REJECTED and re-submitted must come back carrying a weight photo.
+//
+// The NOT VALID check is not enforced on the rows already on disk, but it IS enforced when one of them
+// is UPDATED. That is deliberate: a re-shoot is new work and is captured under the new rule. This pins
+// the boundary so a future change cannot quietly make the old shape writable again.
+func TestGrandfatheredRowReSubmitMustCarryWeightPhoto(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	var completionID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO feed_distribution_completions (
+  tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
+  distribution_proof_ref, water_proof_ref, idempotency_key
+) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::date, $5, 'rework',
+  'legacy-distribution-proof', 'legacy-water-photo', 'legacy-key-0002')
+RETURNING completion_id::text`,
+		fdTenant, fdPark, fdShedA, businessDay(2026, 7, 22).Format("2006-01-02"), domain.WorkflowNormal).
+		Scan(&completionID); err != nil {
+		t.Fatalf("insert grandfathered rework row: %v", err)
+	}
+
+	// The re-submit carries the weight photo (the app layer guarantees it), so the row returns to
+	// pending_verification and the new CHECK is satisfied on the way in.
+	resubmit := distributionParams()
+	resubmit.IdempotencyKey = "feed-distribution-legacy-resubmit-0001"
+	res, err := repo.CompleteDistribution(ctx, resubmit)
+	if err != nil {
+		t.Fatalf("re-submit of a grandfathered row: %v", err)
+	}
+	if res.CompletionID != completionID {
+		t.Fatalf("re-submit completion id = %s, want the existing %s", res.CompletionID, completionID)
+	}
+
+	var storedWeight *string
+	if err := pool.QueryRow(ctx, `
+SELECT feed_weight_proof_ref FROM feed_distribution_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, completionID).Scan(&storedWeight); err != nil {
+		t.Fatalf("read weight proof after re-submit: %v", err)
+	}
+	if storedWeight == nil || *storedWeight != "proof-weight-0001" {
+		t.Fatalf("weight proof after re-submit = %v, want it filled in", storedWeight)
+	}
+}
+
 // (b) A completion with all three proofs writes a 'pending_verification' row -- NOTHING is completed yet.
 func TestCompleteDistributionWritesPendingVerification(t *testing.T) {
 	ctx := context.Background()

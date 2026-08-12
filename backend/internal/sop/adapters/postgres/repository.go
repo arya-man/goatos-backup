@@ -1100,6 +1100,7 @@ func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, task
 			return ports.ShedCompletionReadiness{}, fmt.Errorf("sop: resolve exact shed: %w", err)
 		}
 		shedID = resolvedShedID
+		partitionLabel = ""
 	}
 	var expected, handled, proofReady int64
 	err := r.pool.QueryRow(ctx, `
@@ -1401,6 +1402,15 @@ WHERE tenant_id = $1::uuid
 	if err := r.validateShedPartition(ctx, tx, cmd.TenantID, submitShedID, cmd.Body.PartitionLabel); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
+	submissionPartitionLabel := strings.TrimSpace(cmd.Body.PartitionLabel)
+	if submitShedID != "" && submissionPartitionLabel != "" {
+		resolvedShedID, err := r.resolveExactShedForPartition(ctx, cmd.TenantID, submitShedID, submissionPartitionLabel)
+		if err != nil {
+			return domain.SubmissionSummary{}, domain.TaskSummary{}, false, fmt.Errorf("sop: resolve submit shed: %w", err)
+		}
+		submitShedID = resolvedShedID
+		submissionPartitionLabel = ""
+	}
 	if currentState == "accepted" {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, ports.ErrConflict
 	}
@@ -1432,7 +1442,7 @@ INSERT INTO sop_submissions (
 		cmd.Body.SOPVersionID,
 		cmd.ActorID,
 		cmd.Body.IdempotencyKey,
-		cmd.Body.PartitionLabel,
+		submissionPartitionLabel,
 		answers,
 		proofRefs,
 		cmd.TaskState,
@@ -1441,7 +1451,7 @@ INSERT INTO sop_submissions (
 	if err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, mapWriteErr(err)
 	}
-	if err := insertSubmissionItems(ctx, tx, cmd, submissionID); err != nil {
+	if err := insertSubmissionItems(ctx, tx, cmd, submissionID, submitShedID); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	var taskID string
@@ -2075,8 +2085,15 @@ func (r *Repository) existingSubmission(ctx context.Context, tx pgx.Tx, cmd port
 	}
 	answers, _ := json.Marshal(nonNilMap(cmd.Body.Answers))
 	proof, _ := json.Marshal(cmd.Body.ProofRefs)
+	replayPartitionLabel := strings.TrimSpace(cmd.Body.PartitionLabel)
+	replayShedID := shedScopeFromSubmissionKey(cmd.Body.IdempotencyKey)
+	if replayShedID != "" && replayPartitionLabel != "" {
+		if resolvedShedID, err := r.resolveExactShedForPartition(ctx, cmd.TenantID, replayShedID, replayPartitionLabel); err == nil && resolvedShedID != "" {
+			replayPartitionLabel = ""
+		}
+	}
 	if taskID != cmd.TaskID ||
-		!oploc.SamePartition(partitionRaw.String, cmd.Body.PartitionLabel) ||
+		!oploc.SamePartition(partitionRaw.String, replayPartitionLabel) ||
 		!jsonEqual([]byte(answersRaw), answers) ||
 		!jsonEqual([]byte(proofRaw), proof) {
 		return domain.SubmissionSummary{}, false, ports.ErrIdempotencyConflict
@@ -2093,13 +2110,13 @@ func (r *Repository) existingSubmission(ctx context.Context, tx pgx.Tx, cmd port
 	return domain.SubmissionSummary{}, false, ports.ErrNotFound
 }
 
-func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
+func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID, submitShedID string) error {
 	keys := cmd.SubmissionItems
 	if len(keys) == 0 {
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
-	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, submitShedID, keys)
 	if err != nil {
 		return err
 	}
@@ -2124,8 +2141,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, '')::uuid, $5, $6, $7::jsonb)`,
 	return nil
 }
 
-func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, partitionLabel string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
-	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, shedID string, keys []ports.SubmissionItemInput) ([]ports.SubmissionItemInput, error) {
+	if strings.TrimSpace(shedID) == "" {
 		return keys, nil
 	}
 	goatIDs := make([]string, 0, len(keys))
@@ -2138,13 +2155,12 @@ func filterSubmissionItemsToPartition(ctx context.Context, tx pgx.Tx, tenantID, 
 		return keys, nil
 	}
 	rows, err := tx.Query(ctx, `
-SELECT gsp.goat_id::text
-FROM goat_shed_partitions gsp
-WHERE gsp.tenant_id = $1::uuid
-  AND gsp.goat_id = ANY($2::uuid[])
-  AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-    = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
-		tenantID, goatIDs, partitionLabel)
+SELECT g.goat_id::text
+FROM goats g
+WHERE g.tenant_id = $1::uuid
+  AND g.goat_id = ANY($2::uuid[])
+  AND g.shed_id = $3::uuid`,
+		tenantID, goatIDs, shedID)
 	if err != nil {
 		return nil, err
 	}

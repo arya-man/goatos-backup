@@ -115,7 +115,7 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
        coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
-       coalesce(t.partition_label, '')
+       ''
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -225,12 +225,7 @@ func (r *Repository) GetTransportTask(ctx context.Context, tenantID, taskID stri
 SELECT t.task_id::text,t.park_id::text,p.name,t.shed_id::text,s.name,t.business_date::text,
        t.status,coalesce(t.operator_id::text,''),coalesce(t.current_attempt_id::text,''),
        coalesce(a.rejection_reason,''),t.scheduled_at,
-       -- The DETAIL read must carry the same location the LIST read carries. It did not, so a
-       -- partitioned shed showed "Godel 1 - Part 3" in the list and bare "Godel 1" on the task
-       -- itself. AGREE-OR-GO-BARE: exactly one active real partition resolves, several or none
-       -- go bare. min() is required -- a bare HAVING over a non-aggregated column is rejected
-       -- by Postgres (42803).
-       coalesce(t.partition_label, '')
+       ''
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id

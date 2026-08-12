@@ -1185,22 +1185,31 @@ func validateDestinationPartitionAgainstCatalogTx(
 	var shedName string
 	var partitionCount int
 	var matches int
+	var exactPartition bool
 	if err := tx.QueryRow(ctx, `
 SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        (SELECT count(*) FROM shed_partitions sp
          WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.status = 'active')::int,
        (SELECT count(*) FROM shed_partitions sp
          WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.status = 'active'
-           AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', ''))::int
+           AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', ''))::int,
+       EXISTS (
+         SELECT 1 FROM shed_partitions sp
+         WHERE sp.tenant_id = $1::uuid AND sp.operational_location_id = $2::uuid AND sp.status = 'active'
+       )
 FROM locations shed
 WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid`,
 		tenantID, destShedID, strings.TrimSpace(derefOrEmpty(label)),
-	).Scan(&shedName, &partitionCount, &matches); err != nil {
+	).Scan(&shedName, &partitionCount, &matches, &exactPartition); err != nil {
 		return "", fmt.Errorf("resolve destination shed %s partition catalog: %w", destShedID, err)
 	}
 
 	trimmed := strings.TrimSpace(derefOrEmpty(label))
 	isBlank := trimmed == "" || strings.EqualFold(trimmed, "whole")
+
+	if exactPartition {
+		return shedName, nil
+	}
 
 	if partitionCount == 0 {
 		// Non-partitioned shed. A blank label is the correct answer; a label that

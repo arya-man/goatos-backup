@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -947,7 +948,7 @@ func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
 
 	labels := map[string]int64{}
 	for _, point := range got.Charts.Shed {
-		labels[point.Label] = point.Count
+		labels[point.Label] += point.Count
 	}
 	// The park CODES come from the response's own park facet, never hardcoded here: the shared
 	// fixture inserts with ON CONFLICT DO NOTHING, so which of the two ids carries which code
@@ -962,26 +963,18 @@ func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
 		t.Fatalf("park facet did not resolve two distinct park codes: %+v", got.Facets.Parks)
 	}
 	want := map[string]int64{
-		// Park first, then the pen composed by oploc — each shed keeping its own convention.
-		one + " · Castro 1 - 2":      3,
-		one + " · Castro 1 - Part 1": 1,
-		two + " · Castro 1 - 2":      2,
+		one + " · Castro 1": 4,
+		two + " · Castro 1": 2,
 	}
 	for label, count := range want {
 		if labels[label] != count {
 			t.Errorf("chart bar %q = %d, want %d — series: %+v", label, labels[label], count, got.Charts.Shed)
 		}
 	}
-	// The roll-up must be GONE: a bare shed bar means partitions were collapsed again.
-	for _, bare := range []string{"Castro 1", one + " · Castro 1", two + " · Castro 1"} {
-		if _, found := labels[bare]; found {
-			t.Errorf("found a whole-shed bar %q — the chart must be one bar per PEN: %+v", bare, got.Charts.Shed)
+	for _, point := range got.Charts.Shed {
+		if strings.Contains(point.Label, " - 1") || strings.Contains(point.Label, " - Part") {
+			t.Errorf("chart rendered legacy parent+partition label %q; exact shed names must stand alone", point.Label)
 		}
-	}
-	// The scrubbed matching key must never reach a screen: "Part 1" normalizes to "1", so a bar
-	// reading "Castro 1 - 1" here would mean the key was rendered instead of the label.
-	if _, found := labels[one+" · Castro 1 - 1"]; found {
-		t.Errorf("rendered the normalized partition KEY instead of its label: %+v", got.Charts.Shed)
 	}
 	// Same-named sheds in different parks stay separate bars, and the pens still partition the herd.
 	var sum int64

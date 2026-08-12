@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -17,8 +18,9 @@ import (
 // tables -- counts already reads locations for park/shed labels in the herd-register rollups
 // (repository.go) and reads goats for the census aggregates. Nothing here mutates.
 
-// shiftingDestinationCatalogQuery returns every active park with its active OPERATIONAL LOCATIONS
-// (physical shed, or one row per real partition of that shed) in one round trip.
+// shiftingDestinationCatalogQuery returns every active park with its active operational sheds in one
+// round trip. When a place has parts, each part is already a shed location; the common/base shed is
+// grouping metadata and is not selectable.
 //
 // Shape notes:
 //   - LEFT JOIN, not INNER: a park with no sheds yet must still appear in the dropdown, otherwise a
@@ -26,75 +28,64 @@ import (
 //   - The status/retired_at filters live in the JOIN's ON clause for the shed side. Putting them in
 //     WHERE would silently convert the LEFT JOIN back into an inner join and drop exactly those
 //     empty parks.
-//   - legacy partition-alias locations are suppressed at the shed JOIN through the SHARED
-//     oploc.PartitionAliasExclusionSQL, not a local copy. If an active sibling parent shed
-//     ("Castro") has an active partition catalog row "1", the old active shed row named "Castro 1"
-//     is not a separate destination; the parent+partition row renders as "Castro - 1". The local
-//     copy this replaced handled only that spelling: for "Mandela 1 - Part 3" the remainder is
-//     "part3" against a normalized_label of "3", so every "- Part N" alias survived and the picker
-//     served 195 rows for 120 real locations -- 75 exact-duplicate labels behind two shed ids.
-//     Genuine same-named sheds in different parks remain because the sibling check is park-local.
-//   - partitions comes from the shed_partitions CATALOG (status='active'), LEFT JOINed so a shed
-//     with no catalog rows still yields exactly ONE destination row with partition_label NULL --
-//     the bare, non-partitioned shed. A shed WITH real partitions returns one row per partition.
-//     This is the critical difference from the prior goat_shed_partitions LATERAL: the catalog
-//     includes EMPTY partitions (e.g. Yashoda 5) that no goat currently occupies, making them
-//     reachable as shifting destinations. The partition_label returned to callers is the catalog's
-//     human label; normalized_label remains an internal matching key and never drives display copy.
-//   - animal_count is computed per operational location using the SAME normalization:
-//     count of goats whose goat_shed_partitions.partition_label matches, zero for empty partitions.
+//   - exact partition sheds are included by their own locations.location_id/name. For example, the
+//     operator sees/selects "Castro 1", not "Castro - 1" and not the grouping shed "Castro".
+//   - common/base sheds that still have active shed_partitions rows are excluded because their parts
+//     are the selectable sheds. Sheds with no active parts remain as one bare-shed row.
+//   - animal_count is computed per exact operational shed id. Empty exact sheds stay reachable with a
+//     count of zero.
 //   - management_stages is computed per SHED (not per partition): the cohort vocabulary offered to
 //     the operator is a shed-level fact today: goats do not carry a partition-scoped stage set.
 //   - ORDER BY name then id then partition_label: name is the human sort, the id tiebreak keeps the
 //     order stable across calls when two sheds in the same park share a name (which happens), and
-//     partition_label last keeps a partitioned shed's rows adjacent and stably ordered.
+//     exact sheds adjacent and stably ordered.
 //
-// Index: locations_tenant_type_status_order_idx covers the park side
-// (tenant_id, location_type, status, ...); shed_partitions_tenant_shed_idx covers the catalog
-// (tenant_id, shed_id, status). No new index is required.
+// Index: locations_tenant_type_status_order_idx covers the park/shed side; shed_partitions indexes
+// cover exact-partition and "has active children" checks. No new index is required.
 //
 // mobile-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 // scale-guard:ignore: bounded location catalog cached on-device, not a paginated feed
-var shiftingDestinationCatalogQuery = `
+const shiftingDestinationCatalogQuery = `
 SELECT
     park.location_id::text,
     park.name,
-    shed.location_id::text,
-    shed.name,
-    partitions.partition_label,
-    COALESCE(animal_count.count, 0),
-    COALESCE(stage_agg.stages, ARRAY[]::text[])
-FROM locations park
+	    shed.location_id::text,
+	    shed.name,
+	    NULL::text AS partition_label,
+	    COALESCE(animal_count.count, 0),
+	    COALESCE(stage_agg.stages, ARRAY[]::text[])
+	FROM locations park
 LEFT JOIN locations shed
        ON shed.tenant_id = park.tenant_id
       AND shed.parent_location_id = park.location_id
-      AND shed.location_type = 'shed'
-      AND shed.status = 'active'
-      AND shed.retired_at IS NULL
-      AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
--- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
-LEFT JOIN shed_partitions partitions
-       ON partitions.tenant_id = park.tenant_id
-      AND partitions.shed_id = shed.location_id
-      AND partitions.status = 'active'
+	      AND shed.location_type = 'shed'
+	      AND shed.status = 'active'
+	      AND shed.retired_at IS NULL
+	      AND (
+	        EXISTS (
+	          SELECT 1
+	          FROM shed_partitions exact_sp
+	          WHERE exact_sp.tenant_id = shed.tenant_id
+	            AND exact_sp.operational_location_id = shed.location_id
+	            AND exact_sp.status = 'active'
+	        )
+	        OR NOT EXISTS (
+	          SELECT 1
+	          FROM shed_partitions child_sp
+	          WHERE child_sp.tenant_id = shed.tenant_id
+	            AND child_sp.shed_id = shed.location_id
+	            AND child_sp.status = 'active'
+	        )
+	      )
+-- projection-review: membership=active exact operational sheds for the tenant: partition sheds are included by their own locations row, and base/common sheds with active parts are excluded; group_key=shed.location_id so every destination is the actual physical shed id; join_cardinality=no partition catalog fan-out, animal_count/stages are scalar laterals; pagination=none, this bounded location catalog is returned whole; scope=tenant_id plus active/non-retired locations.
 LEFT JOIN LATERAL (
-    SELECT COUNT(DISTINCT g.goat_id) AS count
-    FROM goats g
-    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-    WHERE g.tenant_id = park.tenant_id
-      AND g.shed_id = shed.location_id
-      AND g.lifecycle_status = 'alive'
-      AND g.exited_at IS NULL
-      AND (
-        -- For this partition, count goats whose partition_label matches (after normalization)
-        CASE WHEN partitions.normalized_label IS NOT NULL THEN
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
-        ELSE
-          -- For non-partitioned shed, count all goats with whole/null partition
-          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
-        END
-      )
-) animal_count ON shed.location_id IS NOT NULL
+	    SELECT COUNT(DISTINCT g.goat_id) AS count
+	    FROM goats g
+	    WHERE g.tenant_id = park.tenant_id
+	      AND g.shed_id = shed.location_id
+	      AND g.lifecycle_status = 'alive'
+	      AND g.exited_at IS NULL
+	) animal_count ON shed.location_id IS NOT NULL
 LEFT JOIN LATERAL (
     SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage)) AS stages
     FROM goats g
@@ -106,7 +97,7 @@ WHERE park.tenant_id = $1::uuid
   AND park.location_type = 'park'
   AND park.status = 'active'
   AND park.retired_at IS NULL
-ORDER BY park.name, park.location_id, shed.name, shed.location_id, partitions.normalized_label NULLS FIRST`
+	ORDER BY park.name, park.location_id, shed.name, shed.location_id`
 
 // ShiftingDestinationCatalog implements ports.Repository.ShiftingDestinationCatalog.
 //
@@ -131,6 +122,7 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	// The query is already ordered by park, so a single "did the park id change" check groups the
 	// flat rows without a map -- and without re-sorting, which would fight the SQL ordering.
 	parkIndex := map[string]int{}
+	stageSeen := map[string]bool{}
 	for rows.Next() {
 		var parkID, parkName string
 		var shedID, shedName, partitionLabel *string
@@ -154,10 +146,14 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 			continue
 		}
 		shedStages = nonClinicalShiftingStages(shedStages)
-		// partitionLabel comes from the shed_partitions catalog's display label. A non-partitioned
-		// shed comes through with partitionLabel nil -- exactly one entry, never synthesized as "whole".
-		// animalCount is 0 for empty partitions (e.g. Yashoda 5 with no goats) and the true count
-		// of goats occupying this partition for filled ones.
+		for _, stage := range shedStages {
+			if strings.TrimSpace(stage) != "" {
+				stageSeen[stage] = true
+			}
+		}
+		// The destination row is already the exact operational shed. partitionLabel is intentionally
+		// nil so clients do not rebuild a parent+partition label on top of the shed's actual name.
+		// animalCount is 0 for empty sheds and the true count of goats occupying this exact shed.
 		loc := oploc.OperationalLocation{
 			ParkID:   parkID,
 			ParkName: parkName,
@@ -196,6 +192,12 @@ WHERE tenant_id=$1::uuid AND status='active' ORDER BY sort_order, stage_code`, t
 	}
 	if err := stageRows.Err(); err != nil {
 		return domain.ShiftingDestinationCatalog{}, err
+	}
+	if len(out.ManagementStages) == 0 && len(stageSeen) > 0 {
+		for stage := range stageSeen {
+			out.ManagementStages = append(out.ManagementStages, stage)
+		}
+		sort.Strings(out.ManagementStages)
 	}
 	return out, nil
 }

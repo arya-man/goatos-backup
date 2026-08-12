@@ -293,15 +293,13 @@ class ShiftingViewModel @Inject constructor(
     private fun onSelectDestinationShed(shedId: String, partitionLabel: String?) {
         if (!beginEdit()) return
         _state.update { current ->
-            // Guard the pairing at the point of selection too: only an operational location
-            // (shed_id + partition_label together) that belongs to the chosen park's catalog may
-            // be stored — never just a shed_id, since a partitioned shed offers several entries
-            // that share one shed_id.
+            // Guard the exact shed at the point of selection too: only a shed id that belongs to the
+            // chosen park's destination catalog may be stored.
             val belongsToPark = current.shedsForSelectedPark.any {
-                it.shedId == shedId && it.partitionLabel == partitionLabel
+                it.shedId == shedId
             }
             if (belongsToPark) {
-                current.copy(destinationShedId = shedId, destinationPartitionLabel = partitionLabel)
+                current.copy(destinationShedId = shedId, destinationPartitionLabel = null)
             } else {
                 current
             }
@@ -558,7 +556,7 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
             // operationalLocationDisplay is also passed through for callers that want the
             // raw parts; the two are deliberately the same string here.
             name = it.operationalLocationDisplay.ifBlank { it.name },
-            partitionLabel = it.partitionLabel,
+            partitionLabel = null,
             operationalLocationDisplay = it.operationalLocationDisplay,
         )
     },
