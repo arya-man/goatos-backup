@@ -504,6 +504,8 @@ interface SyncRepository {
     suspend fun triggerDrain()
 }
 
+private class IdempotencyKeyConflict : Exception("Idempotency key already belongs to a different queued write.")
+
 class DefaultSyncRepository(
     private val store: OutboxStore,
     private val engine: SyncEngine,
@@ -1024,6 +1026,8 @@ class DefaultSyncRepository(
             // Never swallow cancellation into an Err — that breaks structured concurrency
             // (a torn-down caller scope must see its own cancellation, not a fake failure).
             throw cancellation
+        } catch (e: IdempotencyKeyConflict) {
+            AppResult.Err(e.message ?: "Idempotency key already belongs to a different queued write.")
         } catch (e: Throwable) {
             AppResult.Err("Couldn't queue the write: ${e.message}", e)
         }
@@ -1102,7 +1106,7 @@ class DefaultSyncRepository(
             existing.groupKey == groupKey &&
             existing.payloadJson == payloadJson
         if (fingerprintMatches || legacyPayloadMatches) return existing.id
-        throw IllegalStateException("Idempotency key already belongs to a different queued write.")
+        throw IdempotencyKeyConflict()
     }
 
     override suspend fun enqueueWorkflowActionAnswer(

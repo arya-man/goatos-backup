@@ -120,6 +120,9 @@ data class WeighingTaskShedUiRow(
 ) {
     val isLumpSum: Boolean get() = category.equals("per_shed_partition", ignoreCase = true)
     val categoryLabel: String get() = if (isLumpSum) "Lump-sum" else "Individual"
+    val uiKey: String
+        get() = listOf(campaignId, campaignShedId, locationId, category)
+            .joinToString("|") { it.trim() }
 }
 
 /**
@@ -440,7 +443,7 @@ fun WeighingTaskDetailScreen(
             }
             items(
                 count = state.sheds.size,
-                key = { index -> "shed-${state.sheds[index].campaignShedId}" },
+                key = { index -> state.sheds[index].uiKey },
             ) { index ->
                 val shed = state.sheds[index]
                 LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }

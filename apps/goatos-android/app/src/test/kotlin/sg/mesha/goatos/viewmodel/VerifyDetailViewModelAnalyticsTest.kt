@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -42,6 +43,7 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -328,6 +330,107 @@ class VerifyDetailViewModelAnalyticsTest {
         assertEquals(1, unavailable.size)
         assertEquals("item-1", unavailable.first().second[AnalyticsFunnels.Params.ITEM_ID])
         assertEquals("EVIDENCE_UNAVAILABLE", unavailable.first().second[AnalyticsEventsVerification.Params.REASON])
+    }
+
+    @Test
+    fun `source playback error disables approve without recording a Crashlytics non-fatal`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val crashReporter = RecordingCrashReporter()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = analytics,
+            crashReporter = crashReporter,
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = "proof-1",
+                mimeType = "video/mp4",
+                action = VideoPlaybackAction.PLAYBACK_ERROR,
+                reason = "Source error",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertTrue(!vm.state.value.entries.first().isApproveEnabled)
+        assertEquals(
+            VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE,
+            vm.state.value.entries.first().decisionUnavailableReason,
+        )
+        assertTrue(crashReporter.exceptions.isEmpty())
+        assertTrue(
+            analytics.events.any { (event, props) ->
+                event == AnalyticsEvents.VERIFY_VIDEO_PLAYBACK_ERROR &&
+                    props[AnalyticsFunnels.Params.PROOF_ID] == "proof-1"
+            },
+        )
+    }
+
+    @Test
+    fun `playback error resolves the play watchdog instead of also logging dead control`() = runTest(dispatcher) {
+        val crashReporter = RecordingCrashReporter()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = crashReporter,
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = "proof-1",
+                mimeType = "video/mp4",
+                action = VideoPlaybackAction.PLAY_INTENT,
+                playerState = "STATE_READY",
+                armed = true,
+                targetAction = "play",
+            ),
+        )
+        vm.onEvent(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = "proof-1",
+                mimeType = "video/mp4",
+                action = VideoPlaybackAction.PLAYBACK_ERROR,
+                reason = "Source error",
+            ),
+        )
+
+        advanceTimeBy(AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS + 1)
+        advanceUntilIdle()
+
+        assertTrue(crashReporter.exceptions.isEmpty())
+    }
+
+    @Test
+    fun `non-source playback error remains visible as Crashlytics non-fatal`() = runTest(dispatcher) {
+        val crashReporter = RecordingCrashReporter()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = crashReporter,
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = "proof-1",
+                mimeType = "video/mp4",
+                action = VideoPlaybackAction.PLAYBACK_ERROR,
+                reason = "decoder crashed",
+            ),
+        )
+
+        assertEquals(listOf("verification video playback failed" to "decoder crashed"), crashReporter.exceptions)
     }
 }
 

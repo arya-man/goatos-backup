@@ -2,6 +2,11 @@ package sg.mesha.goatos.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonTransformingSerializer
 
 /**
  * Feed vertical wire DTOs — the two READ surfaces the phone renders:
@@ -153,6 +158,7 @@ data class FeedDirectionRowDto(
     @SerialName("head_count") val headCount: Long = 0,
     @SerialName("head_count_informational") val headCountInformational: Boolean = false,
     @SerialName("workflow") val workflow: String = "",
+    @Serializable(with = NullAsEmptyFeedItemQuantityListSerializer::class)
     @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
     @SerialName("session_total_kg") val sessionTotalKg: String = "",
     @SerialName("blocked") val blocked: Boolean = false,
@@ -240,6 +246,7 @@ data class FeedPackingRowDto(
     // The pen's animals — the DENOMINATOR this session's ration was computed from, not a quantity.
     // The same figure repeats on the pen's other session; never sum it across them.
     @SerialName("head_count") val headCount: Long = 0,
+    @Serializable(with = NullAsEmptyFeedItemQuantityListSerializer::class)
     @SerialName("items") val items: List<FeedItemQuantityDto> = emptyList(),
     // This session's total.
     @SerialName("total_kg") val totalKg: String = "",
@@ -272,6 +279,12 @@ data class FeedPackingRowDto(
         const val STATUS_BLOCKED = "blocked"
         const val STATUS_EMPTY = "empty"
     }
+}
+
+private object NullAsEmptyFeedItemQuantityListSerializer :
+    JsonTransformingSerializer<List<FeedItemQuantityDto>>(ListSerializer(FeedItemQuantityDto.serializer())) {
+    override fun transformDeserialize(element: JsonElement): JsonElement =
+        if (element is JsonNull) JsonArray(emptyList()) else element
 }
 
 @Serializable
