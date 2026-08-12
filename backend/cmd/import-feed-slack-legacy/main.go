@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +20,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/api/googleapi"
+	gcsapi "google.golang.org/api/storage/v1"
 
 	feedpostgres "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
 	verificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
@@ -62,9 +68,9 @@ type file struct {
 }
 
 type preparedProof struct {
-	ID, ObjectKey, LocalPath, Hash string
-	Size                           int64
-	File                           file
+	ID, ObjectKey, LocalPath, Hash, MD5 string
+	Size                                int64
+	File                                file
 }
 
 func main() {
@@ -102,6 +108,9 @@ func main() {
 		return
 	}
 
+	if err := syncPreparedProofObjects(ctx, bucket, proofs); err != nil {
+		log.Fatal(err)
+	}
 	insertProofs(ctx, pool, proofs, members, m.Source.ChannelID)
 	feedRepo := feedpostgres.NewRepository(pool, 30*time.Second)
 	verificationRepo := verificationpostgres.NewRepository(pool, 30*time.Second)
@@ -144,6 +153,108 @@ func main() {
 	fmt.Printf("APPLY OK: imported 50 pending-verification sessions and %d proof artifacts\n", len(proofs))
 }
 
+type proofObjectManager interface {
+	stat(ctx context.Context, bucket, objectKey string) (proofObjectMeta, error)
+	upload(ctx context.Context, bucket string, proof preparedProof) (proofObjectMeta, error)
+}
+
+type proofObjectMeta struct {
+	size int64
+	md5  string
+}
+
+type gcsProofObjectManager struct {
+	service *gcsapi.Service
+}
+
+func newGCSProofObjectManager(ctx context.Context) (*gcsProofObjectManager, error) {
+	service, err := gcsapi.NewService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &gcsProofObjectManager{service: service}, nil
+}
+
+func (s *gcsProofObjectManager) stat(ctx context.Context, bucket, objectKey string) (proofObjectMeta, error) {
+	obj, err := s.service.Objects.Get(bucket, objectKey).Context(ctx).Fields("size", "md5Hash").Do()
+	if err != nil {
+		return proofObjectMeta{}, err
+	}
+	return objectMetaFromGCS(bucket, objectKey, obj)
+}
+
+func (s *gcsProofObjectManager) upload(ctx context.Context, bucket string, proof preparedProof) (proofObjectMeta, error) {
+	fh, err := os.Open(proof.LocalPath)
+	if err != nil {
+		return proofObjectMeta{}, err
+	}
+	defer fh.Close()
+
+	obj, err := s.service.Objects.Insert(bucket, &gcsapi.Object{
+		Name:        proof.ObjectKey,
+		ContentType: proof.File.MimeType,
+	}).IfGenerationMatch(0).Media(fh, googleapi.ContentType(proof.File.MimeType)).Context(ctx).Do()
+	if err != nil {
+		return proofObjectMeta{}, err
+	}
+	return objectMetaFromGCS(bucket, proof.ObjectKey, obj)
+}
+
+func objectMetaFromGCS(bucket, objectKey string, obj *gcsapi.Object) (proofObjectMeta, error) {
+	if obj.Size > uint64(^uint64(0)>>1) {
+		return proofObjectMeta{}, fmt.Errorf("parse gcs object size for gs://%s/%s: size overflows int64", bucket, objectKey)
+	}
+	return proofObjectMeta{size: int64(obj.Size), md5: strings.TrimSpace(obj.Md5Hash)}, nil
+}
+
+func syncPreparedProofObjects(ctx context.Context, bucket string, proofs map[string]preparedProof) error {
+	manager, err := newGCSProofObjectManager(ctx)
+	if err != nil {
+		return fmt.Errorf("create gcs proof syncer: %w", err)
+	}
+	return syncPreparedProofObjectsWith(ctx, manager, bucket, proofs)
+}
+
+func syncPreparedProofObjectsWith(ctx context.Context, manager proofObjectManager, bucket string, proofs map[string]preparedProof) error {
+	if strings.TrimSpace(bucket) == "" {
+		return fmt.Errorf("gcs bucket is required before applying proof rows")
+	}
+	for _, p := range proofs {
+		meta, err := manager.stat(ctx, bucket, p.ObjectKey)
+		if isGCSNotFound(err) {
+			meta, err = manager.upload(ctx, bucket, p)
+		}
+		if err != nil {
+			return fmt.Errorf("verify uploaded proof object gs://%s/%s: %w", bucket, p.ObjectKey, err)
+		}
+		if err := requireProofObjectMatch(bucket, p, meta); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isGCSNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *googleapi.Error
+	return errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
+}
+
+func requireProofObjectMatch(bucket string, proof preparedProof, meta proofObjectMeta) error {
+	if meta.size != proof.Size {
+		return fmt.Errorf("verify uploaded proof object gs://%s/%s: size=%d, want %d", bucket, proof.ObjectKey, meta.size, proof.Size)
+	}
+	if meta.md5 == "" {
+		return fmt.Errorf("verify uploaded proof object gs://%s/%s: missing remote md5Hash", bucket, proof.ObjectKey)
+	}
+	if meta.md5 != proof.MD5 {
+		return fmt.Errorf("verify uploaded proof object gs://%s/%s: md5Hash mismatch", bucket, proof.ObjectKey)
+	}
+	return nil
+}
+
 func feedportsParams(r record, parkID, shedID string, date time.Time, weight, dist, water, completedBy, key string) feedports.CompleteDistributionParams {
 	return feedports.CompleteDistributionParams{TenantID: tenantID, ParkID: parkID, ShedID: shedID, PartitionLabel: r.PartitionLabel, SessionNo: r.SessionNo, TargetDate: date, Workflow: "normal", FeedWeightProofRef: weight, DistributionProofRef: dist, WaterProofRef: water, CompletedBy: completedBy, IdempotencyKey: key, ActorType: "legacy_import", TraceID: "slack:" + r.ThreadTS}
 }
@@ -180,13 +291,22 @@ func prepareProofs(m manifest, dir string) map[string]preparedProof {
 			if err != nil {
 				log.Fatal(err)
 			}
-			h := sha256.New()
-			if _, err := io.Copy(h, fh); err != nil {
+			sha := sha256.New()
+			md5sum := md5.New()
+			if _, err := io.Copy(io.MultiWriter(sha, md5sum), fh); err != nil {
 				log.Fatal(err)
 			}
 			_ = fh.Close()
 			id := platformoutbox.DeterministicUUID("legacy-slack-feed-proof:" + tenantID + ":" + f.FileID)
-			out[f.FileID] = preparedProof{ID: id, ObjectKey: tenantID + "/legacy/slack/feed/2026/08/12/" + id + ext, LocalPath: path, Hash: hex.EncodeToString(h.Sum(nil)), Size: stat.Size(), File: f}
+			out[f.FileID] = preparedProof{
+				ID:        id,
+				ObjectKey: tenantID + "/legacy/slack/feed/2026/08/12/" + id + ext,
+				LocalPath: path,
+				Hash:      hex.EncodeToString(sha.Sum(nil)),
+				MD5:       base64.StdEncoding.EncodeToString(md5sum.Sum(nil)),
+				Size:      stat.Size(),
+				File:      f,
+			}
 		}
 	}
 	if len(out) != 150 {
