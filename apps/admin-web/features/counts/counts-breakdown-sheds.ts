@@ -1,5 +1,5 @@
 import type { BreakdownFilterOption } from "./counts-breakdown-filters";
-import { hasOperationalPartition, operationalLocationLabel } // Relative WITH an explicit .ts extension, not the "@/lib" alias. This module is imported
+import { operationalLocationLabel } // Relative WITH an explicit .ts extension, not the "@/lib" alias. This module is imported
 // directly by counts-breakdown-sheds.test.mjs under `node --test`, which resolves neither
 // the tsconfig path alias nor an extensionless relative path -- so before
 // allowImportingTsExtensions was enabled in tsconfig.json there was NO import form that
@@ -14,8 +14,8 @@ from "../../lib/operational-location.ts";
  * (`CountsBreakdownFacets.sheds` / `CountsBreakdownShedFacet` in the generated api-client).
  * `key` is the shed UUID, `park_id` is the park the animals sit in. Shed NAMES repeat across
  * parks (two thirds of them in real data), which is exactly why the option must be keyed by
- * park_id + shed_id and cascaded by park. For partitioned sheds, one row per partition is
- * provided, with partition_label and operational_location_display populated.
+ * park_id + shed_id and cascaded by park. partition_label may still arrive from legacy rows, but
+ * the current option identity is the exact shed id only.
  */
 export type CountsBreakdownShedFacetLike = {
   key: string;
@@ -38,12 +38,9 @@ export type CountsBreakdownShedFacetLike = {
  *    the "All" sentinel);
  *  - when a park is selected, show only that park's sheds (Park -> Shed cascade); with no park
  *    selected, show the whole live-herd shed vocabulary;
- *  - for each shed, offer ONE parent aggregate option (all partitions combined);
- *  - for each partition within a shed, offer ONE partition-specific option;
- *  - key each option by `park_id + shed_id + partition_label` so same-named sheds in different
- *    parks and partition-specific rows stay distinct, while `value` is `shed_id|partition_label`
- *    (or just `shed_id` for non-partitioned) to round-trip to the backend;
- *  - partition option counts must SUM to the parent option count (verified in tests);
+ *  - for each exact shed id, offer ONE option;
+ *  - key each option by `park_id + shed_id` so same-named sheds in different parks stay distinct,
+ *    while `value` is the exact shed UUID for the backend round-trip;
  *  - never emit an inactive partition-alias row as a 0-animal shed.
  */
 export function buildShedFilterOptions(
@@ -65,23 +62,18 @@ export function buildShedFilterOptions(
     .filter((shed) => shed.key !== "")
     .filter((shed) => selectedParkId === "" || shed.park_id === selectedParkId);
 
-  // Group by shed_id to identify parent sheds and their partitions
-  // The backend facet `key` is COMPOSITE for a partition row: "<shed_id>#<normalized_label>"
-  // (the oploc.Key() convention), and bare "<shed_id>" for the parent-shed row. Treating that key
-  // as a shed id put "<uuid>#2" into the option value, so the parent-aggregate option carried a
-  // PARTITION key and the selected partition could never round-trip. Split it back apart here and
-  // key every group on the real shed id.
-  // shed_id now arrives EXPLICITLY on the facet; the composite-key split is only a fallback for a
-  // backend that predates that field.
   const shedIdOf = (row: CountsBreakdownShedFacetLike): string =>
     (row.shed_id ?? "").trim() || ((row.key ?? "").split("#")[0] ?? "");
-  const shedMap = new Map<string, CountsBreakdownShedFacetLike[]>();
+  const byExactShed = new Map<string, CountsBreakdownShedFacetLike>();
   for (const shed of filtered) {
-    const groupKey = `${shed.park_id}|${shedIdOf(shed)}`;
-    if (!shedMap.has(groupKey)) {
-      shedMap.set(groupKey, []);
+    const shedId = shedIdOf(shed);
+    if (!shedId) continue;
+    const key = `${shed.park_id}|${shedId}`;
+    const label = (shed.operational_location_display || shed.label || "").trim();
+    const existing = byExactShed.get(key);
+    if (!existing || (!existing.operational_location_display && label)) {
+      byExactShed.set(key, shed);
     }
-    shedMap.get(groupKey)!.push(shed);
   }
 
   // Shed NAMES repeat across parks -- there are two "Castro", two "Gandhi", two "Yashoda". Keying
@@ -118,64 +110,26 @@ export function buildShedFilterOptions(
 
   const options: BreakdownFilterOption[] = [];
 
-  // `numeric` is the point: the facet arrives ordered by shed UUID — an artifact, not a decision —
-  // and a plain string sort inside a shed gives "Part 1, Part 10, Part 2". Both read as noise in a
-  // control the operator is scanning for one pen.
   const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
   // Sheds in name order, with a park tiebreak so two same-named sheds land next to each other in a
   // stable order instead of wherever their UUIDs happened to fall.
-  const groupsInOrder = [...shedMap.entries()].sort(([leftKey, left], [rightKey, right]) => {
-    const byName = collator.compare(left[0]?.label ?? "", right[0]?.label ?? "");
+  const groupsInOrder = [...byExactShed.entries()].sort(([leftKey, left], [rightKey, right]) => {
+    const byName = collator.compare(left.operational_location_display || left.label || "", right.operational_location_display || right.label || "");
     return byName !== 0 ? byName : collator.compare(leftKey, rightKey);
   });
 
-  // For each shed, add parent aggregate and partition-specific options
-  for (const [groupKey, shedRows] of groupsInOrder) {
+  for (const [groupKey, row] of groupsInOrder) {
     const [parkId, shedId] = groupKey.split("|");
-
-    // Find the parent shed row (non-partitioned or the first row for rollup)
-    const parentRow = shedRows.find((r) => !r.partition_label || r.partition_label.toLowerCase() === "whole") ||
-                      shedRows[0];
-
-    // Add partition-specific options (for partitioned sheds)
-    const partitionedRows = shedRows
-      .filter((r) => r.partition_label && r.partition_label.toLowerCase() !== "whole")
-      .sort((left, right) => collator.compare(left.partition_label ?? "", right.partition_label ?? ""));
-
-    // A subdivided shed becomes an OPTGROUP holding its whole-shed option and one option per pen,
-    // which is the shape the operational-location convention asks for ("group by shed_id first,
-    // list partitions under it" — OL-2). Real data makes this the difference between a usable
-    // control and an unusable one: 148 flat rows, twelve of them starting "Yashoda -", is a wall.
-    // An UNDIVIDED shed gets no group — a one-option group is chrome around a single row.
-    // Options keep their full "Yashoda - 3" label rather than a bare "3": a native select scrolls
-    // its group header out of sight, and the convention requires both halves of a location to
-    // render together.
-    const group = partitionedRows.length ? withPark(parentRow.label, parentRow.label, parkId) : undefined;
-
-    // Add parent aggregate option
+    const label = row.operational_location_display || operationalLocationLabel({
+      shedName: row.label,
+      partitionLabel: row.partition_label,
+    });
     options.push({
       key: groupKey,
       value: shedId,
-      label: withPark(parentRow.label, parentRow.label, parkId),
-      group,
+      label: withPark(label, row.label, parkId),
     });
-
-    for (const row of partitionedRows) {
-      options.push({
-        key: `${parkId}|${row.shed_id}`,
-        value: row.shed_id,
-        label: withPark(
-          row.operational_location_display || operationalLocationLabel({
-            shedName: row.label,
-            partitionLabel: row.partition_label,
-          }),
-          row.label,
-          parkId,
-        ),
-        group,
-      });
-    }
   }
 
   return options;

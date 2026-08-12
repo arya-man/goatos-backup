@@ -196,7 +196,7 @@ export async function MilkPreparationPage({
               ) : rows.map((row) => {
                 const status = verificationTag(row, pageContract);
                 const locationLabel = row.operational_location_display || row.shed_label;
-                return <tr key={`${row.park_id}|${row.shed_id}|${row.partition_label ?? ""}|${row.management_stage}`}>
+                return <tr key={`${row.park_id}|${row.shed_id}|${row.management_stage}`}>
                   <td>{row.park_label || copy(pageContract, "label.unassigned_park")}</td>
                   <td>{locationLabel || copy(pageContract, "label.unassigned_shed")}</td>
                   <td><span className="tag t-info">{row.management_stage}</span></td>

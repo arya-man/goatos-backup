@@ -83,9 +83,7 @@ export async function CountsBreakdownPage({
   const breed = one(sp, "bd_breed");
   const sex = one(sp, "bd_sex");
 
-  // Parse shed_id and partition_label from the shed filter parameter.
-  // The filter value may be "shed_id" (non-partitioned) or "shed_id|partition_label" (partitioned).
-  const [shedId, partitionLabel] = shedIdParam ? shedIdParam.split("|") : ["", ""];
+  const shedId = shedIdParam;
 
   const pageSizeOptions = tablePageSizes(pageContract, "detail-breakdown");
   const requestedLimit = Number(one(sp, "bd_limit"));
@@ -109,7 +107,6 @@ export async function CountsBreakdownPage({
     getCountsBreakdown({
       park_id: parkId || farmParkId,
       shed_id: shedId,
-      partition_label: partitionLabel || undefined,
       management_stage: stage,
       breed,
       sex,
@@ -201,11 +198,8 @@ export async function CountsBreakdownPage({
     {
       param: "bd_shed",
       label: copy(pageContract, "filter.shed_label"),
-      // The COMPOSITE "<shed_id>|<partition_label>" is the option value, so the control must be
-      // set to the composite too. Using the bare shedId meant no <option> matched when a partition
-      // was chosen and the native <select> silently fell back to showing "All" -- the table was
-      // correctly filtered while the dropdown claimed nothing was selected. The split into
-      // shedId/partitionLabel for the API call happens separately above.
+      // The exact physical shed id is the option value. Former partition labels are compatibility
+      // metadata only and must not be joined into picker identity or display.
       value: shedIdParam ?? "",
       // The park vocabulary is handed over so same-named sheds can be told apart. `park_label` on
       // the shed facet is a field nothing has ever filled — the Go struct and the OpenAPI schema
@@ -278,15 +272,12 @@ export async function CountsBreakdownPage({
   const totalAdults = breakdown?.total_adults ?? 0;
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
-  // Keyed by shed_id + partition, never by shed NAME: 66 of 154 shed names exist in both parks, so
-  // a name key would merge two different buildings into one picker row. The label is the backend's
-  // own `operational_location_display`, prefixed with the park for the duplicate-name case -- this
-  // does NOT recompose the location, it only disambiguates two pens that legitimately render the
-  // same string.
+  // Keyed by exact shed_id, never by shed NAME: 66 of 154 shed names exist in both parks, so a name
+  // key would merge two different buildings into one picker row.
   const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen: FeedConfigPenOptionItem) => ({
-    key: `${pen.shed_id}|${pen.partition_label ?? ""}`,
+    key: pen.shed_id,
     shedId: pen.shed_id,
-    partitionLabel: pen.partition_label ?? "",
+    partitionLabel: "",
     label: pen.operational_location_display,
   }));
 
