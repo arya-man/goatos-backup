@@ -84,6 +84,7 @@ class FirebaseAnalyticsAdapter(
 fun AnalyticsContext.standardEventParams(): Map<String, String> =
     buildMap {
         deviceId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.DEVICE_ID, it) }
+        journeyId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.JOURNEY_ID, it) }
         tenantId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.TENANT, it) }
         actorId?.takeIf { it.isNotBlank() }?.let { put("actor_id", it) }
         email?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.EMAIL, it) }
