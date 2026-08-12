@@ -6,8 +6,14 @@ import (
 	"time"
 )
 
-// LiveTrackerStatus is the single cross-section row filter for the live drive tracker
-// (operator rows, shed rows, combo rows and the activity feed all narrow through it).
+// LiveTrackerStatus is the ROW-STATE filter for the live drive tracker.
+//
+// Scope is deliberately narrower than the other four filters. Park / vaccine / operator / shed are
+// membership predicates and are pushed into the single scoped CTE, so they narrow every section
+// including the combo card and the live feed. Status is a DERIVED row state (computed in Go from
+// counts plus an elapsed clock), so it can only narrow the sections that are folded from those
+// rows: the tiles, the operator board, the shed board and the Attention list. The combo card and the
+// activity feed always describe the whole drive day, and filter.apply_note says so on screen.
 type LiveTrackerStatus string
 
 const (
@@ -81,12 +87,20 @@ const LiveTrackerSlowShedRatio = 0.25
 // Bounded array sizes. Every list the tracker returns is capped server-side; nothing on this page
 // can fan out with herd size.
 const (
-	LiveTrackerMaxOperators     = 100
-	LiveTrackerMaxSheds         = 200
-	LiveTrackerMaxComboRows     = 200
-	LiveTrackerDefaultActivity  = 40
-	LiveTrackerMaxActivity      = 100
-	LiveTrackerMaxFilterOptions = 200
+	LiveTrackerMaxOperators    = 100
+	LiveTrackerMaxSheds        = 200
+	LiveTrackerMaxComboRows    = 200
+	LiveTrackerDefaultActivity = 40
+	LiveTrackerMaxActivity     = 100
+	// LiveTrackerMaxFilterOptions caps the filter bar's vocabulary. It is spelled INTO the SQL rather
+	// than declared beside it: a declared cap that the query does not apply is a cap that does not
+	// exist, and the filter bar would lose whole option groups with nothing on screen to say so.
+	LiveTrackerMaxFilterOptions = 1000
+	// LiveTrackerMaxCells caps the park × shed × partition × vaccine × operator rollup. EVERY KPI tile
+	// is folded from these rows in Go, so hitting this cap does not merely shorten a table — it makes
+	// the headline number itself under-report the day. The response therefore carries
+	// CellsTruncated so the page can say so out loud instead of showing a quietly wrong total.
+	LiveTrackerMaxCells = 2000
 	// LiveTrackerBusinessDateLookbackDays bounds how far back a drive day may be requested. This is a
 	// BUSINESS DATE, not a projection as_of: the tracker always reconstructs from canonical rows, so a
 	// past drive day is a legitimate read and must not emit historical_as_of_unsupported.
@@ -107,12 +121,21 @@ type LiveTrackerQuery struct {
 	Status         *LiveTrackerStatus
 	ActivityLimit  int
 	ActivityBefore *time.Time
+	// ActivityBeforeID is the event_id half of the feed's keyset cursor. occurred_at ALONE is not a
+	// key: scan captures and scan attempts written in a burst routinely share a timestamp to the
+	// microsecond, and a strict `occurred_at < cursor` predicate skips every one of the tied events
+	// on the next page — losing real events rather than merely repeating them.
+	ActivityBeforeID *string
 }
 
 // LiveTrackerParkCount is one park's share of the day's scheduled administrations.
+// ParkCode is the compact location code ("CBE"/"CPT") the mock's detail line uses; ParkName is the
+// full name. Carrying both lets the tile stay inside its 150px minimum instead of overflowing with
+// "153 Coimbatore + 145 Channapatna".
 type LiveTrackerParkCount struct {
 	ParkID   string `json:"park_id"`
 	ParkName string `json:"park_name"`
+	ParkCode string `json:"park_code"`
 	Count    int    `json:"count"`
 }
 
@@ -223,10 +246,14 @@ type LiveTrackerActivityItem struct {
 // returned window. ObservedPerMin is nil when fewer than two events were returned — the mock's
 // hardcoded "~3/min" is not reproduced.
 type LiveTrackerActivity struct {
-	Items          []LiveTrackerActivityItem `json:"items"`
-	NextCursor     *time.Time                `json:"next_cursor"`
-	ObservedPerMin *float64                  `json:"observed_per_min"`
-	WindowMinutes  int                       `json:"window_minutes"`
+	Items      []LiveTrackerActivityItem `json:"items"`
+	NextCursor *time.Time                `json:"next_cursor"`
+	// NextCursorEventID is the tiebreaker half of the cursor. A caller MUST send both back
+	// (activity_before + activity_before_id) or events sharing the page boundary's timestamp are
+	// dropped. The feed's ORDER BY is (occurred_at DESC, event_id DESC), so this is its exact key.
+	NextCursorEventID *string  `json:"next_cursor_event_id"`
+	ObservedPerMin    *float64 `json:"observed_per_min"`
+	WindowMinutes     int      `json:"window_minutes"`
 }
 
 // LiveTrackerAttentionRow is one attention item. Every row is derived from the same CTEs the tiles
@@ -271,17 +298,27 @@ type LiveTrackerFilterOptions struct {
 
 // LiveTrackerResponse is the whole live drive tracker page in one read.
 type LiveTrackerResponse struct {
-	BusinessDate  string                    `json:"business_date"`
-	GeneratedAt   time.Time                 `json:"generated_at"`
-	Freshness     *ProjectionFreshness      `json:"freshness,omitempty"`
-	KPIs          LiveTrackerKPIs           `json:"kpis"`
-	Operators     []LiveTrackerOperatorRow  `json:"operators"`
-	Sheds         []LiveTrackerShedRow      `json:"sheds"`
-	Combo         LiveTrackerCombo          `json:"combo"`
-	Activity      LiveTrackerActivity       `json:"activity"`
-	Attention     []LiveTrackerAttentionRow `json:"attention"`
-	Verification  LiveTrackerVerification   `json:"verification"`
-	FilterOptions LiveTrackerFilterOptions  `json:"filter_options"`
+	BusinessDate string                   `json:"business_date"`
+	GeneratedAt  time.Time                `json:"generated_at"`
+	Freshness    *ProjectionFreshness     `json:"freshness,omitempty"`
+	KPIs         LiveTrackerKPIs          `json:"kpis"`
+	Operators    []LiveTrackerOperatorRow `json:"operators"`
+	Sheds        []LiveTrackerShedRow     `json:"sheds"`
+	Combo        LiveTrackerCombo         `json:"combo"`
+	// Truncation is REPORTED, never silent. The combo card already carried rows_truncated; the two
+	// boards did not, so past the caps the Scheduled tile stopped equalling the sum of the visible
+	// table's Scheduled column with nothing on screen to explain the gap.
+	OperatorsTotal     int  `json:"operators_total"`
+	OperatorsTruncated bool `json:"operators_truncated"`
+	ShedsTotal         int  `json:"sheds_total"`
+	ShedsTruncated     bool `json:"sheds_truncated"`
+	// CellsTruncated means the underlying rollup itself hit LiveTrackerMaxCells, so the KPI tiles —
+	// which are folded from that rollup — under-report the day by an unbounded amount.
+	CellsTruncated bool                      `json:"cells_truncated"`
+	Activity       LiveTrackerActivity       `json:"activity"`
+	Attention      []LiveTrackerAttentionRow `json:"attention"`
+	Verification   LiveTrackerVerification   `json:"verification"`
+	FilterOptions  LiveTrackerFilterOptions  `json:"filter_options"`
 }
 
 var partitionPartPrefix = regexp.MustCompile(`^part[[:space:]]*`)

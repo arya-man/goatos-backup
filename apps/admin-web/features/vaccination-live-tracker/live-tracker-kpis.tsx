@@ -1,5 +1,6 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LiveTrackerKPIs } from "@/lib/api/vaccination-live-tracker";
+import { LiveTick } from "./live-tick";
 
 // The six headline tiles. Five are ADMINISTRATION grain; "Combo animals" is explicitly ANIMAL grain
 // and says so in its own detail line, because mixing the two inside one number is the single easiest
@@ -9,13 +10,18 @@ import type { LiveTrackerKPIs } from "@/lib/api/vaccination-live-tracker";
 // render, so a tile can never disagree with the table under it.
 export function LiveTrackerKpis({
   kpis,
+  truncated,
   pageContract,
 }: {
   kpis: LiveTrackerKPIs;
+  truncated: boolean;
   pageContract: AdminUiPageContract;
 }) {
+  // The mock's detail line is "administrations · 153 CBE + 145 CPT" — park CODES, because the full
+  // names ("153 Coimbatore + 145 Channapatna") overflow a 150px-minimum tile. The code is now
+  // carried on the park count; the name is the fallback when no location_code is seeded.
   const parkSplit = kpis.scheduled_by_park
-    .map((park) => `${park.count} ${park.park_name}`)
+    .map((park) => `${park.count} ${park.park_code || park.park_name}`)
     .join(" + ");
   const crossFilterReason = copy(pageContract, "kpi.cross_filter_disabled");
 
@@ -69,7 +75,16 @@ export function LiveTrackerKpis({
   ];
 
   return (
-    <div className="lt-kpis">
+    <>
+      {/* The rollup these tiles are folded from is itself capped. Past that cap the headline number
+          under-reports the drive day by an unbounded amount, which is a wrong number rather than an
+          error — so it is stated out loud instead of shipped silently. */}
+      {truncated ? (
+        <div className="note lt-truncnote" role="status">
+          {copy(pageContract, "kpi.truncated_note")}
+        </div>
+      ) : null}
+      <div className="lt-kpis">
       {tiles.map((tile) => (
         // The mock gives every tile a pointer cursor implying a cross-filter that it never wired.
         // Rendering it as an inert div with a visible reason is the honest form: the control stays
@@ -84,10 +99,11 @@ export function LiveTrackerKpis({
           <div className="val">{tile.value}</div>
           <div className="dl">
             {tile.detail}
-            {tile.tick ? <span className="lt-tick" data-live-tick={tile.key}>{copy(pageContract, "kpi.live_tick")}</span> : null}
+            {tile.tick ? <LiveTick value={tile.value} label={copy(pageContract, "kpi.live_tick")} /> : null}
           </div>
         </div>
       ))}
-    </div>
+      </div>
+    </>
   );
 }

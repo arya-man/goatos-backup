@@ -1723,7 +1723,10 @@ export async function getVaccinationLiveTracker(
     vaccineCode?: string;
     status?: VaccinationLiveTrackerStatus;
     activityLimit?: number;
+    // Both halves of the feed's keyset cursor. The feed's sort key is (occurred_at, event_id);
+    // sending the timestamp alone drops every event tied with the previous page's last row.
     activityBefore?: string;
+    activityBeforeId?: string;
   } = {},
 ): Promise<ApiResult<VaccinationLiveTrackerResponse>> {
   const config = await getServerConfig(true);
@@ -1744,6 +1747,7 @@ export async function getVaccinationLiveTracker(
           status: params.status,
           activity_limit: params.activityLimit,
           activity_before: params.activityBefore,
+          activity_before_id: params.activityBeforeId,
         }),
       }),
     ),

@@ -1,17 +1,17 @@
 import { Layers } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
-import { Tag, ClipText, type Tone } from "@/components/ui-primitives";
+import { ClipText } from "@/components/ui-primitives";
 import {
   copy,
   optionGroup,
   optionLabel,
-  optionTone,
   optionTitle,
   tableLabels,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { fmtClock, pct, progressTone } from "./format";
+import { LiveStateTag } from "./live-state-tag";
 
 // Sheds — proof progress. Grain is shed × partition × vaccine × operator, which is what the mock's
 // rows actually are ("Gandhi 2 / Goat Pox / Kumar Sharath").
@@ -20,12 +20,16 @@ import { fmtClock, pct, progressTone } from "./format";
 // mock's own legend omitted while its rows displayed it.
 export function LiveTrackerSheds({
   rows,
+  total,
+  truncated,
   hasFilter,
   resetHref,
   shedHref,
   pageContract,
 }: {
   rows: LiveTrackerShedRow[];
+  total: number;
+  truncated: boolean;
   hasFilter: boolean;
   resetHref: string;
   shedHref: (row: LiveTrackerShedRow) => string;
@@ -114,8 +118,10 @@ export function LiveTrackerSheds({
                     </td>
                     <td className="muted">{fmtClock(row.last_proof_at) || copy(pageContract, "label.placeholder")}</td>
                     <td>
-                      <Tag
-                        tone={optionTone(pageContract, "live_shed_state", row.state) as Tone}
+                      <LiveStateTag
+                        pageContract={pageContract}
+                        group="live_shed_state"
+                        stateKey={row.state}
                         title={optionTitle(pageContract, "live_shed_state", row.state)}
                       >
                         {/* The count only leads the label when there is more than one. "1 extra
@@ -124,13 +130,24 @@ export function LiveTrackerSheds({
                         {row.state === "review" && row.extra_attempt_count > 1
                           ? `${row.extra_attempt_count} ${optionLabel(pageContract, "live_shed_state", "review")}`
                           : optionLabel(pageContract, "live_shed_state", row.state)}
-                      </Tag>
+                      </LiveStateTag>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          {/* The shed board is capped server-side. The tiles above are folded from the untruncated
+              rollup, so past the cap they legitimately exceed this table's Scheduled column — and a
+              reader can only reconcile that if the page says the table is partial. */}
+          {truncated ? (
+            <div className="note lt-truncnote" role="status">
+              <b>
+                {rows.length}/{total}
+              </b>{" "}
+              {copy(pageContract, "section.sheds.truncated_note")}
+            </div>
+          ) : null}
         </div>
       )}
     </section>

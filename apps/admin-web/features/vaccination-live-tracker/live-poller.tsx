@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtClock, fmtClockSeconds } from "./format";
 
 const STORAGE_KEY = "mesha.live-tracker.interval";
+const LIVE_STORAGE_KEY = "mesha.live-tracker.live";
 const DEFAULT_INTERVAL_SECONDS = 10;
 
 // The chosen refresh interval is browser state, not URL state: changing it must not push a history
@@ -47,6 +48,40 @@ function writeInterval(seconds: number): void {
   intervalListeners.forEach((listener) => listener());
 }
 
+// PAUSED must survive a remount. The page wraps the board in <Suspense key={JSON.stringify(sp)}>,
+// so applying or clearing ANY filter remounts this component — and a board the reader deliberately
+// paused to study a row would silently resume polling and refresh out from under them. The refresh
+// interval already survived because it lives in storage; the pause state did not.
+const liveListeners = new Set<() => void>();
+
+function subscribeLive(onChange: () => void): () => void {
+  liveListeners.add(onChange);
+  return () => {
+    liveListeners.delete(onChange);
+  };
+}
+
+function readLive(): boolean {
+  try {
+    return window.localStorage.getItem(LIVE_STORAGE_KEY) !== "paused";
+  } catch {
+    return true;
+  }
+}
+
+function serverLive(): boolean {
+  return true;
+}
+
+function writeLive(live: boolean): void {
+  try {
+    window.localStorage.setItem(LIVE_STORAGE_KEY, live ? "live" : "paused");
+  } catch {
+    // Persistence is a convenience; the chosen state still applies for this mount.
+  }
+  liveListeners.forEach((listener) => listener());
+}
+
 // LIVE / PAUSED control, the "Updated HH:MM:SS IST" readout, and the refresh loop.
 //
 // The refresh is router.refresh(): it re-runs the SAME server component tree that rendered the page,
@@ -62,8 +97,7 @@ export function LivePoller({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [live, setLive] = useState(true);
-  const [pausedAt, setPausedAt] = useState<string | null>(null);
+  const live = useSyncExternalStore(subscribeLive, readLive, serverLive);
   const intervalSeconds = useSyncExternalStore(subscribeInterval, readInterval, serverInterval);
   const pendingRef = useRef(false);
 
@@ -111,13 +145,8 @@ export function LivePoller({
   }, [live, refresh, passportOpen]);
 
   function toggleLive() {
-    if (live) {
-      setPausedAt(generatedAt);
-      setLive(false);
-      return;
-    }
-    setPausedAt(null);
-    setLive(true);
+    writeLive(!live);
+    if (live) return;
     refresh();
   }
 
@@ -154,9 +183,12 @@ export function LivePoller({
           );
         })}
       </div>
-      {!live && pausedAt ? (
+      {/* "Data shown as of" is the timestamp of the data actually on screen. A paused board does not
+          refresh, so generatedAt cannot move underneath it — deriving this instead of holding it in
+          state is what lets PAUSED survive the Suspense remount that every filter change triggers. */}
+      {!live ? (
         <span className="lt-stale" role="status">
-          {copy(pageContract, "live.stale_prefix")} <b>{fmtClock(pausedAt)}</b>{" "}
+          {copy(pageContract, "live.stale_prefix")} <b>{fmtClock(generatedAt)}</b>{" "}
           {copy(pageContract, "live.stale_suffix")}
         </span>
       ) : null}

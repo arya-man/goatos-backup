@@ -1910,8 +1910,15 @@ paths:
       summary: Live drive-day tracker — KPIs, operator board, shed proof progress, combo doses, activity feed, attention, verification.
       description: >-
         One read backing the whole live drive tracker. Every section derives from a single membership
-        set (the day's vaccination obligations at ADMINISTRATION grain), so the KPI tiles reconcile
-        with the tables beneath them and one filter set narrows tiles, tables and feed together.
+        set (the day's protocol-category 'vaccination' obligations at ADMINISTRATION grain), so the
+        KPI tiles reconcile with the tables beneath them.
+
+        Filter scope differs by filter kind and this is deliberate. park_id, shed_id,
+        partition_label, operator_id and vaccine_code are MEMBERSHIP predicates pushed into that one
+        CTE, so they narrow every section including the combo card and the activity feed. `status`
+        is a DERIVED row state (computed from counts plus an elapsed clock), so it narrows only what
+        is folded from those rows: the KPI tiles, the operator board, the shed board and the
+        attention list. The combo card and the activity feed always describe the whole drive day.
       parameters:
         - name: business_date
           in: query
@@ -1962,6 +1969,10 @@ paths:
         - name: status
           in: query
           required: false
+          description: >-
+            Derived row state. Narrows the KPI tiles, the operator board, the shed board and the
+            attention list. It does NOT narrow the combo card or the activity feed, which always
+            describe the whole drive day.
           schema:
             type: string
             enum: [active, done, pending, review]
@@ -1976,10 +1987,23 @@ paths:
         - name: activity_before
           in: query
           required: false
-          description: Keyset cursor for the activity feed — return events strictly older than this instant.
+          description: >-
+            Timestamp half of the activity feed's keyset cursor. Send it together with
+            activity_before_id — occurred_at alone is NOT a key, because burst-written scan captures
+            and scan attempts routinely share a timestamp and a strict comparison skips every event
+            tied with the previous page's last row.
           schema:
             type: string
             format: date-time
+        - name: activity_before_id
+          in: query
+          required: false
+          description: >-
+            Tiebreaker half of the activity feed's keyset cursor — the next_cursor_event_id returned
+            with the previous page. Omitting it drops events sharing the page boundary's timestamp.
+          schema:
+            type: string
+            maxLength: 128
       responses:
         "200":
           description: The live drive tracker for one business date.
@@ -12809,10 +12833,15 @@ components:
     VaccinationLiveTrackerParkCount:
       type: object
       additionalProperties: false
-      required: [park_id, park_name, count]
+      required: [park_id, park_name, park_code, count]
       properties:
         park_id: { type: string, format: uuid }
         park_name: { type: string }
+        park_code:
+          type: string
+          description: >-
+            Compact location code ("CBE"/"CPT"). Empty when the park has no location_code seeded;
+            consumers fall back to park_name.
         count:
           type: integer
           description: Scheduled ADMINISTRATIONS in this park on the drive day.
@@ -12832,15 +12861,28 @@ components:
         scheduled_administrations:
           type: integer
           description: >-
-            ADMINISTRATION grain — one obligation is one administration. Equals the sum of the
-            operator board's scheduled column and of the shed board's scheduled column for the same
-            filter set.
+            ADMINISTRATION grain — one obligation is one administration, counted over
+            protocol-category 'vaccination' obligations only, excluding the dead statuses
+            canceled/superseded/waived.
+
+            Reconciliation: equals the sum of the SHED board's scheduled column for the same filter
+            set, provided sheds_truncated and cells_truncated are both false. It equals the OPERATOR
+            board's scheduled column only additionally when every obligation in scope resolved to a
+            drive assignment — administrations in a shed/partition with no
+            vaccination_drive_assignments row for the day have no operator to be attributed to and
+            therefore appear in no operator row. When sheds_truncated, operators_truncated or
+            cells_truncated is true this tile intentionally reads higher than the visible table
+            sums, and the page renders a visible truncation note saying so.
         scheduled_by_park:
           type: array
           items: { $ref: "#/components/schemas/VaccinationLiveTrackerParkCount" }
         proof_videos_received:
           type: integer
-          description: Administrations whose animal has a completed vaccination video proof on the drive day.
+          description: >-
+            ADMINISTRATION grain — administrations whose animal has a completed vaccination video
+            proof on the drive day. On a combo day ONE uploaded video covers two obligations and
+            contributes 2 here, which is why the tile's caption reads "administrations proofed" and
+            not "videos landed".
         scan_captures:
           type: integer
           description: Administrations whose animal has an RFID scan capture on the drive day.
@@ -13039,12 +13081,23 @@ components:
     VaccinationLiveTrackerActivity:
       type: object
       additionalProperties: false
-      required: [items, next_cursor, observed_per_min, window_minutes]
+      required: [items, next_cursor, next_cursor_event_id, observed_per_min, window_minutes]
       properties:
         items:
           type: array
           items: { $ref: "#/components/schemas/VaccinationLiveTrackerActivityItem" }
-        next_cursor: { type: string, format: date-time, nullable: true }
+        next_cursor:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Timestamp half of the next page's keyset cursor. Must be sent back together with
+            next_cursor_event_id; the feed's sort key is (occurred_at DESC, event_id DESC) and
+            paging on the timestamp alone loses every event tied with this boundary.
+        next_cursor_event_id:
+          type: string
+          nullable: true
+          description: Tiebreaker half of the next page's keyset cursor. Null exactly when next_cursor is null.
         observed_per_min:
           type: number
           nullable: true
@@ -13134,6 +13187,11 @@ components:
         - operators
         - sheds
         - combo
+        - operators_total
+        - operators_truncated
+        - sheds_total
+        - sheds_truncated
+        - cells_truncated
         - activity
         - attention
         - verification
@@ -13150,6 +13208,29 @@ components:
           type: array
           items: { $ref: "#/components/schemas/VaccinationLiveTrackerShedRow" }
         combo: { $ref: "#/components/schemas/VaccinationLiveTrackerCombo" }
+        operators_total:
+          type: integer
+          description: Operator rows BEFORE the server-side cap. Equals operators.length when operators_truncated is false.
+        operators_truncated:
+          type: boolean
+          description: >-
+            True when the operator board was cut to its server-side cap. The KPI tiles are folded
+            from the untruncated rollup, so while this is true the Scheduled tile intentionally
+            exceeds the sum of the visible operator table's scheduled column.
+        sheds_total:
+          type: integer
+          description: Shed × partition rows BEFORE the server-side cap. Equals sheds.length when sheds_truncated is false.
+        sheds_truncated:
+          type: boolean
+          description: >-
+            True when the shed board was cut to its server-side cap. While true the Scheduled tile
+            intentionally exceeds the sum of the visible shed table's scheduled column.
+        cells_truncated:
+          type: boolean
+          description: >-
+            True when the underlying park × shed × partition × vaccine × operator rollup itself hit
+            its per-read cap. Every KPI tile is folded from that rollup, so while this is true the
+            headline totals UNDER-report the drive day by an unbounded amount and the page says so.
         activity: { $ref: "#/components/schemas/VaccinationLiveTrackerActivity" }
         attention:
           type: array

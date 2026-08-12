@@ -5,7 +5,7 @@ import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/
 import { scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
-import { LIVE_TRACKER_PATH, liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
+import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
 import { LiveTrackerOperators } from "./live-tracker-operators";
 import { LiveTrackerSheds } from "./live-tracker-sheds";
@@ -15,6 +15,10 @@ import { LiveTrackerPassportDrawer } from "./live-tracker-passport-drawer";
 import { LiveTrackerFilters, type LiveFilterSpec } from "./live-tracker-filters";
 import { LivePoller } from "./live-poller";
 import { fmtDriveDay } from "./format";
+
+// The id rendered by features/preventive-care-vaccination/full-vaccine-schedule.tsx. Spelled once,
+// asserted against that file in live-tracker.test.mjs.
+export const FULL_SCHEDULE_ANCHOR = "full-schedule";
 
 export function loadLiveTracker(searchParams: RouteSearchParams | undefined): Promise<ApiResult<VaccinationLiveTrackerResponse>> {
   const params = parseLiveTrackerParams(searchParams);
@@ -28,6 +32,7 @@ export function loadLiveTracker(searchParams: RouteSearchParams | undefined): Pr
     status: params.status,
     activityLimit: params.activityLimit,
     activityBefore: params.activityBefore,
+    activityBeforeId: params.activityBeforeId,
   });
 }
 
@@ -110,14 +115,21 @@ export async function LiveTrackerBoard({
   const result = injectedResult ?? (await loadLiveTracker(searchParams));
   const selectedGoatId = one(params.sp, "goat_passport");
 
-  const scheduleHref = scopeHref("/vaccination", params.scope, {}, {}) + "#full-vaccine-schedule";
+  // The fragment must match the id the schedule section actually renders
+  // (features/preventive-care-vaccination/full-vaccine-schedule.tsx: <section id="full-schedule">).
+  // "full-vaccine-schedule" is the backend table-contract id and carries no DOM element, so the
+  // button navigated to /vaccination and scrolled nowhere. live-tracker.test.mjs pins the two
+  // together so this cannot rot again.
+  const scheduleHref = scopeHref("/vaccination", params.scope, {}, {}) + "#" + FULL_SCHEDULE_ANCHOR;
   const commandHref = scopeHref("/vaccination", params.scope, {}, {});
+  // /verify reads parseScope, and the verification counts on this board are park-scoped, so the
+  // hand-off has to carry the same scope or the two screens disagree about the same queue.
+  const verifyHref = scopeHref("/verify", params.scope, {}, {});
 
   if (!result.ok) {
     return (
       <div className="lt-page">
         <PageHead
-          params={params}
           pageContract={pageContract}
           businessDate={params.businessDate ?? ""}
           activeParks={0}
@@ -133,6 +145,13 @@ export async function LiveTrackerBoard({
               <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
                 {copy(pageContract, "state.error_body")} {result.error.message}
               </span>
+              {/* LivePoller unmounts on a failed read (it needs a real generated_at to report), and
+                  router.refresh() is this page's only refresh path. Without a retry control one
+                  transient read failure — a 6s API timeout is a realistic way in — freezes the board
+                  until the reader manually reloads the browser. */}
+              <Link href={liveTrackerHref(params)} replace className="btn sm" style={{ marginTop: 8 }}>
+                {copy(pageContract, "action.retry")}
+              </Link>
             </div>
           </div>
         </section>
@@ -141,9 +160,13 @@ export async function LiveTrackerBoard({
   }
 
   const data = result.data;
+  const asOfDate = /^\d{4}-\d{2}-\d{2}/.test(params.scope.asOf ?? "") ? params.scope.asOf!.slice(0, 10) : null;
   const resetHref = liveTrackerResetHref(params);
   const filters = buildFilters(params, data, pageContract);
-  const clearAllHref = params.hasFilter || params.parkId ? resetHref : null;
+  // hasFilter deliberately excludes the top-bar park scope, and liveTrackerResetHref re-emits that
+  // scope, so offering "clear all" for a bare park selection produced a button that navigated to the
+  // identical URL and changed nothing.
+  const clearAllHref = params.hasFilter ? resetHref : null;
   const passportHref = (goatId: string) => `${liveTrackerHref(params, { goat_passport: goatId })}#lt-combo`;
   const closePassportHref = `${liveTrackerHref(params)}#lt-combo`;
   const shedHref = (row: LiveTrackerShedRow) =>
@@ -163,7 +186,6 @@ export async function LiveTrackerBoard({
   return (
     <div className="lt-page">
       <PageHead
-        params={params}
         pageContract={pageContract}
         businessDate={data.business_date}
         activeParks={data.kpis.active_parks}
@@ -173,6 +195,16 @@ export async function LiveTrackerBoard({
       />
 
       <LiveTrackerFilters filters={filters} clearAllHref={clearAllHref} pageContract={pageContract} />
+
+      {/* The top bar's as_of travels into every nav leaf including this one, but this surface is a
+          DRIVE DAY board keyed on business_date — it does not honour as_of, and the sibling
+          vaccination reads reject a past as_of outright. Silently answering with a different day
+          than the URL claims is the failure mode; saying which day is on screen is the fix. */}
+      {asOfDate && asOfDate !== data.business_date ? (
+        <div className="note lt-truncnote" role="status">
+          {copy(pageContract, "label.as_of_note")}
+        </div>
+      ) : null}
 
       {isEmpty ? (
         <div className="note lt-emptynote">
@@ -188,35 +220,39 @@ export async function LiveTrackerBoard({
         </div>
       ) : null}
 
-      <LiveTrackerKpis kpis={data.kpis} pageContract={pageContract} />
+      <LiveTrackerKpis kpis={data.kpis} truncated={data.cells_truncated} pageContract={pageContract} />
 
       <div className="lt-grid">
         <div className="lt-stack">
           <LiveTrackerOperators
             rows={data.operators}
             parkCount={data.kpis.scheduled_by_park.length}
+            total={data.operators_total}
+            truncated={data.operators_truncated}
             hasFilter={params.hasFilter}
             resetHref={resetHref}
             pageContract={pageContract}
           />
           <LiveTrackerSheds
             rows={data.sheds}
+            total={data.sheds_total}
+            truncated={data.sheds_truncated}
             hasFilter={params.hasFilter}
             resetHref={resetHref}
             shedHref={shedHref}
             pageContract={pageContract}
           />
-          <LiveTrackerComboCard
-            combo={data.combo}
-            passportHref={passportHref}
-            truncatedHref={passportHref(data.combo.rows[0]?.goat_id ?? "")}
-            pageContract={pageContract}
-          />
+          {/* No truncatedHref: there is no paginated combo-animal list to point at, and wiring the
+              all-combo-animals control to the FIRST row's passport drawer would be an affordance
+              that silently does something other than what it says. The card renders that branch
+              disabled with its own visible reason instead. */}
+          <LiveTrackerComboCard combo={data.combo} passportHref={passportHref} pageContract={pageContract} />
         </div>
         <LiveTrackerRail
           activity={data.activity}
           attention={data.attention}
           verification={data.verification}
+          verifyHref={verifyHref}
           pageContract={pageContract}
         />
       </div>
@@ -232,7 +268,6 @@ export async function LiveTrackerBoard({
 }
 
 function PageHead({
-  params,
   pageContract,
   businessDate,
   activeParks,
@@ -240,7 +275,6 @@ function PageHead({
   scheduleHref,
   commandHref,
 }: {
-  params: ReturnType<typeof parseLiveTrackerParams>;
   pageContract: AdminUiPageContract;
   businessDate: string;
   activeParks: number;
@@ -285,8 +319,6 @@ function PageHead({
         </div>
       </div>
       <span className="lt-scopenote muted small">{copy(pageContract, "label.park_scope_note")}</span>
-      <span hidden data-live-tracker-path={LIVE_TRACKER_PATH} />
-      <span hidden data-live-tracker-filters={String(params.hasFilter)} />
     </div>
   );
 }

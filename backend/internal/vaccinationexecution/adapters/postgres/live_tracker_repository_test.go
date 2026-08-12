@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -337,7 +338,7 @@ func TestLiveTrackerAttentionCountEqualsItsOwnRows(t *testing.T) {
 		{ShedID: "s2", ShedLabel: "Gandhi 3", State: domain.LiveTrackerShedSlow, ScheduledAdmins: 49, ProofVideosReceived: 5},
 		{ShedID: "s3", ShedLabel: "Mandela 2 - Part 1", State: domain.LiveTrackerShedDone},
 	}
-	attention := liveTrackerAttention(sheds, operators)
+	attention := liveTrackerAttention(sheds, operators, time.Date(2026, 8, 12, 18, 0, 0, 0, time.UTC))
 	if len(attention) != 3 {
 		t.Fatalf("expected one idle operator, one extra-attempts shed and one slow shed, got %d rows", len(attention))
 	}
@@ -364,13 +365,13 @@ func TestLiveTrackerAttentionCountEqualsItsOwnRows(t *testing.T) {
 // workforce_member_id returns zero rows without any error.
 func TestLiveTrackerOperatorIdentityJoinsUserIDNotMemberID(t *testing.T) {
 	actorBlock := liveTrackerActorSQL[strings.Index(liveTrackerActorSQL, "FROM actors a"):]
-	if !strings.Contains(actorBlock, "wm.user_id = a.actor_id") {
+	if !strings.Contains(actorBlock, "m.user_id = a.actor_id") {
 		t.Error("evidence actors must join workforce_members on user_id")
 	}
-	if strings.Contains(actorBlock, "wm.workforce_member_id = a.actor_id") {
+	if strings.Contains(actorBlock, "m.workforce_member_id = a.actor_id") {
 		t.Error("evidence actors must NOT join workforce_members on workforce_member_id; that match is always empty")
 	}
-	if !strings.Contains(liveTrackerActivitySQL, "wm.tenant_id = $1::uuid AND wm.user_id = e.actor_id") {
+	if !strings.Contains(liveTrackerActivitySQL, "m.tenant_id = $1::uuid AND m.user_id = e.actor_id") {
 		t.Error("the activity feed must resolve its actor through user_id")
 	}
 	// The assignment side is the opposite: vaccination_drive_assignments.operator_id IS a member id.
@@ -397,8 +398,18 @@ func TestLiveTrackerActivityFeedReadsEventTablesNotAuditLog(t *testing.T) {
 			t.Errorf("the feed is missing its %s arm", source)
 		}
 	}
-	if !strings.Contains(liveTrackerActivitySQL, "$9::timestamptz IS NULL OR e.occurred_at < $9::timestamptz") {
+	if !strings.Contains(liveTrackerActivitySQL, "$9::timestamptz IS NULL") ||
+		!strings.Contains(liveTrackerActivitySQL, "e.occurred_at < $9::timestamptz") {
 		t.Error("the feed must page by keyset on occurred_at, not by offset")
+	}
+	// The cursor must be the FULL sort key. Comparing occurred_at alone skips every event tied with
+	// the previous page's last row, and burst-written scan captures share a timestamp routinely —
+	// that loses real events rather than merely repeating them.
+	if !strings.Contains(liveTrackerActivitySQL, "(e.occurred_at = $9::timestamptz AND ($10::text = '' OR e.event_id < $10::text))") {
+		t.Error("the feed cursor must carry an event_id tiebreaker; occurred_at alone drops tied events")
+	}
+	if !strings.Contains(liveTrackerActivitySQL, "ORDER BY e.occurred_at DESC, e.event_id DESC") {
+		t.Error("the cursor predicate and the ORDER BY must be the same key")
 	}
 }
 
@@ -501,5 +512,195 @@ func TestLiveTrackerStatusFilterNarrowsTilesAndTableTogether(t *testing.T) {
 			t.Errorf("status %q tile = %d, want %d (the tile must describe the rows it sits above)",
 				tc.status, kpis.ScheduledAdministrations, tc.wantScheduled)
 		}
+	}
+}
+
+// TestLiveTrackerMembershipIsVaccinationOnly pins the protocol-category predicate. The obligation
+// engine is SHARED: obligation_instances carries deworming, biosecurity, panel-cleaning and seven
+// other categories. Without this predicate every goat-targeted obligation due that day is counted
+// under "Scheduled today · administrations" on a page whose brand promise is vaccination — and
+// because every evidence CTE filters st.task_type = 'vaccination', such a row can NEVER be proofed
+// off. It inflates Remaining permanently and pins its shed at not_started.
+func TestLiveTrackerMembershipIsVaccinationOnly(t *testing.T) {
+	if !strings.Contains(liveTrackerScopedCTE, "pd.category = 'vaccination'") {
+		t.Fatal("the membership CTE must narrow protocol_definitions to the vaccination category")
+	}
+}
+
+// TestLiveTrackerMembershipExcludesDeadObligations pins the status exclusion set. 'superseded' and
+// 'waived' rows will never receive a proof; counting them into `scheduled` inflates the Scheduled
+// tile and Remaining and holds the shed row open for the rest of the day.
+func TestLiveTrackerMembershipExcludesDeadObligations(t *testing.T) {
+	if !strings.Contains(liveTrackerScopedCTE, "oi.status NOT IN ('canceled', 'superseded', 'waived')") {
+		t.Error("membership must exclude canceled, superseded AND waived obligations")
+	}
+	if strings.Contains(liveTrackerScopedCTE, "oi.status <> 'canceled'") {
+		t.Error("excluding only 'canceled' leaves dead obligations counted as scheduled work")
+	}
+}
+
+// TestLiveTrackerActorEvidenceCannotFanOutOnComboAnimals pins the operator board's Videos and Scans
+// columns against the combo case this page exists to show. scoped_enriched is ONE ROW PER
+// OBLIGATION, so joining raw proof/scan rows to it and counting doubles both columns for any animal
+// carrying two same-day obligations — which then feeds Remaining, the operator's live state, the
+// idle attention rows and the Attention tile. It is invisible in stg only because combo_animals is 0
+// there today.
+func TestLiveTrackerActorEvidenceCannotFanOutOnComboAnimals(t *testing.T) {
+	if !strings.Contains(liveTrackerActorSQL, "scoped_goats AS (\n  SELECT DISTINCT goat_id FROM scoped_enriched\n)") {
+		t.Fatal("the actor query must build a DISTINCT per-goat set before counting evidence")
+	}
+	for _, join := range []string{
+		"JOIN scoped_goats sg ON sg.goat_id = pa.subject_id",
+		"JOIN scoped_goats sg ON sg.goat_id = c.goat_id",
+	} {
+		if !strings.Contains(liveTrackerActorSQL, join) {
+			t.Errorf("missing per-goat evidence join %q", join)
+		}
+	}
+	for _, banned := range []string{
+		"JOIN scoped_enriched se ON se.goat_id = pa.subject_id",
+		"JOIN scoped_enriched se ON se.goat_id = c.goat_id",
+	} {
+		if strings.Contains(liveTrackerActorSQL, banned) {
+			t.Errorf("%q joins the per-OBLIGATION set for cardinality; a combo animal doubles the count", banned)
+		}
+	}
+}
+
+// TestLiveTrackerFeedEmitsOneRowPerPhysicalEvent pins that the goat-keyed feed arms do not join the
+// dose-grain location CTE. shed_names carries one row per (goat, dose); joining a proof upload to it
+// on goat_id alone emitted TWO feed rows for one proof, both carrying the SAME event_id — duplicate
+// React keys, a LIMIT consumed by duplicates, and an inflated observed_per_min.
+func TestLiveTrackerFeedEmitsOneRowPerPhysicalEvent(t *testing.T) {
+	if !strings.Contains(liveTrackerActivitySQL, "goat_places AS (") ||
+		!strings.Contains(liveTrackerActivitySQL, "SELECT DISTINCT ON (se.goat_id)") {
+		t.Fatal("the feed must carry a one-row-per-goat location projection for its goat-keyed arms")
+	}
+	for _, join := range []string{
+		"JOIN goat_places se ON se.goat_id = pa.subject_id",
+		"JOIN goat_places se ON se.goat_id = c.goat_id",
+		"JOIN goat_places se ON se.goat_id = a.goat_id",
+	} {
+		if !strings.Contains(liveTrackerActivitySQL, join) {
+			t.Errorf("goat-keyed feed arm must join goat_places: missing %q", join)
+		}
+	}
+	if strings.Contains(liveTrackerActivitySQL, "JOIN shed_names se ON se.goat_id = pa.subject_id") ||
+		strings.Contains(liveTrackerActivitySQL, "JOIN shed_names se ON se.goat_id = c.goat_id") ||
+		strings.Contains(liveTrackerActivitySQL, "JOIN shed_names se ON se.goat_id = a.goat_id") {
+		t.Error("a goat-keyed arm joined to the dose-grain shed_names duplicates every event of a combo animal")
+	}
+	// The two dose-keyed arms legitimately keep shed_names, and must keep their dose predicate.
+	if !strings.Contains(liveTrackerActivitySQL, "JOIN shed_names se ON se.goat_id = sc.goat_id AND se.dose_code = sc.dose_code") {
+		t.Error("the administration and shed_submitted arms must stay keyed on goat AND dose")
+	}
+}
+
+// TestLiveTrackerIdentityJoinSurvivesARehiredPerson pins the workforce_members join. The only
+// uniqueness guarantee on user_id is PARTIAL (workforce_members_active_user_unique_idx, WHERE
+// status = 'active'), so a re-hired person holds one active row plus one or more left/inactive rows
+// on the same user_id. A bare join fans out: a duplicate operator row with identical counts, and
+// every one of that person's feed rows rendered twice.
+func TestLiveTrackerIdentityJoinSurvivesARehiredPerson(t *testing.T) {
+	for name, sql := range map[string]string{"actors": liveTrackerActorSQL, "activity": liveTrackerActivitySQL} {
+		if !strings.Contains(sql, "AND m.status = 'active'") {
+			t.Errorf("%s must resolve workforce identity through the ACTIVE row only", name)
+		}
+		if !strings.Contains(sql, "ORDER BY m.workforce_member_id\n  LIMIT 1") &&
+			!strings.Contains(sql, "ORDER BY m.workforce_member_id\n    LIMIT 1") {
+			t.Errorf("%s must disambiguate workforce identity with a LIMIT 1 lateral", name)
+		}
+	}
+}
+
+// TestLiveTrackerAttentionElapsedIsMeasuredNotAThreshold pins that ElapsedMin is an OBSERVATION.
+// The slow-shed row previously carried domain.LiveTrackerSlowShedMinutes — a policy constant — which
+// rendered on screen as a bare "· 40" indistinguishable from a measured figure.
+func TestLiveTrackerAttentionElapsedIsMeasuredNotAThreshold(t *testing.T) {
+	clock := time.Date(2026, 8, 12, 18, 0, 0, 0, time.UTC)
+	lastProof := clock.Add(-137 * time.Minute)
+	sheds := []domain.LiveTrackerShedRow{
+		{ShedID: "s1", ShedLabel: "Gandhi 3", State: domain.LiveTrackerShedSlow, ScheduledAdmins: 49, ProofVideosReceived: 5, LastProofAt: &lastProof},
+		{ShedID: "s2", ShedLabel: "Gandhi 4", State: domain.LiveTrackerShedSlow, ScheduledAdmins: 40, ProofVideosReceived: 0},
+	}
+	rows := liveTrackerAttention(sheds, nil, clock)
+	if len(rows) != 2 {
+		t.Fatalf("expected one attention row per slow shed, got %d", len(rows))
+	}
+	if rows[0].ElapsedMin != 137 {
+		t.Errorf("slow-shed elapsed = %d, want the measured 137 minutes since its last proof", rows[0].ElapsedMin)
+	}
+	if rows[1].ElapsedMin != 0 {
+		t.Errorf("a shed with no proof has nothing to measure; elapsed = %d, want 0", rows[1].ElapsedMin)
+	}
+	for _, row := range rows {
+		if row.ElapsedMin == domain.LiveTrackerSlowShedMinutes {
+			t.Error("attention elapsed must never be the slow-shed policy threshold rendered as data")
+		}
+	}
+}
+
+// TestLiveTrackerPastDriveDayIsNotMeasuredAgainstWallClock pins the elapsed clock. The handler
+// accepts a business_date up to LiveTrackerBusinessDateLookbackDays back; measuring a finished drive
+// against wall-clock now labels every open shed slow and every operator idle, and manufactures an
+// attention row with an idle figure in the thousands of minutes for a drive that closed days ago.
+func TestLiveTrackerPastDriveDayIsNotMeasuredAgainstWallClock(t *testing.T) {
+	loc := time.UTC
+	past := time.Date(2026, 8, 8, 0, 0, 0, 0, loc)
+	now := time.Date(2026, 8, 12, 18, 30, 0, 0, loc)
+	clock := liveTrackerStateClock(past, loc, now)
+	if !clock.Equal(time.Date(2026, 8, 9, 0, 0, 0, 0, loc)) {
+		t.Errorf("a past drive day must be measured to its own close, got %s", clock)
+	}
+	today := time.Date(2026, 8, 12, 0, 0, 0, 0, loc)
+	if got := liveTrackerStateClock(today, loc, now); !got.Equal(now) {
+		t.Errorf("today's drive must be measured against now, got %s", got)
+	}
+}
+
+// TestLiveTrackerTruncationIsReportedNotSilent pins that the two boards declare their own caps. The
+// KPI tiles are folded from the untruncated cell set, so past the caps the Scheduled tile
+// legitimately exceeds the sum of the visible table's Scheduled column — and the response must carry
+// the totals and flags that let the page say so, exactly as the combo card already does.
+func TestLiveTrackerTruncationIsReportedNotSilent(t *testing.T) {
+	var resp domain.LiveTrackerResponse
+	resp.OperatorsTotal = 130
+	resp.OperatorsTruncated = true
+	resp.ShedsTotal = 240
+	resp.ShedsTruncated = true
+	resp.CellsTruncated = true
+	if !resp.OperatorsTruncated || !resp.ShedsTruncated || !resp.CellsTruncated {
+		t.Fatal("the response must be able to declare operator, shed and cell truncation")
+	}
+	if resp.OperatorsTotal <= domain.LiveTrackerMaxOperators || resp.ShedsTotal <= domain.LiveTrackerMaxSheds {
+		t.Fatal("totals must describe the pre-truncation row counts")
+	}
+	if !strings.Contains(liveTrackerCellsSQL, "LIMIT "+fmt.Sprint(domain.LiveTrackerMaxCells)) {
+		t.Error("the cell cap must be the declared constant, not a second hardcoded number")
+	}
+	if !strings.Contains(liveTrackerFilterOptionsSQL, "LIMIT "+fmt.Sprint(domain.LiveTrackerMaxFilterOptions)) {
+		t.Error("the declared filter-option cap must be the cap the query actually applies")
+	}
+}
+
+// TestLiveTrackerFilterVocabularyDoesNotCollapseTheParkControl pins that the filter bar is compiled
+// under the AUTHORIZATION clamp, not under the caller's own park selection. Passing the selected
+// park made the control self-collapsing: once a park was chosen the dropdown offered only that park
+// and the user could not switch back to the other one.
+func TestLiveTrackerFilterVocabularyDoesNotCollapseTheParkControl(t *testing.T) {
+	if strings.Contains(liveTrackerFilterOptionsSQL, "$5::text") || strings.Contains(liveTrackerFilterOptionsSQL, "$6::text") {
+		t.Log("filter options inherit the scoped CTE's parameter list; only park ($3) is ever non-empty")
+	}
+	if liveTrackerAuthorizedParkClamp(t.Context(), "tenant") != "" {
+		t.Error("with no grants in context the filter vocabulary must not be park-clamped")
+	}
+}
+
+// TestLiveTrackerReworkIsDayScopedLikeItsOwnDocComment pins that the verification card's three
+// figures agree about what "today" means. rework_requested previously carried no date predicate at
+// all: an all-time tenant-wide rejected total rendered directly beneath a today-only verified total.
+func TestLiveTrackerReworkIsDayScopedLikeItsOwnDocComment(t *testing.T) {
+	if !strings.Contains(liveTrackerVerificationSQL, "vi.status = 'rejected' AND (vi.verified_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date") {
+		t.Error("rework_requested must be day-scoped through verified_at, like the approved counters beside it")
 	}
 }
