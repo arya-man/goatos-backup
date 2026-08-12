@@ -321,7 +321,11 @@ class WeighingPlanWizardViewModel @Inject constructor(
     // ---- step 3: shed buckets ------------------------------------------------------------
 
     fun setBucketQuery(query: String) {
-        raw.value = raw.value.copy(bucketQuery = query, bucketCap = WEIGHING_PAGE_SIZE)
+        val next = raw.value.copy(bucketQuery = query, bucketCap = WEIGHING_PAGE_SIZE)
+        raw.value = next
+        if (query.isNotBlank() && next.filteredBuckets().isEmpty()) {
+            loadMoreBuckets()
+        }
     }
 
     fun setBucketFilter(filter: WeighingBucketFilter) {
@@ -641,16 +645,20 @@ class WeighingPlanWizardViewModel @Inject constructor(
         observeBucketsJob?.cancel()
         val excludeCampaignId = raw.value.editCampaignId
         observeBucketsJob = viewModelScope.launch {
-            repository.observePlannerParkBuckets(isoDate, parkId, WEIGHING_LEADERSHIP_PAGE_SIZE, excludeCampaignId)
+            repository.observePlannerParkBuckets(isoDate, parkId, Int.MAX_VALUE, excludeCampaignId)
                 .collect { cached ->
                 // A stale emission for a park the planner has already moved off must not repopulate
                 // the list under the new park.
                 if (raw.value.parkId != parkId) return@collect
                 if (!cached.hasCache && cached.sheds.isEmpty()) return@collect
                 bucketsEndReached = !cached.canLoadMore
-                raw.value = raw.value
+                val updated = raw.value
                     .copy(buckets = cached.sheds, bucketsParkId = parkId)
                     .withRepeatBucketsApplied()
+                raw.value = updated
+                if (updated.bucketQuery.isNotBlank() && updated.filteredBuckets().isEmpty() && cached.canLoadMore) {
+                    loadMoreBuckets()
+                }
             }
         }
         refreshParkBuckets(isoDate, parkId, reset = true)
@@ -664,7 +672,8 @@ class WeighingPlanWizardViewModel @Inject constructor(
      * writes no loading state of its own, so it cannot fight the pager.
      */
     private fun refreshBucketAvailability(isoDate: String, parkId: String) {
-        val pages = (raw.value.buckets.size / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
+        val pages = ((raw.value.buckets.size + WEIGHING_LEADERSHIP_PAGE_SIZE - 1) / WEIGHING_LEADERSHIP_PAGE_SIZE)
+            .coerceAtLeast(1)
         val excludeCampaignId = raw.value.editCampaignId
         viewModelScope.launch {
             when (

@@ -1532,7 +1532,7 @@ class DefaultWeighingRepository(
         val catalog = plannerDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
         val keys = plannerKeyDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
         val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
-        val bounded = windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)
+        val bounded = windowSize.coerceAtLeast(1)
         return combine(
             catalog.observeShedWindow(queryKey, bounded),
             keys.observe(queryKey),
@@ -1558,8 +1558,9 @@ class DefaultWeighingRepository(
         val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (parkId.isBlank()) return@withContext AppResult.Ok(0)
         val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
-        // Walk only as many pages as the wizard is actually showing, never the whole park.
-        val pageCount = pages.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW / WEIGHING_LEADERSHIP_PAGE_SIZE)
+        // Walk only as many pages as the wizard is actually showing. Bucket search can page past
+        // the generic leadership window, so availability must refresh the same observed depth.
+        val pageCount = pages.coerceAtLeast(1)
         runCatching {
             var cursor: String? = null
             var refreshed = 0
