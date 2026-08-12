@@ -30,7 +30,7 @@
     <string name="sheds_status_overdue">గడువు దాటింది</string>
     <string name="sheds_status_sent_back">తిరిగి పంపారు</string>
     <string name="sheds_status_complete">పూర్తి</string>
-    <string name="sheds_status_neighbor_scan">పక్క స్కాన్లు</string>
+    <string name="sheds_status_neighbor_scan">ఇతర షెడ్ స్కాన్ అయింది</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">సిబ్బంది మార్పులు · ఈ డ్రైవ్ షెడ్యూల్ చేయబడిన తర్వాత</string>

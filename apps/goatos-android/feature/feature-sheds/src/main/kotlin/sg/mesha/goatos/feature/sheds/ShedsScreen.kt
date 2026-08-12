@@ -196,6 +196,7 @@ data class ShedRow(
     // verification is misleading if only one number is shown. Backend-owned (acceptedCount on
     // VaccinationExecutionRowDto); the client never derives this.
     val accepted: String = "0",
+    val neighborScanCount: Int = 0,
     val progressLabel: String,
     val progressFraction: Float,
     val actionLabel: String? = null,
@@ -1007,8 +1008,8 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
     }
     val neighborLine = when (summary.neighborScanCount) {
         0 -> null
-        1 -> "1 neighbor goat scanned"
-        else -> "${summary.neighborScanCount} neighbor goats scanned"
+        1 -> "1 goat from other shed scanned"
+        else -> "${summary.neighborScanCount} goats from other shed scanned"
     }
     val tone = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
@@ -1151,12 +1152,26 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 VaccineChips(row.vaccineGroups)
             }
+            NeighborScanLine(row.neighborScanCount)
             Spacer(Modifier.height(14.dp))
             NumsRow(row)
             Spacer(Modifier.height(12.dp))
             ProgressBar(row.progressFraction)
         }
     }
+}
+
+@Composable
+private fun NeighborScanLine(count: Int) {
+    if (count <= 0) return
+    val label = if (count == 1) "1 goat from other shed scanned" else "$count goats from other shed scanned"
+    Spacer(Modifier.height(10.dp))
+    Text(
+        text = label,
+        color = Info,
+        style = MeshaType.caption,
+        maxLines = 1,
+    )
 }
 
 @Composable

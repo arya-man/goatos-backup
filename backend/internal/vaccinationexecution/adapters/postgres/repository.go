@@ -1386,11 +1386,41 @@ raw AS (
   LEFT JOIN LATERAL (
     SELECT COUNT(DISTINCT attempt.goat_id)::bigint AS goat_count
     FROM sop_task_scan_attempts attempt
+    JOIN goats attempt_goat
+      ON attempt_goat.tenant_id = attempt.tenant_id
+     AND attempt_goat.goat_id = attempt.goat_id
+     AND attempt_goat.merged_into_goat_id IS NULL
+    LEFT JOIN goat_shed_partitions attempt_gsp
+      ON attempt_gsp.tenant_id = attempt_goat.tenant_id
+     AND attempt_gsp.goat_id = attempt_goat.goat_id
+     AND attempt_gsp.shed_id = attempt_goat.shed_id
+    JOIN vaccination_drive_assignments attempt_assignment
+      ON attempt_assignment.tenant_id = attempt.tenant_id
+     AND attempt_assignment.batch_id = oi.batch_id
+     AND attempt_assignment.shed_id = attempt_goat.shed_id
+     AND attempt_assignment.physical_shed = COALESCE(vda_member.physical_shed, vda_guess.physical_shed)
+     AND attempt_assignment.shed_id <> CASE
+          WHEN g.shed_id IS NOT NULL THEN g.shed_id
+          WHEN oi.target_type = 'shed' THEN oi.target_id
+          WHEN oi.scope_type = 'shed' THEN oi.scope_id
+          ELSE NULL
+        END
+     AND (
+          attempt_assignment.partition_label = 'whole'
+          OR regexp_replace(lower(btrim(attempt_assignment.partition_label)), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim(COALESCE(attempt_gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+        )
     WHERE attempt.tenant_id = oi.tenant_id
       AND attempt.task_id = st.task_id
-      AND attempt.goat_id = oi.target_id
+      AND attempt.field_key IN ('goat_ids', '__scan_roster__')
+      AND attempt.outcome = 'accepted'
       AND attempt.reason = 'neighbor_partition'
       AND attempt.captured_at <= $7::timestamptz
+      AND (
+        COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole') = 'whole'
+        OR regexp_replace(lower(btrim(COALESCE(attempt_gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+         <> regexp_replace(lower(btrim(COALESCE(NULLIF(btrim(gsp.partition_label), ''), NULLIF(btrim(vda_member.partition_label), ''), 'whole'))), '^part[[:space:]]+', '')
+      )
   ) neighbor_scan ON st.task_id IS NOT NULL
   LEFT JOIN LATERAL (
     SELECT proof.created_at AS proofed_at
@@ -1482,7 +1512,7 @@ animal_rollup AS (
     BOOL_OR(located.completion_status = 'reversed') AS has_reversed_completion,
     BOOL_AND(COALESCE(located.completion_status = 'accepted', false)) AS all_completions_accepted,
     BOOL_OR(located.scanned OR located.proofed) AS has_scan,
-    BOOL_OR(COALESCE(located.neighbor_scan_count, 0) > 0) AS has_neighbor_scan,
+    MAX(COALESCE(located.neighbor_scan_count, 0))::bigint AS neighbor_scan_count,
     BOOL_OR(located.shed_proof_submitted OR located.proofed) AS has_shed_proof
   FROM located
   WHERE located.park_uuid IS NOT NULL
@@ -1512,7 +1542,7 @@ animal_counts AS (
     COUNT(*) FILTER (WHERE animal_rollup.has_rejected_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_rejected,
     COUNT(*) FILTER (WHERE animal_rollup.has_reversed_completion AND NOT animal_rollup.all_completions_accepted)::bigint AS completion_reversed,
     COUNT(*) FILTER (WHERE animal_rollup.has_scan)::bigint AS scanned_count,
-    COUNT(*) FILTER (WHERE animal_rollup.has_neighbor_scan)::bigint AS neighbor_scan_count,
+    MAX(animal_rollup.neighbor_scan_count)::bigint AS neighbor_scan_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_shed_proof)::bigint AS proof_submitted_count
   FROM animal_rollup
   GROUP BY animal_rollup.park_uuid, animal_rollup.shed_uuid, animal_rollup.partition_key, animal_rollup.batch_id
