@@ -100,7 +100,7 @@ export async function OversightAnalytics({ pageContract }: { pageContract: Admin
             <tbody>
               {verifierActivity.map((row) => (
                 <tr key={row.verifier_id}>
-                  <td>{row.verifier_name || row.verifier_id}</td>
+                  <td>{verifierLabel(row)}</td>
                   <td>{row.verdicts}</td>
                   <td>{row.approved}</td>
                   <td>{row.rejected}</td>
@@ -143,4 +143,19 @@ function formatRejectRate(rate: number): string {
   const oneInN = Math.round(1 / rate);
   if (oneInN >= 2 && oneInN <= 100) return `1 in ${oneInN} rejected`;
   return `${Math.round(rate * 100)}% rejected`;
+}
+
+// verifierLabel keeps a raw UUID out of a leadership-facing table. A verdict whose actor has no
+// workforce record is not a reviewer at all -- on staging these are backfill/automation writes that
+// stamp a batch of items in the same second -- and printing its id beside a real name reads as a
+// second person reviewing videos. Name it for what it is and keep the id as a short trailing
+// reference so it stays traceable.
+function verifierLabel(row: { verifier_id: string; verifier_name?: string | null }): React.ReactNode {
+  if (row.verifier_name?.trim()) return row.verifier_name;
+  return (
+    <span>
+      Automated / unassigned account{" "}
+      <span className="muted small mono">{row.verifier_id.slice(0, 8)}</span>
+    </span>
+  );
 }
