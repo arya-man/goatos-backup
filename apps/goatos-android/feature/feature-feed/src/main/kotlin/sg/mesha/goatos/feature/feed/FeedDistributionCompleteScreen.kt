@@ -48,6 +48,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import android.graphics.BitmapFactory
 import android.net.Uri
+import java.io.IOException
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -362,7 +363,7 @@ private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind) {
 private fun FeedDistPhotoPreview(path: String) {
     val context = LocalContext.current
     val bitmap = remember(path) {
-        runCatching {
+        try {
             val uri = Uri.parse(path)
             when (uri.scheme) {
                 "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
@@ -370,7 +371,13 @@ private fun FeedDistPhotoPreview(path: String) {
                 null, "" -> BitmapFactory.decodeFile(path)
                 else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
             }
-        }.getOrNull()
+        } catch (_: IOException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
     if (bitmap != null) {
         Image(

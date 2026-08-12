@@ -21,12 +21,9 @@ pre-push hook.
   and friends deliberately write no receipt.
 - **`GOATOS_FAST_LOCAL_CI=1` never writes a receipt.**
 
-> **`GOATOS_BYPASS_LOCAL_CI=1` voids everything above.**
-> In `land-main.sh` it skips `make ci-local` *and* the receipt and still pushes
-> to `main` (the run even prints "pushing local-CI-bypassed"). `prePush()` also
-> returns early before `evaluatePush`. Nothing else in this document constrains
-> a run with that variable set. It is a deliberate incident hatch, not a normal
-> path.
+There is no local-CI bypass for `main`: speed comes from the scoped classifier,
+not from skipping evidence. A push to `main` without a matching green exact-SHA
+receipt is blocked.
 
 ---
 
@@ -73,8 +70,7 @@ reopened the hole below, because `MODE=android` became an explicit-job partial
 run that writes no receipt. That is deliberate. It used to run the explicit `android` job, which is a
 *partial* run — and partial runs write no receipt by design, so the command the
 block message told you to run could never clear the block; the only working
-exits were the undocumented `GOATOS_RUN_ANDROID_SCREENSHOTS=1 make ci-local` or
-`GOATOS_BYPASS_LOCAL_CI=1`. A remediation that cannot remediate trains bypass
+exits were the undocumented `GOATOS_RUN_ANDROID_SCREENSHOTS=1 make ci-local` before the broad local-CI bypass was removed. A remediation that cannot remediate trains bypass
 habits. It now writes a real receipt carrying `screenshots: "yes"`, and
 `tools/ci/check-screenshot-remediation.sh` (in `run_common`) proves that
 end-to-end on every run: it drives the real block, reads the `make` target out
@@ -111,8 +107,8 @@ self-test is `tools/ci/check-android-ui-diff.test.sh` (run by `run_common`).
 > is a command that is wired correctly but cannot pass today **on golden
 > content**. (The separate defect — the remediation being a partial run that
 > wrote no receipt and so could never clear the block whatever the goldens did —
-> is fixed; see §3.) Until the goldens are resolved, an Android UI diff can only
-> land via the existing explicit `GOATOS_BYPASS_LOCAL_CI=1`.
+> is fixed; see §3.) Until the goldens are resolved, an Android UI diff must fix
+> or deliberately update the goldens before it can land.
 >
 > **Root cause is a wall-clock-dependent fixture, not toolchain drift.** Both
 > failing classes pass `lastSyncedAt = 0L` (the Unix epoch) into

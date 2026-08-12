@@ -4,9 +4,6 @@
 # Order is mechanical, not conversational:
 #   fetch origin/main -> rebase candidate -> install push guards -> ci-local
 #   -> fetch origin/main again -> retry if main moved -> push HEAD:main -> verify.
-# Set GOATOS_BYPASS_LOCAL_CI=1 for an explicit fatigue/incident bypass of the
-# local CI run and exact-SHA evidence guard. The script still rebases on fresh
-# origin/main and keeps the staging promotion push guard installed.
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -40,6 +37,20 @@ selected_jobs_against() {
     | sed -n 's/^selected_jobs=//p'
 }
 
+android_ui_diff_against() {
+  local base="$1"
+  local head="${2:-HEAD}"
+  if [ ! -f tools/ci/android-ui-diff.sh ]; then
+    git diff --name-only "$base...$head" 2>/dev/null \
+      | grep -qE '^apps/goatos-android/.*\.(kt|kts|xml|png|webp)$'
+    return
+  fi
+  changed_since_base() { git diff --name-only "$base...$head"; }
+  # shellcheck source=tools/ci/android-ui-diff.sh
+  . tools/ci/android-ui-diff.sh
+  android_ui_diff_detected
+}
+
 # Attempt log (gitignored, inside the git dir). Instrumentation only: it never
 # changes control flow, gate semantics, or exit status.
 attempt_log="$(git rev-parse --git-path goatos-land-main-attempts.log 2>/dev/null || echo /dev/null)"
@@ -65,11 +76,9 @@ local_ci_evidence_script() {
 }
 
 test_mode="${GOATOS_LAND_TEST_MODE:-0}"
-bypass_local_ci="${GOATOS_BYPASS_LOCAL_CI:-0}"
-case "$bypass_local_ci" in
-  0|1) ;;
-  *) die "GOATOS_BYPASS_LOCAL_CI must be 0 or 1" ;;
-esac
+if [ "${GOATOS_BYPASS_LOCAL_CI:-0}" = "1" ]; then
+  die "GOATOS_BYPASS_LOCAL_CI is not supported; main requires exact-SHA local CI evidence"
+fi
 origin_url="$(git remote get-url origin 2>/dev/null || true)"
 if [ "$test_mode" != "1" ]; then
   case "$origin_url" in
@@ -122,31 +131,22 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
   if [ "$test_mode" = "1" ]; then
     test_ci="${GOATOS_LAND_TEST_CI_COMMAND:-}"
-    if [ "$bypass_local_ci" = "1" ]; then
-      echo "land-main: GOATOS_BYPASS_LOCAL_CI=1; test-mode CI command skipped"
-    else
-      [ -n "$test_ci" ] || die "GOATOS_LAND_TEST_CI_COMMAND is required in test mode"
-      "$test_ci"
-    fi
+    [ -n "$test_ci" ] || die "GOATOS_LAND_TEST_CI_COMMAND is required in test mode"
+    "$test_ci"
   else
     bash tools/agent-hooks/install-stg-push-guard.sh
-    if [ "$bypass_local_ci" = "1" ]; then
-      echo "land-main: GOATOS_BYPASS_LOCAL_CI=1; skipping make ci-local and exact-SHA local-CI receipt"
-    else
-      # Pick the variant the PUSH GUARD will demand. The guard rejects a receipt marked
-      # screenshots="skipped-with-ui-diff" when the diff touches Android UI/snapshots, so
-      # hardcoding `make ci-local` here made landing STRUCTURALLY IMPOSSIBLE for any
-      # Android-UI change: land-main wrote a receipt its own guard then refused, and the
-      # remedy it printed ("run make land-main") re-ran the same failing path. Observed
-      # 2026-08-07. Detected against the same base land-main just rebased onto.
-      ci_target="ci-local"
-      if git diff --name-only origin/main...HEAD 2>/dev/null \
-        | grep -qE '^apps/goatos-android/.*\.(kt|kts|xml|png|webp)$'; then
-        ci_target="ci-local-screenshots"
-        echo "land-main: diff touches Android UI -> running make ${ci_target} (Paparazzi proof required by the push guard)"
-      fi
-      make "$ci_target"
+    # Pick the variant the PUSH GUARD will demand. The guard rejects a receipt marked
+    # screenshots="skipped-with-ui-diff" when the diff touches Android UI/snapshots, so
+    # hardcoding `make ci-local` here made landing STRUCTURALLY IMPOSSIBLE for any
+    # Android-UI change: land-main wrote a receipt its own guard then refused, and the
+    # remedy it printed ("run make land-main") re-ran the same failing path. Observed
+    # 2026-08-07. Detected against the same base land-main just rebased onto.
+    ci_target="ci-local"
+    if android_ui_diff_against "$base_before" "$candidate_sha"; then
+      ci_target="ci-local-screenshots"
+      echo "land-main: diff touches Android UI -> running make ${ci_target} (Paparazzi proof required by the push guard)"
     fi
+    make "$ci_target"
   fi
 
   [ "$(git rev-parse HEAD)" = "$candidate_sha" ] || die "HEAD changed while ci-local ran; refusing to push uncertified code"
@@ -182,11 +182,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
             echo "land-main: test mode verified patch-identical rebase receipt reuse at $(short_sha "$candidate_sha"); push skipped"
             exit 0
           fi
-          if [ "$bypass_local_ci" = "1" ]; then
-            echo "land-main: pushing local-CI-bypassed $(short_sha "$candidate_sha") to main"
-          else
-            echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
-          fi
+          echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
           if git mesha-push HEAD:main; then
             landed="$(fetch_main)"
             if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then
@@ -221,11 +217,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit 0
   fi
 
-  if [ "$bypass_local_ci" = "1" ]; then
-    echo "land-main: pushing local-CI-bypassed $(short_sha "$candidate_sha") to main"
-  else
-    echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
-  fi
+  echo "land-main: pushing certified $(short_sha "$candidate_sha") to main"
   if git mesha-push HEAD:main; then
     landed="$(fetch_main)"
     if [ "$landed" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$landed"; then

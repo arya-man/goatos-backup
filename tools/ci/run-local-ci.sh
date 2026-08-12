@@ -28,6 +28,7 @@ cd "$repo"
 
 sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 only="${1:-${MODE:-auto}}"
+run_id="$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}-$$"
 fail=0
 receipt_mode=""
 receipt_base=""
@@ -82,11 +83,33 @@ ci_trace_only() {
 # point every gate flows through, so one instrumented run profiles the whole
 # suite. This NEVER reads or writes `fail` and never changes an exit status.
 timings_file="$(git rev-parse --git-path goatos-ci-local-timings.tsv 2>/dev/null || echo /dev/null)"
+timings_jsonl_file="$(git rev-parse --git-path goatos-ci-local-timings.jsonl 2>/dev/null || echo /dev/null)"
 declare -a TIMINGS
+
+json_escape() { # string
+  node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1" 2>/dev/null || printf '"%s"' "$1"
+}
 
 record_timing() { # name, status, seconds
   TIMINGS+=("$3	$1	$2")
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$sha" "$1" "$2" "$3" >>"$timings_file" 2>/dev/null || true
+  local epoch iso job step status seconds
+  epoch="$(date +%s)"
+  iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  job="${current_job:-ci-local}"
+  step="$1"
+  status="$2"
+  seconds="$3"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$epoch" "$run_id" "$sha" "$job" "$step" "$status" "$seconds" >>"$timings_file" 2>/dev/null || true
+  printf '{"ts":%s,"time":"%s","run_id":%s,"sha":"%s","mode":%s,"job":%s,"step":%s,"status":"%s","seconds":%s}\n' \
+    "$epoch" \
+    "$iso" \
+    "$(json_escape "$run_id")" \
+    "$sha" \
+    "$(json_escape "$only")" \
+    "$(json_escape "$job")" \
+    "$(json_escape "$step")" \
+    "$status" \
+    "$seconds" >>"$timings_jsonl_file" 2>/dev/null || true
 }
 
 step_cache_enabled() {
@@ -832,7 +855,8 @@ if [ "${#TIMINGS[@]:-0}" -gt 0 ]; then
   echo "──────── slowest steps (top 10) ────────"
   printf '%s\n' "${TIMINGS[@]}" | sort -t"$(printf '\t')" -k1,1nr | head -10 \
     | awk -F"\t" '{ printf "  %6ss  %s  [%s]\n", $1, $2, $3 }'
-  echo "  full per-step timings: ${timings_file}"
+  echo "  full per-step timings TSV: ${timings_file}"
+  echo "  full per-step timings JSONL: ${timings_jsonl_file}"
 fi
 if [ "$fail" -eq 0 ]; then
   echo "ci-local: GREEN @ ${sha}"

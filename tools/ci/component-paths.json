@@ -4,7 +4,6 @@
     "prefixes": [
       ".github/workflows/",
       ".github/actions/",
-      "tools/ci/",
       "tools/agent-hooks/"
     ],
     "files": [
@@ -13,6 +12,38 @@
       "package-lock.json",
       "go.work",
       "go.work.sum"
+    ]
+  },
+  "ciCommonOnly": {
+    "files": [
+      "tools/ci/android-ui-diff.sh",
+      "tools/ci/check-android-ui-diff.test.sh",
+      "tools/ci/check-local-ci-evidence.mjs",
+      "tools/ci/check-screenshot-remediation.sh",
+      "tools/ci/ci-scope.mjs",
+      "tools/ci/component-paths.json",
+      "tools/ci/land-main.sh",
+      "tools/ci/land-main.test.sh",
+      "tools/ci/run-local-ci.sh",
+      "tools/agent-hooks/install-stg-push-guard.sh"
+    ]
+  },
+  "queryPlans": {
+    "prefixes": [
+      "backend/migrations/",
+      "backend/internal/analytics/adapters/postgres/",
+      "backend/internal/calendar/adapters/postgres/",
+      "backend/internal/feed/adapters/postgres/",
+      "backend/internal/feeddirection/adapters/postgres/",
+      "backend/internal/obligation/adapters/postgres/",
+      "backend/internal/permissions/adapters/postgres/",
+      "backend/internal/platform/postgres/",
+      "backend/internal/scale/adapters/postgres/",
+      "backend/internal/vaccination/adapters/postgres/",
+      "backend/internal/weighing/adapters/postgres/"
+    ],
+    "extensions": [
+      ".sql"
     ]
   },
   "fanout": [

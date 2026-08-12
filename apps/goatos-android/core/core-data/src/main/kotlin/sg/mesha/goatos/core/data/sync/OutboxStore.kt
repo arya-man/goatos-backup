@@ -1,5 +1,6 @@
 package sg.mesha.goatos.core.data.sync
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.database.outbox.OutboxDao
@@ -153,10 +154,16 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
 
 private fun OutboxEntity.proofLocalFilePath(): String? {
     if (opType != sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD.name) return null
-    return runCatching { syncJson.decodeFromString<ProofUploadPayload>(payloadJson).localFilePath }
-        .getOrNull()
-        ?.takeIf { it.isNotBlank() }
+    val path = try {
+        syncJson.decodeFromString<ProofUploadPayload>(payloadJson).localFilePath
+    } catch (error: IllegalArgumentException) { // exception:exempt malformed legacy outbox rows cannot expose a local proof path
+        Log.w(OUTBOX_STORE_TAG, "Ignoring malformed proof upload payload for outbox row $id", error)
+        return null
+    }
+    return path.takeIf { it.isNotBlank() }
 }
+
+private const val OUTBOX_STORE_TAG = "GoatOsOutboxStore"
 
 /** Active rows + bounded recent terminals -> the [SyncStatus] snapshot the UI renders.
  *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).

@@ -65,6 +65,7 @@ COMPOSE_FILES=""
 expect 1 "in-scope but non-Compose (ViewModel) is not UI" \
   "$a/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsViewModel.kt"
 expect 1 "core-network is out of scope" "$a/core/core-network/src/main/kotlin/Api.kt"
+expect 1 "core-analytics is out of scope" "$a/core/core-analytics/src/main/kotlin/Telemetry.kt"
 expect 1 "backend/docs are out of scope" backend/internal/foo.go docs/runbooks/x.md
 expect 1 "android gradle files alone are not a UI diff" "$a/app/build.gradle.kts"
 expect 1 "an empty diff is not a UI diff" ""

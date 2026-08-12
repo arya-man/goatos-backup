@@ -6,8 +6,7 @@
 # explicit `android` job. Explicit-job runs are partial and, by design, write NO
 # receipt — so the command printed by the pre-push block message
 # (check-local-ci-evidence.mjs) and by the ci-local SKIP banner (run-local-ci.sh)
-# could never unblock the push. The only working exits were an undocumented env
-# var and GOATOS_BYPASS_LOCAL_CI. A remediation message that cannot remediate is
+# could never unblock the push. A remediation message that cannot remediate is
 # worse than none: it trains bypass habits.
 #
 # WHY THIS IS NOT A STRING CHECK. This file has two ancestors that shipped inert
@@ -202,7 +201,7 @@ run_out="$( cd "$SANDBOX" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY
   JAVA_HOME="$SANDBOX/fakejdk" ANDROID_HOME="$SANDBOX/fakesdk" \
   bash -c "$recipe" 2>&1 )"
 if [ "$(cat "$(receipt_file)" 2>/dev/null)" = "$armed" ]; then
-  fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it left the receipt UNTOUCHED — it is a partial run, and partial runs write no receipt by design. Following the instruction can never clear the block; the only exits left are an env var or GOATOS_BYPASS_LOCAL_CI"
+  fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it left the receipt UNTOUCHED — it is a partial run, and partial runs write no receipt by design. Following the instruction can never clear the block."
 fi
 if ! printf '%s' "$run_out" | grep -q 'ci-local: GREEN'; then
   fail "\`make $TARGET\` did not reach a GREEN run in the sandbox; cannot prove it clears the block"
