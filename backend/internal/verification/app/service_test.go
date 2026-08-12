@@ -643,8 +643,9 @@ func TestListQueueModuleFilterExpandsToEveryCategoryOfThatModule(t *testing.T) {
 	registerModuleFixture(t, svc)
 
 	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
-		TenantID:         testTenant,
-		NavigationModule: "feed_direction",
+		TenantID:                testTenant,
+		NavigationModule:        "feed_direction",
+		OversightFiltersEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("ListQueue() error = %v", err)
@@ -673,7 +674,7 @@ func TestListQueueModuleOptionsAreOnePerModuleNotPerCategory(t *testing.T) {
 	svc := NewService(repo, nil)
 	registerModuleFixture(t, svc)
 
-	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant})
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant, OversightFiltersEnabled: true})
 	if err != nil {
 		t.Fatalf("ListQueue() error = %v", err)
 	}
@@ -695,9 +696,10 @@ func TestListQueueModuleFilterNeverWidensAnAuthorizedCategorySet(t *testing.T) {
 	registerModuleFixture(t, svc)
 
 	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
-		TenantID:         testTenant,
-		Categories:       []string{"feed_packing", "birth_evidence"},
-		NavigationModule: "feed_direction",
+		TenantID:                testTenant,
+		Categories:              []string{"feed_packing", "birth_evidence"},
+		NavigationModule:        "feed_direction",
+		OversightFiltersEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("ListQueue() error = %v", err)
@@ -708,9 +710,10 @@ func TestListQueueModuleFilterNeverWidensAnAuthorizedCategorySet(t *testing.T) {
 	_ = result
 
 	_, err = svc.ListQueue(context.Background(), ports.ListQueueParams{
-		TenantID:         testTenant,
-		Categories:       []string{"birth_evidence"},
-		NavigationModule: "feed_direction",
+		TenantID:                testTenant,
+		Categories:              []string{"birth_evidence"},
+		NavigationModule:        "feed_direction",
+		OversightFiltersEnabled: true,
 	})
 	if err == nil {
 		t.Fatal("a module the caller holds no authorized category for must be refused, not served unfiltered")
@@ -728,8 +731,9 @@ func TestListQueueRejectsUnknownModuleAndConflictingCategory(t *testing.T) {
 
 	// An unknown key is a bad request, never an empty queue that reads as "nothing to verify".
 	_, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
-		TenantID:         testTenant,
-		NavigationModule: "not_a_module",
+		TenantID:                testTenant,
+		NavigationModule:        "not_a_module",
+		OversightFiltersEnabled: true,
 	})
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_module" {
@@ -737,9 +741,10 @@ func TestListQueueRejectsUnknownModuleAndConflictingCategory(t *testing.T) {
 	}
 
 	_, err = svc.ListQueue(context.Background(), ports.ListQueueParams{
-		TenantID:         testTenant,
-		Category:         "birth_evidence",
-		NavigationModule: "feed_direction",
+		TenantID:                testTenant,
+		Category:                "birth_evidence",
+		NavigationModule:        "feed_direction",
+		OversightFiltersEnabled: true,
 	})
 	if !errors.As(err, &appErr) || appErr.Code != "module_category_conflict" {
 		t.Fatalf("conflicting category error = %v want module_category_conflict", err)
@@ -894,6 +899,7 @@ func TestListQueueFiltersAnInclusiveIndiaBusinessDateRange(t *testing.T) {
 	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
 		TenantID: testTenant, Category: "vaccination_proof",
 		BusinessDateFrom: "2026-07-29", BusinessDateTo: "2026-07-30",
+		OversightFiltersEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("ListQueue: %v", err)
@@ -927,6 +933,7 @@ func TestListQueueSingleDayRangeMatchesBusinessDate(t *testing.T) {
 	}
 	asRange, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
 		TenantID: testTenant, BusinessDateFrom: "2026-07-30", BusinessDateTo: "2026-07-30",
+		OversightFiltersEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("ListQueue(range): %v", err)
@@ -945,14 +952,20 @@ func TestListQueueRejectsMalformedOrConflictingDateRange(t *testing.T) {
 	}{
 		// A half-open range would have to invent the missing end, and the two plausible inventions
 		// (today, or the beginning of time) mean opposite things to a verifier.
-		"missing upper end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29"}, "invalid_business_date_range"},
-		"missing lower end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateTo: "2026-07-29"}, "invalid_business_date_range"},
-		"inverted":          {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-30", BusinessDateTo: "2026-07-28"}, "invalid_business_date_range"},
-		"future upper end":  {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29", BusinessDateTo: "2026-07-31"}, "future_business_date"},
-		"not a date":        {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "yesterday", BusinessDateTo: "2026-07-29"}, "invalid_business_date"},
+		//
+		// OversightFiltersEnabled: true on every case here -- this table validates the DATE-RANGE
+		// PARSING itself, which still applies to the oversight caller who actually supplies a
+		// range. Without it, a non-oversight caller's range is silently cleared before it ever
+		// reaches this validation (see ListQueue's OversightFiltersEnabled branch), which is a
+		// different behaviour covered by its own test.
+		"missing upper end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29", OversightFiltersEnabled: true}, "invalid_business_date_range"},
+		"missing lower end": {ports.ListQueueParams{TenantID: testTenant, BusinessDateTo: "2026-07-29", OversightFiltersEnabled: true}, "invalid_business_date_range"},
+		"inverted":          {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-30", BusinessDateTo: "2026-07-28", OversightFiltersEnabled: true}, "invalid_business_date_range"},
+		"future upper end":  {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "2026-07-29", BusinessDateTo: "2026-07-31", OversightFiltersEnabled: true}, "future_business_date"},
+		"not a date":        {ports.ListQueueParams{TenantID: testTenant, BusinessDateFrom: "yesterday", BusinessDateTo: "2026-07-29", OversightFiltersEnabled: true}, "invalid_business_date"},
 		// The three date scopes are mutually exclusive; combining them asks for a contradiction.
-		"with business_date": {ports.ListQueueParams{TenantID: testTenant, BusinessDate: "2026-07-29", BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29"}, "invalid_date_scope"},
-		"with missed":        {ports.ListQueueParams{TenantID: testTenant, MissedOnly: true, BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29"}, "invalid_date_scope"},
+		"with business_date": {ports.ListQueueParams{TenantID: testTenant, BusinessDate: "2026-07-29", BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29", OversightFiltersEnabled: true}, "invalid_date_scope"},
+		"with missed":        {ports.ListQueueParams{TenantID: testTenant, MissedOnly: true, BusinessDateFrom: "2026-07-28", BusinessDateTo: "2026-07-29", OversightFiltersEnabled: true}, "invalid_date_scope"},
 	} {
 		_, err := svc.ListQueue(context.Background(), tc.params)
 		var appErr *Error

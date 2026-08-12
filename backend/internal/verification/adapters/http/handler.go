@@ -339,6 +339,10 @@ func (h *Handler) listQueue(
 		// false for other callers (leadership action queue, alerts). Verifier queue read does NOT
 		// clamp to today — it returns the full pending backlog ordered oldest-first.
 		IsVerifierQueueRead: permission == permissions.VerificationReview && !actionQueue,
+		// OversightFiltersEnabled gates the CROSS-MODULE oversight filters (module chips,
+		// capture-date range) on the CAPABILITY, never on a role string. See
+		// permissions.VerificationOversee and ports.ListQueueParams.OversightFiltersEnabled.
+		OversightFiltersEnabled: holdsVerificationPermission(r, permissions.VerificationOversee),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {

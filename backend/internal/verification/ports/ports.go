@@ -89,6 +89,18 @@ type ListQueueParams struct {
 	// For verifier queue reads, do not clamp BusinessDate to today — return the full pending
 	// backlog ordered oldest-first with the existing keyset cursor.
 	IsVerifierQueueRead bool
+	// OversightFiltersEnabled reports whether the caller holds permissions.VerificationOversee --
+	// the CROSS-MODULE oversight capability (module chips, capture-date range) documented on that
+	// constant and in docs/decisions/role-scoped-ui-is-capability-gated.md. The handler sets this
+	// from the caller's grants, never from a role string. When false, the app layer:
+	//   - ignores NavigationModule and the BusinessDateFrom/BusinessDateTo range (ONE business day
+	//     is all a working verifier's own queue ever needed before these filters existed);
+	//   - leaves QueueFilterOptions.Modules empty, so the module-chip row (data-driven: it renders
+	//     only when it has more than one option) disappears along with the query capability that
+	//     backed it.
+	// This is the DATA gate; oversight_filters in the /verify page contract is the matching UI
+	// gate. Both must hold for the same rule -- the gate guards data, not pixels.
+	OversightFiltersEnabled bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
