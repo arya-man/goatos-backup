@@ -471,7 +471,8 @@
       "producer": "identity goat move/shifting",
       "producerFiles": [
         "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
-        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+        "backend/internal/identity/adapters/postgres/goat_relocate.go",
+        "backend/internal/identity/adapters/postgres/shed_stage.go"
       ],
       "consumers": [
         {
@@ -513,7 +514,8 @@
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
         "backend/tests/e2e/story_vaccrev_identity_recompute_test.go",
-        "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go"
+        "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go",
+        "backend/internal/identity/adapters/postgres/shed_stage_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -1301,6 +1303,11 @@
       "path": "backend/internal/identity/adapters/postgres/goat_relocate.go",
       "owner": "identity",
       "reason": "canonical bulk shifting relocation producer called only by the shared Park-Head-approval + operator-completion second-gate transaction; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and matching outbox_messages in the same transaction, consumed by obligation/app/shift.go and vaccination generation"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/shed_stage.go",
+      "owner": "identity",
+      "reason": "canonical Counts shed-stage cohort correction writer; emits per-animal goat.stage_changed into goat_identity_events and matching outbox_messages for changed live animals in one physical pen"
     },
     {
       "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql",
