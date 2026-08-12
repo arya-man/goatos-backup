@@ -121,25 +121,19 @@ class ShiftingViewModel @Inject constructor(
                     // offers. Re-validate both against the new catalog and clear what is gone.
                     val parkStillOffered = parks.any { it.parkId == current.destinationParkId }
                     val parkId = if (parkStillOffered) current.destinationParkId else ""
-                    // Identity is shed_id + partition_label together — a partitioned shed offers
-                    // several entries sharing one shed_id, so checking shed_id alone would treat a
-                    // now-gone partition as still offered.
+                    // Identity is the exact shed id. partition_label is compatibility metadata and
+                    // must not keep or clear a selection by itself.
                     val destinationStillOffered = parks
                         .firstOrNull { it.parkId == parkId }
                         ?.sheds
                         ?.any {
-                            it.shedId == current.destinationShedId &&
-                                it.partitionLabel == current.destinationPartitionLabel
+                            it.shedId == current.destinationShedId
                         } == true
                     current.copy(
                         destinationParks = parks,
                         destinationParkId = parkId,
                         destinationShedId = if (destinationStillOffered) current.destinationShedId else "",
-                        destinationPartitionLabel = if (destinationStillOffered) {
-                            current.destinationPartitionLabel
-                        } else {
-                            null
-                        },
+                        destinationPartitionLabel = null,
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
                 }

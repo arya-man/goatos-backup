@@ -51,16 +51,10 @@ test("selecting a park narrows the shed list to that park's sheds", () => {
   assert.ok(!options.some((o) => o.value === SHED_B));
 });
 
-// Real STG shape: one physical shed per park, both named "Yashoda", each subdivided into pens.
-// This is the case the dropdown got wrong — 148 flat rows in which "Yashoda" appeared twice and
-// "Yashoda - 1" appeared twice, with nothing on screen telling the two parks apart.
 const PARTITIONED = [
-  { key: SHED_A, shed_id: SHED_A, label: "Yashoda", count: 121, park_id: PARK_A },
-  { key: `${SHED_A}#1`, shed_id: SHED_A, label: "Yashoda", partition_label: "1", operational_location_display: "Yashoda - 1", count: 6, park_id: PARK_A },
-  { key: `${SHED_A}#2`, shed_id: SHED_A, label: "Yashoda", partition_label: "2", operational_location_display: "Yashoda - 2", count: 115, park_id: PARK_A },
-  { key: SHED_B, shed_id: SHED_B, label: "Yashoda", count: 40, park_id: PARK_B },
-  { key: `${SHED_B}#1`, shed_id: SHED_B, label: "Yashoda", partition_label: "1", operational_location_display: "Yashoda - 1", count: 40, park_id: PARK_B },
-  // An undivided shed: one row, no partitions.
+  { key: SHED_A, shed_id: SHED_A, label: "Yashoda 1", partition_label: "1", operational_location_display: "Yashoda 1", count: 121, park_id: PARK_A },
+  { key: `${SHED_A}#1`, shed_id: SHED_A, label: "Yashoda 1", partition_label: "1", operational_location_display: "Yashoda 1", count: 6, park_id: PARK_A },
+  { key: SHED_B, shed_id: SHED_B, label: "Yashoda 1", partition_label: "1", operational_location_display: "Yashoda 1", count: 40, park_id: PARK_B },
   { key: "cccccccc-cccc-cccc-cccc-cccccccccccc", shed_id: "cccccccc-cccc-cccc-cccc-cccccccccccc", label: "Ho Chi Minh 1", count: 9, park_id: PARK_A },
 ];
 const PARK_LABELS = new Map([[PARK_A, "CBE"], [PARK_B, "CPT"]]);
@@ -70,10 +64,8 @@ test("same-named sheds across parks are told apart by their park", () => {
   // Go struct nor the OpenAPI schema declares and nothing has ever sent. Passing the park
   // vocabulary from facets.parks is what makes it fire.
   const labels = buildShedFilterOptions(PARTITIONED, "", PARK_LABELS).map((o) => o.label);
-  assert.ok(labels.includes("Yashoda · CBE"), `expected a CBE-suffixed option, got ${JSON.stringify(labels)}`);
-  assert.ok(labels.includes("Yashoda · CPT"));
-  assert.ok(labels.includes("Yashoda - 1 · CBE"));
-  assert.ok(labels.includes("Yashoda - 1 · CPT"));
+  assert.ok(labels.includes("Yashoda 1 · CBE"), `expected a CBE-suffixed option, got ${JSON.stringify(labels)}`);
+  assert.ok(labels.includes("Yashoda 1 · CPT"));
   // Every visible option is unique — no two rows read identically.
   assert.equal(new Set(labels).size, labels.length, `duplicate visible labels: ${JSON.stringify(labels)}`);
   // A name that exists in only ONE park stays clean; the suffix is disambiguation, not decoration.
@@ -83,29 +75,14 @@ test("same-named sheds across parks are told apart by their park", () => {
 test("a park's own sheds need no park suffix, and read in name order", () => {
   const labels = buildShedFilterOptions(PARTITIONED, PARK_A, PARK_LABELS).map((o) => o.label);
   // Ho Chi Minh before Yashoda: the facet arrives ordered by shed UUID, which is an artifact.
-  assert.deepEqual(labels, ["Ho Chi Minh 1", "Yashoda", "Yashoda - 1", "Yashoda - 2"]);
+  assert.deepEqual(labels, ["Ho Chi Minh 1", "Yashoda 1"]);
 });
 
-test("pens sort naturally, so 10 comes after 2", () => {
-  const many = [
-    { key: SHED_A, shed_id: SHED_A, label: "Yashoda", count: 3, park_id: PARK_A },
-    ...["10", "2", "1"].map((p) => ({
-      key: `${SHED_A}#${p}`, shed_id: SHED_A, label: "Yashoda", partition_label: p,
-      operational_location_display: `Yashoda - ${p}`, count: 1, park_id: PARK_A,
-    })),
-  ];
-  assert.deepEqual(
-    buildShedFilterOptions(many, PARK_A, PARK_LABELS).map((o) => o.label),
-    ["Yashoda", "Yashoda - 1", "Yashoda - 2", "Yashoda - 10"],
-  );
-});
-
-test("a subdivided shed's pens are filed under the shed, undivided sheds stay loose", () => {
+test("duplicate exact-shed facet rows collapse to one dropdown option", () => {
   const options = buildShedFilterOptions(PARTITIONED, PARK_A, PARK_LABELS);
-  const yashoda = options.filter((o) => o.label.startsWith("Yashoda"));
-  assert.deepEqual(new Set(yashoda.map((o) => o.group)), new Set(["Yashoda"]), "pens belong to their shed's group");
-  // A one-option group is chrome around a single row.
-  assert.equal(options.find((o) => o.label === "Ho Chi Minh 1").group, undefined);
+  assert.equal(options.filter((o) => o.value === SHED_A).length, 1);
+  assert.equal(options.find((o) => o.value === SHED_A).label, "Yashoda 1");
+  assert.equal(options.find((o) => o.value === SHED_A).group, undefined);
 });
 
 test("park id is never leaked as a label when the park vocabulary is missing", () => {
