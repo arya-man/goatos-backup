@@ -1706,7 +1706,7 @@ SELECT
     END
   ),
   nullif($4, '')::uuid,
-  'vaccination:sop_submission_item:' || si.item_id::text
+  'vaccination:sop_submission_item:' || si.item_id::text || ':obligation:' || oi.obligation_id::text
 FROM sop_submission_items si
 JOIN sop_submissions ss
   ON ss.tenant_id = si.tenant_id
@@ -1727,6 +1727,31 @@ JOIN obligation_instances oi
  AND (
       oi.sop_task_id = st.task_id
       OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+      OR EXISTS (
+        SELECT 1
+        FROM sop_task_scan_attempts neighbor_attempt
+        JOIN obligation_instances neighbor_anchor
+          ON neighbor_anchor.tenant_id = neighbor_attempt.tenant_id
+         AND neighbor_anchor.obligation_id = neighbor_attempt.obligation_id
+        WHERE neighbor_attempt.tenant_id = si.tenant_id
+          AND neighbor_attempt.task_id = si.task_id
+          AND neighbor_attempt.goat_id = si.goat_id
+          AND neighbor_attempt.outcome = 'accepted'
+          AND neighbor_attempt.reason = 'neighbor_partition'
+          AND (
+               oi.obligation_id = neighbor_anchor.obligation_id
+               OR (neighbor_anchor.batch_id IS NOT NULL AND neighbor_anchor.batch_id = oi.batch_id)
+               OR (
+                    neighbor_anchor.batch_id IS NULL
+                    AND neighbor_anchor.sop_task_id IS NULL
+                    AND oi.batch_id IS NULL
+                    AND oi.sop_task_id IS NULL
+                    AND oi.protocol_version_id = neighbor_anchor.protocol_version_id
+                    AND oi.target_id = neighbor_anchor.target_id
+                    AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date = (neighbor_anchor.due_at AT TIME ZONE 'Asia/Kolkata')::date
+               )
+          )
+      )
  )
 JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
@@ -1795,15 +1820,18 @@ WHERE vc.tenant_id = $1
   )`, tenant, task, submission); err != nil {
 		return 0, fmt.Errorf("vaccination: backfill submission withdrawal date: %w", err)
 	}
-	eligibleItems, materializedItems, err := r.submissionFanoutCounts(ctx, tenant, task, submission)
+	eligibleItems, coveredItems, eligibleObligations, materializedObligations, err := r.submissionFanoutCounts(ctx, tenant, task, submission)
 	if err != nil {
 		return 0, err
 	}
-	if materializedItems < eligibleItems {
-		return materializedItems, fmt.Errorf("vaccination: materialized %d of %d eligible submission items", materializedItems, eligibleItems)
+	if coveredItems < eligibleItems {
+		return coveredItems, fmt.Errorf("vaccination: materialized %d of %d eligible submission items", coveredItems, eligibleItems)
 	}
-	if materializedItems > 0 {
-		return materializedItems, nil
+	if materializedObligations < eligibleObligations {
+		return materializedObligations, fmt.Errorf("vaccination: materialized %d of %d eligible submission obligations", materializedObligations, eligibleObligations)
+	}
+	if coveredItems > 0 {
+		return coveredItems, nil
 	}
 	return count, nil
 }
@@ -2585,46 +2613,83 @@ LIMIT 5000`, tenant, task)
 // legitimate no-op is no longer misreported as a failure, while a goat that ends up with NO active
 // completion at all (a genuine insert failure -- e.g. a missing protocol_rules row) still fails the
 // count and is reported.
-func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
+func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, coveredItems, eligibleObligations, materializedObligations int, err error) {
 	err = r.pool.QueryRow(ctx, `
-	SELECT count(*)::int,
-	       count(*) FILTER (
-	         WHERE EXISTS (
-	           SELECT 1
-	           FROM vaccination_completions vc2
-	           WHERE vc2.tenant_id = si.tenant_id
-	             AND vc2.goat_id = si.goat_id
-	             AND vc2.status IN ('recorded', 'accepted')
-	             AND vc2.obligation_id IN (
-	               SELECT oi.obligation_id
-	               FROM obligation_instances oi
-	               WHERE oi.tenant_id = si.tenant_id
-	                 AND oi.target_type = 'goat'
-	                 AND oi.target_id = si.goat_id
-	                 AND (
-	                      oi.sop_task_id = st.task_id
-	                      OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+	WITH submission_items AS (
+	  SELECT si.tenant_id, si.task_id, si.submission_id, si.item_id, si.goat_id
+	  FROM sop_submission_items si
+	  WHERE si.tenant_id = $1
+	    AND si.task_id = $2
+	    AND si.submission_id = $3
+	    AND si.goat_id IS NOT NULL
+	    AND si.state IN ('accepted', 'needs_review')
+	),
+	eligible_obligations AS (
+	  SELECT DISTINCT si.item_id, si.goat_id, oi.obligation_id
+	  FROM submission_items si
+	  JOIN sop_tasks st
+	    ON st.tenant_id = si.tenant_id
+	   AND st.task_id = si.task_id
+	  LEFT JOIN obligation_batches ob
+	    ON ob.tenant_id = st.tenant_id
+	   AND ob.sop_task_id = st.task_id
+	  JOIN obligation_instances oi
+	    ON oi.tenant_id = si.tenant_id
+	   AND oi.target_type = 'goat'
+	   AND oi.target_id = si.goat_id
+	   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+	   AND (
+	        oi.sop_task_id = st.task_id
+	        OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+	        OR EXISTS (
+	          SELECT 1
+	          FROM sop_task_scan_attempts neighbor_attempt
+	          JOIN obligation_instances neighbor_anchor
+	            ON neighbor_anchor.tenant_id = neighbor_attempt.tenant_id
+	           AND neighbor_anchor.obligation_id = neighbor_attempt.obligation_id
+	          WHERE neighbor_attempt.tenant_id = si.tenant_id
+	            AND neighbor_attempt.task_id = si.task_id
+	            AND neighbor_attempt.goat_id = si.goat_id
+	            AND neighbor_attempt.outcome = 'accepted'
+	            AND neighbor_attempt.reason = 'neighbor_partition'
+	            AND (
+	                 oi.obligation_id = neighbor_anchor.obligation_id
+	                 OR (neighbor_anchor.batch_id IS NOT NULL AND neighbor_anchor.batch_id = oi.batch_id)
+	                 OR (
+	                      neighbor_anchor.batch_id IS NULL
+	                      AND neighbor_anchor.sop_task_id IS NULL
+	                      AND oi.batch_id IS NULL
+	                      AND oi.sop_task_id IS NULL
+	                      AND oi.protocol_version_id = neighbor_anchor.protocol_version_id
+	                      AND oi.target_id = neighbor_anchor.target_id
+	                      AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date = (neighbor_anchor.due_at AT TIME ZONE 'Asia/Kolkata')::date
 	                 )
-	             )
-	         )
-	       )::int
-	FROM sop_submission_items si
-	JOIN sop_tasks st
-	  ON st.tenant_id = si.tenant_id
-	 AND st.task_id = si.task_id
-	LEFT JOIN obligation_batches ob
-	  ON ob.tenant_id = st.tenant_id
-	 AND ob.sop_task_id = st.task_id
-	WHERE si.tenant_id = $1
-	  AND si.task_id = $2
-	  AND si.submission_id = $3
-	  AND si.goat_id IS NOT NULL
-	  AND si.state IN ('accepted', 'needs_review')`,
-		tenant, task, submission).Scan(&eligibleItems, &materializedItems)
+	            )
+	        )
+	   )
+	  JOIN protocol_rules pr
+	    ON pr.tenant_id = oi.tenant_id
+	   AND pr.rule_id = oi.rule_id
+	),
+	materialized_obligations AS (
+	  SELECT DISTINCT eo.item_id, eo.obligation_id
+	  FROM eligible_obligations eo
+	  JOIN vaccination_completions vc
+	    ON vc.tenant_id = $1
+	   AND vc.goat_id = eo.goat_id
+	   AND vc.obligation_id = eo.obligation_id
+	   AND vc.status IN ('recorded', 'accepted')
+	)
+	SELECT
+	  (SELECT count(DISTINCT item_id)::int FROM eligible_obligations),
+	  (SELECT count(DISTINCT item_id)::int FROM materialized_obligations),
+	  (SELECT count(*)::int FROM eligible_obligations),
+	  (SELECT count(*)::int FROM materialized_obligations)`,
+		tenant, task, submission).Scan(&eligibleItems, &coveredItems, &eligibleObligations, &materializedObligations)
 	if err != nil {
-		return 0, 0, fmt.Errorf("vaccination: count submission fanout rows: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("vaccination: count submission fanout rows: %w", err)
 	}
-	return eligibleItems, materializedItems, nil
+	return eligibleItems, coveredItems, eligibleObligations, materializedObligations, nil
 }
 
 // ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest

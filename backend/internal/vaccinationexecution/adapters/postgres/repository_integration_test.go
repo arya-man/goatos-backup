@@ -1270,6 +1270,10 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Part 1 current drive','in_progress',$5,
 INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
 VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','GD2-RFID-200','gd2-rfid-200','active','global','v1',now())`,
 		testTenant, part2Goat)
+	execProjectionSQL(t, ctx, pool, "neighbor Part 2 secondary tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_2','GD2-RFID-200-B','gd2-rfid-200-b','active','global','v1',now())`,
+		testTenant, part2Goat)
 	execProjectionSQL(t, ctx, pool, "neighbor goat Part 2",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 		 VALUES ($1, $2, $3, 'Part 2', 'K1 Shed')`,
@@ -1315,7 +1319,7 @@ VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-25 00:00:00+00',
 		ShedID:               testShed,
 		TaskID:               testTask,
 		PartitionLabel:       "Part 1",
-		Tag:                  "GD2-RFID-200",
+		Tag:                  "GD2-RFID-200-B",
 		OperatorScopeActorID: testOperator,
 	})
 	if err != nil {
@@ -1323,6 +1327,9 @@ VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-25 00:00:00+00',
 	}
 	if got.Outcome != "neighbor_partition" || got.GoatID != part2Goat || got.TargetTaskID != targetTask || got.BatchID != targetBatch {
 		t.Fatalf("classification=%#v, want Part 2 future target task/batch", got)
+	}
+	if got.PrimaryTag != "GD2-RFID-200" || got.SecondaryTag == nil || *got.SecondaryTag != "GD2-RFID-200-B" {
+		t.Fatalf("tag classification primary=%q secondary=%v, want both RFID slots", got.PrimaryTag, got.SecondaryTag)
 	}
 	if got.PartitionLabel != "Part 2" || got.SourceShedName != "K1 Shed" || got.OperationalLocationDisplay != "K1 Shed - Part 2" {
 		t.Fatalf("location classification=%#v", got)
