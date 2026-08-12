@@ -38,6 +38,8 @@ Known future/cross-cutting proof producers covered as placeholders:
 
 Every Gemini request should include `verification_item_id`, `category`, media file/reference, `captured_at`, tenant/park/shed/operator context, and the category-specific `app_claim` from the JSON registry. Video/image alone is not enough for claim comparison.
 
+Important: `app_claim` fields are backend/task context. They are not automatically things Gemini should demand to see in the video. Gemini should only require visual proof for items explicitly listed under “Gemini must verify,” such as injection contact, scale display, visible feed/water, visible movement, or a readable label when the category specifically asks for label proof.
+
 Common verifier item properties expected by the registry:
 - `verification_item_id`
 - `category`, `vertical`, `module`, `status`, `row_version`
@@ -75,24 +77,39 @@ Alias: `vaccination`.
 
 Module/page: `Vaccination` / `Vaccination`. Status: `active`. Media: `video, image_optional`.
 
-Purpose: Prove the operator administered the claimed vaccine/medical dose to the right animal.
+Purpose: Prove the vaccination/injection action was actually performed on a goat after the app already opened camera from the scanned/task context.
+
+What the video can prove:
+- a goat/body area is visible
+- a hand/operator is handling the goat
+- syringe/needle/applicator is visible when injection is expected
+- syringe/applicator contacts the goat
+- the clip shows action, not only setup before action
+- the clip is clear enough or must go to human review
+
+What Gemini must not require from the video:
+- visible RFID
+- visible goat ID
+- readable ear tag
+- vaccine name
+- dose amount
+- dose/stage text
+- batch/vial label, unless a separate workflow explicitly asks for label proof
 
 Required app claim properties:
-- `goat_id`: `string|null`
-- `rfid`: `string|null`
-- `vaccine_name`: `string`
-- `dose_or_stage`: `string`
+- `task_id`: `string|null`
+- `capture_context`: `rfid_scanned_before_camera|task_selected_before_camera|unknown`
+- `expected_action`: `injection|oral_dose|spray|topical|other`
 - `route_site_expected`: `string|null`
-- `vial_or_batch_required`: `boolean`
 
 Gemini must verify:
-- goat visible
-- syringe/needle/applicator visible
+- goat or target body area visible enough for action review
+- syringe/needle/applicator visible when expected_action requires it
 - restraint adequate
 - administration contact/injection moment visible
 - clip continuity proves dose not setup only
-- route/site plausible when supplied
-- vial/batch visible when required
+- route/site plausible only when supplied as a visual requirement
+- do not fail only because RFID, ear tag, goat id, vaccine name, or dose label is not visible
 
 Failure/review reasons include:
 - `wrong_category`
@@ -101,7 +118,6 @@ Failure/review reasons include:
 - `administration_contact_not_visible`
 - `setup_only_no_dose`
 - `action_hidden`
-- `ambiguous_multiple_animals`
 - `route_site_contradiction`
 
 ### `weighing_proof`
@@ -113,8 +129,7 @@ Module/page: `Weighing` / `Weighing`. Status: `active`. Media: `video, image_opt
 Purpose: Prove the measured value is real and matches the operator-entered number.
 
 Required app claim properties:
-- `subject_type`: `goat|feed|container|other`
-- `subject_id`: `string|null`
+- `weighing_mode`: `individual_animal|lump_sum|feed|container|other`
 - `operator_entered_weight`: `number`
 - `unit`: `kg`
 - `tolerance_kg`: `number`
@@ -122,13 +137,14 @@ Required app claim properties:
 - `tare_or_container_weight`: `number|null`
 
 Gemini must verify:
-- subject on scale/platform
+- goat/subject/load is on scale/platform
 - scale display visible
 - numeric reading readable
 - reading stable
 - visible reading matches app value within tolerance
 - no hand/foot/body/rope pressure affecting scale
 - tare/gross/net supported when applicable
+- do not fail individual weighing only because RFID, ear tag, or goat id is not visible
 
 Failure/review reasons include:
 - `wrong_category`
@@ -645,24 +661,28 @@ Failure/review reasons include:
 
 ## Vaccination Instruction Snapshot
 
-Purpose: Prove the operator administered the claimed vaccine/medical dose to the right animal.
+Purpose: Prove the vaccination/injection action is visible in the video.
 
 Properties Gemini needs:
-- `goat_id`: `string|null`
-- `rfid`: `string|null`
-- `vaccine_name`: `string`
-- `dose_or_stage`: `string`
+- `task_id`: `string|null`
+- `capture_context`: `rfid_scanned_before_camera|task_selected_before_camera|unknown`
+- `expected_action`: `injection|oral_dose|spray|topical|other`
 - `route_site_expected`: `string|null`
-- `vial_or_batch_required`: `boolean`
 
 Checks written for vaccination:
-- goat visible
-- syringe/needle/applicator visible
+- goat/body area visible
+- syringe/needle/applicator visible when expected
 - restraint adequate
 - administration contact/injection moment visible
 - clip continuity proves dose not setup only
-- route/site plausible when supplied
-- vial/batch visible when required
+- route/site plausible only when supplied as visual requirement
+
+Do not require from normal vaccination video:
+- visible RFID
+- visible goat ID or readable ear tag
+- vaccine name
+- dose amount/stage
+- vial or batch label, unless a separate label-proof workflow asks for it
 
 It should fail or route to human review for:
 - `wrong_category`

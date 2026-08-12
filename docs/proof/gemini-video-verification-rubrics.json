@@ -7,8 +7,9 @@
   "authority_boundary": "Gemini output is advisory evidence only. Human Verifier approval or rejection remains authoritative.",
   "coverage_note": "This registry covers active verifier tabs plus known proof/media producers from Goat OS product architecture. New producers must add a category before sending media to Gemini.",
   "prompt_contract": {
-    "system_instruction": "You are an advisory proof-media verifier for Goat OS. Verify only the supplied category, media, and app claim. Return JSON only. If evidence is incomplete, dark, shaky, occluded, cropped, ambiguous, still-image insufficient for an action, or missing required app metadata, use needs_human_review with precise reasons. Never invent weight, vaccine, batch, goat identity, shed identity, feed quantity, person identity, or action completion.",
+    "system_instruction": "You are an advisory proof-media verifier for Goat OS. Verify only what the supplied media can prove for the requested category. Return JSON only. RFID/goat identity may already be captured before camera opens; do not require RFID, ear tag, goat id, vaccine name, or dose text to be visible unless a category explicitly says visual identity or label verification is required. If evidence is incomplete, dark, shaky, occluded, cropped, ambiguous, still-image insufficient for an action, or missing required app metadata, use needs_human_review with precise reasons. Never invent weight, vaccine, batch, goat identity, shed identity, feed quantity, person identity, or action completion.",
     "user_instruction_template": "Audit this proof media for category {{category}}. Compare visible evidence against supplied metadata and app claim. Return JSON matching output_schema. Focus on whether the operational action is actually proven and why the feature requires this proof.",
+    "app_claim_rule": "Fields in app_claim are backend/task context for comparison. They are not automatically visual requirements. Gemini must only require a field to be visible when that category's verify list explicitly asks for visible text, label, display, count, tag, or identity proof.",
     "minimum_input": [
       "verification_item_id",
       "category",
@@ -99,23 +100,26 @@
         "video",
         "image_optional"
       ],
-      "purpose": "Prove the operator administered the claimed vaccine/medical dose to the right animal.",
+      "purpose": "Prove the vaccination/injection action was actually performed on a goat after the app already opened camera from the scanned/task context.",
+      "visual_limitations": [
+        "RFID/goat id is pre-capture context and is not expected to be visible in the video",
+        "vaccine name, dose, dose stage, and batch are not expected to be readable in normal vaccination proof video",
+        "Gemini should not decide whether the selected app goat, vaccine, or dose is correct from the video alone"
+      ],
       "required_app_claim": {
-        "goat_id": "string|null",
-        "rfid": "string|null",
-        "vaccine_name": "string",
-        "dose_or_stage": "string",
-        "route_site_expected": "string|null",
-        "vial_or_batch_required": "boolean"
+        "task_id": "string|null",
+        "capture_context": "rfid_scanned_before_camera|task_selected_before_camera|unknown",
+        "expected_action": "injection|oral_dose|spray|topical|other",
+        "route_site_expected": "string|null"
       },
       "verify": [
-        "goat visible",
-        "syringe/needle/applicator visible",
+        "goat or target body area visible enough for action review",
+        "syringe/needle/applicator visible when expected_action requires it",
         "restraint adequate",
         "administration contact/injection moment visible",
         "clip continuity proves dose not setup only",
-        "route/site plausible when supplied",
-        "vial/batch visible when required"
+        "route/site plausible only when supplied as a visual requirement",
+        "do not fail only because RFID, ear tag, goat id, vaccine name, or dose label is not visible"
       ],
       "fail_reasons": [
         "wrong_category",
@@ -124,7 +128,6 @@
         "administration_contact_not_visible",
         "setup_only_no_dose",
         "action_hidden",
-        "ambiguous_multiple_animals",
         "route_site_contradiction"
       ]
     },
@@ -140,9 +143,13 @@
         "image_optional"
       ],
       "purpose": "Prove the measured value is real and matches the operator-entered number.",
+      "visual_limitations": [
+        "RFID/goat id is pre-capture context for individual weighing and is not expected to be visible in the video",
+        "Gemini should not decide goat identity from the weighing video unless a separate visual identity requirement is explicitly added",
+        "The core video evidence is scale/load/display, not animal ID"
+      ],
       "required_app_claim": {
-        "subject_type": "goat|feed|container|other",
-        "subject_id": "string|null",
+        "weighing_mode": "individual_animal|lump_sum|feed|container|other",
         "operator_entered_weight": "number",
         "unit": "kg",
         "tolerance_kg": "number",
@@ -150,13 +157,14 @@
         "tare_or_container_weight": "number|null"
       },
       "verify": [
-        "subject on scale/platform",
+        "goat/subject/load is on scale/platform",
         "scale display visible",
         "numeric reading readable",
         "reading stable",
         "visible reading matches app value within tolerance",
         "no hand/foot/body/rope pressure affecting scale",
-        "tare/gross/net supported when applicable"
+        "tare/gross/net supported when applicable",
+        "do not fail individual weighing only because RFID, ear tag, or goat id is not visible"
       ],
       "fail_reasons": [
         "wrong_category",
