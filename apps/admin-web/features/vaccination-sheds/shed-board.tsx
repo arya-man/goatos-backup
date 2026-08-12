@@ -308,10 +308,9 @@ export async function VaccinationShedBoard({
                       </span>
                     </td>
                   );
-                  const partitionAwareKey = [
+                  const rowKey = [
                     row.parkId,
                     row.shedId,
-                    row.partitionLabel ?? "",
                     row.nextDue ?? "",
                     row.status,
                     row.capacity,
@@ -322,7 +321,7 @@ export async function VaccinationShedBoard({
                     rowIndex,
                   ].join("|");
                   return (
-                    <tr key={partitionAwareKey} className="shed-summary-row">
+                    <tr key={rowKey} className="shed-summary-row">
                       {cell(
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />

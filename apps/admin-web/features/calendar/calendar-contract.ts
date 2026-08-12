@@ -322,8 +322,7 @@ export function parseLinks(event: CalendarEvent, pageContract: AdminUiPageContra
   });
   if (linkPresent(links, "vaccination")) out.push(link("vaccination", "/vaccination"));
   if (linkPresent(links, "drive") && event.shed_id) {
-    const partition = eventPartitionLabel(event)?.trim();
-    out.push(link("drive", driveExecutionPath(event.shed_id), partition ? { partition_label: partition } : undefined));
+    out.push(link("drive", driveExecutionPath(event.shed_id)));
   }
   if (linkPresent(links, "workflow")) out.push(link("workflow", `/workflows/${encodeURIComponent(event.event_id)}`));
   if (linkPresent(links, "action_center")) out.push(link("action_center", "/action-center"));

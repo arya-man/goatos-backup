@@ -130,7 +130,6 @@ import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScree
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
-import sg.mesha.goatos.core.ui.partitionDisplayLabel
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
 import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
@@ -856,14 +855,9 @@ private fun ShedRow.scanDisplayTitle(): String {
 }
 
 internal fun scanDisplayTitle(name: String, physicalShed: String, partition: String): String {
-    val base = name.takeIf { it.isNotBlank() }
+    return name.takeIf { it.isNotBlank() }
         ?: physicalShed.takeIf { it.isNotBlank() }
-        ?: return ""
-    // Shared with the shed cards so a drive reads the same everywhere: whole-shed drives are the
-    // shed name alone, and an already-worded label ("Parts 1-3") is never re-prefixed.
-    val partitionLabel = partitionDisplayLabel(partition) { "Part $it" }
-    val shouldAppendPartition = partitionLabel != null && !base.contains(partitionLabel, ignoreCase = true)
-    return if (shouldAppendPartition) "$base - $partitionLabel" else base
+        ?: ""
 }
 
 /**

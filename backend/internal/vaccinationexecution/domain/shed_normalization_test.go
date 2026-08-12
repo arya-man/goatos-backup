@@ -2,15 +2,16 @@ package domain
 
 import "testing"
 
-func TestNormalizeDriveShedParsesSourcePartitionLabels(t *testing.T) {
+func TestNormalizeDriveShedKeepsExactShedNames(t *testing.T) {
 	tests := []struct {
 		raw       string
 		physical  string
 		partition string
 	}{
-		{raw: "Gandhi 1", physical: "Gandhi", partition: "1"},
-		{raw: "Gandhi - Part 1", physical: "Gandhi", partition: "Part 1"},
-		{raw: "Godel 1 - Part 3", physical: "Godel 1", partition: "Part 3"},
+		{raw: "Gandhi 1", physical: "Gandhi 1", partition: "whole"},
+		{raw: "Castro 2", physical: "Castro 2", partition: "whole"},
+		{raw: "Mandela 2 Part 1", physical: "Mandela 2 Part 1", partition: "whole"},
+		{raw: "Godel 1 - Part 3", physical: "Godel 1 - Part 3", partition: "whole"},
 		{raw: "Old Yashoda", physical: "Old Yashoda", partition: "whole"},
 	}
 	for _, tt := range tests {

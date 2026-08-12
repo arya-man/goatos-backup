@@ -142,7 +142,7 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     const shedNameSet = new Set(driveRow.shedNames);
     if (option.shedLocations?.length) {
       option.shedLocations.forEach((location) => {
-        shedIdSet.add(`${location.shedId}|${location.partition_label ?? ""}`);
+        shedIdSet.add(location.shedId);
         shedNameSet.add(location.operational_location_display || location.shedName);
       });
     } else {
@@ -251,7 +251,7 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
         targetCount: day.targetCount ?? 0,
         doseCount: day.doseCount ?? 0,
         shedNames: [...(option.shedNames ?? [])].sort(),
-        shedIds: [...(option.shedLocations?.map((location) => `${location.shedId}|${location.partition_label ?? ""}`) ?? option.shedIds ?? [])].sort(),
+        shedIds: [...(option.shedLocations?.map((location) => location.shedId) ?? option.shedIds ?? [])].sort(),
         batchIds: [option.driveBatchId],
       }));
       const shedNames = option.shedLocations?.length
