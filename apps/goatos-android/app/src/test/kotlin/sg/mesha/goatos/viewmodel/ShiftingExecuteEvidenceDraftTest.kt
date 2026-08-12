@@ -65,22 +65,23 @@ class ShiftingExecuteEvidenceDraftTest {
         val repo = FakeShiftingPendingRepository()
         val drafts = FakeCaptureDraftRepository()
         val sync = FakeShiftingSyncRepository()
+        val proofRepo = FakeProofCaptureRepository()
 
-        val first = newViewModel(repo, drafts, sync)
+        val first = newViewModel(repo, drafts, sync, proofRepo)
         advanceUntilIdle()
         first.onEvent(ShiftingExecuteEvent.RecordVideo)
         advanceUntilIdle()
         assertTrue("the capture should mark the video recorded", first.state.value.videoCaptured)
         assertTrue("one video is all a low-priority move needs", first.state.value.canComplete)
-        assertEquals(1, sync.proofEnqueues)
+        assertEquals(1, proofRepo.captureCalls.size)
 
         // Back: the destination is popped, so its SavedStateHandle is gone. Re-entry builds a new VM.
-        val reentered = newViewModel(repo, drafts, sync)
+        val reentered = newViewModel(repo, drafts, sync, proofRepo)
         advanceUntilIdle()
 
         assertTrue("re-entering must keep the recorded video", reentered.state.value.videoCaptured)
         assertTrue("and must stay submittable", reentered.state.value.canComplete)
-        assertEquals("re-entry must not ask for a second recording", 1, sync.proofEnqueues)
+        assertEquals("re-entry must not ask for a second recording", 1, proofRepo.captureCalls.size)
     }
 
     @Test
@@ -132,8 +133,9 @@ class ShiftingExecuteEvidenceDraftTest {
         val repo = FakeShiftingPendingRepository(priority = "high")
         val drafts = FakeCaptureDraftRepository()
         val sync = FakeShiftingSyncRepository()
+        val proofRepo = FakeProofCaptureRepository()
 
-        val first = newViewModel(repo, drafts, sync)
+        val first = newViewModel(repo, drafts, sync, proofRepo)
         advanceUntilIdle()
         first.onEvent(ShiftingExecuteEvent.RecordVideo)
         advanceUntilIdle()
@@ -141,7 +143,7 @@ class ShiftingExecuteEvidenceDraftTest {
         advanceUntilIdle()
         assertFalse("two of three videos is not submittable", first.state.value.canComplete)
 
-        val reentered = newViewModel(repo, drafts, sync)
+        val reentered = newViewModel(repo, drafts, sync, proofRepo)
         advanceUntilIdle()
         assertTrue(reentered.state.value.videoCaptured)
         assertTrue(reentered.state.value.feedPackingVideoCaptured)
@@ -150,19 +152,20 @@ class ShiftingExecuteEvidenceDraftTest {
         reentered.onEvent(ShiftingExecuteEvent.RecordFeedGivenVideo)
         advanceUntilIdle()
         assertTrue("all three recorded — now submittable", reentered.state.value.canComplete)
-        assertEquals(3, sync.proofEnqueues)
+        assertEquals(3, proofRepo.captureCalls.size)
     }
 
     private fun newViewModel(
         repo: FakeShiftingPendingRepository,
         drafts: FakeCaptureDraftRepository,
         sync: FakeShiftingSyncRepository,
+        proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
     ) = ShiftingExecuteViewModel(
         repo = repo,
         drafts = drafts,
         syncRepository = sync,
         proofCaptureSource = AlwaysCapturingProofSource(),
-        proofCaptureRepository = FakeProofCaptureRepository(),
+        proofCaptureRepository = proofCaptureRepository,
         analytics = NoopEvidenceAnalytics(),
         crashReporter = NoopEvidenceCrashReporter(),
         // A FRESH handle every time: this is what "Back then re-open" does to the destination.
