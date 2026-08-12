@@ -210,6 +210,20 @@ Calendar or dashboard label.
   mapping, and intentional default skeletons for missing optional UI config rows.
 - Do not reuse or recolor old admin-web UI, old `admin-primitives`, old chart
   components, old layout components, or old dashboard routes.
+- Admin-web pages are ROLE-AGNOSTIC single components (one `/verify` component
+  serves both a verifier and CEO/director oversight via `?scope_mode=company`).
+  Role differences MUST come ONLY from (a) permission-gated endpoints and
+  (b) capability-driven page contracts (`controlEnabled(pageContract,
+  "control_id", false)` compiled off named permission constants in
+  `backend/internal/permissions/permissions.go`, in a per-page compiler
+  function in `backend/internal/adminui/app/compiler.go`). NEVER a
+  role-string or permission-string conditional inside a component, and NEVER
+  a per-role page copy. When asking an agent for role-scoped UI, name BOTH
+  halves — the contract control AND the endpoint enforcement — in one
+  prompt; a pixel-only ask reproduces the STG 2026-08-12 incident where the
+  CEO's `/verify` oversight filters rendered for every role, including the
+  verifier. See `docs/decisions/role-scoped-ui-is-capability-gated.md` and
+  `make role-scoped-ui-contract-guard`.
 - Run `npm --prefix apps/admin-web run check:mock-fidelity` before frontend
   handoff.
 - Run lint/typecheck/build, and run `smoke:visual:live` when local backend and
