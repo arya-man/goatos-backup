@@ -179,12 +179,15 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// idempotent on (completion_id + row_version), so a retry after a prior enqueue failure heals rather
 	// than duplicates: the completion is not "done" for the operator until the item is queued.
 	if result.NewlyPending {
-		ration, heads := s.packingExpectation(ctx, in)
+		expectationInput := in
+		expectationInput.ShedID = result.ShedID
+		expectationInput.PartitionLabel = result.PartitionLabel
+		ration, heads := s.packingExpectation(ctx, expectationInput)
 		if enqErr := s.packingEnqueuer.EnqueueFeedPackingVerification(ctx, FeedPackingVerificationEnqueueRequest{
 			TenantID:         in.TenantID,
 			CompletionID:     result.CompletionID,
 			ParkID:           in.ParkID,
-			ShedID:           in.ShedID,
+			ShedID:           result.ShedID,
 			ShedName:         result.ShedName,
 			PartitionLabel:   result.PartitionLabel,
 			SessionNo:        in.SessionNo,

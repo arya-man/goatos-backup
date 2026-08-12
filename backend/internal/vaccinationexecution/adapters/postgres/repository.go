@@ -415,6 +415,7 @@ func (r *Repository) DriveAssignments(ctx context.Context, q domain.DriveAssignm
 			&shedID,
 			&row.PhysicalShed,
 			&row.PartitionLabel,
+			&row.OperationalLocationDisplay,
 			&row.Animals,
 			&row.DueAnimals,
 			&row.DoneAnimals,
@@ -562,6 +563,7 @@ SELECT
   effective.shed_id::text,
   effective.physical_shed,
   effective.partition_label,
+  COALESCE(NULLIF(exact_shed.name, ''), effective.physical_shed),
   effective.animal_count,
   CASE
     WHEN effective.batch_status IN ('planned', 'in_progress')
@@ -594,6 +596,10 @@ JOIN locations park
   ON park.tenant_id = $1::uuid
  AND park.location_id = effective.park_id
  AND park.location_type = 'park'
+LEFT JOIN locations exact_shed
+  ON exact_shed.tenant_id = $1::uuid
+ AND exact_shed.location_id = effective.shed_id
+ AND exact_shed.location_type = 'shed'
 LEFT JOIN LATERAL (
   SELECT COUNT(DISTINCT oi.target_id)::int AS done_animals
   FROM obligation_instances oi

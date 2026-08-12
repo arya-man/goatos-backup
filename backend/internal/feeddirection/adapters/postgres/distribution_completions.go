@@ -107,6 +107,8 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 		}
 		committed = true
 		row.NewlyPending = false
+		row.ShedID = p.ShedID
+		row.PartitionLabel = p.PartitionLabel
 		return row, nil
 	}
 
@@ -212,6 +214,8 @@ RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proo
 		DistributionProofRef: canonicalDistProof,
 		WaterProofRef:        canonicalWaterProof,
 		NewlyPending:         newlyPending,
+		ShedID:               p.ShedID,
+		PartitionLabel:       p.PartitionLabel,
 	}, nil
 }
 

@@ -736,34 +736,49 @@ func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.Pe
 SELECT shed.parent_location_id::text AS park_id,
        shed.location_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
-       COALESCE(sp.partition_label, '') AS partition_label,
+       COALESCE(sp_exact.partition_label, '') AS partition_label,
        EXISTS (
          SELECT 1 FROM feed_experiment_config e
          WHERE e.tenant_id = shed.tenant_id
-           AND e.shed_id = shed.location_id
+           AND (
+             e.shed_id = shed.location_id
+             OR (
+               sp_exact.shed_id IS NOT NULL
+               AND e.shed_id = sp_exact.shed_id
+               AND e.partition_key = feed_config_norm(sp_exact.partition_label)
+             )
+           )
            AND e.partition_key = CASE
-                 WHEN sp.partition_label IS NULL OR btrim(sp.partition_label) = '' THEN 'whole'
-                 ELSE feed_config_norm(sp.partition_label)
+                 WHEN sp_exact.partition_label IS NULL OR btrim(sp_exact.partition_label) = '' THEN 'whole'
+                 ELSE feed_config_norm(sp_exact.partition_label)
                END
        ) AS has_experiment_config
 FROM locations shed
-LEFT JOIN shed_partitions sp
-       ON sp.tenant_id = shed.tenant_id
-      AND sp.shed_id = shed.location_id
-      AND sp.status = 'active'
+LEFT JOIN shed_partitions sp_exact
+       ON sp_exact.tenant_id = shed.tenant_id
+      AND sp_exact.operational_location_id = shed.location_id
+      AND sp_exact.status = 'active'
 WHERE shed.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR shed.parent_location_id = $2::uuid)
   AND shed.location_type = 'shed'
   AND shed.status = 'active'
   AND (
-    sp.normalized_label IS NOT NULL
+    sp_exact.normalized_label IS NOT NULL
     OR NOT EXISTS (
       SELECT 1 FROM shed_partitions any_sp
-      WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id
+      WHERE any_sp.tenant_id = shed.tenant_id
+        AND any_sp.shed_id = shed.location_id
+        AND COALESCE(NULLIF(any_sp.partition_label, ''), 'whole') <> 'whole'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM shed_partitions mapped_sp
+      WHERE mapped_sp.tenant_id = shed.tenant_id
+        AND mapped_sp.operational_location_id = shed.location_id
+        AND mapped_sp.status = 'active'
     )
   )
 ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,
-         sp.normalized_label NULLS FIRST
+         sp_exact.normalized_label NULLS FIRST
 LIMIT $3 OFFSET $4`
 
 	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID), q.Page.Limit+1, q.Page.Offset)

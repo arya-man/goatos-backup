@@ -87,7 +87,7 @@ type CompletePackingResult struct {
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
 	NewlyPending bool
 	// ShedName and PartitionLabel are carried for verification enqueue label composition.
-	ShedName, PartitionLabel string
+	ShedID, ShedName, PartitionLabel string
 }
 
 // VerifiedPacking identifies one VERIFIED (status='completed') shed-SESSION for the packing

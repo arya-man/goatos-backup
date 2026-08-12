@@ -200,10 +200,11 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
 		"from_shed_id":         stringValue(state.ShedID),
 		"from_partition_label": stringValue(state.PartitionLabel),
 		"to_park_id":           cmd.ToParkID,
-		"to_shed_id":           cmd.ToShedID,
+		"to_shed_id":           toLocationID,
+		"to_shed_group_id":     cmd.ToShedID,
 		"to_partition_label":   stringValue(toPartitionLabel),
 		"scope_type":           "shed",
-		"scope_id":             cmd.ToShedID,
+		"scope_id":             toLocationID,
 		"reason":               cmd.Reason,
 		"row_version_from":     cmd.RowVersion,
 	}
@@ -221,7 +222,7 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
 		Scope: domain.LocationScope{
 			FarmID: state.FarmID,
 			ParkID: &cmd.ToParkID,
-			ShedID: &cmd.ToShedID,
+			ShedID: &toLocationID,
 		},
 		AggregateType: goatLifecycleAggregate,
 		SubjectType:   goatLifecycleSubject,

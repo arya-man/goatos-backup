@@ -86,6 +86,9 @@ type CompleteDistributionResult struct {
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
 	NewlyPending bool
+	// ShedID and PartitionLabel are the canonical completion identity after resolving any legacy
+	// parent-shed plus partition request to the exact operational shed.
+	ShedID, PartitionLabel string
 }
 
 // VerifiedDistribution identifies one VERIFIED (status='completed') shed-session for the direction

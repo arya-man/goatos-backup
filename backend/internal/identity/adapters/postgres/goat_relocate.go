@@ -113,7 +113,12 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	}
 	occurredAt := cmd.OccurredAt.UTC()
 
-	assignedGoatIDs, assignedEventIDs, err := r.insertRelocationIdentityEvents(ctx, tx, cmd, reason, occurredAt)
+	toLocationID, err := r.resolveDestinationOperationalLocationID(ctx, tx, cmd)
+	if err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+
+	assignedGoatIDs, assignedEventIDs, err := r.insertRelocationIdentityEvents(ctx, tx, cmd, toLocationID, reason, occurredAt)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
@@ -131,11 +136,6 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	// C->B, clobbering the newer placement. Failing closed here leaves the movement authorized so a
 	// human can reconcile it, rather than applying a stale move on top of current state.
 	if err := r.assertGoatsAtExpectedSource(ctx, tx, cmd); err != nil {
-		return ports.RelocateGoatsResult{}, err
-	}
-
-	toLocationID, err := r.resolveDestinationOperationalLocationID(ctx, tx, cmd)
-	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
 
@@ -335,7 +335,7 @@ func isClinicalDestinationStage(stage string) bool {
 // re-derive the same rows without the movable set drifting underneath it. targets also snapshots
 // the OLD location, which the event payload records and which the UPDATE later overwrites.
 func (r *Repository) insertRelocationIdentityEvents(
-	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, reason string, occurredAt time.Time,
+	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, exactShedID, reason string, occurredAt time.Time,
 ) ([]string, []string, error) {
 	const identityEventsSQL = `
 WITH targets AS (
@@ -368,7 +368,8 @@ SELECT
         'from_shed_id', t.from_shed_id::text,
         'to_park_id', $7::text,
         'to_shed_id', $8::text,
-        'reason', $9::text,
+        'to_shed_group_id', $9::text,
+        'reason', $10::text,
         'scope_type', 'shed',
         'scope_id', $8::text
     ),
@@ -385,8 +386,9 @@ RETURNING goat_id::text, identity_event_id::text`
 		cmd.ActorID,                 // $5
 		cmd.OutboxIdempotencyPrefix, // $6
 		cmd.ToParkID,                // $7
-		cmd.ToShedID,                // $8
-		reason,                      // $9
+		exactShedID,                 // $8
+		cmd.ToShedID,                // $9
+		reason,                      // $10
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("identity: relocate goats: record identity events: %w", err)
