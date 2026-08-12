@@ -156,6 +156,7 @@ data class ProtocolAdherenceSummary(
     val sentBackCount: Int = 0,
     val deferredCount: Int,
     val acceptedPercent: Int,
+    val isComplete: Boolean = true,
 ) {
     val progressFraction: Float =
         if (expectedCount > 0) submittedCount.toFloat() / expectedCount else 0f
@@ -972,6 +973,10 @@ private fun DayProgress(state: ShedsUiState) {
 
 @Composable
 private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: String) {
+    if (!summary.isComplete) {
+        ProtocolAdherenceLoadingCard(parkScope)
+        return
+    }
     val stateChip = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 ->
             ShedStatusChip(ShedStatusChipKey.COMPLETE, ShedStatusTone.OK)
@@ -1071,6 +1076,49 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 sentBackLine?.let { CompactFact(it, color = toneFor(ShedStatus.SENT_BACK).fg) }
                 CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
             }
+        }
+    }
+}
+
+@Composable
+private fun ProtocolAdherenceLoadingCard(parkScope: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Surf),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Hair),
+    ) {
+        Column(modifier = Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Protocol adherence",
+                        color = Ink,
+                        style = MeshaType.cardTitle,
+                    )
+                    Text(
+                        text = parkScope,
+                        color = Muted,
+                        style = MeshaType.caption,
+                    )
+                }
+                StatusPill(label = "Loading", tone = toneFor(ShedStatus.PENDING))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Loading full-day adherence",
+                color = Ink,
+                style = MeshaType.bodyStrong,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "More vaccination rows are still syncing.",
+                color = Muted,
+                style = MeshaType.caption,
+            )
         }
     }
 }

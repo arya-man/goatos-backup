@@ -192,6 +192,68 @@ class ShedsViewModelTest {
         assertEquals(1, viewedCount())
     }
 
+    @Test
+    fun `adherence card stays visible but incomplete when more pages can change full day totals`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val firstPageRows = listOf(
+            VaccinationExecutionRowDto(
+                shedId = "shed-page-1",
+                shedName = "Godel 1",
+                parkId = "park-cbe",
+                parkName = "Coimbatore",
+                dueDate = today,
+                targetCount = 20,
+                openCount = 10,
+                doneCount = 10,
+                acceptedCount = 8,
+                reviewCount = 2,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+        val secondPageRows = listOf(
+            VaccinationExecutionRowDto(
+                shedId = "shed-page-2",
+                shedName = "Yashoda 1",
+                parkId = "park-cbe",
+                parkName = "Coimbatore",
+                dueDate = today,
+                targetCount = 40,
+                openCount = 15,
+                doneCount = 25,
+                acceptedCount = 20,
+                reviewCount = 5,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = firstPageRows,
+                nextCursor = "cursor-page-2",
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "ceo_internal"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val adherence = vm.state.value.adherence
+        assertTrue("drive-day adherence card should still be present", adherence != null)
+        assertEquals(
+            "page-one counts must not be presented as final full-day adherence while another page exists",
+            false,
+            adherence!!.isComplete,
+        )
+        assertEquals(60, executionCounts(firstPageRows + secondPageRows).target)
+        assertTrue(vm.state.value.hasMore)
+    }
+
     /**
      * Pins the maintainer-reported defect: `/app/vaccination/execution` legitimately returns
      * completed sheds alongside open ones (the backend keeps sending a row for as long as its
@@ -439,7 +501,7 @@ private class FakeShedsPinVmExecutionRepository(
     override suspend fun getScanRosterStatusCountsFor(
         shedId: String,
         taskId: String?,
-        obligationIds: List<String>,
+        goatIds: List<String>,
         partitionLabel: String?,
     ): List<StatusCount> = emptyList()
 
