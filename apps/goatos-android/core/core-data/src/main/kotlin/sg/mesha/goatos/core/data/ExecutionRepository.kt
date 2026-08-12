@@ -370,7 +370,7 @@ class DefaultExecutionRepository(
         taskId: String?,
         partitionLabel: String?,
     ): Flow<List<ScanRosterRowEntity>> =
-        scanRosterRowDao.observeRowsWindow(scanRosterNeighborRowScopeKey(shedId, taskId, partitionLabel), Int.MAX_VALUE)
+        scanRosterRowDao.observeRowsWindow(scanRosterNeighborRowScopeKey(shedId, taskId, partitionLabel), SCAN_NEIGHBOR_FEED_WINDOW)
             .flowOn(Dispatchers.Default)
 
     override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
@@ -628,6 +628,8 @@ internal fun scanRosterRowScopeKey(shedId: String, taskId: String?, partitionLab
 
 internal fun scanRosterNeighborRowScopeKey(shedId: String, taskId: String?, partitionLabel: String?): String =
     cacheKey(scanRosterRowScopeKey(shedId, taskId, partitionLabel), "neighbor")
+
+private const val SCAN_NEIGHBOR_FEED_WINDOW = 20
 
 internal fun executionPartitionKey(raw: String?): String {
     val normalized = raw.orEmpty().trim().lowercase()
