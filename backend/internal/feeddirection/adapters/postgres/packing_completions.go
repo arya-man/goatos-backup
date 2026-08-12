@@ -130,7 +130,7 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 		// blank on another.
 		return ports.CompletePackingResult{
 			CompletionID: reservation.resultID, Status: status, RowVersion: rowVersion, NewlyPending: false,
-			ShedName: shedName, PartitionLabel: p.PartitionLabel,
+			ShedID: p.ShedID, ShedName: shedName, PartitionLabel: p.PartitionLabel,
 		}, nil
 	}
 
@@ -235,7 +235,7 @@ RETURNING row_version`,
 		// Carried on EVERY path, including the idempotent replay above: the enqueue reads these to
 		// compose the verifier's subject label, and a path that leaves them blank ships an item
 		// naming no location.
-		ShedName: shedName, PartitionLabel: p.PartitionLabel,
+		ShedID: p.ShedID, ShedName: shedName, PartitionLabel: p.PartitionLabel,
 	}, nil
 }
 

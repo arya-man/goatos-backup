@@ -207,13 +207,13 @@ func resolveFeedShedPartitionInPark(ctx context.Context, tx pgx.Tx, tenantID, pa
 		err := tx.QueryRow(ctx, `
 SELECT sp.operational_location_id::text,
        COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole')
-FROM shed_partitions
-WHERE tenant_id = $1::uuid
-  AND (shed_id = $2::uuid OR operational_location_id = $2::uuid)
-  AND status = 'active'
-  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
+FROM shed_partitions sp
+WHERE sp.tenant_id = $1::uuid
+  AND (sp.shed_id = $2::uuid OR sp.operational_location_id = $2::uuid)
+  AND sp.status = 'active'
+  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
       regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
-ORDER BY CASE WHEN operational_location_id = $2::uuid THEN 0 ELSE 1 END, updated_at DESC, partition_label
+ORDER BY CASE WHEN sp.operational_location_id = $2::uuid THEN 0 ELSE 1 END, sp.updated_at DESC, sp.partition_label
 LIMIT 1
 FOR SHARE`, tenantID, shedID, partitionLabel).Scan(&out.ShedID, &out.PartitionLabel)
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -1201,16 +1201,9 @@ private fun ShedCard(row: ShedRow, onOpen: () -> Unit) {
 
 @Composable
 private fun DriveAssignmentStrip(row: ShedRow) {
-    // Resolved here, not inside the lambda: partitionDisplayLabel is a plain function, so a
-    // @Composable stringResource call cannot happen in the formatter it invokes.
-    val partitionFmt = stringResource(R.string.sheds_partition_fmt)
     val parts = listOfNotNull(
         row.scheduleDateLabel.takeIf { it.isNotBlank() },
         row.operatorName.takeIf { it.isNotBlank() },
-        row.physicalShed.takeIf { it.isNotBlank() },
-        // A whole-shed drive shows the shed name only; a partitioned one adds the partition once.
-        // Never "<shed> Part whole" or "<shed> Part Parts 1-3" — see [partitionDisplayLabel].
-        partitionDisplayLabel(row.partition) { partitionFmt.format(it) },
     )
     if (parts.isEmpty()) return
     Spacer(Modifier.height(10.dp))

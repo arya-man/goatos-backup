@@ -2,7 +2,6 @@ package sg.mesha.goatos.core.data
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import org.json.JSONObject
 
 /**
  * v1 -> v2: adds the per-read-model cache tables for the offline-first read screens
@@ -982,39 +981,12 @@ val MIGRATION_35_36: Migration = object : Migration(35, 36) {
                 "`updatedAt` INTEGER NOT NULL, " +
                 "PRIMARY KEY(`queryKey`, `locationId`, `partitionKey`))",
         )
-        db.query(
-            "SELECT `queryKey`, `locationId`, `parkId`, `parkName`, `sortIndex`, " +
-                "`shedJson`, `existingCampaignJson`, `updatedAt` FROM `weighing_planner_shed_row_v35`",
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val shedJson = cursor.getString(5)
-                db.execSQL(
-                    "INSERT INTO `weighing_planner_shed_row` " +
-                        "(`queryKey`, `locationId`, `partitionKey`, `parkId`, `parkName`, `sortIndex`, " +
-                        "`shedJson`, `existingCampaignJson`, `updatedAt`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    arrayOf<Any?>(
-                        cursor.getString(0),
-                        cursor.getString(1),
-                        weighingPartitionKeyFromShedJson(shedJson),
-                        cursor.getString(2),
-                        cursor.getString(3),
-                        cursor.getLong(4),
-                        shedJson,
-                        if (cursor.isNull(6)) null else cursor.getString(6),
-                        cursor.getLong(7),
-                    ),
-                )
-            }
-        }
+        // Parent-shed cached planner rows cannot be safely converted to exact shed IDs offline.
+        // Drop them on the semantic cutover; the next successful refresh repopulates exact buckets.
         db.execSQL("DROP TABLE `weighing_planner_shed_row_v35`")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)")
     }
 }
-
-private fun weighingPartitionKeyFromShedJson(shedJson: String): String =
-    // exception:exempt best-effort migration of an existing cache row; malformed cached JSON safely falls back to whole-shed identity and is refreshed from the planner catalog.
-    runCatching { JSONObject(shedJson).optString("partition_label", "").trim().lowercase() }
-        .getOrDefault("")
 
 /**
  * v36 -> v37: capture evidence is keyed by the operational partition it was recorded in.

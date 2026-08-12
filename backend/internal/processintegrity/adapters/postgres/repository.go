@@ -779,14 +779,23 @@ raw AS (
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
     g.cohort_id AS goat_cohort_id,
-    COALESCE(
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
-      END,
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(vda.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(vda.partition_label)
-      END
-    ) AS goat_partition_label,
+    CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM shed_partitions sp_exact
+        WHERE sp_exact.tenant_id = g.tenant_id
+          AND sp_exact.operational_location_id = g.shed_id
+          AND sp_exact.status = 'active'
+      ) THEN NULL
+      ELSE COALESCE(
+        CASE
+          WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
+        END,
+        CASE
+          WHEN LOWER(BTRIM(COALESCE(vda.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(vda.partition_label)
+        END
+      )
+    END AS goat_partition_label,
     oi.completed_at,
     te.asof_terminal_type,
     te.has_terminal_event,

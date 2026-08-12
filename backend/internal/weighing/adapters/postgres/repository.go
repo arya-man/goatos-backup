@@ -876,6 +876,31 @@ SELECT
       AND shed.location_type='shed'
       AND shed.status='active'
       AND shed.retired_at IS NULL
+      AND (
+        EXISTS (
+          SELECT 1
+          FROM shed_partitions sp_exact
+          WHERE sp_exact.tenant_id=shed.tenant_id
+            AND sp_exact.operational_location_id=shed.location_id
+            AND sp_exact.status='active'
+        )
+        OR (
+          NOT EXISTS (
+            SELECT 1
+            FROM shed_partitions sp_child
+            WHERE sp_child.tenant_id=shed.tenant_id
+              AND sp_child.shed_id=shed.location_id
+              AND sp_child.status='active'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM shed_partitions sp_mapped
+            WHERE sp_mapped.tenant_id=shed.tenant_id
+              AND sp_mapped.operational_location_id=shed.location_id
+              AND sp_mapped.status='active'
+          )
+        )
+      )
   ) AS shed_count,
   existing.campaign_id,
   existing.status,
@@ -3354,6 +3379,26 @@ func (r *Repository) hydrateCreateCampaignShedPartitions(ctx context.Context, tx
 WITH requested AS (
   SELECT unnest($2::uuid[]) AS requested_location_id
 ),
+exact_options AS (
+  SELECT
+    r.requested_location_id::text,
+    exact.location_id::text AS canonical_location_id,
+    exact.name AS parent_shed_name,
+    NULL::text AS partition_label,
+    false AS partitioned,
+    -1 AS option_priority
+  FROM requested r
+  JOIN locations exact
+    ON exact.tenant_id=$1::uuid
+   AND exact.location_id=r.requested_location_id
+   AND exact.location_type='shed'
+   AND exact.status='active'
+   AND exact.retired_at IS NULL
+  JOIN shed_partitions sp
+    ON sp.tenant_id=exact.tenant_id
+   AND sp.operational_location_id=exact.location_id
+   AND sp.status='active'
+),
 parent_options AS (
   SELECT
     r.requested_location_id::text,
@@ -3443,6 +3488,9 @@ unpartitioned AS (
 )
 SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
 FROM (
+  SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
+  FROM exact_options
+  UNION ALL
   SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned, option_priority
   FROM parent_options
   UNION ALL

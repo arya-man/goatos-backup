@@ -1039,7 +1039,7 @@ func adminGoatDomainEventEnvelope(cmd ports.CreateAdminGoatCommand, goat domain.
 			"time_of_birth":     stringValue(cmd.TimeOfBirth),
 			"farm_id":           stringValue(cmd.FarmID),
 			"park_id":           cmd.ParkID,
-			"shed_id":           cmd.ShedID,
+			"shed_id":           stringValue(goat.LocationPath.ShedID),
 			"partition_label":   stringValue(cmd.PartitionLabel),
 			"weight_kg":         cmd.WeightKg,
 			"source_record_id":  stringValue(cmd.SourceRecordID),

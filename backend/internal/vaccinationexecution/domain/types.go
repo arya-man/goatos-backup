@@ -346,25 +346,26 @@ type DriveAssignmentQuery struct {
 }
 
 type DriveAssignmentRow struct {
-	PlannedDate          string            `json:"plannedDate"`
-	OriginalPlannedDate  string            `json:"originalPlannedDate"`
-	OperatorID           string            `json:"operatorId"`
-	OperatorName         string            `json:"operatorName"`
-	ParkID               string            `json:"parkId"`
-	ParkName             string            `json:"parkName"`
-	ShedID               *string           `json:"shedId,omitempty"`
-	PhysicalShed         string            `json:"physicalShed"`
-	PartitionLabel       string            `json:"partitionLabel"`
-	Animals              int               `json:"animals"`
-	DueAnimals           int               `json:"dueAnimals"`
-	DoneAnimals          int               `json:"doneAnimals"`
-	DeferredAnimals      int               `json:"deferredAnimals"`
-	OverdueAnimals       int               `json:"overdueAnimals"`
-	VaccineNames         []string          `json:"vaccineNames"`
-	VaccineCodes         []string          `json:"vaccineCodes"`
-	VaccineOriginalDates map[string]string `json:"vaccineOriginalDates"`
-	TotalDoses           int               `json:"totalDoses"`
-	Capacity             CapacityStatus    `json:"capacity"`
+	PlannedDate                string            `json:"plannedDate"`
+	OriginalPlannedDate        string            `json:"originalPlannedDate"`
+	OperatorID                 string            `json:"operatorId"`
+	OperatorName               string            `json:"operatorName"`
+	ParkID                     string            `json:"parkId"`
+	ParkName                   string            `json:"parkName"`
+	ShedID                     *string           `json:"shedId,omitempty"`
+	PhysicalShed               string            `json:"physicalShed"`
+	PartitionLabel             string            `json:"partitionLabel"`
+	OperationalLocationDisplay string            `json:"operational_location_display,omitempty"`
+	Animals                    int               `json:"animals"`
+	DueAnimals                 int               `json:"dueAnimals"`
+	DoneAnimals                int               `json:"doneAnimals"`
+	DeferredAnimals            int               `json:"deferredAnimals"`
+	OverdueAnimals             int               `json:"overdueAnimals"`
+	VaccineNames               []string          `json:"vaccineNames"`
+	VaccineCodes               []string          `json:"vaccineCodes"`
+	VaccineOriginalDates       map[string]string `json:"vaccineOriginalDates"`
+	TotalDoses                 int               `json:"totalDoses"`
+	Capacity                   CapacityStatus    `json:"capacity"`
 }
 
 type DriveAssignmentResponse struct {

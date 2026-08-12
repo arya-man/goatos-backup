@@ -280,9 +280,10 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     group.capacity = strongerCapacity(group.capacity, row.capacity);
 
     const exactShedName = row.operational_location_display || row.physicalShed;
-    let shed: OperatorDayScheduleRow["sheds"][number] | undefined = group.sheds.find((item) => item.id === row.shedId);
+    const exactShedKey = row.shedId || `${row.parkId}|${exactShedName}`;
+    let shed: OperatorDayScheduleRow["sheds"][number] | undefined = group.sheds.find((item) => (item.id || `${row.parkId}|${item.name}`) === exactShedKey);
     if (!shed) {
-      shed = { id: row.shedId ?? undefined, name: exactShedName, animals: 0, partitions: [] };
+      shed = { id: row.shedId || exactShedKey, name: exactShedName, animals: 0, partitions: [] };
       group.sheds.push(shed);
     }
     shed.animals += row.animals;
@@ -432,7 +433,7 @@ export async function VaccinationFullSchedule({
   const rows = result.ok ? result.data.rows : [];
   const operatorDayRows = groupOperatorDayRows(rows);
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
-  const sheds = new Set(rows.map((row) => `${row.parkId}|${row.shedId}`).filter(Boolean));
+  const sheds = new Set(rows.map((row) => `${row.parkId}|${row.shedId || row.operational_location_display || row.physicalShed}`).filter(Boolean));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
   const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
   const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
