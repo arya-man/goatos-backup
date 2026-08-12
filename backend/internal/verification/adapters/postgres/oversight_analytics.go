@@ -117,7 +117,19 @@ ORDER BY module`, tenantID)
 	// 6) Per-verifier last-14-day activity: verdicts/approved/rejected/busiest day, ONE grouped
 	// query keyed by (verified_by, verified_by_name) -- never a per-verifier loop.
 	activityRows, err := r.pool.Query(ctx, `
--- projection-review: membership=all verdict-completed verification_items for the tenant in the last 14 days, joined to workforce_members for display names (1:0 LEFT JOIN); group_key=verified_by; join_cardinality=1:1 on verified_by (LEFT JOIN + pre-aggregated busiest per verifier); pagination=one row per verifier; scope=tenant_id + 14-day window.
+-- projection-review: membership=verification_items rows for ONE tenant that carry a verdict (verified_by AND verified_at NOT NULL) in the trailing 14 days -- the verdict row itself is the membership source, never reconstructed from workforce/duty tables; group_key=verified_by; join_cardinality=workforce_members is joined ONLY on its active-unique key (tenant_id, user_id) WHERE status='active', which workforce_members_active_user_unique_idx makes at most one row, so the decoration is 1:0..1 and cannot fan a verdict row out; busiest is one row per verified_by (DISTINCT ON), also 1:0..1; pagination=whole 14-day window aggregated in one statement, one output row per verifier, no LIMIT can truncate a verifier's verdicts; scope=explicit tenant_id.
+-- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
+--   producer unique key   = verification_items (tenant_id, item_id) UNIQUE -- one verdict per item.
+--   consumer match key    = verified_by, a column OF that same row; workforce_members is matched on
+--                           (tenant_id, user_id) WHERE status='active', its own partial-unique key.
+--   row multiplicity      = decided: exactly one row per decided verification_item (the LEFT JOINs
+--                           add at most one match each); output: exactly one row per verified_by.
+--   cap/ratio key sets    = verdicts, approved and rejected are count(*) / count(*) FILTER over the
+--                           SAME decided set of the SAME verifier, so approved+rejected can never
+--                           exceed the verdict total that is displayed beside them.
+--   unnamed actor         = a verified_by with no active workforce_members row (automation and
+--                           backfill writes) keeps its verdict counts and yields a NULL name; it is
+--                           labelled in the UI rather than dropped, so the totals stay complete.
 WITH decided AS (
   SELECT vi.verified_by,
          wm.display_name AS verified_by_name,
@@ -125,7 +137,7 @@ WITH decided AS (
          vi.status
   FROM verification_items vi
   LEFT JOIN workforce_members wm
-    ON wm.tenant_id = vi.tenant_id AND wm.user_id = vi.verified_by
+    ON wm.tenant_id = vi.tenant_id AND wm.user_id = vi.verified_by AND wm.status = 'active'
   WHERE vi.tenant_id = $1::uuid AND vi.verified_by IS NOT NULL AND vi.verified_at IS NOT NULL
     AND vi.verified_at >= now() - interval '14 days'
 ),

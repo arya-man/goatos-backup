@@ -104,13 +104,20 @@ func TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions(t *tes
 	const approvedCount = 3
 	const rejectedCount = 2
 
-	// Insert a verifier profile so verified_by_name is populated.
+	// The adversarial setup: workforce_members is unique on (tenant_id, user_id) only WHERE
+	// status = 'active' (workforce_members_active_user_unique_idx), so ONE user legitimately owns
+	// an active row plus any number of retired ones. A name decoration that joins on
+	// (tenant_id, user_id) alone therefore fans every verdict row out once per historical row and
+	// silently doubles the verdict/approved/rejected counts a CEO reads. Seed both rows so the
+	// assertions below fail if the active-status predicate is ever dropped from the join.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO workforce_members (user_id, tenant_id, display_name)
-		VALUES ($1, $2, 'Test Verifier')
-		ON CONFLICT (user_id) DO NOTHING`,
+		INSERT INTO workforce_members (workforce_member_id, user_id, tenant_id, display_name, status)
+		VALUES ($1, $3, $4, 'Test Verifier', 'active'),
+		       ($2, $3, $4, 'Test Verifier (retired seat)', 'inactive')
+		ON CONFLICT (workforce_member_id) DO NOTHING`,
+		"20000000-0000-4000-8000-000000000099", "20000000-0000-4000-8000-000000000098",
 		verifier, oversightTestTenantID); err != nil {
-		t.Fatalf("insert workforce member: %v", err)
+		t.Fatalf("insert workforce members: %v", err)
 	}
 
 	// Insert 5 verified items: 3 approved, 2 rejected.
@@ -149,7 +156,7 @@ func TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions(t *tes
 
 	// Verify the counts are correct and unpacked from a single aggregate.
 	if found.Verdicts != itemCount {
-		t.Fatalf("verifier verdicts = %d, want %d (10 items fan-out would show wrong total)", found.Verdicts, itemCount)
+		t.Fatalf("verifier verdicts = %d, want %d (a second workforce row must not fan the verdict rows out)", found.Verdicts, itemCount)
 	}
 	if found.Approved != approvedCount {
 		t.Fatalf("verifier approved = %d, want %d (FILTER clause on same row set)", found.Approved, approvedCount)
@@ -158,7 +165,7 @@ func TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions(t *tes
 		t.Fatalf("verifier rejected = %d, want %d", found.Rejected, rejectedCount)
 	}
 	if found.VerifierName != "Test Verifier" {
-		t.Fatalf("verifier name = %q, want 'Test Verifier' (LEFT JOIN workforce_members must not fan-out)", found.VerifierName)
+		t.Fatalf("verifier name = %q, want the ACTIVE seat's name 'Test Verifier'", found.VerifierName)
 	}
 }
 
