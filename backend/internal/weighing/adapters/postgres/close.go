@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -483,6 +484,14 @@ type closedBucket struct {
 	Status         string `json:"previous_status"`
 }
 
+const campaignClosedOperatorLabelSampleLimit = 5
+
+type closedOperatorSummary struct {
+	OperatorID  string   `json:"operator_id"`
+	BucketCount int      `json:"bucket_count"`
+	ShedLabels  []string `json:"shed_labels,omitempty"`
+}
+
 // campaignNotAcceptedBuckets returns every affected bucket for notification
 // fanout plus the exact whole-campaign not-accepted bucket count. Buckets
 // already 'completed' are accepted work and are excluded. CloseResult.NotAccepted
@@ -521,6 +530,38 @@ ORDER BY cs.display_name, cs.campaign_shed_id`, cmd.TenantID, cmd.CampaignID)
 		return nil, 0, err
 	}
 	return buckets, total, nil
+}
+
+func summarizeClosedBucketsByOperator(buckets []closedBucket) []closedOperatorSummary {
+	byOperator := make(map[string]*closedOperatorSummary)
+	for _, bucket := range buckets {
+		operatorID := strings.TrimSpace(bucket.OperatorID)
+		if operatorID == "" {
+			continue
+		}
+		summary := byOperator[operatorID]
+		if summary == nil {
+			summary = &closedOperatorSummary{OperatorID: operatorID}
+			byOperator[operatorID] = summary
+		}
+		summary.BucketCount++
+		label := strings.TrimSpace(bucket.ShedLabel)
+		if label != "" && len(summary.ShedLabels) < campaignClosedOperatorLabelSampleLimit {
+			summary.ShedLabels = append(summary.ShedLabels, label)
+		}
+	}
+	operatorIDs := make([]string, 0, len(byOperator))
+	for operatorID := range byOperator {
+		operatorIDs = append(operatorIDs, operatorID)
+	}
+	sort.Strings(operatorIDs)
+	summaries := make([]closedOperatorSummary, 0, len(operatorIDs))
+	for _, operatorID := range operatorIDs {
+		summary := *byOperator[operatorID]
+		sort.Strings(summary.ShedLabels)
+		summaries = append(summaries, summary)
+	}
+	return summaries
 }
 
 func (r *Repository) auditClose(
