@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -319,11 +320,10 @@ func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
 //     (see GoatOsMessagingService), when it runs, overrides the display with the FULL specific
 //     client-rendered string; the generic notification block is what actually reaches the user only
 //     in the guaranteed-killed case where onMessageReceived cannot run.
-//   - If `recipient_locale` is absent (true today, always): behavior is EXACTLY the data-only path
-//     already shipped -- no `notification` block, client renders in foreground/background, and
-//     killed-but-not-force-stopped relies on a high-priority data wake (see three-state answer
-//     below). This is the honest, currently-shipping state until the migration + a locale-populating
-//     dispatch-layer change (outside this package) land.
+//   - If `recipient_locale` is absent: send the English server-rendered `notification` block from
+//     the request Title/Body, and still carry message_key + params in `data` so Android can render
+//     locally when the app receives the message. Missing locale must never mean an empty display or
+//     no OS-displayable fallback.
 //
 // DDL REQUESTED (this package does not own migrations -- backend/migrations/** is out of scope
 // here; hand this to the migration-owning agent):
@@ -339,32 +339,24 @@ func (g *Gateway) sendEmail(ctx context.Context, request domain.Request) error {
 //	backfill migration and no caller needs nil-handling. No index: this column is only ever
 //	SELECTed alongside the device row when queuing a push, never filtered/joined on.
 //
-// Concrete three-state outcome for the message_key-carrying, `recipient_locale`-ABSENT case (i.e.
-// what actually ships today, before the migration above lands):
+// Concrete three-state outcome for the message_key-carrying, `recipient_locale`-ABSENT case:
 //
 //	(a) App FOREGROUND: onMessageReceived always fires (independent of block shape). Android
 //	    renders message_key+params from its own locale resources -- correct language, full
 //	    specificity.
-//	(b) App BACKGROUNDED (process alive, not force-stopped): data-only means FCM still delivers to
-//	    onMessageReceived, so Android again renders the localized, specific string itself.
-//	(c) App KILLED (swiped from recents, not force-stopped): high Android priority lets Play
-//	    Services attempt to wake the process to deliver the data message; onMessageReceived fires
-//	    and renders locally IF that wake succeeds. The accepted risk: aggressive OEM battery
-//	    managers can delay/drop that wake, in which case NOTHING displays for this send (no
-//	    `notification` block exists to fall back on) until the app is next opened. A user-FORCE-
-//	    STOPPED app blocks delivery of ANY FCM message type regardless of shape -- an OS-level
-//	    restriction no design here removes. Once `recipient_locale` is populated (post-migration),
-//	    this same state (c) instead shows the locale-correct GENERIC notification (server-rendered),
-//	    closing exactly this gap -- see the hybrid branch above.
+//	(b) App BACKGROUNDED/KILLED (not force-stopped): the OS has a nonblank English
+//	    `notification` block to display even if onMessageReceived does not run.
+//	(c) If onMessageReceived runs, Android can still use data.message_key for the richer
+//	    client-rendered string. A user-FORCE-STOPPED app blocks delivery of ANY FCM message type
+//	    regardless of shape -- an OS-level restriction no design here removes.
 //
 // Hybrid safety net (unchanged from before): a request with NO message_key at all (a caller that
 // has not migrated, or a genuinely English-only internal/ops notification) still gets the legacy
 // behavior -- a populated `notification.title`/`body`. Blank producer title/body is repaired at
 // the gateway boundary so the OS background auto-display path never renders an empty shell.
 //
-// FCM priority is forced to "high" for every push_fcm send (previously only when the caller's
-// context explicitly set priority=high) precisely because data-only delivery depends on it to reach
-// onMessageReceived promptly in the backgrounded/killed cases above.
+// FCM priority is forced to "high" for every push_fcm send so data delivery reaches
+// onMessageReceived promptly when Android is allowed to wake the app.
 func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request) (ports.DeliveryResult, error) {
 	projectID := strings.TrimSpace(g.config.FCMProjectID)
 	endpoint := strings.TrimSpace(g.config.FCMEndpoint)
@@ -374,15 +366,10 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		}
 		endpoint = fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
 	}
-	// Parse context first: whether a message_key is present decides whether this send is data-only
-	// (client-localized) or carries the legacy server-rendered notification block. See the
-	// localization-decision comment above this function.
-	var contextMap map[string]string
-	if len(request.Context) > 0 {
-		if err := json.Unmarshal(request.Context, &contextMap); err != nil {
-			contextMap = nil
-		}
-	}
+	// Parse context first: recipient_locale, when present, lets the guaranteed-display
+	// notification block use a locale-correct generic fallback. Without it, the guaranteed-display
+	// fallback is the English Title/Body already stored on the request.
+	contextMap := parseFCMContext(request.Context)
 	messageKey := strings.TrimSpace(contextMap["message_key"])
 	recipientLocale := strings.TrimSpace(contextMap["recipient_locale"])
 
@@ -390,16 +377,7 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		"data": fcmData(request),
 	}
 	switch {
-	case messageKey == "":
-		// Hybrid safety net: no message_key means this caller has not migrated to the
-		// key+client-translation contract (or is a genuinely English-only internal notification).
-		// Keep the old server-rendered notification block so it is not silently dropped.
-		title, body := fcmDisplayText(request)
-		message["notification"] = map[string]string{
-			"title": title,
-			"body":  body,
-		}
-	case recipientLocale != "":
+	case messageKey != "" && recipientLocale != "":
 		// Forward-compatible path (see the localization-decision comment above): once dispatch
 		// populates a persisted `recipient_locale`, send a locale-correct GENERIC notification
 		// block alongside the client-render data payload, so the guaranteed-killed case shows the
@@ -409,10 +387,18 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 		// starts supplying `recipient_locale`.
 		title, body := localizedFallbackNotification(localization.Normalize(recipientLocale), contextMap["category"])
 		message["notification"] = map[string]string{"title": title, "body": body}
+	default:
+		// English guaranteed-display fallback. This covers legacy/non-message-key pushes and
+		// message_key pushes before per-device locale exists. Never send a data-only push just
+		// because locale is missing.
+		title, body := fcmDisplayText(request)
+		message["notification"] = map[string]string{
+			"title": title,
+			"body":  body,
+		}
 	}
-	// Every push_fcm send now requests Android high priority: data-only delivery for a
-	// message_key push depends on it to reach onMessageReceived promptly while backgrounded or
-	// recently killed (see the localization-decision comment above).
+	// Every push_fcm send now requests Android high priority so onMessageReceived gets a prompt
+	// chance to render richer data when Android allows delivery.
 	androidConfig := map[string]any{
 		"priority": "high",
 	}
@@ -707,6 +693,44 @@ func fcmData(request domain.Request) map[string]string {
 		"title":                   title,
 		"body":                    body,
 		"trace_id":                request.TraceID,
+	}
+}
+
+func parseFCMContext(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil {
+		return nil
+	}
+	contextMap := make(map[string]string, len(fields))
+	for key, value := range fields {
+		contextMap[key] = fcmDataString(value)
+	}
+	return contextMap
+}
+
+func fcmDataString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case bool:
+		return strconv.FormatBool(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(encoded)
 	}
 }
 
