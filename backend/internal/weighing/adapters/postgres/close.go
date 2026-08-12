@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 	"time"
 
@@ -344,7 +343,7 @@ WHERE cs.tenant_id=$1::uuid
 		return domain.CloseResult{}, ports.ErrVerificationPending
 	}
 
-	buckets, notAcceptedCount, err := r.campaignNotAcceptedBuckets(ctx, tx, cmd)
+	operators, notAcceptedCount, labels, err := r.campaignNotAcceptedSummary(ctx, tx, cmd)
 	if err != nil {
 		return domain.CloseResult{}, err
 	}
@@ -386,14 +385,6 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 		return domain.CloseResult{}, err
 	}
 
-	sampleCount := len(buckets)
-	if sampleCount > domain.CloseNotAcceptedSampleLimit {
-		sampleCount = domain.CloseNotAcceptedSampleLimit
-	}
-	labels := make([]string, 0, sampleCount)
-	for _, bucket := range buckets[:sampleCount] {
-		labels = append(labels, bucket.ShedLabel)
-	}
 	result := domain.CloseResult{
 		CampaignID:       cmd.CampaignID,
 		Status:           domain.StatusClosed,
@@ -409,7 +400,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventTypeCampaignClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign", cmd.CampaignID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, buckets); err != nil {
+	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, operators); err != nil {
 		return domain.CloseResult{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -473,17 +464,6 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.Campa
 	return 0, nil, nil
 }
 
-// closedBucket is one campaign shed that a campaign close ends with work that was
-// never accepted, together with its single assigned operator. One bucket has
-// exactly ONE operator, so this is the DOWNWARD routing key for the notifier.
-type closedBucket struct {
-	CampaignShedID string `json:"campaign_shed_id"`
-	ShedID         string `json:"shed_id"`
-	ShedLabel      string `json:"shed_label"`
-	OperatorID     string `json:"operator_id"`
-	Status         string `json:"previous_status"`
-}
-
 const campaignClosedOperatorLabelSampleLimit = 5
 
 type closedOperatorSummary struct {
@@ -492,12 +472,12 @@ type closedOperatorSummary struct {
 	ShedLabels  []string `json:"shed_labels,omitempty"`
 }
 
-// campaignNotAcceptedBuckets returns every affected bucket for notification
-// fanout plus the exact whole-campaign not-accepted bucket count. Buckets
-// already 'completed' are accepted work and are excluded. CloseResult.NotAccepted
-// remains capped at domain.CloseNotAcceptedSampleLimit before audit/idempotency
-// recording so replay payloads stay bounded.
-func (r *Repository) campaignNotAcceptedBuckets(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand) ([]closedBucket, int, error) {
+// campaignNotAcceptedSummary returns the exact not-accepted bucket count, one
+// bounded notification summary per affected operator, and the capped
+// CloseResult.NotAccepted audit sample. It never materializes every affected
+// bucket in Go: Postgres groups by operator and samples labels before they cross
+// the process boundary.
+func (r *Repository) campaignNotAcceptedSummary(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand) ([]closedOperatorSummary, int, []string, error) {
 	var total int
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)::int
@@ -505,63 +485,76 @@ FROM weighing_campaign_sheds
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed','closed','canceled')`, cmd.TenantID, cmd.CampaignID).Scan(&total); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
+
 	rows, err := tx.Query(ctx, `
-SELECT cs.campaign_shed_id::text, cs.location_id::text, cs.display_name, cs.operator_user_id::text, cs.status
-FROM weighing_campaign_sheds cs
-WHERE cs.tenant_id=$1::uuid
-  AND cs.campaign_id=$2::uuid
-  AND cs.status NOT IN ('completed','closed','canceled')
-ORDER BY cs.display_name, cs.campaign_shed_id`, cmd.TenantID, cmd.CampaignID)
+WITH ranked AS (
+  SELECT operator_user_id::text AS operator_id,
+         display_name,
+         row_number() OVER (
+           PARTITION BY operator_user_id
+           ORDER BY display_name, campaign_shed_id
+         ) AS label_rank
+  FROM weighing_campaign_sheds
+  WHERE tenant_id=$1::uuid
+    AND campaign_id=$2::uuid
+    AND status NOT IN ('completed','closed','canceled')
+    AND operator_user_id IS NOT NULL
+)
+SELECT operator_id,
+       count(*)::int AS bucket_count,
+       coalesce(
+         array_agg(display_name ORDER BY display_name) FILTER (
+           WHERE label_rank <= $3 AND btrim(coalesce(display_name, '')) <> ''
+         ),
+         ARRAY[]::text[]
+       ) AS shed_labels
+FROM ranked
+GROUP BY operator_id
+ORDER BY operator_id`, cmd.TenantID, cmd.CampaignID, campaignClosedOperatorLabelSampleLimit)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	defer rows.Close()
-	buckets := make([]closedBucket, 0, total)
+	operators := []closedOperatorSummary{}
 	for rows.Next() {
-		var bucket closedBucket
-		if err := rows.Scan(&bucket.CampaignShedID, &bucket.ShedID, &bucket.ShedLabel, &bucket.OperatorID, &bucket.Status); err != nil {
-			return nil, 0, err
+		var operator closedOperatorSummary
+		if err := rows.Scan(&operator.OperatorID, &operator.BucketCount, &operator.ShedLabels); err != nil {
+			return nil, 0, nil, err
 		}
-		buckets = append(buckets, bucket)
+		operators = append(operators, operator)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
-	return buckets, total, nil
-}
 
-func summarizeClosedBucketsByOperator(buckets []closedBucket) []closedOperatorSummary {
-	byOperator := make(map[string]*closedOperatorSummary)
-	for _, bucket := range buckets {
-		operatorID := strings.TrimSpace(bucket.OperatorID)
-		if operatorID == "" {
-			continue
-		}
-		summary := byOperator[operatorID]
-		if summary == nil {
-			summary = &closedOperatorSummary{OperatorID: operatorID}
-			byOperator[operatorID] = summary
-		}
-		summary.BucketCount++
-		label := strings.TrimSpace(bucket.ShedLabel)
-		if label != "" && len(summary.ShedLabels) < campaignClosedOperatorLabelSampleLimit {
-			summary.ShedLabels = append(summary.ShedLabels, label)
-		}
+	sampleRows, err := tx.Query(ctx, `
+SELECT display_name
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status NOT IN ('completed','closed','canceled')
+  AND btrim(coalesce(display_name, '')) <> ''
+ORDER BY display_name, campaign_shed_id
+LIMIT $3`, cmd.TenantID, cmd.CampaignID, domain.CloseNotAcceptedSampleLimit)
+	if err != nil {
+		return nil, 0, nil, err
 	}
-	operatorIDs := make([]string, 0, len(byOperator))
-	for operatorID := range byOperator {
-		operatorIDs = append(operatorIDs, operatorID)
+	defer sampleRows.Close()
+	labels := make([]string, 0, min(total, domain.CloseNotAcceptedSampleLimit))
+	for sampleRows.Next() {
+		var label string
+		if err := sampleRows.Scan(&label); err != nil {
+			return nil, 0, nil, err
+		}
+		labels = append(labels, label)
 	}
-	sort.Strings(operatorIDs)
-	summaries := make([]closedOperatorSummary, 0, len(operatorIDs))
-	for _, operatorID := range operatorIDs {
-		summary := *byOperator[operatorID]
-		sort.Strings(summary.ShedLabels)
-		summaries = append(summaries, summary)
+	if err := sampleRows.Err(); err != nil {
+		return nil, 0, nil, err
 	}
-	return summaries
+
+	return operators, total, labels, nil
 }
 
 func (r *Repository) auditClose(
