@@ -2468,6 +2468,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/verification/oversight-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * CEO/PC-Director-only aggregate analytics for the Verify oversight view.
+         * @description Server-computed aggregates rendered ABOVE the /verify queue table when the caller's page contract carries the oversight_analytics control: a KPI strip (videos waiting, oldest pending age, review speed, estimated days to clear the backlog, per-module median review latency, reject rate), pending backlog by module, and per-verifier last-14-day activity plus a watch-integrity aggregate. Gated on permissions.VerificationOversee -- the SAME capability as the oversight_analytics/oversight_filters page-contract controls, never a role string. A verifier who holds verification.review/verdict but not verification.oversee receives 403 here even though she can read the plain queue. All numbers are bounded, tenant-scoped aggregate reads, never a client-side mega-fetch or per-verifier fan-out.
+         */
+        get: operations["getVerificationOversightAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/shifting/destinations": {
         parameters: {
             query?: never;
@@ -8402,6 +8422,14 @@ export interface components {
             row_version: number;
             media: components["schemas"]["VerificationMediaItem"][];
             source: components["schemas"]["VerificationSourceRef"];
+            watch?: components["schemas"]["VerificationWatchState"];
+        };
+        /** @description Lightweight per-item watch-telemetry summary for the queue table's "Watch" column, derived from verification_review_events. Absent from the item entirely when review-event telemetry is not wired for this deployment (distinct from "not opened", which is a real fact). */
+        VerificationWatchState: {
+            /** @description True when at least one item_opened telemetry event exists for this item. */
+            opened: boolean;
+            /** @description max(video_position_ms)/max(video_duration_ms) across all actors' telemetry for this item, clamped to 0-100. Absent when no proof duration was ever reported. */
+            percent_watched?: number;
         };
         VerificationQueueResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
@@ -8589,6 +8617,52 @@ export interface components {
         VerificationItemReviewFactsResponse: {
             facts: components["schemas"]["VerificationItemReviewFactsEntry"][];
             trace_id: string;
+        };
+        VerificationOversightAnalyticsResponse: {
+            kpis: components["schemas"]["VerificationOversightKPIs"];
+            pending_by_module: components["schemas"]["VerificationModulePendingBacklog"][];
+            verifier_activity: components["schemas"]["VerificationVerifierActivity"][];
+            trace_id: string;
+        };
+        VerificationOversightKPIs: {
+            /** @description CEO-plain "videos waiting for review" count over the whole open queue. */
+            videos_waiting: number;
+            /** @description Age in hours of the oldest still-pending item. Absent when the queue is empty. */
+            oldest_pending_age_hours?: number;
+            /** @description Verdicts recorded in the last 7 days divided by the number of DISTINCT days in that window with at least one verdict. */
+            verdicts_per_active_day_last_7d: number;
+            /** @description videos_waiting / verdicts_per_active_day_last_7d. Absent when the review rate is zero. */
+            est_days_to_clear_backlog?: number;
+            per_module_median_review_latency_hours: components["schemas"]["VerificationModuleLatency"][];
+            /** @description rejected / (approved + rejected) over verdicts recorded in the last 30 days. Absent when there were no verdicts in that window. */
+            reject_rate_last_30d?: number;
+        };
+        VerificationModuleLatency: {
+            module: string;
+            median_hours: number;
+        };
+        VerificationModulePendingBacklog: {
+            module: string;
+            count: number;
+        };
+        VerificationVerifierActivity: {
+            /** Format: uuid */
+            verifier_id: string;
+            /** @description Backend-owned display label for verifier_id. Never a raw UUID. */
+            verifier_name?: string;
+            verdicts: number;
+            approved: number;
+            rejected: number;
+            /**
+             * Format: date
+             * @description Asia/Kolkata calendar date with the most verdicts in the last 14 days.
+             */
+            busiest_day?: string;
+            /** @description Items this verifier decided in the window that carry any review-event telemetry. */
+            items_tracked: number;
+            watched_to_end_count: number;
+            /** @description Items this verifier decided with no video_play telemetry event beforehand. */
+            verdict_without_play_count: number;
         };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
@@ -13915,6 +13989,29 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationOversightAnalytics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's oversight analytics aggregate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationOversightAnalyticsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
