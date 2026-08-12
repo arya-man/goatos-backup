@@ -380,8 +380,10 @@ force-connect a HID keyboard through hidden Android APIs.
 
 Android 10/11 use legacy `BLUETOOTH` for paired/ACL state; `BLUETOOTH_ADMIN` and
 `ACCESS_FINE_LOCATION` are only needed if the app actively scans/discovers
-devices. Android 12+ uses runtime `BLUETOOTH_CONNECT`, and `BLUETOOTH_SCAN` only
-if active scanning is added. Full details live in
+devices. Android 12+ operator routes request both Nearby Devices runtime
+permissions, `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN`, before camera/proof
+capture can proceed, even though V1 reader status remains keyboard-wedge first.
+Full details live in
 [`rfid-keyboard-reader.md`](rfid-keyboard-reader.md).
 
 ### Sync status surface (what the operator sees)

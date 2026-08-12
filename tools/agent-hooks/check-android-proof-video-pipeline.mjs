@@ -12,6 +12,8 @@ const BASE = process.env.ANDROID_PROOF_VIDEO_BASE || "origin/main";
 const FEATURE_ROOT = "apps/goatos-android/feature";
 const APP_VM_ROOT = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel";
 const APP_MODULE = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/di/AppModule.kt";
+const CAPTURE_ACCESS_GATE = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/capture/CaptureAccessGate.kt";
+const APP_PERMISSION_CATALOG = "apps/goatos-android/core/core-permissions/src/main/kotlin/sg/mesha/goatos/core/permissions/AppPermission.kt";
 
 const banned = [
   { re: /\benqueueProofUpload\s*\(/g, reason: "direct proof upload enqueue; use shared proof capture/orchestration" },
@@ -87,7 +89,9 @@ function selfTest() {
   const goodPort = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "analytics.track(\"proof_upload_started\")").length === 0;
   const badNoopBinding = productionProcessorFindings("mediaProcessor = ProofMediaProcessor.Noop").length === 1;
   const goodBinding = productionProcessorFindings("mediaProcessor = AppProofMediaProcessor(context)").length === 0;
-  const ok = badFirebase && badMedia && badDirectUpload && goodPort && badNoopBinding && goodBinding;
+  const badMissingScan = permissionContractFindings("CaptureAccessGate.kt", "add(Manifest.permission.BLUETOOTH_CONNECT)").length === 1;
+  const goodScan = permissionContractFindings("CaptureAccessGate.kt", "add(Manifest.permission.BLUETOOTH_CONNECT)\nadd(Manifest.permission.BLUETOOTH_SCAN)").length === 0;
+  const ok = badFirebase && badMedia && badDirectUpload && goodPort && badNoopBinding && goodBinding && badMissingScan && goodScan;
   console.log(ok ? "android-proof-video-pipeline self-test: ok" : "android-proof-video-pipeline self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }
@@ -100,6 +104,8 @@ const targets = process.argv.includes("--all")
 
 const findings = targets.flatMap(scanFile);
 findings.push(...productionProcessorFindings(readFileSync(resolve(repo, APP_MODULE), "utf8")));
+findings.push(...permissionContractFindings(CAPTURE_ACCESS_GATE, readFileSync(resolve(repo, CAPTURE_ACCESS_GATE), "utf8")));
+findings.push(...permissionContractFindings(APP_PERMISSION_CATALOG, readFileSync(resolve(repo, APP_PERMISSION_CATALOG), "utf8")));
 if (findings.length) {
   console.error("android-proof-video-pipeline guard FAILED — use the shared proof-video pipeline and telemetry ports:");
   for (const finding of findings) {
@@ -124,6 +130,31 @@ function productionProcessorFindings(text) {
       reason: "production proof media processor is Noop; bind an app-layer processor",
       snippet: "ProofMediaProcessor.Noop",
     });
+  }
+  return findings;
+}
+
+function permissionContractFindings(rel, text) {
+  const findings = [];
+  if (rel.endsWith("CaptureAccessGate.kt")) {
+    if (!/add\s*\(\s*Manifest\.permission\.BLUETOOTH_CONNECT\s*\)[\s\S]{0,160}add\s*\(\s*Manifest\.permission\.BLUETOOTH_SCAN\s*\)/.test(text)) {
+      findings.push({
+        rel,
+        line: 1,
+        reason: "Android 12+ operator capture gate must require both BLUETOOTH_CONNECT and BLUETOOTH_SCAN",
+        snippet: "mandatoryCapturePermissionsForSdk",
+      });
+    }
+  }
+  if (rel.endsWith("AppPermission.kt")) {
+    if (!/\bBLUETOOTH_SCAN\s*\([\s\S]{0,180}Manifest\.permission\.BLUETOOTH_SCAN/.test(text)) {
+      findings.push({
+        rel,
+        line: 1,
+        reason: "login-time permission catalog must include Android 12+ BLUETOOTH_SCAN",
+        snippet: "AppPermission.BLUETOOTH_SCAN",
+      });
+    }
   }
   return findings;
 }

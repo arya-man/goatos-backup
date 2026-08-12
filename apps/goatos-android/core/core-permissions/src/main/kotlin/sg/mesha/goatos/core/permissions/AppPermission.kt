@@ -14,9 +14,10 @@ import android.os.Build
  *    "V1 should avoid in-app Bluetooth discovery unless product explicitly needs a
  *    branded pairing wizard". The keyboard-wedge reader is read via `InputManager`
  *    (no permission) plus `BluetoothAdapter.getBondedDevices()` / ACL broadcasts as a
- *    secondary signal, which is what needs runtime `BLUETOOTH_CONNECT` on API 31+.
- *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` is deliberately not
- *    part of this login-time catalog. LOCATION is mandatory for operators (maintainer 2026-08-02).
+ *    secondary signal. Operator routes still request both Android 12+ Nearby Devices
+ *    permissions (`BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN`) so future in-app scan/pairing
+ *    affordances cannot land outside the mandatory permission contract. LOCATION is mandatory
+ *    for operators (maintainer 2026-08-02).
  *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture, FCM alerts.
  */
 // Permission constants added after minSdk (BLUETOOTH_CONNECT API 31, POST_NOTIFICATIONS
@@ -45,6 +46,15 @@ enum class AppPermission(
      *  broadcasts. Pairing itself stays in system Bluetooth settings (no in-app scan). */
     BLUETOOTH_CONNECT(
         manifestPermission = Manifest.permission.BLUETOOTH_CONNECT,
+        minSdkInt = Build.VERSION_CODES.S,
+        optional = true,
+    ),
+
+    /** Android 12+ "Nearby devices" scan permission. Current RFID is keyboard-wedge/bonded
+     *  device first, but operator camera surfaces require this permission too so any future
+     *  in-app scan/pairing helper is covered before capture begins. */
+    BLUETOOTH_SCAN(
+        manifestPermission = Manifest.permission.BLUETOOTH_SCAN,
         minSdkInt = Build.VERSION_CODES.S,
         optional = true,
     ),

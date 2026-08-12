@@ -2,8 +2,8 @@
 
 Status: design contract for the shared Android operator camera-proof pipeline.
 This applies to weighing individual videos, weighing shed videos, vaccination
-proof, feed proof, shifting proof, and future operator camera workflows that
-upload video from the phone.
+proof, feed proof, shifting proof, workflow proof, milk proof, and future
+operator camera workflows that upload video from the phone.
 
 Implementation status for this PR branch: Android now has the durable
 Room/schema fields, state vocabulary, operator permission gate, screenshot
@@ -26,11 +26,23 @@ Current coverage is intentionally explicit. The shared path now covers:
 - Milk preparation proof and milk feeding proof.
 - Workflow action videos and death workflow draft videos uploaded on submit.
 
+Health is intentionally not listed as covered yet because the current Android
+health screens do not open camera/proof capture. When a health proof surface is
+added, it must go through this same shared path; the Android proof-video guard
+blocks feature/ViewModel direct proof uploads, feature-local Firebase calls,
+feature-local media processing, and feature-local workers.
+
 Feature/ViewModel code must not upload captured files directly through
 `SyncRepository.enqueueProofUpload`. The CI guard blocks direct feature-layer
 proof-upload enqueue calls so any new operator camera surface goes through the
 shared processing, Gallery-save, fallback, Room state-event, Firebase analytics,
 and backend-event path.
+
+Operator capture permission coverage is also explicit: camera, microphone, and
+precise location are mandatory on every supported Android version; Android 12+
+operator routes additionally require both Nearby Devices runtime permissions
+(`BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN`); Android 13+ requires
+`POST_NOTIFICATIONS`.
 
 This doc extends:
 

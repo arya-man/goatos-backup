@@ -210,6 +210,7 @@ private fun appSettingsIntent(packageName: String): Intent =
 private fun iconFor(permission: AppPermission): ImageVector = when (permission) {
     AppPermission.CAMERA -> MeshaIcons.Video
     AppPermission.BLUETOOTH_CONNECT -> MeshaIcons.Bluetooth
+    AppPermission.BLUETOOTH_SCAN -> MeshaIcons.Bluetooth
     AppPermission.NOTIFICATIONS -> MeshaIcons.Bell
     AppPermission.LOCATION -> MeshaIcons.Home
 }
@@ -218,6 +219,7 @@ private fun iconFor(permission: AppPermission): ImageVector = when (permission) 
 private fun labelFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_label_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_label_bluetooth)
+    AppPermission.BLUETOOTH_SCAN -> stringResource(R.string.perm_label_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_label_notifications)
     AppPermission.LOCATION -> stringResource(R.string.perm_label_location)
 }
@@ -226,6 +228,7 @@ private fun labelFor(permission: AppPermission): String = when (permission) {
 private fun rationaleFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_rationale_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_rationale_bluetooth)
+    AppPermission.BLUETOOTH_SCAN -> stringResource(R.string.perm_rationale_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_rationale_notifications)
     AppPermission.LOCATION -> stringResource(R.string.perm_rationale_location)
 }
