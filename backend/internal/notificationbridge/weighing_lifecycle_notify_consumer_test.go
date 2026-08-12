@@ -428,6 +428,47 @@ func TestWeighingCampaignClosedNotifiesLeadershipAndEachAffectedOperatorSeparate
 	}
 }
 
+func TestWeighingCampaignClosedOperatorBodyUsesBoundedLabelSample(t *testing.T) {
+	_, queue, consumer := newLifecycleFixture()
+	payload := map[string]any{
+		"tenant_id":          lifecycleTenant,
+		"campaign_id":        lifecycleCampaign,
+		"park_id":            lifecyclePark,
+		"closed_by":          "77777777-7777-4777-8777-777777777777",
+		"not_accepted_count": 10,
+		"operators": []map[string]any{
+			{
+				"operator_id":  lifecycleOpA,
+				"bucket_count": 10,
+				"shed_labels":  []string{"Shed 01", "Shed 02", "Shed 03", "Shed 04", "Shed 05", "Shed 06"},
+			},
+		},
+	}
+
+	if err := consumer.HandleEvent(context.Background(), lifecycleEvent(t, notificationbridge.EventWeighingCampaignClosed, "evt-campaign-close-many", payload)); err != nil {
+		t.Fatalf("HandleEvent errored: %v", err)
+	}
+	var operatorBody string
+	for _, message := range queue.queued {
+		if tokens := tokensOf(message); len(tokens) == 1 && tokens[0] == tokenOpA {
+			operatorBody = message.Body
+			break
+		}
+	}
+	if operatorBody == "" {
+		t.Fatal("operator notification was not queued")
+	}
+	if !strings.Contains(operatorBody, "10 sheds") {
+		t.Fatalf("operator body %q must include exact bucket count", operatorBody)
+	}
+	if !strings.Contains(operatorBody, "Shed 05") {
+		t.Fatalf("operator body %q must include the bounded sample", operatorBody)
+	}
+	if strings.Contains(operatorBody, "Shed 06") {
+		t.Fatalf("operator body %q leaked labels beyond the bounded sample", operatorBody)
+	}
+}
+
 // A malformed payload can never be fixed by retrying, so it must fail PERMANENTLY.
 func TestWeighingLifecycleConsumerFailsPermanentlyOnMalformedPayload(t *testing.T) {
 	_, _, consumer := newLifecycleFixture()

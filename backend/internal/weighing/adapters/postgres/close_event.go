@@ -33,14 +33,14 @@ type weighingShedClosedPayload struct {
 }
 
 type weighingCampaignClosedPayload struct {
-	TenantID         string         `json:"tenant_id"`
-	CampaignID       string         `json:"campaign_id"`
-	ParkID           string         `json:"park_id"`
-	ClosedBy         string         `json:"closed_by"`
-	Reason           string         `json:"reason,omitempty"`
-	NotAcceptedCount int            `json:"not_accepted_count"`
-	Buckets          []closedBucket `json:"buckets,omitempty"`
-	ClosedAt         time.Time      `json:"closed_at"`
+	TenantID         string                  `json:"tenant_id"`
+	CampaignID       string                  `json:"campaign_id"`
+	ParkID           string                  `json:"park_id"`
+	ClosedBy         string                  `json:"closed_by"`
+	Reason           string                  `json:"reason,omitempty"`
+	NotAcceptedCount int                     `json:"not_accepted_count"`
+	Operators        []closedOperatorSummary `json:"operators,omitempty"`
+	ClosedAt         time.Time               `json:"closed_at"`
 }
 
 // A per-bucket close has exactly ONE event type, eventTypeScopeClosed. The type
@@ -96,7 +96,7 @@ func (r *Repository) enqueueCampaignClosed(
 		ClosedBy:         cmd.ClosedBy,
 		Reason:           cmd.Reason,
 		NotAcceptedCount: result.NotAcceptedCount,
-		Buckets:          buckets,
+		Operators:        summarizeClosedBucketsByOperator(buckets),
 		ClosedAt:         result.ClosedAt,
 	}
 	if err := tx.QueryRow(ctx, `
