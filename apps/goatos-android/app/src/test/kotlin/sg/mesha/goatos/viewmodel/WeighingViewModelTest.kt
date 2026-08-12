@@ -2197,6 +2197,7 @@ class WeighingViewModelTest {
             periodStartDate: String,
             parkId: String,
             excludeCampaignId: String?,
+            search: String?,
         ): AppResult<Int> {
             val all = pagedPlannerParkBuckets ?: return AppResult.Ok(0)
             val state = pagedPlannerBucketState ?: return AppResult.Ok(0)
@@ -2357,6 +2358,7 @@ class WeighingViewModelTest {
             parkId: String,
             windowSize: Int,
             excludeCampaignId: String?,
+            search: String?,
         ): Flow<WeighingPlannerParkBucketsCache> {
             observedPlannerBucketWindowSizes += windowSize
             val paged = pagedPlannerBucketState
@@ -2374,6 +2376,7 @@ class WeighingViewModelTest {
             parkId: String,
             reset: Boolean,
             excludeCampaignId: String?,
+            search: String?,
         ): AppResult<Int> {
             plannerParkBucketExcludeCalls += excludeCampaignId
             val all = pagedPlannerParkBuckets

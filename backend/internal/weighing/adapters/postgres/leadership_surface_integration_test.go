@@ -173,7 +173,7 @@ WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid
 	}
 
 	// And the many-side is still bounded: one park's buckets come back ~20 at a time.
-	page, err := repo.PlannerParkBuckets(ctx, repoTenant, lsParkCPT, lsFixtureDay, "", "", 0)
+	page, err := repo.PlannerParkBuckets(ctx, repoTenant, lsParkCPT, lsFixtureDay, "", "", "", 0)
 	if err != nil {
 		t.Fatalf("bucket page: %v", err)
 	}
@@ -294,6 +294,47 @@ SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXC
 	}
 }
 
+func TestPlannerParkBucketsSearchesOperationalPartitionDisplayWithoutParentAliasLeak(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	parent := lcpUUID(21311)
+	partOne := lcpUUID(21312)
+	partTwo := lcpUUID(21313)
+	lsInsertShed(t, ctx, pool, parent, repoPark, "Search Alias Parent", 725)
+	lsInsertShed(t, ctx, pool, partOne, repoPark, "Search Alias Parent - Part 1", 726)
+	lsInsertShed(t, ctx, pool, partTwo, repoPark, "Search Alias Parent - Part 2", 727)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES
+  ($1::uuid, $2::uuid, 'Part 1', '1', 'goat_attested', 1),
+  ($1::uuid, $2::uuid, 'Part 2', '2', 'goat_attested', 2)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', display_order=EXCLUDED.display_order`,
+		repoTenant, parent)
+
+	page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, "2026-09-04", "", "Search Alias Parent - Part 1", "", domain.MaxPlannerBucketPageSize)
+	if err != nil {
+		t.Fatalf("PlannerParkBuckets search: %v", err)
+	}
+	names := map[string]int{}
+	for _, bucket := range page.Sheds {
+		names[bucket.Name]++
+	}
+	if names["Search Alias Parent - Part 1"] != 1 {
+		t.Fatalf("search did not return the physical part bucket exactly once: %#v", names)
+	}
+	for _, wrong := range []string{"Search Alias Parent", "Search Alias Parent - Part 1 - Part 1", "Search Alias Parent - Part 2"} {
+		if names[wrong] != 0 {
+			t.Fatalf("search leaked wrong bucket %q: %#v", wrong, names)
+		}
+	}
+}
+
 func TestPlannerParkBucketsMarksOldParentPartitionTaskScheduledOnNumberedShed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -323,7 +364,7 @@ SET partition_label='1'
 WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
 		repoTenant, campaignShedID)
 
-	page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, "2026-09-02", "", "", domain.MaxPlannerBucketPageSize)
+	page, err := repo.PlannerParkBuckets(ctx, repoTenant, repoPark, "2026-09-02", "", "", "", domain.MaxPlannerBucketPageSize)
 	if err != nil {
 		t.Fatalf("PlannerParkBuckets: %v", err)
 	}

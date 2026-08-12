@@ -283,6 +283,7 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int,
         @Query("exclude_campaign_id") excludeCampaignId: String? = null,
+        @Query("search") search: String? = null,
     ): WeighingPlannerParkBucketsResponseDto
 
     @POST("weighing/campaigns")
@@ -944,8 +945,9 @@ class RetrofitAppApi(
         cursor: String?,
         limit: Int,
         excludeCampaignId: String?,
+        search: String?,
     ): WeighingPlannerParkBucketsResponseDto =
-        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit, excludeCampaignId)
+        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit, excludeCampaignId, search)
 
     override suspend fun createWeighingCampaign(
         idempotencyKey: String,

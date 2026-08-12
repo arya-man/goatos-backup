@@ -300,7 +300,7 @@ func (r *multiParkScenarioRepo) PlannerCatalog(context.Context, string, string) 
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *multiParkScenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+func (r *multiParkScenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
 	return domain.PlannerParkBuckets{}, nil
 }
 

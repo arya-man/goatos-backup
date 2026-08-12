@@ -672,6 +672,7 @@ interface WeighingRepository {
         // themselves. Also separates the edit wizard's cache scope from the create wizard's, so
         // the two never share (and clobber) one another's availability rows for the same park/date.
         excludeCampaignId: String? = null,
+        search: String? = null,
     ): Flow<WeighingPlannerParkBucketsCache>
 
     /**
@@ -697,6 +698,7 @@ interface WeighingRepository {
         parkId: String,
         reset: Boolean = true,
         excludeCampaignId: String? = null,
+        search: String? = null,
     ): AppResult<Int>
 
     /** Appends the next page of park buckets using the stored cursor. */
@@ -704,6 +706,7 @@ interface WeighingRepository {
         periodStartDate: String,
         parkId: String,
         excludeCampaignId: String? = null,
+        search: String? = null,
     ): AppResult<Int>
 
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
@@ -1528,10 +1531,11 @@ class DefaultWeighingRepository(
         parkId: String,
         windowSize: Int,
         excludeCampaignId: String?,
+        search: String?,
     ): Flow<WeighingPlannerParkBucketsCache> {
         val catalog = plannerDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
         val keys = plannerKeyDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId, search)
         val bounded = windowSize.coerceAtLeast(1)
         return combine(
             catalog.observeShedWindow(queryKey, bounded),
@@ -1612,13 +1616,14 @@ class DefaultWeighingRepository(
         parkId: String,
         reset: Boolean,
         excludeCampaignId: String?,
+        search: String?,
     ): AppResult<Int> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val keys = plannerKeyDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (parkId.isBlank()) return@withContext AppResult.Ok(0)
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId, search)
         val cursor = if (reset) {
             null
         } else {
@@ -1632,6 +1637,7 @@ class DefaultWeighingRepository(
                 cursor = cursor,
                 limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
                 excludeCampaignId = excludeCampaignId,
+                search = search,
             )
             val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
             val now = clock()
@@ -1680,13 +1686,14 @@ class DefaultWeighingRepository(
         periodStartDate: String,
         parkId: String,
         excludeCampaignId: String?,
+        search: String?,
     ): AppResult<Int> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val keys = plannerKeyDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (parkId.isBlank()) return@withContext AppResult.Ok(0)
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId, search)
         val cursor = keys.get(queryKey)?.nextCursor?.takeIf { it.isNotBlank() }
             ?: return@withContext AppResult.Ok(0)
         runCatching {
@@ -1696,6 +1703,7 @@ class DefaultWeighingRepository(
                 cursor = cursor,
                 limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
                 excludeCampaignId = excludeCampaignId,
+                search = search,
             )
             val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
             val now = clock()
@@ -2537,9 +2545,15 @@ private fun WeighingPlannerParkRowEntity.toPlannerPark(json: Json): WeighingPlan
  * Two parks are two independent keyset streams and must never interleave in one scope — the
  * flattened all-parks page they used to share is what made a 76-shed park swallow page one.
  */
-private fun plannerBucketQueryKey(periodStartDate: String, parkId: String, excludeCampaignId: String? = null): String =
+private fun plannerBucketQueryKey(
+    periodStartDate: String,
+    parkId: String,
+    excludeCampaignId: String? = null,
+    search: String? = null,
+): String =
     "${periodStartDate.trim()}|${parkId.trim()}" +
-        (excludeCampaignId?.trim()?.takeIf { it.isNotBlank() }?.let { "|edit:$it" } ?: "")
+        (excludeCampaignId?.trim()?.takeIf { it.isNotBlank() }?.let { "|edit:$it" } ?: "") +
+        (search?.trim()?.lowercase()?.takeIf { it.isNotBlank() }?.let { "|search:$it" } ?: "")
 
 /** How many task-list FILTERS keep their cached rows. Bounds the task tables. */
 private const val WEIGHING_CACHED_TASK_FILTERS = 4

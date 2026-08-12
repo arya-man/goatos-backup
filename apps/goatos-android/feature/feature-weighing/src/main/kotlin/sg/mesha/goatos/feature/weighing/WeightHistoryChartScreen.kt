@@ -76,6 +76,9 @@ data class WeightHistoryChartUiRow(
     /** "individual" or "lump_sum" — drives the axis caption, never mixed in one chart. */
     val captureKind: String,
     val points: List<WeightHistoryChartUiPoint>,
+    val latestTotalWeightKg: Double? = null,
+    val latestAverageWeightKg: Double? = null,
+    val latestAnimalCount: Int? = null,
 ) {
     /**
      * Built ONCE here rather than in the LazyColumn key lambda, which would allocate a new String
@@ -380,6 +383,10 @@ private fun WeightSeriesCard(row: WeightHistoryChartUiRow) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (row.captureKind == WEIGHT_KIND_LUMP_SUM) {
+            Spacer(Modifier.height(10.dp))
+            LumpSumMetricStrip(row)
+        }
         Spacer(Modifier.height(12.dp))
         WeightBars(row.points)
         Spacer(Modifier.height(8.dp))
@@ -398,6 +405,59 @@ private fun WeightSeriesCard(row: WeightHistoryChartUiRow) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LumpSumMetricStrip(row: WeightHistoryChartUiRow) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MetricPill(
+            label = stringResource(R.string.weighing_history_lumpsum_total),
+            value = row.latestTotalWeightKg?.let {
+                stringResource(R.string.weighing_history_kg_value_fmt, it)
+            } ?: stringResource(R.string.weighing_growth_unknown_value),
+            modifier = Modifier.weight(1f),
+        )
+        MetricPill(
+            label = stringResource(R.string.weighing_history_lumpsum_average),
+            value = row.latestAverageWeightKg?.let {
+                stringResource(R.string.weighing_history_kg_value_fmt, it)
+            } ?: stringResource(R.string.weighing_growth_unknown_value),
+            modifier = Modifier.weight(1f),
+        )
+        MetricPill(
+            label = stringResource(R.string.weighing_history_lumpsum_animals),
+            value = row.latestAnimalCount?.toString() ?: stringResource(R.string.weighing_growth_unknown_value),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun MetricPill(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MeshaColors.Surf)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MeshaType.caption,
+            color = MeshaColors.Muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value,
+            style = MeshaType.body,
+            color = MeshaColors.Ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

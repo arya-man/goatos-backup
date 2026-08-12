@@ -259,10 +259,17 @@ class WeightHistoryChartViewModel @Inject constructor(
 
     private fun WeightSeriesDto.toUiRow(): WeightHistoryChartUiRow {
         val ordered = points.takeLast(MAX_POINTS_PER_SERIES)
+        val latest = ordered.lastOrNull()
         return WeightHistoryChartUiRow(
-            label = scanned_identifier?.takeIf { it.isNotBlank() } ?: shed_display_name,
+            label = when (capture_kind) {
+                KIND_LUMP_SUM -> shed_display_name
+                else -> scanned_identifier?.takeIf { it.isNotBlank() } ?: shed_display_name
+            },
             shedName = shed_display_name,
             captureKind = capture_kind,
+            latestTotalWeightKg = latest?.total_weight_kg?.takeIf { capture_kind == KIND_LUMP_SUM },
+            latestAverageWeightKg = latest?.average_weight_kg?.takeIf { capture_kind == KIND_LUMP_SUM },
+            latestAnimalCount = latest?.animal_count?.takeIf { capture_kind == KIND_LUMP_SUM },
             points = ordered.mapNotNull { point ->
                 // A lump-sum point carries total_weight_kg, an individual one carries weight_kg.
                 // A point carrying NEITHER is dropped rather than drawn as 0.0: a zero bar reads

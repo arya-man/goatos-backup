@@ -24,7 +24,7 @@ type Service interface {
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
-	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
+	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, search, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error)
 	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
 	GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error)
@@ -373,6 +373,7 @@ func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
 		r.PathValue("park_id"),
 		r.URL.Query().Get("period_start_date"),
 		r.URL.Query().Get("exclude_campaign_id"),
+		r.URL.Query().Get("search"),
 		r.URL.Query().Get("cursor"),
 		limit,
 	)

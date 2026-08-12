@@ -54,7 +54,7 @@ func (r *plannerCatalogRepo) PlannerCatalog(context.Context, string, string) (do
 	}}, nil
 }
 
-func (r *plannerCatalogRepo) PlannerParkBuckets(_ context.Context, _, parkID, _, _, _ string, _ int) (domain.PlannerParkBuckets, error) {
+func (r *plannerCatalogRepo) PlannerParkBuckets(_ context.Context, _, parkID, _, _, _, _ string, _ int) (domain.PlannerParkBuckets, error) {
 	r.bucketsCalledWithPark = parkID
 	return domain.PlannerParkBuckets{}, nil
 }
@@ -79,7 +79,7 @@ func TestPlannerParkBucketsRefusesAnotherParksSheds(t *testing.T) {
 	svc := NewService(repo)
 
 	_, err := svc.PlannerParkBuckets(plannerScopedContext(), plannerScopedActor(),
-		plannerScopeParkOthers, "2026-08-10", "", "", 20)
+		plannerScopeParkOthers, "2026-08-10", "", "", "", 20)
 	if !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("buckets for another park err = %v, want ErrNotFound", err)
 	}
@@ -88,7 +88,7 @@ func TestPlannerParkBucketsRefusesAnotherParksSheds(t *testing.T) {
 	}
 
 	if _, err := svc.PlannerParkBuckets(plannerScopedContext(), plannerScopedActor(),
-		plannerScopeParkMine, "2026-08-10", "", "", 20); err != nil {
+		plannerScopeParkMine, "2026-08-10", "", "", "", 20); err != nil {
 		t.Fatalf("buckets for the actor's OWN park must still work, got %v", err)
 	}
 }

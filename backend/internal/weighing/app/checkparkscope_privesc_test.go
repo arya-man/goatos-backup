@@ -239,7 +239,7 @@ func (r *parkScopeCheckRepo) PlannerCatalog(ctx context.Context, tenantID, perio
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *parkScopeCheckRepo) PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error) {
+func (r *parkScopeCheckRepo) PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, search, cursor string, limit int) (domain.PlannerParkBuckets, error) {
 	return domain.PlannerParkBuckets{}, nil
 }
 
