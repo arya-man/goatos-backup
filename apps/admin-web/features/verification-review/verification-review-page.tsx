@@ -368,7 +368,7 @@ export async function VerificationReviewPage({
                   <QueueRow
                     key={item.item_id}
                     item={item}
-                    actionTypeLabel={typeLabels.get(item.category) ?? item.category}
+                    actionTypeLabel={String(typeLabels.get(item.category) ?? item.category)}
                     searchParams={sp}
                     pageContract={pageContract}
                     statusLabels={statusLabelRecord}

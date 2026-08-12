@@ -560,7 +560,6 @@ function CalendarEventDrawerPanel({
                       operationalLocationLabel({
                         shedName: event.shed_name,
                         partitionLabel: event.partition_label,
-                        sourceShedName: event.source_shed_name,
                       })
                     : copy(pageContract, "label.all_sheds")
                 }`}

@@ -68,8 +68,9 @@ export function driveVisibleProgress(summary: {
 
 // Backend-rounded percentage wins verbatim so the ring reads identically on web and mobile; the
 // local half-up rounding is the same legacy fallback.
-export function drivePctFor(summary: { progress_pct?: number | null }, coverage: DriveCoverage): number {
-  if (typeof summary.progress_pct === "number") return summary.progress_pct;
+export function drivePctFor(summary: object, coverage: DriveCoverage): number {
+  const progressPct = "progress_pct" in summary ? summary.progress_pct : undefined;
+  if (typeof progressPct === "number") return progressPct;
   return driveCoveragePct(coverage.completed, coverage.total);
 }
 

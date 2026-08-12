@@ -414,7 +414,7 @@ export async function FeedDirectionPage({
                                 className="tag t-dng"
                                 title={
                                   row.blocked_reasons?.length
-                                    ? row.blocked_reasons.map((reason) => reason.detail).join("\n")
+                                    ? row.blocked_reasons.map((reason) => reason?.detail ?? "").filter(Boolean).join("\n")
                                     : copy(pageContract, "label.blocked_note")
                                 }
                               >

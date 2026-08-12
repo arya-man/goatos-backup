@@ -911,6 +911,7 @@ class DefaultProofCaptureRepository(
                     capturedStartMs = entity.capturedStartMs,
                     capturedEndMs = entity.capturedEndMs,
                     capturedByPrincipalId = entity.capturedByPrincipalId,
+                    caption = entity.caption,
                 ),
             )
             dao.updateProcessingArtifact(

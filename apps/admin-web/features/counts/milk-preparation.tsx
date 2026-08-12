@@ -17,6 +17,8 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 const PAGE_PATH = "/counts/milk-preparation";
 const DEFAULT_PAGE_SIZE = 10;
 
+type MilkPreparationSession = MilkPreparationRow["sessions"][number];
+
 function boundedPageValue(raw: string | undefined, fallback: number, allowed: readonly number[]): number {
   const parsed = Number(raw);
   return Number.isInteger(parsed) && allowed.includes(parsed) ? parsed : fallback;
@@ -46,7 +48,7 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
 }
 
 function sessionCell(row: MilkPreparationRow, sessionNo: number, inactive: string, unit: string): string {
-  const session = row.sessions.find((item) => item.session_no === sessionNo);
+  const session = row.sessions.find((item: MilkPreparationSession) => item.session_no === sessionNo);
   if (!session?.active) return inactive;
   return `${litres(session.required_ml)} ${unit}`;
 }
@@ -89,7 +91,7 @@ export async function MilkPreparationPage({
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
 
   const page = result.ok ? result.data : null;
-  const rows = page?.items ?? [];
+  const rows: MilkPreparationRow[] = page?.items ?? [];
   const summary = page?.summary;
   const cols = tableLabels(pageContract, "milk-preparation");
   const unit = copy(pageContract, "label.litres");

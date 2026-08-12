@@ -111,7 +111,7 @@ interface CohortCellInput {
   cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
-  submittedCount: number;
+  submittedCount?: number;
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
@@ -324,10 +324,54 @@ function buildShedGrid(
 type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
 type CohortCell = CommandBoardResponse["cohortMatrix"][number];
 type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
+type CommandBoardKpis = CommandBoardResponse["kpis"] & {
+  missedNotGiven?: number;
+  closedWithoutDose?: number;
+};
+type CommandBoardExtras = {
+  kpis: CommandBoardKpis;
+  shedVaccineMatrix?: ShedVaccineCell[];
+  shedVaccineColumns?: Array<{ code: string; label: string }>;
+  closedWithoutDoseAnimals?: ClosedWithoutDoseAnimal[];
+  driveOptionsTruncated?: boolean;
+};
 // driveOptions is the one field the view widens: enrichDriveOptions reconstructs counts the skinny
 // API catalogue omits and tags them, so the rendered option carries more than the wire schema does.
-type CommandBoard = Omit<CommandBoardResponse, "driveOptions"> & {
+type CommandBoard = Omit<CommandBoardResponse, "driveOptions" | "kpis"> & CommandBoardExtras & {
   driveOptions?: CommandBoardDriveOption[];
+};
+
+type ShedVaccineCell = {
+  shedId: string;
+  shedName: string;
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+  parkName?: string | null;
+  vaccineCode: string;
+  state: "behind" | "verifying" | "ok" | "not_planned";
+  behindAnimals: number;
+  verifyingAnimals: number;
+  totalAnimals: number;
+  proofVideos?: Array<{ path: string }>;
+  flaggedAnimals?: Array<{
+    goatId: string;
+    tag?: string | null;
+    tag2?: string | null;
+    displayId: string;
+    partitionLabel?: string | null;
+    dueAt?: string | null;
+  }>;
+};
+
+type ClosedWithoutDoseAnimal = {
+  goatId: string;
+  tag1?: string | null;
+  tag2?: string | null;
+  displayId: string;
+  operational_location_display: string;
+  parkName?: string | null;
+  vaccineLabel: string;
+  reason: string;
 };
 
 interface CommandBoardViewProps {
@@ -514,8 +558,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const [closedDrawerOpen, setClosedDrawerOpen] = useState(false);
   // The behind cell's animals travel IN the board payload, so opening a red cell is a local
   // overlay, not a second fetch (local-overlay rule).
-  const [selectedShedVaccine, setSelectedShedVaccine] =
-    useState<typeof board.shedVaccineMatrix[number] | null>(null);
+  const [selectedShedVaccine, setSelectedShedVaccine] = useState<ShedVaccineCell | null>(null);
   const closedAnimals = board.closedWithoutDoseAnimals ?? [];
   const futureCampaigns = useMemo(
     () => statusVisible("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
@@ -530,6 +573,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     const matchesVaccine = (label?: string) => !vaccine || (label ?? "").startsWith(vaccine);
     return {
     ...board,
+    shedVaccineMatrix: board.shedVaccineMatrix ?? [],
+    shedVaccineColumns: board.shedVaccineColumns ?? [],
     shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
       (c) => matchesVaccine(c.doseRule) && statusVisible(c.state),
     ),
@@ -746,7 +791,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               row = new Map();
               cellsByShed.set(opKey, row);
               shedOrder.push(opKey);
-              shedLabel.set(opKey, { name: cell.operational_location_display || cell.shedName, park: cell.parkName });
+              shedLabel.set(opKey, { name: cell.operational_location_display || cell.shedName, park: cell.parkName ?? undefined });
             }
             row.set(cell.vaccineCode, cell);
             const ids = nameCount.get(cell.operational_location_display || cell.shedName) ?? new Set<string>();
@@ -781,20 +826,20 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     </tr>
                   </thead>
                   <tbody>
-                    {shedOrder.map((shedId) => {
-                      const label = shedLabel.get(shedId);
+                    {shedOrder.map((shedPartitionKey) => {
+                      const label = shedLabel.get(shedPartitionKey);
                       // Park is shown ONLY when the shed name is ambiguous in this payload, so the
                       // row stays as short as the ask demanded until ambiguity forces otherwise.
                       const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
                       return (
-                        <tr key={shedId}>
+                        <tr key={shedPartitionKey}>
                           <td className="cbm-sv-shed">
                             {label?.name}
                             {ambiguous && label?.park ? <span className="cbm-sv-shed-park">{label.park}</span> : null}
                           </td>
                           {view.shedVaccineColumns.map((column) => {
                             const code = column.code;
-                            const cell = cellsByShed.get(shedId)?.get(code);
+                            const cell = cellsByShed.get(shedPartitionKey)?.get(code);
                             const state = cell?.state ?? "not_planned";
                             const behind = cell?.behindAnimals ?? 0;
                             const openable = (state === "behind" || state === "verifying") && cell !== undefined;
@@ -1392,7 +1437,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   ))}
                 </tbody>
               </table>
-              {view.kpis.closedWithoutDose > closedAnimals.length ? (
+              {(view.kpis.closedWithoutDose ?? 0) > closedAnimals.length ? (
                 <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
                 </div>

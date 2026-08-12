@@ -12,6 +12,8 @@ const BASE = process.env.ANDROID_PROOF_VIDEO_BASE || "origin/main";
 const FEATURE_ROOT = "apps/goatos-android/feature";
 const APP_VM_ROOT = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel";
 const APP_MODULE = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/di/AppModule.kt";
+const APP_PROOF_MEDIA_PROCESSOR = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/capture/AppProofMediaProcessor.kt";
+const CAPTURE_REPOSITORY = "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/capture/CaptureRepository.kt";
 const CAPTURE_ACCESS_GATE = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/capture/CaptureAccessGate.kt";
 const APP_PERMISSION_CATALOG = "apps/goatos-android/core/core-permissions/src/main/kotlin/sg/mesha/goatos/core/permissions/AppPermission.kt";
 
@@ -89,9 +91,13 @@ function selfTest() {
   const goodPort = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "analytics.track(\"proof_upload_started\")").length === 0;
   const badNoopBinding = productionProcessorFindings("mediaProcessor = ProofMediaProcessor.Noop").length === 1;
   const goodBinding = productionProcessorFindings("mediaProcessor = AppProofMediaProcessor(context)").length === 0;
+  const badPassThrough = appProcessorFindings("return ProofMediaProcessingResult(outputUri = request.originalUri, processedBytes = bytes)").length === 4;
+  const goodRealProcessor = appProcessorFindings("Transformer.Builder(context).build()\nCanvas.drawText(\"proof\", 0f, 0f, paint)\nreturn ProofMediaProcessingResult(outputUri = processedUri, processedBytes = processedBytes)").length === 0;
+  const badRepositoryOriginalByDefault = captureRepositoryFindings("galleryProofSaver.saveProofCopy(entity.originalUri ?: entity.localUri, request, entity.idempotencyKey)\nsyncRepository.enqueueProofUpload(localFilePath = entity.originalUri ?: entity.localUri)").length === 2;
+  const goodRepositoryFinalArtifact = captureRepositoryFindings("val uploadEntity = prepareFinalArtifact(entity)\nsaveFinalArtifactToGallery(uploadEntity, request)\nsyncRepository.enqueueProofUpload(localFilePath = uploadEntity.localUri)").length === 0;
   const badMissingScan = permissionContractFindings("CaptureAccessGate.kt", "add(Manifest.permission.BLUETOOTH_CONNECT)").length === 1;
   const goodScan = permissionContractFindings("CaptureAccessGate.kt", "add(Manifest.permission.BLUETOOTH_CONNECT)\nadd(Manifest.permission.BLUETOOTH_SCAN)").length === 0;
-  const ok = badFirebase && badMedia && badDirectUpload && goodPort && badNoopBinding && goodBinding && badMissingScan && goodScan;
+  const ok = badFirebase && badMedia && badDirectUpload && goodPort && badNoopBinding && goodBinding && badPassThrough && goodRealProcessor && badRepositoryOriginalByDefault && goodRepositoryFinalArtifact && badMissingScan && goodScan;
   console.log(ok ? "android-proof-video-pipeline self-test: ok" : "android-proof-video-pipeline self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }
@@ -104,6 +110,8 @@ const targets = process.argv.includes("--all")
 
 const findings = targets.flatMap(scanFile);
 findings.push(...productionProcessorFindings(readFileSync(resolve(repo, APP_MODULE), "utf8")));
+findings.push(...appProcessorFindings(readFileSync(resolve(repo, APP_PROOF_MEDIA_PROCESSOR), "utf8")));
+findings.push(...captureRepositoryFindings(readFileSync(resolve(repo, CAPTURE_REPOSITORY), "utf8")));
 findings.push(...permissionContractFindings(CAPTURE_ACCESS_GATE, readFileSync(resolve(repo, CAPTURE_ACCESS_GATE), "utf8")));
 findings.push(...permissionContractFindings(APP_PERMISSION_CATALOG, readFileSync(resolve(repo, APP_PERMISSION_CATALOG), "utf8")));
 if (findings.length) {
@@ -129,6 +137,70 @@ function productionProcessorFindings(text) {
       line: lineNo(text, match.index ?? 0),
       reason: "production proof media processor is Noop; bind an app-layer processor",
       snippet: "ProofMediaProcessor.Noop",
+    });
+  }
+  return findings;
+}
+
+function appProcessorFindings(text) {
+  const findings = [];
+  const passThroughPatterns = [
+    {
+      re: /outputUri\s*=\s*request\.originalUri/g,
+      reason: "production proof processor passes through the original URI; successful processing must create a new compressed/overlaid artifact",
+      snippet: "outputUri = request.originalUri",
+    },
+    {
+      re: /processedBytes\s*=\s*bytes\b/g,
+      reason: "production proof processor reports processed bytes equal to original bytes; successful processing must produce a processed artifact",
+      snippet: "processedBytes = bytes",
+    },
+  ];
+  for (const rule of passThroughPatterns) {
+    for (const match of text.matchAll(rule.re)) {
+      findings.push({
+        rel: APP_PROOF_MEDIA_PROCESSOR,
+        line: lineNo(text, match.index ?? 0),
+        reason: rule.reason,
+        snippet: rule.snippet,
+      });
+    }
+  }
+  if (!/\b(Transformer|MediaCodec|MediaMuxer)\b/.test(text)) {
+    findings.push({
+      rel: APP_PROOF_MEDIA_PROCESSOR,
+      line: 1,
+      reason: "production proof processor must perform real video compression/transcode, not a metadata-only pass-through",
+      snippet: "missing Transformer/MediaCodec/MediaMuxer",
+    });
+  }
+  if (!/\b(Canvas|Bitmap|Overlay|GlEffect|TextureOverlay)\b/.test(text)) {
+    findings.push({
+      rel: APP_PROOF_MEDIA_PROCESSOR,
+      line: 1,
+      reason: "production proof processor must burn audit overlay into video pixels and photo pixels",
+      snippet: "missing overlay renderer",
+    });
+  }
+  return findings;
+}
+
+function captureRepositoryFindings(text) {
+  const findings = [];
+  for (const match of text.matchAll(/saveProofCopy\s*\(\s*entity\.originalUri\b|saveProofCopy\s*\([^,\n]*originalUri[^,\n]*,/g)) {
+    findings.push({
+      rel: CAPTURE_REPOSITORY,
+      line: lineNo(text, match.index ?? 0),
+      reason: "Gallery save must use the final selected artifact after processing/fallback, not the original by default",
+      snippet: text.slice(match.index ?? 0, (match.index ?? 0) + 100).replace(/\s+/g, " "),
+    });
+  }
+  for (const match of text.matchAll(/localFilePath\s*=\s*entity\.originalUri\b|localFilePath\s*=\s*[^,\n]*originalUri[^,\n]*/g)) {
+    findings.push({
+      rel: CAPTURE_REPOSITORY,
+      line: lineNo(text, match.index ?? 0),
+      reason: "proof upload must use the final selected artifact after processing/fallback, not the original by default",
+      snippet: text.slice(match.index ?? 0, (match.index ?? 0) + 100).replace(/\s+/g, " "),
     });
   }
   return findings;
