@@ -118,12 +118,15 @@ ORDER BY module`, tenantID)
 	// query keyed by (verified_by, verified_by_name) -- never a per-verifier loop.
 	activityRows, err := r.pool.Query(ctx, `
 WITH decided AS (
-  SELECT verified_by, verified_by_name,
-         date_trunc('day', verified_at AT TIME ZONE 'Asia/Kolkata') AS decided_day,
-         status
-  FROM verification_items
-  WHERE tenant_id = $1::uuid AND verified_by IS NOT NULL AND verified_at IS NOT NULL
-    AND verified_at >= now() - interval '14 days'
+  SELECT vi.verified_by,
+         wm.display_name AS verified_by_name,
+         date_trunc('day', vi.verified_at AT TIME ZONE 'Asia/Kolkata') AS decided_day,
+         vi.status
+  FROM verification_items vi
+  LEFT JOIN workforce_members wm
+    ON wm.tenant_id = vi.tenant_id AND wm.user_id = vi.verified_by
+  WHERE vi.tenant_id = $1::uuid AND vi.verified_by IS NOT NULL AND vi.verified_at IS NOT NULL
+    AND vi.verified_at >= now() - interval '14 days'
 ),
 by_day AS (
   SELECT verified_by, decided_day, count(*) AS day_count
