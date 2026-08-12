@@ -328,6 +328,7 @@ func TestAppVaccinationExecutionRoutesAuthorizeOperator(t *testing.T) {
 		{"GET", "/app/vaccination/execution", "appListVaccinationExecution"},
 		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001", "appGetVaccinationExecutionShedDrilldown"},
 		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001/roster", "appScanRoster"},
+		{"GET", "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001/scan-tag", "appClassifyScanTag"},
 		{"POST", "/app/vaccination/obligations/86000000-0000-4000-8000-000000001001/reschedule", "appRescheduleObligation"},
 	} {
 		route, ok := Match(item.method, item.path)
