@@ -506,6 +506,8 @@ interface ProofCaptureRepository {
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy = ProofPolicy.Default,
         partitionLabel: String? = null,
+        awaitUploadEnqueue: Boolean = false,
+        uploadGroupKey: String? = null,
     ): AppResult<ProofCaptureRow>
 
     suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit>
@@ -580,6 +582,8 @@ class DefaultProofCaptureRepository(
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
         partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
         val partitionKey = executionPartitionKey(partitionLabel)
         val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
@@ -611,6 +615,7 @@ class DefaultProofCaptureRepository(
             val subjectLabel = when (subject) {
                 ProofSubject.GOAT -> "goat"
                 ProofSubject.SHED -> "shed"
+                ProofSubject.PARK -> "park"
                 ProofSubject.VIAL_LOT -> "vial"
                 ProofSubject.ADMINISTRATION -> "administration"
                 else -> "subject"
@@ -646,8 +651,13 @@ class DefaultProofCaptureRepository(
         )
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
-        enqueueRegistration(entity, scopeType, scopeId)
-        AppResult.Ok(entity.toRow())
+        if (awaitUploadEnqueue) {
+            enqueueRegistrationNow(entity, scopeType, scopeId, uploadGroupKey)
+            AppResult.Ok((dao.findById(id) ?: entity).toRow())
+        } else {
+            enqueueRegistration(entity, scopeType, scopeId, uploadGroupKey)
+            AppResult.Ok(entity.toRow())
+        }
     }
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> =
@@ -796,9 +806,10 @@ class DefaultProofCaptureRepository(
         entity: ProofCaptureEntity,
         scopeType: String,
         scopeId: String,
+        uploadGroupKey: String? = null,
     ) {
         appScope.launch(dispatchers.io, start = CoroutineStart.UNDISPATCHED) {
-            enqueueRegistrationNow(entity, scopeType, scopeId)
+            enqueueRegistrationNow(entity, scopeType, scopeId, uploadGroupKey)
         }
     }
 
@@ -806,10 +817,11 @@ class DefaultProofCaptureRepository(
         entity: ProofCaptureEntity,
         scopeType: String,
         scopeId: String,
+        uploadGroupKey: String? = null,
     ) {
         val uploadEntity = prepareFinalArtifact(entity)
         val request = ProofUploadRequestDto(
-            proofType = "video",
+            proofType = proofTypeForMime(uploadEntity.mimeType),
             mimeType = uploadEntity.mimeType,
             scopeType = scopeType,
             scopeId = scopeId,
@@ -837,7 +849,7 @@ class DefaultProofCaptureRepository(
         saveFinalArtifactToGallery(uploadEntity, request)
         when (
             val result = syncRepository.enqueueProofUpload(
-                groupKey = proofUploadGroupKey(uploadEntity, scopeId),
+                groupKey = uploadGroupKey?.takeIf { it.isNotBlank() } ?: proofUploadGroupKey(uploadEntity, scopeId),
                 idempotencyKey = uploadEntity.idempotencyKey,
                 request = request,
                 localFilePath = uploadEntity.localUri,
@@ -1242,6 +1254,9 @@ private fun localFileBytes(localUri: String): Long? = runCatching {
     file.takeIf { it.exists() }?.length()
 }.getOrNull()
 
+private fun proofTypeForMime(mimeType: String): String =
+    if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"
+
 private fun byteBucket(bytes: Long): String = when {
     bytes < 1_000_000 -> "lt_1mb"
     bytes < 5_000_000 -> "1_5mb"
@@ -1271,6 +1286,7 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     capturedByPrincipalId = capturedByPrincipalId,
     syncStatus = CaptureSyncStatus.valueOf(syncStatus),
     serverProofId = serverProofId,
+    outboxItemId = outboxItemId,
     lastError = lastError,
     partitionKey = partitionKey,
     featureSurface = featureSurface,

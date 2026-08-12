@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -26,10 +25,11 @@ import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.ShiftingExecuteAnimalUi
@@ -64,6 +64,7 @@ class ShiftingExecuteViewModel @Inject constructor(
     private val drafts: CaptureDraftRepository,
     private val syncRepository: SyncRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
@@ -161,42 +162,37 @@ class ShiftingExecuteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false, capturingStep = null) }
                 return@launch
             }
-            val request = ProofUploadRequestDto(
-                proofType = "video",
+            val result = proofCaptureRepository.capture(
+                taskId = shiftingEventId,
+                fieldKey = shiftingProofFieldKey(step),
+                subject = ProofSubject.SHED,
+                subjectId = destinationShedId,
+                localUri = captured.localUri,
                 mimeType = captured.mimeType,
+                caption = "Shifting $step proof",
                 scopeType = "shed",
                 scopeId = destinationShedId,
-                subjectType = "shed",
-                subjectId = destinationShedId,
-                // The backend REQUIRES these three for a video proof (proof/app.validateCreate):
-                // capture_source plus the capture window. This flow permits only the live in-app
-                // camera; omitting the metadata is rejected 400 invalid_proof.
-                metadata = mapOf(
-                    META_SHIFTING_EVENT_ID to JsonPrimitive(shiftingEventId),
-                    META_CAPTURE_SOURCE to JsonPrimitive(captured.captureSource),
-                    META_CAPTURED_START_MS to JsonPrimitive(captured.startedAtMs),
-                    META_CAPTURED_END_MS to JsonPrimitive(captured.endedAtMs),
-                    META_EVIDENCE_STEP to JsonPrimitive(step),
-                ),
-            )
-            val result = syncRepository.enqueueProofUpload(
-                // Group by the MOVEMENT (not the shed) so this proof drains strictly before the
-                // completion enqueued on the same group; the completion resolves this proof's id.
-                groupKey = shiftingEventId,
-                idempotencyKey = freshProofKey(step),
-                request = request,
-                localFilePath = captured.localUri,
-                durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+                capturedStartMs = captured.startedAtMs,
+                capturedEndMs = captured.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = feedShedProofPolicy(captured.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = shiftingEventId,
             )
             when (result) {
                 is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        _state.update { it.copy(isCapturingVideo = false, capturingStep = null, videoMessage = VIDEO_FAILED) }
+                        return@launch
+                    }
                     // Durable BEFORE the UI flips: if the process dies here, re-entry still finds
                     // the recorded clip instead of asking for it again.
                     drafts.putProof(
                         flowKey = CaptureFlow.SHIFTING,
                         entityId = shiftingEventId,
                         step = step,
-                        outboxItemId = result.value,
+                        outboxItemId = proofOutboxId,
                         fingerprint = _state.value.feedConfigFingerprint.takeIf { step != STEP_SHIFTING },
                     )
                     draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
@@ -327,17 +323,7 @@ class ShiftingExecuteViewModel @Inject constructor(
         }
     }
 
-    private fun freshProofKey(step: String): String {
-        val key = when (step) {
-            "packing" -> packingProofKey
-            "feeding" -> feedingProofKey
-            else -> proofKey
-        }
-        // Each explicit camera recording is new evidence. Network retries reuse the outbox row's
-        // stored key, but a re-record must never collide with the prior clip's payload.
-        key.invalidate()
-        return key.current()
-    }
+    private fun shiftingProofFieldKey(step: String): String = "shifting_${step}_video"
 
     private fun resetFeedEvidenceForChangedConfig() {
         packingProofKey.invalidate()
@@ -442,11 +428,6 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val KEY_PROOF_IDEMPOTENCY = "shiftingExecute.proofKey"
         const val KEY_PACKING_PROOF_IDEMPOTENCY = "shiftingExecute.packingProofKey"
         const val KEY_FEEDING_PROOF_IDEMPOTENCY = "shiftingExecute.feedingProofKey"
-        const val META_SHIFTING_EVENT_ID = "shifting_event_id"
-        const val META_CAPTURE_SOURCE = "capture_source"
-        const val META_CAPTURED_START_MS = "captured_start_ms"
-        const val META_CAPTURED_END_MS = "captured_end_ms"
-        const val META_EVIDENCE_STEP = "shifting_evidence_step"
         const val UNKNOWN_LOCATION = "—"
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
         const val SYNCED_MESSAGE = "Completion recorded. The move applies when Park Head approval is also present."

@@ -90,8 +90,9 @@ legacy audit can be run with:
 node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
 ```
 
-The full audit currently reports known direct-upload legacy screens until they
-are migrated to the shared proof capture/orchestration path.
+The full audit should stay clean for Android feature/ViewModel code. Any new
+operator camera proof surface must route through the shared proof
+capture/orchestration path before screenshot fixtures are accepted.
 
 For focused review, run a single test class or method:
 

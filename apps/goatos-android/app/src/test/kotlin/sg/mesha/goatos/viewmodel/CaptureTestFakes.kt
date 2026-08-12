@@ -212,6 +212,8 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
         partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
@@ -252,6 +254,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             capturedByPrincipalId = capturedByPrincipalId,
             syncStatus = CaptureSyncStatus.PENDING,
             serverProofId = null,
+            outboxItemId = if (awaitUploadEnqueue) "proof-outbox-${nextId}" else null,
             lastError = null,
             partitionKey = partitionKey,
         )

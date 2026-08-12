@@ -1754,6 +1754,37 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         lastErrorMessageHash = lastErrorMessageHash,
         updatedAtMs = updatedAtMs,
     )
+    override suspend fun updateProcessingArtifact(
+        id: String,
+        localUri: String,
+        mimeType: String,
+        processingState: String,
+        processingAttempted: Boolean,
+        uploadOriginal: Boolean,
+        processedUri: String?,
+        originalBytes: Long?,
+        processedBytes: Long?,
+        inputWidth: Int?,
+        inputHeight: Int?,
+        targetVideoBitrate: Int?,
+        targetAudioBitrate: Int?,
+        updatedAtMs: Long,
+    ) = delegate.updateProcessingArtifact(
+        id = id,
+        localUri = localUri,
+        mimeType = mimeType,
+        processingState = processingState,
+        processingAttempted = processingAttempted,
+        uploadOriginal = uploadOriginal,
+        processedUri = processedUri,
+        originalBytes = originalBytes,
+        processedBytes = processedBytes,
+        inputWidth = inputWidth,
+        inputHeight = inputHeight,
+        targetVideoBitrate = targetVideoBitrate,
+        targetAudioBitrate = targetAudioBitrate,
+        updatedAtMs = updatedAtMs,
+    )
     override suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity) =
         delegate.insertStateEvent(entity)
     override suspend fun delete(id: String, taskId: String) = delegate.delete(id, taskId)
