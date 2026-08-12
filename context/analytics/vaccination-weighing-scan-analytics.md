@@ -9,9 +9,8 @@ events reached Firebase or backend.
 Every app analytics event must fan out to both sinks:
 
 - Firebase Analytics through `FirebaseAnalyticsAdapter`.
-- Backend audit through `POST /app/analytics/events`, stored as
-  `audit_log.action = 'app.analytics.event'` and
-  `audit_log.resource_type = 'app_analytics_event'`.
+- Backend analytics through `POST /app/analytics/events`, stored in
+  `analytics.app_events`.
 
 The backend analytics event is independent from domain sync tables. Domain Room
 outbox failure must not prevent the app from attempting analytics delivery.
@@ -42,7 +41,7 @@ Use these tables for the full journey:
 
 | Table | Purpose | Query signal |
 | --- | --- | --- |
-| `audit_log` | Product analytics from Android. This is the canonical backend analytics sink. | `action = 'app.analytics.event'`; event name is in metadata/after state as `event_name`. |
+| `analytics.app_events` | Product analytics from Android. This is the canonical backend analytics sink. | `event_name`, `tenant_id`, `actor_id`, `device_id`, `properties`, `client_event_time`, `received_at`, and client app/build columns. |
 | `proof_artifacts` | Media proof rows. In vaccination/weighing scan screens, a row here is also practical scan+proof evidence for that RFID/tag because the camera opens from the scanned row flow. It still does not prove the separate product analytics event fired. | `field_key`, `captured_by_principal_id`, `subject_id`, `scope_id`, `metadata->>'rfid'`, `metadata->>'scanned_identifier'`, `metadata->>'park_id'`, `created_at`, proof status fields. |
 | `sop_task_scan_attempts` | Legacy/domain scan attempt audit for SOP-style task flows. Do not treat this as product analytics. | RFID/tag attempt rows when that domain path writes them. |
 | `sop_task_scan_captures` | Legacy/domain scan capture audit for SOP-style task flows. Do not treat this as product analytics. | Durable domain scan rows when that domain path writes them. |
@@ -56,14 +55,14 @@ through the scan row. RFID/tag is the primary evidence key; goat/animal ids are
 only lookup context and must not be treated as a substitute because one goat can
 have multiple tags. However, `proof_artifacts` can be populated while
 `sop_task_scan_attempts`/`sop_task_scan_captures` are empty, because proof upload
-and the separate explicit scan audit/product analytics paths are different. To
+and the separate explicit scan/product analytics paths are different. To
 answer "did the operator scan and submit proof in the app", `proof_artifacts` is
 valid evidence. To answer "did every RFID/button/dialog analytics event fire",
-check `audit_log` and Firebase.
+check `analytics.app_events` and Firebase.
 
 ## Vaccination Journey
 
-Firebase event names and backend `audit_log` event names:
+Firebase event names and backend `analytics.app_events.event_name` values:
 
 - `vaccination_operator_action`
 - `vaccination_scan_attempt`
@@ -134,7 +133,7 @@ Vaccination proof rows:
 
 ## Weighing Journey
 
-Firebase event names and backend `audit_log` event names:
+Firebase event names and backend `analytics.app_events.event_name` values:
 
 - `weighing_viewed`
 - `weighing_operator_action`
@@ -247,15 +246,14 @@ Backend:
 
 ```sql
 select
-  created_at,
-  principal_id,
-  resource_id,
-  metadata->>'event_name' as event_name,
-  metadata->'properties' as properties
-from audit_log
-where action = 'app.analytics.event'
-  and resource_type = 'app_analytics_event'
-  and metadata->>'event_name' in (
+  received_at,
+  client_event_time,
+  actor_id,
+  device_id,
+  event_name,
+  properties
+from analytics.app_events
+where event_name in (
     'firebase_analytics_proof',
     'vaccination_operator_action',
     'vaccination_scan_capture_queued',
@@ -264,7 +262,7 @@ where action = 'app.analytics.event'
     'weighing_scan_capture_queued',
     'weighing_proof_upload_queued'
   )
-order by created_at desc
+order by received_at desc
 limit 100;
 ```
 
@@ -288,8 +286,8 @@ order by created_at desc
 limit 100;
 ```
 
-If `proof_artifacts` has rows but `audit_log` does not have matching
-`app.analytics.event` rows, the app did receive scan+proof activity for those
+If `proof_artifacts` has rows but `analytics.app_events` does not have matching
+event rows, the app did receive scan+proof activity for those
 items, but the explicit analytics sink is broken or missing for that journey.
 
 ## Release Guard
