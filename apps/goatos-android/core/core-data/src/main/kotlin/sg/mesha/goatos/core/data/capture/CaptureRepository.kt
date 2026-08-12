@@ -251,9 +251,24 @@ class DefaultScanCaptureRepository(
             ),
         )) {
             is AppResult.Ok -> retryFailedScanCaptureIfNeeded(result.value)
-            is AppResult.Err -> Unit
+            is AppResult.Err -> markScanCaptureFailed(taskId, partitionKey, fieldKey, tag)
             null -> Unit
         }
+    }
+
+    private suspend fun markScanCaptureFailed(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+    ) = withContext(dispatchers.io) {
+        dao.markFieldTagStatus(
+            taskId = taskId,
+            partitionKey = partitionKey,
+            fieldKey = fieldKey,
+            tag = tag,
+            status = EntitySyncStatus.FAILED.name,
+        )
     }
 
     private suspend fun retryFailedScanCaptureIfNeeded(outboxItemId: String) {

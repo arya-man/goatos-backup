@@ -629,7 +629,28 @@ class ScanViewModel @Inject constructor(
             if (tagRows.isEmpty()) {
                 val classified = taskId?.takeIf(String::isNotBlank)
                     ?.let { selectedTaskId ->
-                        runCatching { repo.classifyScanTag(id, selectedTaskId, tag, partitionLabel) }.getOrNull()
+                        runCatching { repo.classifyScanTag(id, selectedTaskId, tag, partitionLabel) }
+                            .getOrElse { error ->
+                                val reason = "classification_failed:${error.scanFailureReason()}"
+                                _proofReplacementGoatId.value = null
+                                _duplicateNotice.value = null
+                                _scanErrorNotice.value = ScanError(message = "Scan check failed · try again", tag = tag)
+                                recordScanAttempt(
+                                    tag = tag,
+                                    row = null,
+                                    outcome = RfidScanAttemptOutcome.UNKNOWN,
+                                    tagRole = RfidScanTagRole.UNKNOWN,
+                                    reason = reason,
+                                    capturedAtMs = capturedAtMs,
+                                )
+                                _feed.update {
+                                    prependFeed(
+                                        ScanFeedEntry(tag, null, "scan check failed", ScanStatus.SKIPPED, scanTimeLabel(capturedAtMs)),
+                                        it,
+                                    )
+                                }
+                                return@launch
+                            }
                     }
                 if (classified?.outcome == "neighbor_partition") {
                     val selectedTaskId = taskId?.takeIf(String::isNotBlank) ?: return@launch
@@ -665,6 +686,7 @@ class ScanViewModel @Inject constructor(
                         tagRole = row.tagRoleFor(target),
                         reason = "neighbor_partition",
                         capturedAtMs = capturedAtMs,
+                        scanTaskId = classified.targetTaskId.ifBlank { selectedTaskId },
                     )
                     markRowDone(
                         row,
@@ -676,8 +698,9 @@ class ScanViewModel @Inject constructor(
                         neighborScope = true,
                     )
                     val targetTaskId = classified.targetTaskId.ifBlank { selectedTaskId }
-                    recordRosterScan(row, tag, capturedAtMs, classified.partitionLabel, targetTaskId)
-                    requestGoatProof(row, classified.partitionLabel, targetTaskId)
+                    if (recordRosterScan(row, tag, capturedAtMs, classified.partitionLabel, targetTaskId)) {
+                        requestGoatProof(row, classified.partitionLabel, targetTaskId)
+                    }
                     return@launch
                 }
                 _proofReplacementGoatId.value = null
@@ -737,8 +760,9 @@ class ScanViewModel @Inject constructor(
                     _duplicateNotice.value = null
                     _scanErrorNotice.value = null
                     recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null, capturedAtMs)
-                    recordRosterScan(row, tag, capturedAtMs)
-                    requestGoatProof(row)
+                    if (recordRosterScan(row, tag, capturedAtMs)) {
+                        requestGoatProof(row)
+                    }
                 }
                 ScanStatus.DONE -> {
                     val armedReplacementGoatId = _proofReplacementGoatId.value
@@ -748,8 +772,9 @@ class ScanViewModel @Inject constructor(
                         _duplicateNotice.value = null
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan", capturedAtMs)
-                        recordRosterScan(row, tag, capturedAtMs)
-                        requestGoatProof(row)
+                        if (recordRosterScan(row, tag, capturedAtMs)) {
+                            requestGoatProof(row)
+                        }
                     } else if (proofPolicy.value.isPerGoatVideo && armedReplacementGoatId == row.goatId) {
                         _proofReplacementGoatId.value = null
                         _duplicateNotice.value = null
@@ -764,8 +789,9 @@ class ScanViewModel @Inject constructor(
                         _duplicateNotice.value = null
                         _scanErrorNotice.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "proof_rescan", capturedAtMs)
-                        recordRosterScan(row, tag, capturedAtMs)
-                        requestGoatProof(row)
+                        if (recordRosterScan(row, tag, capturedAtMs)) {
+                            requestGoatProof(row)
+                        }
                     } else {
                         _proofReplacementGoatId.value = null
                         recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned", capturedAtMs)
@@ -842,17 +868,17 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun recordRosterScan(
+    private suspend fun recordRosterScan(
         row: RosterRow,
         tag: String,
         capturedAtMs: Long,
         scanPartitionLabel: String? = partitionLabel,
         scanTaskId: String? = taskId,
-    ) {
-        val selectedTaskId = scanTaskId?.takeIf { it.isNotBlank() } ?: return
+    ): Boolean {
+        val selectedTaskId = scanTaskId?.takeIf { it.isNotBlank() } ?: return false
         val capturedTag = tag.ifBlank { row.primaryTag }
-        if (normalize(capturedTag).isEmpty()) return
-        viewModelScope.launch {
+        if (normalize(capturedTag).isEmpty()) return false
+        return try {
             scanCaptureRepository.recordScan(
                 taskId = selectedTaskId,
                 fieldKey = ROSTER_SCAN_FIELD_KEY,
@@ -866,6 +892,21 @@ class ScanViewModel @Inject constructor(
                 capturedAtMs = capturedAtMs,
                 partitionLabel = scanPartitionLabel,
             )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val reason = "scan_capture_write_failed:${error.scanFailureReason()}"
+            analytics.track(
+                AnalyticsEvents.VACCINATION_SCAN_REJECTED,
+                vaccinationActionProps(row, capturedTag) +
+                    mapOf(
+                        AnalyticsEvents.Params.OUTCOME to "write_failed",
+                        AnalyticsEvents.Params.REASON to reason.take(MAX_ANALYTICS_REASON_CHARS),
+                    ),
+            )
+            _scanErrorNotice.value = ScanError(message = "Scan was not saved · try again", tag = capturedTag)
+            false
         }
     }
 
@@ -876,8 +917,9 @@ class ScanViewModel @Inject constructor(
         tagRole: RfidScanTagRole,
         reason: String?,
         capturedAtMs: Long? = null,
+        scanTaskId: String? = taskId,
     ) {
-        val selectedTaskId = taskId ?: return
+        val selectedTaskId = scanTaskId?.takeIf { it.isNotBlank() } ?: return
         val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
         if (normalize(capturedTag).isEmpty()) return
         analytics.track(
@@ -893,17 +935,30 @@ class ScanViewModel @Inject constructor(
                 ),
         )
         viewModelScope.launch {
-            scanAttemptRepository.recordAttempt(
-                taskId = selectedTaskId,
-                fieldKey = ROSTER_SCAN_FIELD_KEY,
-                tag = capturedTag,
-                goatId = row?.goatId,
-                obligationId = row?.obligationId,
-                outcome = outcome,
-                tagRole = tagRole,
-                reason = reason,
-                capturedAtMs = capturedAtMs,
-            )
+            try {
+                scanAttemptRepository.recordAttempt(
+                    taskId = selectedTaskId,
+                    fieldKey = ROSTER_SCAN_FIELD_KEY,
+                    tag = capturedTag,
+                    goatId = row?.goatId,
+                    obligationId = row?.obligationId,
+                    outcome = outcome,
+                    tagRole = tagRole,
+                    reason = reason,
+                    capturedAtMs = capturedAtMs,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SCAN_REJECTED,
+                    vaccinationActionProps(row, capturedTag) +
+                        mapOf(
+                            AnalyticsEvents.Params.OUTCOME to "attempt_write_failed",
+                            AnalyticsEvents.Params.REASON to "scan_attempt_write_failed:${error.scanFailureReason()}".take(MAX_ANALYTICS_REASON_CHARS),
+                        ),
+                )
+            }
         }
     }
 
@@ -1550,6 +1605,11 @@ private fun scanTimeLabel(capturedAtMs: Long): String =
 
 private fun timeOnlyLabel(capturedAtMs: Long): String =
     DateTimeFormatter.ofPattern("h:mm a 'IST'").withZone(IST_ZONE).format(Instant.ofEpochMilli(capturedAtMs))
+
+private fun Throwable.scanFailureReason(): String =
+    (message ?: this::class.simpleName.orEmpty())
+        .ifBlank { "unknown" }
+        .take(MAX_ANALYTICS_REASON_CHARS)
 
     // Dedup by primaryTag: a re-scan of a tag already in the feed (unknown/skipped/done paths all
     // funnel through here) replaces its row in place instead of piling up a second entry — the tag

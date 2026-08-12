@@ -48,10 +48,9 @@ import sg.mesha.goatos.core.permissions.isPermissionGranted
 import sg.mesha.goatos.core.permissions.shouldShowRationale
 
 /**
- * Login-time, OS-version-aware device-permission gate
- * (docs/mobile/rfid-keyboard-reader.md permission matrix +
- * docs/mobile/trd-operator-mobile.md §7). This is an optional readiness card only;
- * mandatory operator capture checks live on the scan/submit route after role resolution.
+ * Login-time notification readiness card. Role-specific capture permissions are not
+ * knowable until bootstrap returns the user's backend-composed module flags, so camera,
+ * microphone, location accuracy, and RFID/Bluetooth stay in [RoleBasedPermissionGate].
  *
  * This is DEVICE permission UX only. Server-authoritative RBAC (TRD §7/§14) is
  * completely unaffected — no permission state here changes what the backend allows.
@@ -63,8 +62,7 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
  * `build.gradle.kts`): [onGateShown]/[onPermissionAnswered] report every render-with-a-gap and
  * every grant/deny to the host (`LoginScreen` -> `MainActivity`, which holds the injected
  * [sg.mesha.goatos.core.analytics.AnalyticsPort]), the same pattern
- * [RoleBasedPermissionGate] already uses for the mandatory gate. A denied camera permission here
- * is exactly why an operator "can't record" later, and today nothing at all surfaces that.
+ * [RoleBasedPermissionGate] already uses for the mandatory gate.
  */
 @Composable
 fun PermissionGateCard(
@@ -74,7 +72,9 @@ fun PermissionGateCard(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val required = remember { AppPermission.requiredForSdkInt() }
+    val required = remember {
+        AppPermission.requiredForSdkInt().filter { it == AppPermission.NOTIFICATIONS }
+    }
     if (required.isEmpty()) return
 
     // Only knowable as "permanently denied" after repeated real requests — before the
@@ -209,23 +209,29 @@ private fun appSettingsIntent(packageName: String): Intent =
 @Composable
 private fun iconFor(permission: AppPermission): ImageVector = when (permission) {
     AppPermission.CAMERA -> MeshaIcons.Video
+    AppPermission.MICROPHONE -> MeshaIcons.Video
     AppPermission.BLUETOOTH_CONNECT -> MeshaIcons.Bluetooth
     AppPermission.NOTIFICATIONS -> MeshaIcons.Bell
-    AppPermission.LOCATION -> MeshaIcons.Home
+    AppPermission.APPROXIMATE_LOCATION -> MeshaIcons.Home
+    AppPermission.PRECISE_LOCATION -> MeshaIcons.Home
 }
 
 @Composable
 private fun labelFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_label_camera)
+    AppPermission.MICROPHONE -> stringResource(R.string.perm_label_microphone)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_label_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_label_notifications)
-    AppPermission.LOCATION -> stringResource(R.string.perm_label_location)
+    AppPermission.APPROXIMATE_LOCATION -> stringResource(R.string.perm_label_location)
+    AppPermission.PRECISE_LOCATION -> stringResource(R.string.perm_label_precise_location)
 }
 
 @Composable
 private fun rationaleFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_rationale_camera)
+    AppPermission.MICROPHONE -> stringResource(R.string.perm_rationale_microphone)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_rationale_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_rationale_notifications)
-    AppPermission.LOCATION -> stringResource(R.string.perm_rationale_location)
+    AppPermission.APPROXIMATE_LOCATION -> stringResource(R.string.perm_rationale_location)
+    AppPermission.PRECISE_LOCATION -> stringResource(R.string.perm_rationale_precise_location)
 }

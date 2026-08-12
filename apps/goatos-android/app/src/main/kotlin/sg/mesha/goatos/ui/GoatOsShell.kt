@@ -351,8 +351,9 @@ fun GoatOsShell(navState: NavState) {
         // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
         // Blocks the app until all required permissions (based on role) are granted.
         //
-        // Operators require: camera (proof capture), BLE (RFID reader), notifications (alerts)
-        // All other roles require: notifications (alerts) only
+        // Operators require: camera/microphone (proof capture), precise location, BLE
+        // (RFID reader), and Android 13+ notifications (alerts).
+        // All other roles require Android 13+ notifications (alerts) only.
         //
         // Derives requirements from the backend-composed module list (featureFlags indicate
         // vaccination_execute, weighing_execute, etc.) rather than hardcoding role strings,

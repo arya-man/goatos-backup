@@ -2765,7 +2765,7 @@ LEFT JOIN LATERAL (
 WHERE oi.tenant_id = $1::uuid
   AND g.goat_id = (SELECT goat_id FROM matched_goat)
   AND g.shed_id = (SELECT shed_id FROM matched_goat)
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'missed')
+  AND oi.status IN ('scheduled', 'due', 'in_progress')
   AND vda.assigned IS NOT NULL
   AND ($5::uuid[] IS NULL OR g.park_id = ANY($5::uuid[]))
 GROUP BY g.goat_id, aid1.identifier_value, aid2.identifier_value, loc.name, gsp.partition_label, gsp.source_shed_name, COALESCE(oi.sop_task_id, ob.sop_task_id), oi.batch_id

@@ -52,13 +52,15 @@ internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
 internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
     add(Manifest.permission.RECORD_AUDIO)
+    if (sdkInt >= Build.VERSION_CODES.S) {
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
+    add(Manifest.permission.ACCESS_FINE_LOCATION)
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
         add(Manifest.permission.POST_NOTIFICATIONS)
     }
     if (sdkInt >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
-    } else {
-        add(Manifest.permission.ACCESS_FINE_LOCATION) // Bluetooth dependency on pre-12.
     }
 }
 
@@ -104,7 +106,7 @@ fun CaptureAccessGate(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Allow camera, location, and file access to continue.",
+            "Allow camera, microphone, precise location, reader, and alerts access to continue.",
             color = MeshaColors.Muted,
             style = MeshaType.rowLabel,
         )
@@ -138,8 +140,9 @@ fun CaptureAccessGate(
 internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
     Manifest.permission.RECORD_AUDIO -> "Microphone"
+    Manifest.permission.ACCESS_COARSE_LOCATION -> "Location accuracy"
+    Manifest.permission.ACCESS_FINE_LOCATION -> "Precise location"
     Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth (RFID reader)"
-    Manifest.permission.ACCESS_FINE_LOCATION -> "Location (Bluetooth dependency)"
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
     else -> permission
 }

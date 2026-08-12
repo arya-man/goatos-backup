@@ -48,7 +48,7 @@ import androidx.compose.ui.window.DialogProperties
  * Role-based mandatory permission gate. Shown before any work screen is accessible.
  *
  * Requirements are derived from the backend-composed module list and the person's role:
- * - operator: location, camera, BLE (BLUETOOTH_SCAN/BLUETOOTH_CONNECT), notifications
+ * - operator: location, camera, microphone, BLE (BLUETOOTH_SCAN/BLUETOOTH_CONNECT), notifications
  * - verifier/director/CEO: notifications + any permissions their workflows require
  *
  * The gate is NON-DISMISSIBLE: no back press, outside tap, or close button. App unusable
@@ -234,7 +234,7 @@ fun RoleBasedPermissionGate(
 /**
  * Derive required permissions from the NavState and modules.
  *
- * Operator: location, camera, BLE (BLUETOOTH_CONNECT on API 31+), notifications
+ * Operator: location, camera, microphone, BLE (BLUETOOTH_CONNECT on API 31+), notifications
  * Verifier/Director/CEO: notifications only (for now)
  *
  * Uses module availability as the source, not hardcoded role strings.
@@ -244,7 +244,7 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
     val isOperator = navState.featureFlags["vaccination_execute"] == true ||
             navState.featureFlags["weighing_execute"] == true
 
-    val required = mutableListOf<String>() // mobile-guard:ignore: function-local, at most 4 permission names, discarded on return
+    val required = mutableListOf<String>() // mobile-guard:ignore: function-local, small permission catalog, discarded on return
 
     // Always require notifications
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -252,16 +252,17 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
     }
 
     if (isOperator) {
-        // Location is only declared (and therefore only grantable) up to API 30 — the manifest
-        // caps ACCESS_FINE_LOCATION at maxSdkVersion 30 because BLUETOOTH_SCAN is
-        // neverForLocation from Android 12. Requesting it on a newer phone can never succeed and
-        // would strand the operator behind this mandatory gate, so honour the SDK window.
-        if (AppPermission.LOCATION in AppPermission.requiredForSdkInt()) {
-            required.add(AppPermission.LOCATION.manifestPermission)
+        // Android 12+ needs coarse+fine in the request to show the system accuracy choice.
+        // Fine/precise is still mandatory: if the operator chooses approximate only, fine
+        // remains denied and this gate stays closed.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            required.add(AppPermission.APPROXIMATE_LOCATION.manifestPermission)
         }
+        required.add(AppPermission.PRECISE_LOCATION.manifestPermission)
 
-        // Operator requires camera for proof capture
+        // Operator requires camera and microphone for proof capture.
         required.add(AppPermission.CAMERA.manifestPermission)
+        required.add(AppPermission.MICROPHONE.manifestPermission)
 
         // Operator requires Bluetooth for RFID reader (API 31+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

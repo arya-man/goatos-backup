@@ -37,11 +37,13 @@
 
     <!-- Optional device-readiness copy retained for operator onboarding surfaces. -->
     <string name="perm_gate_title">Device permissions</string>
-    <string name="perm_gate_subtitle">Grant these once so scanning, alerts, and camera proof work in the field.</string>
+    <string name="perm_gate_subtitle">Grant these once so scanning, alerts, and proof videos work in the field.</string>
     <string name="perm_gate_footer">You can still sign in without these. Operator capture will ask when access is needed.</string>
     <string name="perm_gate_grant_access">Grant access</string>
     <string name="perm_label_camera">Camera</string>
-    <string name="perm_rationale_camera">Records camera-only proof clips for each scanned goat.</string>
+    <string name="perm_rationale_camera">Records proof video for each scanned goat.</string>
+    <string name="perm_label_microphone">Microphone</string>
+    <string name="perm_rationale_microphone">Records the operator voice in proof videos.</string>
     <string name="perm_label_bluetooth">Nearby devices</string>
     <string name="perm_rationale_bluetooth">Reads the paired RFID reader\'s connection status.</string>
     <string name="perm_label_notifications">Notifications</string>
@@ -51,15 +53,19 @@
     <string name="perm_status_open_settings">Open Settings</string>
 
     <!-- Mandatory role-based permission gate (RoleBasedPermissionGate.kt).
-         Non-dismissible dialog shown after bootstrap. Operators require camera, BLE, and notifications.
-         All roles require notifications. Farm language: explain consequences and navigate to settings if needed. -->
+         Non-dismissible dialog shown after bootstrap. Operators require camera, microphone,
+         precise location, BLE, and Android 13+ notifications. Other roles only request
+         Android 13+ notifications. Farm language: explain consequences and navigate to
+         settings if needed. -->
     <string name="mandatory_permissions_title">Grant permissions to continue</string>
     <string name="mandatory_permissions_body">This phone needs these permissions before you can start work. The app will not work without them.</string>
-    <string name="mandatory_permissions_why">Camera records proof videos for each animal. Notifications tell you when work is due. Nearby devices connects your RFID reader.</string>
+    <string name="mandatory_permissions_why">Camera and microphone record proof videos for each animal. Precise location confirms where work happened. Notifications tell you when work is due. Nearby devices connects your RFID reader.</string>
     <string name="mandatory_permissions_grant">Grant permissions</string>
     <string name="mandatory_permissions_settings">Open settings</string>
     <string name="mandatory_permissions_settings_help">Your phone will not ask again. Open the settings app below. Find Mesha, tap Permissions, and enable the required permissions. Return to this app when done.</string>
     <string name="mandatory_permissions_retry_help">Your phone can still ask. Tap the button above and choose Allow — work cannot start until every permission below is on.</string>
     <string name="perm_label_location">Location</string>
     <string name="perm_rationale_location">Shows which park and shed the work was done in.</string>
+    <string name="perm_label_precise_location">Precise location</string>
+    <string name="perm_rationale_precise_location">Confirms the park and shed where work was done.</string>
 </resources>

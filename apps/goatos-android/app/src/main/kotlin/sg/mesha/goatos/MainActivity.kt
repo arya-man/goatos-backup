@@ -160,9 +160,8 @@ class MainActivity : ComponentActivity() {
                 } else if (authed == false) {
                     val uiState by sessionViewModel.uiState.collectAsStateWithLifecycle()
                     // dev flavor: local HS256 bearer; stg/prod: real Firebase Auth.
-                    // LoginScreen itself renders the login-time device-permission gate
-                    // (Camera/Bluetooth/Notifications — core-permissions + rationale UI);
-                    // it supersedes the old onCreate-time silent BLUETOOTH_CONNECT request.
+                    // LoginScreen renders only login-safe permission readiness such as
+                    // notifications. Operator capture permissions wait until role bootstrap.
                     LoginScreen(
                         onSignInEmail = sessionViewModel::signInWithEmail,
                         onGoogle = { sessionViewModel.signInWithGoogle(this@MainActivity) },
