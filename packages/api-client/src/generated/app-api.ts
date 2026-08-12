@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/analytics/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mirror one Android analytics event into backend audit storage.
+         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in audit_log with action=app.analytics.event so scan/proof journeys can be queried even when Firebase UI is delayed.
+         */
+        post: operations["recordAppAnalyticsEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin-web/bootstrap": {
         parameters: {
             query?: never;
@@ -4546,6 +4566,8 @@ export interface components {
             /** Format: uuid */
             driveId?: string;
             driveName?: string;
+            /** @description All vaccine labels represented by this execution row. Mobile shed cards render these as vaccine chips; driveName is only the primary/back-compat label. */
+            vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
             workState: components["schemas"]["VaccinationExecutionWorkState"];
@@ -5653,9 +5675,15 @@ export interface components {
             /** Format: uuid */
             operator_user_id: string;
             status: components["schemas"]["WeighingCampaignShedStatus"];
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Business date originally planned for this operator task.
+             */
             planned_business_date?: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Current due business date after roll-forward.
+             */
             due_business_date?: string;
             /** @description Number of submitted weighing videos in this bucket that a verifier sent back for rework. */
             rework_count: number;
@@ -7094,6 +7122,46 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    recordAppAnalyticsEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    event_name: string;
+                    properties?: {
+                        [key: string]: string;
+                    };
+                    /** Format: int64 */
+                    client_event_time_ms: number;
+                    flavor: string;
+                    app_version_name: string;
+                    app_version_code: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Analytics event accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
         };
     };
     adminWebBootstrap: {
@@ -10250,6 +10318,10 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
+                            originalShed?: string;
+                            originalPartitionLabel?: string;
+                            detectedShed?: string;
+                            detectedPartitionLabel?: string;
                             /**
                              * Format: date-time
                              * @description Exact RFID scan timestamp persisted by the backend for this task row.
