@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.FanOutAnalytics
 import sg.mesha.goatos.core.analytics.FirebaseAnalyticsAdapter
+import sg.mesha.goatos.core.analytics.LogcatAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.network.AppApi
 import javax.inject.Provider
@@ -44,8 +45,8 @@ object AnalyticsModule {
         analyticsContext: AnalyticsContext,
         appApi: Provider<AppApi>,
         appScope: CoroutineScope,
-    ): AnalyticsPort =
-        if (BuildConfig.TELEMETRY_ENABLED) {
+    ): AnalyticsPort {
+        val sink: AnalyticsPort = if (BuildConfig.TELEMETRY_ENABLED) {
             FanOutAnalytics(
                 FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext),
                 BackendAnalyticsAdapter(appApi, appScope, analyticsContext),
@@ -53,6 +54,10 @@ object AnalyticsModule {
         } else {
             NoopAnalytics()
         }
+        // Debug builds mirror every analytics event to logcat (tag GoatOSAnalytics), which is the
+        // durable proof path for real-phone E2E when Firebase delivery is delayed or unavailable.
+        return if (BuildConfig.DEBUG) LogcatAnalyticsAdapter(sink, analyticsContext) else sink
+    }
 
     @Provides
     @Singleton
