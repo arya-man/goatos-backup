@@ -71,19 +71,24 @@ class FailureReportingNetworkTelemetryReporter(
         val summary = summarize(event)
         logLine(summary)
         crashReporter.log(summary)
-        analytics.track(
-            AnalyticsEvents.API_CALL_FAILURE,
-            mapOf(
-                AnalyticsEvents.Params.METHOD to event.method,
-                AnalyticsEvents.Params.ROUTE to event.route,
-                AnalyticsEvents.Params.STATUS_CODE to event.statusCode.toString(),
-                AnalyticsEvents.Params.DURATION_MS to event.durationMs.toString(),
-            ),
-        )
+        if (shouldMirrorToAnalytics(event)) {
+            analytics.track(
+                AnalyticsEvents.API_CALL_FAILURE,
+                mapOf(
+                    AnalyticsEvents.Params.METHOD to event.method,
+                    AnalyticsEvents.Params.ROUTE to event.route,
+                    AnalyticsEvents.Params.STATUS_CODE to event.statusCode.toString(),
+                    AnalyticsEvents.Params.DURATION_MS to event.durationMs.toString(),
+                ),
+            )
+        }
         if (shouldRecordNonFatal(event)) {
             crashReporter.recordException(ApiCallFailure(summary), summary)
         }
     }
+
+    private fun shouldMirrorToAnalytics(event: NetworkTelemetryEvent): Boolean =
+        event.route !in TELEMETRY_INGEST_ROUTES
 
     private fun shouldRecordNonFatal(event: NetworkTelemetryEvent): Boolean {
         if (!isCrashlyticsActionable(event)) return false
@@ -126,6 +131,11 @@ class FailureReportingNetworkTelemetryReporter(
         private val DEVICE_SESSION_ROUTES = setOf(
             "/app/devices/register",
             "/app/devices/{id}/heartbeat",
+        )
+
+        private val TELEMETRY_INGEST_ROUTES = setOf(
+            "/app/analytics/events",
+            "/auth/session-events",
         )
     }
 }

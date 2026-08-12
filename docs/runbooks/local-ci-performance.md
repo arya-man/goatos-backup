@@ -12,10 +12,8 @@ measured cost of each part.
   and the pre-push hook (authoritative for gate semantics).
 - `docs/runbooks/local-ci.md` — guardrail registration.
 
-> **The one thing that voids everything below:** `GOATOS_BYPASS_LOCAL_CI=1`
-> makes `make land-main` skip `make ci-local` *and* the receipt, and push
-> anyway. No amount of tuning here matters if that flag is set. See the flag
-> table.
+> Main landing has no local-CI bypass. Speed comes from accurate job selection
+> and timing evidence, not from skipping the exact-SHA receipt gate.
 
 ---
 
@@ -47,9 +45,8 @@ each changed path through `tools/ci/component-paths.json`:
 
 - `common` is **always** selected (`selectedJobs` is seeded with it
   unconditionally).
-- `backend` selected ⇒ `query-plans` is selected too.
-- A path in `forceFull` (this includes **`tools/ci/**` and the `Makefile`**)
-  forces backend + admin-web + android.
+- `query-plans` is selected only for SQL, migrations, Postgres repository code, or broad API contract fanout.
+- High-risk shared files in `forceFull` force backend + admin-web + android; scoped CI helper files run common self-tests plus the originally affected components.
 - An **unmapped** path also forces the full suite — the classifier fails safe.
 - No diff paths at all ⇒ full suite.
 
@@ -57,8 +54,9 @@ each changed path through `tools/ci/component-paths.json`:
 `mode=all`; otherwise the run records `mode=scoped` plus the exact base and the
 selected job list.
 
-**Consequence for anyone editing CI itself:** any change under `tools/ci/` or to
-the `Makefile` is a full-suite landing. Batch such work into one commit.
+**Consequence for anyone editing CI itself:** CI helper changes are scoped through
+`ciCommonOnly` when their own self-tests cover the behavior. High-risk shared
+workflow/Makefile changes still force a full-suite landing.
 
 ---
 
@@ -77,7 +75,7 @@ authorise a push to `main`?*
 | `GOATOS_CI_BASE` | `origin/main` (single resolver: `run-local-ci.sh` `resolve_ci_base`) | The diff base for the classifier AND the Android UI-diff detector. An unresolvable ref falls back to `HEAD~1` **loudly**, and that fallback is FATAL (exit 4) on the receipt-writing `auto`/`all` modes | Indirect — a narrower base selects fewer jobs | Yes: the resolved base is recorded on EVERY receipt (`all` and `scoped`) and must be an ancestor of real remote main at push time |
 | `MODE=all` (make var) | unset | `make ci-local MODE=all` forces every job | Maximum | Yes, `mode=all` |
 | `JOB=<job>` (make var) | unset | `make ci-local JOB=common\|backend\|query-plans\|guardrails\|admin-web\|android` runs exactly that job. Does NOT enable `GOATOS_FAST_LOCAL_CI` — for the iterate loop use `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job>`, or `make ci-local JOB=android` silently takes the slow `--no-daemon` path and also pays the benchmark compile, while the RED banner's script-shaped command does neither. The dominant saving on a landing is the Gradle daemon on `:app compile+unit+lint`: **84–288 s** without the daemon vs **17–50 s** with it. The benchmark compile itself is modest: **2–24 s** | Minimal | **NO — partial runs never write a receipt** |
-| `GOATOS_BYPASS_LOCAL_CI` | `0` (`land-main.sh:68`) | **`land-main` only.** Skips `make ci-local` *and* the exact-SHA receipt, then still pushes. `prePush()` also returns early before `evaluatePush` | Skips everything | **Pushes with NO receipt and NO gate.** This is the one flag that voids the whole evidence model. Do not use it outside a documented incident |
+| `GOATOS_BYPASS_LOCAL_CI` | unsupported | Rejected by `land-main`; ignored by the pre-push evidence path | None | **NO.** Main requires a green exact-SHA receipt. |
 | `GOATOS_LAND_MAX_ATTEMPTS` | `3` (`land-main.sh:90`) | How many rebase→full-CI→re-fetch attempts `land-main` will make when `main` moves under it | A contended `main` can pay the **entire** gate up to 3×. This dominates a bad landing | n/a. Lowering it is a failure mode, not a speedup |
 | `GOATOS_LAND_TEST_MODE` / `GOATOS_LAND_TEST_CI_COMMAND` | `0` / unset (`land-main.sh:67`, `:124`) | Used by `tools/ci/land-main.test.sh` to drive `land-main` with a fake CI command | n/a | Test harness only |
 | `GOATOS_CI_LOCAL_JOBS` | `3` (`parallel-dispatch.sh:43`, hard-clamped 1..4) | Parallel job-dispatch width. `1` degrades to sequential. Never changes WHICH jobs run; contending jobs (`android`→gradle, `backend`+`query-plans`→docker) are grouped and never overlap regardless of width | Wall-clock only | Yes — receipt semantics are untouched by dispatch width |

@@ -1,7 +1,6 @@
-// Package http exposes the feed-direction generation read API plus the ONE write path the module now
-// owns: recording that a shed-session's feed direction was carried out (POST /feed-direction/complete).
-// The two GET routes remain pure reads; the completion route is idempotent (Idempotency-Key header)
-// and is the client-facing edge of the feed.direction.completed producer.
+// Package http exposes feed-direction generation reads plus verifier-gated feed proof submissions.
+// The old instant-complete route is deliberately not registered; completion happens only after
+// proof review.
 package http
 
 import (
@@ -19,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -54,7 +54,6 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
-	mux.HandleFunc("POST /feed-direction/complete", h.PostComplete)
 	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
 	// (the old instant path).
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
@@ -534,18 +533,29 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "status must be one of pending, pending_verification, completed", nil)
 		return
 	}
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(),
+		tenantID,
+		strings.TrimSpace(query.Get("park_id")),
+		permissions.FeedDirectionRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
+		return
+	}
 
 	page, err := h.service.Preview(r.Context(), domain.PreviewQuery{
-		TenantID:   tenantID,
-		ParkID:     strings.TrimSpace(query.Get("park_id")),
-		TargetDate: targetDate,
-		ShedID:     strings.TrimSpace(query.Get("shed_id")),
-		SessionNo:  sessionNo,
-		Workflow:   strings.TrimSpace(query.Get("workflow")),
-		Status:     status,
-		Draft:      parseDraft(query),
-		Limit:      limit,
-		Offset:     offset,
+		TenantID:          tenantID,
+		ParkID:            parkScope.ParkID,
+		AuthorizedParkIDs: parkScope.ParkIDs,
+		TargetDate:        targetDate,
+		ShedID:            strings.TrimSpace(query.Get("shed_id")),
+		SessionNo:         sessionNo,
+		Workflow:          strings.TrimSpace(query.Get("workflow")),
+		Status:            status,
+		Draft:             parseDraft(query),
+		Limit:             limit,
+		Offset:            offset,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed direction preview", err)
@@ -591,17 +601,28 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "status must be one of pending, pending_verification, completed", nil)
 		return
 	}
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(),
+		tenantID,
+		strings.TrimSpace(query.Get("park_id")),
+		permissions.FeedPackingRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, parkScope.Message, nil)
+		return
+	}
 
 	page, err := h.service.PackingWorklist(r.Context(), domain.PackingQuery{
-		TenantID:   tenantID,
-		ParkID:     strings.TrimSpace(query.Get("park_id")),
-		TargetDate: targetDate,
-		SessionNo:  sessionNo,
-		Workflow:   strings.TrimSpace(query.Get("workflow")),
-		Status:     status,
-		Draft:      parseDraft(query),
-		Limit:      limit,
-		Offset:     offset,
+		TenantID:          tenantID,
+		ParkID:            parkScope.ParkID,
+		AuthorizedParkIDs: parkScope.ParkIDs,
+		TargetDate:        targetDate,
+		SessionNo:         sessionNo,
+		Workflow:          strings.TrimSpace(query.Get("workflow")),
+		Status:            status,
+		Draft:             parseDraft(query),
+		Limit:             limit,
+		Offset:            offset,
 	})
 	if err != nil {
 		h.writeServiceError(w, r, "feed packing worklist", err)
