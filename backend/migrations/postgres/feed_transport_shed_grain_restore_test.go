@@ -66,7 +66,7 @@ SET current_attempt_id = CASE task_id WHEN $2::uuid THEN $3::uuid WHEN $4::uuid 
 WHERE tenant_id=$1::uuid AND task_id IN ($2::uuid, $4::uuid)`,
 		tenant, penPending, pendingAttempt, penRework, rejectedAttempt, operator)
 
-	raw, err := os.ReadFile("000152_feed_transport_restore_shed_grain.sql")
+	raw, err := os.ReadFile("000155_feed_transport_restore_shed_grain.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}

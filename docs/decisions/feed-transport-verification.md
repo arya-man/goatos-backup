@@ -21,7 +21,7 @@ cutoff. There is no ordinary lateness grace. See
   for the whole shed. Migration `000143` fanned the materializer out over `shed_partitions`, and a
   partitioned shed such as Castro started listing `Castro - 1`, `Castro - 2`, `Castro - 3` as three
   transport tasks -- three videos of one load. That was never a recorded decision and contradicted
-  both this line and AGENTS.md; `000152_feed_transport_restore_shed_grain.sql` is the forward repair.
+  both this line and AGENTS.md; `000155_feed_transport_restore_shed_grain.sql` is the forward repair.
   `000143`/`000146` are not amended, because STG records migration checksums.
   - The repair retires only UNSTARTED pen tasks. A pen task already carrying an attempt --
     `verification_due`, `rework`, or `completed` -- keeps its status and its proof, because an
