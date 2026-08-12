@@ -26,7 +26,7 @@ import (
 // bucket in the SAME campaign, named so the alphabetically-last bucket
 // (and its operator) would have been dropped by the old capped-at-100 payload.
 // It asserts every one of the 102 operators appears in the outbox event's
-// bucket list after the fix.
+// operator summary list after the fix.
 func TestCloseCampaignNotifiesEveryNotAcceptedOperatorBeyondSampleCap(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -108,20 +108,28 @@ func notifiedOperatorsFromOutbox(t *testing.T, ctx context.Context, pool *pgxpoo
 	t.Helper()
 	var raw []byte
 	if err := pool.QueryRow(ctx, `
-SELECT payload->'payload'->'buckets'
+SELECT payload->'payload'->'operators'
 FROM outbox_messages
 WHERE tenant_id=$1::uuid AND event_type='weighing.campaign.closed'`, repoTenant).Scan(&raw); err != nil {
 		t.Fatalf("read campaign close outbox payload: %v", err)
 	}
-	var buckets []struct {
-		OperatorID string `json:"operator_id"`
+	var operators []struct {
+		OperatorID  string   `json:"operator_id"`
+		BucketCount int      `json:"bucket_count"`
+		ShedLabels  []string `json:"shed_labels"`
 	}
-	if err := json.Unmarshal(raw, &buckets); err != nil {
-		t.Fatalf("decode outbox buckets: %v", err)
+	if err := json.Unmarshal(raw, &operators); err != nil {
+		t.Fatalf("decode outbox operators: %v", err)
 	}
-	got := make(map[string]bool, len(buckets))
-	for _, b := range buckets {
-		got[b.OperatorID] = true
+	got := make(map[string]bool, len(operators))
+	for _, operator := range operators {
+		if operator.BucketCount <= 0 {
+			t.Fatalf("operator %s bucket_count=%d, want positive", operator.OperatorID, operator.BucketCount)
+		}
+		if len(operator.ShedLabels) > campaignClosedOperatorLabelSampleLimit {
+			t.Fatalf("operator %s shed label sample has %d labels, want <= %d", operator.OperatorID, len(operator.ShedLabels), campaignClosedOperatorLabelSampleLimit)
+		}
+		got[operator.OperatorID] = true
 	}
 	return got
 }
