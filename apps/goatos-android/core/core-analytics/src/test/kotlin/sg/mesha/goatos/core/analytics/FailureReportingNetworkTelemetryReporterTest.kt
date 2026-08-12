@@ -102,10 +102,29 @@ class FailureReportingNetworkTelemetryReporterTest {
 
     @Test
     fun `a call that threw before any response is a failure too`() {
-        reporter().onNetworkCall(event(-1))
+        reporter().onNetworkCall(event(-1).copy(failureClass = "UnknownHostException"))
 
         assertTrue(logs.first(), logs.first().contains("status=no_response"))
+        assertTrue(logs.first(), logs.first().contains("failure=UnknownHostException"))
         assertEquals("-1", analytics.events.single().second[AnalyticsEvents.Params.STATUS_CODE])
+        assertTrue("offline DNS failures stay out of Crashlytics issues", crash.nonFatals.isEmpty())
+    }
+
+    @Test
+    fun `device register 401 keeps breadcrumbs and analytics but not a non-fatal`() {
+        reporter().onNetworkCall(event(401, route = "/app/devices/register", method = "POST"))
+
+        assertEquals(1, logs.size)
+        assertEquals(1, crash.breadcrumbs.size)
+        assertEquals("401", analytics.events.single().second[AnalyticsEvents.Params.STATUS_CODE])
+        assertTrue(crash.nonFatals.isEmpty())
+    }
+
+    @Test
+    fun `ordinary 401 remains a non-fatal`() {
+        reporter().onNetworkCall(event(401, route = "/app/bootstrap", method = "GET"))
+
+        assertEquals(1, crash.nonFatals.size)
     }
 
     @Test

@@ -424,10 +424,13 @@ class VerifyDetailViewModel @Inject constructor(
             }
             VideoPlaybackAction.PLAYBACK_ERROR -> {
                 val reason = event.reason ?: "unknown"
+                playWatchdogFor(event.proofSubject).disarm()
                 // The player told us the truth the URL could not: this proof will not play. Approve
                 // must go dead for this item; Reject/rework stays open (see toUiState).
                 _flags.update { it.copy(unplayableProofIds = it.unplayableProofIds + event.proofSubject) }
-                runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
+                if (!reason.isExpectedVerificationPlaybackState()) {
+                    runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
+                }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
             VideoPlaybackAction.FULLSCREEN_OPENED ->
@@ -645,4 +648,13 @@ class VerifyDetailViewModel @Inject constructor(
             if (label.isEmpty() || value.isEmpty()) return@mapNotNull null
             VerifyContextRow(kind = VerifyContextKind.RAISED_NOTE, value = value, backendLabel = label)
         }
+}
+
+private fun String.isExpectedVerificationPlaybackState(): Boolean {
+    val normalized = lowercase()
+    return "source error" in normalized ||
+        "behind live window" in normalized ||
+        "cleartext http traffic" in normalized ||
+        "response code: 404" in normalized ||
+        "response code: 410" in normalized
 }

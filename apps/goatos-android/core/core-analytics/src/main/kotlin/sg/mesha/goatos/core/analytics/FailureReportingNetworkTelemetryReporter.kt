@@ -86,6 +86,7 @@ class FailureReportingNetworkTelemetryReporter(
     }
 
     private fun shouldRecordNonFatal(event: NetworkTelemetryEvent): Boolean {
+        if (!isCrashlyticsActionable(event)) return false
         val key = "${event.method} ${event.route} ${event.statusCode}"
         val now = nowMs()
         val previous = lastNonFatalMs[key]
@@ -97,10 +98,17 @@ class FailureReportingNetworkTelemetryReporter(
     /** `-1` means the call threw before any response; anything >= 400 is a refusal or fault. */
     private fun isFailure(statusCode: Int): Boolean = statusCode < 0 || statusCode >= 400
 
+    private fun isCrashlyticsActionable(event: NetworkTelemetryEvent): Boolean {
+        if (event.statusCode < 0) return false
+        if (event.statusCode == 401 && event.route in DEVICE_SESSION_ROUTES) return false
+        return true
+    }
+
     private fun summarize(event: NetworkTelemetryEvent): String {
         val status = if (event.statusCode < 0) "no_response" else event.statusCode.toString()
         return "api_call_failure ${event.method} ${event.route} status=$status " +
-            "duration_ms=${event.durationMs} traceparent=${event.traceparent}"
+            "duration_ms=${event.durationMs} traceparent=${event.traceparent}" +
+            (event.failureClass?.let { " failure=$it" } ?: "")
     }
 
     /**
@@ -114,5 +122,10 @@ class FailureReportingNetworkTelemetryReporter(
 
         /** One non-fatal per `(method, route, status)` per minute — see "Throttling" above. */
         const val NON_FATAL_THROTTLE_MS: Long = 60_000
+
+        private val DEVICE_SESSION_ROUTES = setOf(
+            "/app/devices/register",
+            "/app/devices/{id}/heartbeat",
+        )
     }
 }

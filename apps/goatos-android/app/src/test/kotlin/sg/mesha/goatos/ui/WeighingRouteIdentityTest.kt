@@ -3,6 +3,7 @@ package sg.mesha.goatos.ui
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.feature.weighing.WeighingTaskShedUiRow
 import java.nio.file.Path
 import kotlin.io.path.readText
 
@@ -52,6 +53,19 @@ class WeighingRouteIdentityTest {
         assertTrue(navHost.contains("vm.setCaptureActive(rfidCaptureEnabled)"))
         assertTrue(navHost.contains("vm.setCompletionKeySwallowActive(rfidCaptureEnabled)"))
         assertFalse(navHost.contains(") { launchSingleTop = true }\n                    }\n                },"))
+    }
+
+    @Test
+    fun `cancelled weighing video capture is not reported as a Crashlytics capture failure`() {
+        val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
+        val cancelledBranch = viewModel.substringAfter("if (proof.message == \"missing_video\")")
+            .substringBefore("if (proof.message != \"missing_video\")")
+
+        assertTrue(cancelledBranch.contains("AnalyticsEvents.WEIGHING_PROOF_CAPTURE_CANCELLED"))
+        assertFalse(
+            "missing_video is camera cancel / no recording state; it must not become a Crashlytics non-fatal",
+            cancelledBranch.contains("reportCaptureFailure("),
+        )
     }
 
     // The guarantee is unchanged: an operator who may execute weighing must land on the
@@ -146,7 +160,7 @@ class WeighingRouteIdentityTest {
     @Test
     fun `task detail secondary actions sit below the shed list, not above it`() {
         val screen = taskDetailScreen()
-        val shedList = screen.indexOf("key = { index -> \"shed-\${state.sheds[index].campaignShedId}\" }")
+        val shedList = screen.indexOf("key = { index -> state.sheds[index].uiKey }")
 
         assertTrue("the shed list must still be rendered", shedList > 0)
         assertTrue("Repeat must come after the shed list", screen.indexOf("key = \"task-repeat\"") > shedList)
@@ -194,18 +208,32 @@ class WeighingRouteIdentityTest {
         val files = listOf(
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt",
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt",
+            "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt",
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingLeadershipVideosScreen.kt",
         )
 
         files.forEach { file ->
             val source = Path.of(file).readText()
+            val shedIdOnly = "campaign" + "ShedId"
             assertFalse(
                 "$file must key repeated weighing rows by full work/category identity, not campaignShedId alone",
-                source.contains("key = { _, row -> row.campaignShedId }") ||
-                    source.contains("key = { _, assignment -> assignment.campaignShedId }") ||
-                    source.contains("key = { it.campaignShedId }"),
+                source.contains("key = { _, row -> row.$shedIdOnly }") ||
+                    source.contains("key = { _, assignment -> assignment.$shedIdOnly }") ||
+                    source.contains("key = { index -> \"shed-\${state.sheds[index].$shedIdOnly}\" }") ||
+                    source.contains("key = { it.$shedIdOnly }"),
             )
         }
+
+        val taskDetail = taskDetailScreen()
+        assertTrue(
+            "task-detail shed cards must carry a stable full-grain UI key",
+            taskDetail.contains("val uiKey: String") &&
+                taskDetail.contains("campaignId, campaignShedId, locationId, category"),
+        )
+        assertFalse(
+            "task-detail shed cards must not key by campaignShedId alone",
+            taskDetail.contains("key = { index -> \"shed-\${state.sheds[index].${"campaign"}ShedId}\" }"),
+        )
 
         val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
         assertTrue(viewModel.contains("assignmentIdentityKey()"))
@@ -223,4 +251,46 @@ class WeighingRouteIdentityTest {
                 leadershipViewModel.contains("mapIndexed(::toUi)"),
         )
     }
+
+    @Test
+    fun `task detail shed row key separates duplicate backend bucket ids by rendered grain`() {
+        val duplicateCrashlyticsBucketId = "257a1f50-50f3-554a-a1a4-d99e829a1ac4"
+        val rows = listOf(
+            taskShedRow(
+                campaignShedId = duplicateCrashlyticsBucketId,
+                locationId = "gandhi-parent",
+                category = "individual_animal",
+            ),
+            taskShedRow(
+                campaignShedId = duplicateCrashlyticsBucketId,
+                locationId = "gandhi-parent",
+                category = "per_shed_partition",
+            ),
+        )
+
+        assertTrue(
+            "task detail LazyColumn keys must remain unique when one backend bucket appears at two rendered grains",
+            rows.map { it.uiKey }.toSet().size == rows.size,
+        )
+    }
+
+    private fun taskShedRow(
+        campaignShedId: String,
+        locationId: String,
+        category: String,
+    ): WeighingTaskShedUiRow = WeighingTaskShedUiRow(
+        campaignId = "campaign-1",
+        campaignShedId = campaignShedId,
+        tenantId = "tenant-1",
+        locationId = locationId,
+        shedName = "Gandhi",
+        category = category,
+        operatorLabel = "Amit Kumar",
+        status = "in_progress",
+        reworked = false,
+        animalsWeighedCount = 0,
+        animalsSubmittedCount = 0,
+        ladderStep = 0,
+        canReopen = false,
+    )
 }

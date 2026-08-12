@@ -1251,7 +1251,7 @@ class WeighingViewModel @Inject constructor(
                 // `finally` below so the screen never wedges on the empty-work spinner.
                 val reason = t.message ?: "Unknown error"
                 assignmentsError.value = reason.toWeighingReadMessage()
-                reportReadFailure(reason)
+                reportReadFailure(reason, t)
             } finally {
                 loadingAssignments.value = false
                 // In FINALLY, not after the result: a throw on the way here would leave this false
@@ -2283,9 +2283,9 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
-    private fun reportReadFailure(reason: String) {
+    private fun reportReadFailure(reason: String, throwable: Throwable? = null) {
         message.value = reason.toWeighingReadMessage()
-        crashReporter.recordException(IllegalStateException(reason), "weighing refresh failed")
+        throwable?.let { crashReporter.recordException(it, "weighing refresh failed") }
         analytics.track(
             AnalyticsEvents.WEIGHING_READ_FAILURE,
             buildMap {
@@ -2296,7 +2296,9 @@ class WeighingViewModel @Inject constructor(
     }
 
     private fun reportCaptureFailure(category: String, reason: String) {
-        crashReporter.recordException(IllegalStateException(reason), "weighing capture failed")
+        if (!reason.isExpectedWeighingCaptureState()) {
+            crashReporter.recordException(IllegalStateException(reason), "weighing capture failed")
+        }
         analytics.track(
             AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
             weighingCaptureProps(category) + (AnalyticsEvents.Params.REASON to reason.take(MAX_ANALYTICS_REASON_CHARS)),
@@ -2654,7 +2656,9 @@ class WeighingViewModel @Inject constructor(
                                     AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS),
                                 ),
                         )
-                        reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, proof.message)
+                        if (proof.message != "missing_video") {
+                            reportCaptureFailure(INDIVIDUAL_ANIMAL_CATEGORY, proof.message)
+                        }
                     }
                 }
             } finally {
@@ -3578,6 +3582,11 @@ internal fun WeighingTask.isRepeatable(): Boolean =
 
 internal const val REPEAT_BLOCKED_REASON =
     "This task has no shed bucket that can be placed on another date"
+
+private fun String.isExpectedWeighingCaptureState(): Boolean =
+    equals("missing_video", ignoreCase = true) ||
+        equals("cancelled", ignoreCase = true) ||
+        equals("capture_cancelled", ignoreCase = true)
 
 /** Reason CODES for ending a task. The backend owns the sentence that is recorded. */
 private const val CLOSE_REASON_ALL_ACCEPTED = "all_buckets_accepted"

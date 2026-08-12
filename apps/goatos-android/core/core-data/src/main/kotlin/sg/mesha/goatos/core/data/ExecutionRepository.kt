@@ -265,9 +265,9 @@ class DefaultExecutionRepository(
                 updatedAt = currentEntity?.updatedAt,
                 now = clock(),
                 quarantine = { rowsDao.delete(it) },
-            ).data ?: throw ExecutionRowsCursorException("execution continuation has no cached first page")
+            ).data ?: return@withLock
             if (current.nextCursor != cursor) {
-                throw ExecutionRowsCursorException("execution cursor is stale or belongs to another filter")
+                return@withLock
             }
             val page = rows(parkId, workState, asOf, dueBefore, openOnly, limit, cursor, includeFilterOptions = false)
             if (page.nextCursor == cursor) {

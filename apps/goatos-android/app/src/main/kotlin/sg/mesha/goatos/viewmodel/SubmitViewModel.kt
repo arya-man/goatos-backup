@@ -708,10 +708,9 @@ class SubmitViewModel @Inject constructor(
                     // never a silent drop.
                     // Answers: did the submit fail to even reach the offline outbox (the biggest
                     // gap before this pass — this reached neither GA4 nor Crashlytics).
-                    crashReporter.recordException(
-                        result.cause ?: IllegalStateException(result.message),
-                        "SubmitViewModel.confirmSubmit enqueue failed",
-                    )
+                    result.cause?.let {
+                        crashReporter.recordException(it, "SubmitViewModel.confirmSubmit enqueue failed")
+                    }
                     AnalyticsFunnels.trackSubmitFailed(
                         analytics,
                         current.taskId,
@@ -862,6 +861,9 @@ class SubmitViewModel @Inject constructor(
     private var scopeSubmissionAcked: Boolean = false
 
     private fun applyItemStatus(item: SyncQueueItem) {
+        val activeKey = idempotencyKey
+        val activeItemId = outboxItemId
+        if (item.id != activeItemId && (activeKey == null || item.idempotencyKey != activeKey)) return
         if (item.status == SyncItemStatus.SUCCEEDED) scopeSubmissionAcked = true
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {

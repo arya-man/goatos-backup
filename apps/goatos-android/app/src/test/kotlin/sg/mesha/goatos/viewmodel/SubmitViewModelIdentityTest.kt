@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
@@ -23,6 +24,7 @@ import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
@@ -73,6 +75,48 @@ class SubmitViewModelIdentityTest {
 
         assertEquals("shed-submit:task-1:scope:old-yashoda:rv:1", SubmitViewModel.stableSubmissionKey(oldYashoda))
         assertEquals("shed-submit:task-1:scope:godel-1:rv:1", SubmitViewModel.stableSubmissionKey(godelOne))
+    }
+
+    @Test
+    fun `stale outbox status from previous submission scope is ignored`() = runTest(dispatcher) {
+        val viewModel = SubmitViewModel(
+            repo = CapturingTasksRepository(),
+            syncRepository = NoopSyncRepository(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            scanSource = sg.mesha.goatos.rfid.FakeScanSource(),
+            proofCaptureSource = sg.mesha.goatos.capture.FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    "taskId" to "task-selected",
+                    SubmitViewModel.KEY_IDEMPOTENCY to "shed-submit:active",
+                ),
+            ),
+        )
+
+        SubmitViewModel::class.java.getDeclaredMethod("applyItemStatus", SyncQueueItem::class.java)
+            .apply { isAccessible = true }
+            .invoke(
+                viewModel,
+                SyncQueueItem(
+                    id = "old-row",
+                    opType = "SHED_SUBMIT",
+                    idempotencyKey = "shed-submit:old",
+                    groupKey = "shed-1|whole",
+                    status = SyncItemStatus.SUCCEEDED,
+                    attemptCount = 0,
+                    maxAttempts = 3,
+                    conflict = false,
+                    createdAt = 0L,
+                    updatedAt = 0L,
+                    lastError = null,
+                ),
+            )
+
+        assertNull(viewModel.state.value.snackbarMessage)
     }
 }
 

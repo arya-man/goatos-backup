@@ -96,6 +96,30 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `stale execution continuation is ignored as an expected filter race`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.executionResponse = { cursor ->
+                when (cursor) {
+                    null -> VaccinationExecutionResponseDto(
+                        rows = listOf(executionRow("shed-a", "task-a")),
+                        totalCount = 2,
+                        nextCursor = "fresh-cursor",
+                    )
+                    else -> error("stale cursor must not call backend")
+                }
+            }
+
+            repository.refreshRows(limit = PAGE_SIZE).getOrThrow()
+            val result = repository.appendRows(cursor = "stale-cursor", limit = PAGE_SIZE)
+
+            assertTrue(result.isSuccess)
+            assertEquals(listOf(null), requests.map { it.cursor })
+            val cached = repository.observeRows(limit = PAGE_SIZE).first().data
+            assertEquals(listOf("shed-a"), cached?.rows?.map { it.shedId })
+        }
+    }
+
+    @Test
     fun `partition scoped roster requests and caches stay separate`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = { cursor ->
@@ -510,6 +534,17 @@ class ExecutionRepositoryPaginationTest {
                         }
                         backend.response(request.cursor)
                     }
+                    "listVaccinationExecution" -> {
+                        val request = Request(
+                            shedId = args?.get(0) as String? ?: "execution",
+                            taskId = args?.get(1) as String?,
+                            cursor = args?.get(6) as String?,
+                            limit = args?.get(5) as Int?,
+                            partitionLabel = null,
+                        )
+                        requests += request
+                        backend.executionResponse(request.cursor)
+                    }
                     "getVaccinationExecutionShed" -> {
                         val partitionLabel = args?.get(4) as String?
                         backend.shedPartitions += partitionLabel
@@ -543,6 +578,7 @@ class ExecutionRepositoryPaginationTest {
         var offlineCursor: String? = null
         var taskScopedFailureStatus: Int? = null
         var response: (String?) -> ScanRosterResponseDto = { error("response not configured") }
+        var executionResponse: (String?) -> VaccinationExecutionResponseDto = { error("execution response not configured") }
         val shedPartitions = mutableListOf<String?>()
         var shedResponse: (String?) -> VaccinationExecutionShedDrilldownDto = { error("shed response not configured") }
     }

@@ -16,6 +16,7 @@ data class NetworkTelemetryEvent(
     val statusCode: Int,
     val durationMs: Long,
     val traceparent: String,
+    val failureClass: String? = null,
 )
 
 /**
@@ -82,10 +83,14 @@ class TelemetryInterceptor(
 
         val startNanos = System.nanoTime()
         var statusCode = -1
+        var failureClass: String? = null
         try {
             val response = chain.proceed(request)
             statusCode = response.code
             return response
+        } catch (error: Throwable) {
+            failureClass = error.javaClass.simpleName
+            throw error
         } finally {
             val durationMs = (System.nanoTime() - startNanos) / 1_000_000
             val event = NetworkTelemetryEvent(
@@ -94,6 +99,7 @@ class TelemetryInterceptor(
                 statusCode = statusCode,
                 durationMs = durationMs,
                 traceparent = traceparent,
+                failureClass = failureClass,
             )
             // Telemetry must never fail or slow the real call — it has already returned/thrown.
             runCatching { reporter.onNetworkCall(event) }
