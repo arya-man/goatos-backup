@@ -198,7 +198,8 @@ done
 clear_receipt
 record_blocking_receipt || fail "could not re-arm the blocking receipt"
 armed="$(cat "$(receipt_file)" 2>/dev/null)"
-run_out="$( cd "$SANDBOX" && env JAVA_HOME="$SANDBOX/fakejdk" ANDROID_HOME="$SANDBOX/fakesdk" \
+run_out="$( cd "$SANDBOX" && env -u GOATOS_FAST_LOCAL_CI -u GOATOS_CI_TRACE_ONLY \
+  JAVA_HOME="$SANDBOX/fakejdk" ANDROID_HOME="$SANDBOX/fakesdk" \
   bash -c "$recipe" 2>&1 )"
 if [ "$(cat "$(receipt_file)" 2>/dev/null)" = "$armed" ]; then
   fail "\`make $TARGET\` is the command the screenshot block tells users to run, but it left the receipt UNTOUCHED — it is a partial run, and partial runs write no receipt by design. Following the instruction can never clear the block; the only exits left are an env var or GOATOS_BYPASS_LOCAL_CI"
