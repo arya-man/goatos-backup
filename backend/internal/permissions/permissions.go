@@ -792,7 +792,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See
 		// VerificationOversee's doc comment.
 		VerificationOversee: {},
-		HealthRead:           {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		HealthRead:          {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.

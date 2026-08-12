@@ -117,6 +117,7 @@ ORDER BY module`, tenantID)
 	// 6) Per-verifier last-14-day activity: verdicts/approved/rejected/busiest day, ONE grouped
 	// query keyed by (verified_by, verified_by_name) -- never a per-verifier loop.
 	activityRows, err := r.pool.Query(ctx, `
+-- projection-review: membership=all verdict-completed verification_items for the tenant in the last 14 days, joined to workforce_members for display names (1:0 LEFT JOIN); group_key=verified_by; join_cardinality=1:1 on verified_by (LEFT JOIN + pre-aggregated busiest per verifier); pagination=one row per verifier; scope=tenant_id + 14-day window.
 WITH decided AS (
   SELECT vi.verified_by,
          wm.display_name AS verified_by_name,
@@ -182,6 +183,7 @@ ORDER BY d.verified_by`, tenantID)
 	// per-verifier loop.
 	if len(verifierOrder) > 0 {
 		integrityRows, err := r.pool.Query(ctx, `
+-- projection-review: membership=verification_items with verification_review_events bounded to (item, actor=verifier) pairs in last 14 days; group_key=verified_by; join_cardinality=1:N on (item, verifier) but LATERAL aggregates to 1 row per (verified_by, item_id); pagination=one row per verifier; scope=tenant_id + 14-day window.
 WITH decided_items AS (
   SELECT item_id, verified_by
   FROM verification_items
