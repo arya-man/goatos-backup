@@ -788,6 +788,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
+		case "counts-breakdown":
+			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 		}
 	}
 	return out
@@ -870,6 +872,37 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 // holds task.verify, so hiding rework from her lens is a duty split at the contract layer, not a
 // hard backend lockout on that generic SOP route. Narrowing reworkTask itself would change every
 // other caller of a shared route and belongs in its own change.
+// compileCountsBreakdownControls declares the whole-pen stage-change action.
+//
+// The control is DECLARED for every principal who reaches the page and disabled with a reason for
+// those who may not use it, rather than omitted. A missing button reads as "this screen cannot do
+// that"; a disabled one carrying "Only the CEO can change a whole shed's stage" tells a park head
+// the truth, which is that the capability exists and is not theirs.
+//
+// Enablement follows permissions.GoatReclassifyShedStage -- held by ceo_internal alone -- and NOT
+// CountsWrite, which park_head and operator also hold. The routes require the same permission, so
+// a principal who defeats the disabled state still gets 403; the control is the honest label, not
+// the lock.
+func compileCountsBreakdownControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileVerificationReviewControls and compileConfigControls.
+	ungated := len(input.Grants) == 0
+	mayChange := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.GoatReclassifyShedStage})
+
+	reason := ""
+	if !mayChange {
+		reason = controlCopy(copy, "stage_change.disabled_no_access", "Only the CEO can change a whole shed's stage.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "change_shed_stage",
+		Label:          controlCopy(copy, "stage_change.title", "Change stage"),
+		Kind:           "primary_action",
+		Enabled:        mayChange,
+		DisabledReason: reason,
+		Action:         "POST /admin/goats/shed-stage/commit",
+	})
+}
+
 func compileVerificationReviewControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
 	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps every control
 	// enabled, matching how compileConfigControls treats the same case.
@@ -887,6 +920,17 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 	if !mayAct {
 		actReason = controlCopy(copy, "action.disabled_no_authority", "Acting on the source task is limited to the park head, director, or CEO.")
 	}
+
+	// The module chip row is OFFERED by default and withdrawn only for the verifier lens, whose
+	// sidebar already carries one leaf per evidence module (applyVerifierLens). Declaring it here
+	// keeps leadership -- who reach /verify from a single primary nav item and have no module
+	// leaves -- on the row they need to pick a module at all.
+	controls = upsertControl(controls, domain.Control{
+		ID:      "module_filter",
+		Label:   copy["filter.module"],
+		Kind:    "filter",
+		Enabled: true,
+	})
 
 	out := upsertControl(controls, domain.Control{
 		ID:             "record_verdict",

@@ -280,8 +280,19 @@ type VaccinationBatchClosure struct {
 }
 
 type LocationFilterOption struct {
-	ID                         string  `json:"id"`
-	Label                      string  `json:"label"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// ParkID/ParkLabel exist because a shed NAME is not unique across the farm: Castro, Gandhi,
+	// Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH parks, so on
+	// 2026-08-12 nine of the sixty-seven shed options in the STG queue were exact duplicate
+	// labels sitting adjacent under ORDER BY label -- two "Castro - 1" rows with nothing to
+	// separate them. The option's ID was always the right shed (a UUID, never a name), so the
+	// filter itself was correct; what the reader could not do was tell which one she was
+	// picking, and the park with more pens read as the only park present. Clients group the
+	// list by park rather than concatenating this into the label, so the shed's own operational
+	// location stays exactly what oploc composes.
+	ParkID                     string  `json:"park_id,omitempty"`
+	ParkLabel                  string  `json:"park_label,omitempty"`
 	PartitionLabel             *string `json:"partition_label,omitempty"`
 	OperationalLocationDisplay string  `json:"operational_location_display,omitempty"`
 }

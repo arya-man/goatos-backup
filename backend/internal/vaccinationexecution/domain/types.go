@@ -1195,4 +1195,14 @@ type CommandBoardQuery struct {
 	ParkID         *string   // optional: narrow KPIs to this park
 	AsOf           time.Time // defaults to now in business timezone
 	HistoricalAsOf bool
+	// DriveParkID narrows the BOARD SECTIONS to one park of the selected drive while leaving the
+	// drive PICKER at ParkID's scope.
+	//
+	// A batch can span parks, so a selected drive is one park's operator day and its numbers must be
+	// that park's -- but the picker must keep offering the other parks' drives, or choosing one
+	// deletes the rest from the dropdown. Without this the console had to ask twice (a wide request
+	// kept only for its picker, a narrow one for the numbers), which built the endpoint's most
+	// expensive query twice per filter change and discarded one copy. Ignored when DriveBatchID is
+	// absent: it narrows a selection, it is not a second park filter.
+	DriveParkID *string
 }

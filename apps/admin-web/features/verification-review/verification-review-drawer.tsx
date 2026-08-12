@@ -5,7 +5,7 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Maximize, Minimize, PlayCircle } from "lucide-react";
+import { ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -448,6 +448,13 @@ function VerificationReviewDrawerPanel({
             </div>
           ) : (
             <div className="vr-player" ref={playerRef}>
+              {/* A proof is not always a video. Feed distribution's WATER proof is
+                  explicitly photo-or-video (docs/decisions/feed-distribution-verification.md),
+                  so an image/* proof is a valid capture and must render as a picture.
+                  It previously fell through to the "no media" empty state, which told the
+                  verifier her evidence was missing while it sat uploaded and reviewable.
+                  There is no seek/watch telemetry for a still: the review events this
+                  player emits are all video positions, and a photo has none. */}
               {activeMedia?.mime_type?.startsWith("video/") ? (
                 <ReviewVideoPlayer
                   key={activeMedia.proof_id}
@@ -458,8 +465,11 @@ function VerificationReviewDrawerPanel({
                   eventBuffer={eventBuffer}
                 />
               ) : activeMedia?.mime_type?.startsWith("image/") ? (
-                <a href={activeMedia.download_url} target="_blank" rel="noreferrer" className="vr-image-link">
-                  <img className="vr-image-proof" src={activeMedia.download_url} alt={activeMedia.label || text("drawer.media.title")} />
+                // A signed, short-lived proof URL on an external media host: next/image would
+                // proxy and cache evidence, so this stays a plain <img>.
+                // eslint-disable-next-line @next/next/no-img-element
+                <a key={activeMedia.proof_id} href={activeMedia.download_url} target="_blank" rel="noreferrer" className="vr-image-link">
+                  <img className="vr-image-proof" src={activeMedia.download_url} alt={activeMedia.label || subjectHeading || text("drawer.media.title")} />
                 </a>
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
@@ -486,7 +496,13 @@ function VerificationReviewDrawerPanel({
                   className={`vr-pthumb${index === mediaIndex ? " on" : ""}`}
                   onClick={() => setMediaIndex(index)}
                 >
-                  <PlayCircle className="ic" />
+                  {/* The icon states what the chip switches TO. A play badge on a photo
+                      proof promises a clip that does not exist. */}
+                  {media.mime_type?.startsWith("image/") ? (
+                    <ImageIcon className="ic" />
+                  ) : (
+                    <PlayCircle className="ic" />
+                  )}
                   {media.label || shortId(media.proof_id)}
                 </button>
               ))}

@@ -495,3 +495,52 @@ func fakeTranslateModuleKey(dutyModuleCode string) string {
 	normalized = strings.TrimPrefix(normalized, "pc.")
 	return strings.ReplaceAll(normalized, ".", "_")
 }
+
+// The module chip row on /verify is the same choice the lens just put in the sidebar, one leaf per
+// evidence module. Offering both puts two controls on one screen owning one selection, and the one
+// she does not use still changes what she is looking at -- so the lens withdraws the row.
+//
+// Leadership reaches /verify from a single primary nav item with no module leaves under it, so the
+// row is their ONLY module picker and must survive. That asymmetry is the whole rule, and it is why
+// this is decided by the lens rather than by the renderer.
+func TestVerifierLensWithdrawsTheModuleChipRowItAlreadyPutInTheSidebar(t *testing.T) {
+	verifier := bootstrapAs(lensService(), permissions.RoleVerifier)
+	control := controlByID(t, pageByRouteID(t, verifier.Pages, verifierLensPageID).Controls, "module_filter")
+	if control.Enabled {
+		t.Fatalf("verifier module_filter = enabled, want withdrawn: her sidebar already lists the modules")
+	}
+
+	// Same control, authority principal: the lens never runs, so the row stays.
+	for _, role := range []string{permissions.RoleCEOInternal, permissions.RolePCDirector} {
+		leadership := bootstrapAs(lensService(), role)
+		kept := controlByID(t, pageByRouteID(t, leadership.Pages, verifierLensPageID).Controls, "module_filter")
+		if !kept.Enabled {
+			t.Fatalf("%s module_filter = withdrawn, want enabled: it is their only module picker", role)
+		}
+	}
+}
+
+// The withdrawal is conditional on the sidebar actually having composed those leaves. With no
+// module source, no duties, or a duty-read error the rail is minimal -- taking the chips away as
+// well would leave a verifier with no way to choose a module at all, which is worse than the
+// duplication this change removes.
+func TestVerifierLensKeepsTheModuleRowWhenItComposedNoSidebarModules(t *testing.T) {
+	for name, service := range map[string]*Service{
+		"no module source": NewService(),
+		"no duty reader":   NewService().WithVerificationModules(fakeVerificationModules{modules: registryLikeModules()}),
+		"duty read errors": NewService().
+			WithVerificationModules(fakeVerificationModules{modules: registryLikeModules()}).
+			WithModuleDutyReader(fakeModuleDutyReaderError{}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := bootstrapAs(service, permissions.RoleVerifier)
+			if len(resp.Navigation.Groups) != 0 {
+				t.Fatalf("precondition: expected no sidebar modules, got %#v", resp.Navigation.Groups)
+			}
+			control := controlByID(t, pageByRouteID(t, resp.Pages, verifierLensPageID).Controls, "module_filter")
+			if !control.Enabled {
+				t.Fatalf("module_filter withdrawn with an empty sidebar — she has no module picker left")
+			}
+		})
+	}
+}

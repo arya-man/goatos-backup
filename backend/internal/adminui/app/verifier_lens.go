@@ -281,6 +281,28 @@ func verifierLensRouteLabels(rules []domain.RouteLabelRule) []domain.RouteLabelR
 	return out
 }
 
+// withdrawModuleFilterControl marks the queue's module chip row as not offered.
+//
+// Not offered, not disabled-with-reason: a greyed-out chip row would be a dead duplicate of a
+// working sidebar, and the disabled-with-reason pattern exists for a control the backend cannot
+// POWER yet, which is a different thing from one the screen should not carry twice.
+func withdrawModuleFilterControl(pages []domain.PageContract) []domain.PageContract {
+	for i, page := range pages {
+		if page.RouteID != verifierLensPageID {
+			continue
+		}
+		controls := make([]domain.Control, len(page.Controls))
+		copy(controls, page.Controls)
+		for j := range controls {
+			if controls[j].ID == "module_filter" {
+				controls[j].Enabled = false
+			}
+		}
+		pages[i].Controls = controls
+	}
+	return pages
+}
+
 // applyVerifierLens re-scopes a compiled bootstrap response down to the verifier workspace.
 //
 // It runs AFTER normal compilation so the queue page still receives the same controls, copy, and
@@ -289,6 +311,16 @@ func verifierLensRouteLabels(rules []domain.RouteLabelRule) []domain.RouteLabelR
 func applyVerifierLens(resp domain.BootstrapResponse, modules []VerificationNavModule) domain.BootstrapResponse {
 	resp.Navigation = verifierLensNavigation(modules, resp.Navigation.Footer)
 	resp.Pages = verifierLensPages(resp.Pages)
+	// The queue's module chip row is the same choice this lens just put in the sidebar, one leaf
+	// per evidence module. Offering it twice on one screen makes two controls own the same
+	// selection, and the one she does not use still changes what she is looking at. Withdrawn
+	// only when the sidebar actually composed those leaves: with no modules resolved (no source,
+	// no duties, or a duty-read error) the rail is minimal, and taking the chips away as well
+	// would leave her no way to pick a module at all. Leadership never reaches this branch, so
+	// their row -- their only module picker -- is untouched.
+	if len(modules) > 0 {
+		resp.Pages = withdrawModuleFilterControl(resp.Pages)
+	}
 	resp.RouteLabels = verifierLensRouteLabels(resp.RouteLabels)
 	// Five evidence groups is a sidebar, not a bottom bar; but with no wired module source there is
 	// nothing to show, and NavChromeMinimal keeps the shell from rendering an empty rail.
