@@ -22,7 +22,6 @@ import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
-import sg.mesha.goatos.core.data.capture.ProofMediaProcessor
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
@@ -133,6 +132,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.capture.DelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
+import sg.mesha.goatos.capture.AppProofMediaProcessor
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
@@ -597,11 +597,12 @@ object AppModule {
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
         analytics: AnalyticsPort,
+        mediaProcessor: AppProofMediaProcessor,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
         dao = dao,
         syncRepository = syncRepository,
         appScope = appScope,
-        mediaProcessor = ProofMediaProcessor.Noop,
+        mediaProcessor = mediaProcessor,
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
