@@ -46,7 +46,10 @@ export function GrowthDirectorSection({
   }
 
   const { road_to_sale: road, fair_fight: fairFight, slow_growth: slowGrowth } = result.data;
-  const { feed_vs_growth: feedVsGrowth, feed_problems: feedProblems, trust } = result.data;
+  // `feed_problems` and `trust` are still served by the backend, but the Feed sheet
+  // problems table and the trust-panel KPI row were removed from this page — the
+  // contract keeps them so the widgets can be restored without a backend change.
+  const { feed_vs_growth: feedVsGrowth } = result.data;
   const noData = copy(pageContract, "empty.no_data.title");
 
   return (
@@ -274,92 +277,6 @@ export function GrowthDirectorSection({
         </div>
       </section>
 
-      {/* ---------------- Feed sheet problems ---------------- */}
-      <section className="card" aria-label={gd(pageContract, "feed_problems.title")}>
-        <div className="wchart">
-          <h2 className="h">{gd(pageContract, "feed_problems.title")}</h2>
-          <p className="muted small">
-            {gd(pageContract, "feed_problems.caption")} {nf(feedProblems.blocked_rows_history)}{" "}
-            {gd(pageContract, "feed_problems.history")} · {nf(feedProblems.blocked_rows_latest_day)}{" "}
-            {gd(pageContract, "feed_problems.latest_day")}.
-          </p>
-        </div>
-        {feedProblems.items.length === 0 ? (
-          <div className="empty">
-            <b>{noData}</b>
-            <span className="muted small">{gd(pageContract, "feed_problems.empty")}</span>
-          </div>
-        ) : (
-          <div className="tablewrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{gd(pageContract, "feed_problems.col.shed")}</th>
-                  <th>{gd(pageContract, "feed_problems.col.item")}</th>
-                  <th>{gd(pageContract, "feed_problems.col.days")}</th>
-                  <th>{gd(pageContract, "feed_problems.col.reason")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Keyed with the index because (shed_label, feed_item_label) are display
-                    strings with no documented uniqueness — two underlying feed lines can
-                    share labels, and collapsing them would hide a real problem. */}
-                {feedProblems.items.map((item, index) => (
-                  <tr key={`${item.shed_label}-${item.feed_item_label}-${index}`}>
-                    <td>{item.shed_label}</td>
-                    <td>{item.feed_item_label}</td>
-                    <td>{nf(item.blocked_days)}</td>
-                    <td>
-                      <span className="tag t-dng">{item.latest_reason_code}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="wchart">
-          <p className="muted small">{gd(pageContract, "feed_problems.note.zero")}</p>
-        </div>
-      </section>
-
-      {/* ---------------- Trust panel ---------------- */}
-      <section className="card wchart" aria-label={gd(pageContract, "trust.title")}>
-        <h2 className="h">{gd(pageContract, "trust.title")}</h2>
-        <p className="muted small">{gd(pageContract, "trust.caption")}</p>
-        <section className="grid g6 kpi-row" aria-label={gd(pageContract, "trust.title")}>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.scans_matched")}</div>
-            <div className="val">{nf(trust.scans_matched)}</div>
-            <div className="dl">{gd(pageContract, "trust.scans_matched.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.pairs")}</div>
-            <div className="val">{nf(trust.identities_with_pair)}</div>
-            <div className="dl">{gd(pageContract, "trust.pairs.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.once_only")}</div>
-            <div className="val">{nf(trust.identities_once_only)}</div>
-            <div className="dl">{gd(pageContract, "trust.once_only.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.whole_shed")}</div>
-            <div className="val">{nf(trust.whole_shed_observations)}</div>
-            <div className="dl">{gd(pageContract, "trust.whole_shed.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.pending")}</div>
-            <div className="val">{nf(trust.scans_pending_verification)}</div>
-            <div className="dl">{gd(pageContract, "trust.pending.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{gd(pageContract, "trust.rework")}</div>
-            <div className="val">{nf(trust.scans_rework)}</div>
-            <div className="dl">{gd(pageContract, "trust.rework.sub")}</div>
-          </div>
-        </section>
-      </section>
     </>
   );
 }

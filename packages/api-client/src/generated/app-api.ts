@@ -3826,6 +3826,7 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
+            /** @description Empty on every task created since the shed-grain repair. Transport is one task per physical shed -- the feed for all of a shed's pens leaves on one trip -- so there is no pen to name. Older rows created while the task was briefly per-pen keep their label so their recorded video still says where it was filmed. */
             partition_label: string;
             operational_location_display: string;
             /** Format: date */
@@ -3844,9 +3845,10 @@ export interface components {
             filters: components["schemas"]["FeedTransportFilterOptions"];
         };
         FeedTransportFilterOption: {
-            /** @description Opaque partition-grain option key. For sheds this is not guaranteed to be a UUID because one physical shed can expose multiple partition options. */
+            /** @description A park UUID for a park option, a shed UUID for a shed option. Never a composite pen key: transport is one task per physical shed, so one shed is exactly one option. */
             id: string;
             label: string;
+            /** @description Always empty for transport options; kept so older clients stay decodable. */
             partition_label?: string;
         };
         FeedTransportFilterOptions: {
@@ -8467,6 +8469,10 @@ export interface components {
             /** @description Park options use a UUID. Shed options use an opaque operational-location filter key: `<shed UUID>#<normalized partition>`. */
             id: string;
             label: string;
+            /** @description Park the shed belongs to. Set on shed options only, and omitted when the option's rows disagree about the park rather than guessing one. Never folded into `label`. */
+            park_id?: string;
+            /** @description Display name of `park_id`, for grouping the shed list by park. A shed NAME is not unique across the farm — Castro, Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in both parks — so without this two different sheds render as identical adjacent options. Clients group by it; they must not concatenate it into the shed's operational-location display. */
+            park_label?: string;
             /** @description Raw backend-owned partition label; omitted for an undivided shed. */
             partition_label?: string;
             /** @description Backend-composed location display. Clients render this verbatim. */
@@ -11395,6 +11401,8 @@ export interface operations {
                 park_id?: string;
                 /** @description Scope instant (defaults to now in business timezone). Past values are supported for historical closure review; future values clamp to now. */
                 as_of?: string;
+                /** @description Park of the drive named by `drive_batch_id`. Narrows the board SECTIONS to that park's share of the drive — a batch can span parks, so a selected drive is one park's operator day — while `driveOptions` stays at `park_id`'s scope so the other parks' drives remain selectable. Without it a caller wanting both had to send two requests, one purely to keep its picker. Ignored unless `drive_batch_id` is present; authorized exactly like `park_id`. */
+                drive_park_id?: string;
             };
             header?: never;
             path?: never;
@@ -12217,8 +12225,6 @@ export interface operations {
                 park_id?: string;
                 /** @description Optional physical-shed filter; must remain shed-grain and never imply a feed session. */
                 shed_id?: string;
-                /** @description Optional operational partition filter within the selected shed. */
-                partition_label?: string;
                 /** @description Optional verification-lifecycle filter. */
                 status?: "due" | "verification_due" | "rework" | "completed";
                 cursor?: string;

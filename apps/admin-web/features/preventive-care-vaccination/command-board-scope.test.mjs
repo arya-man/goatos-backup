@@ -20,15 +20,30 @@ test("vaccination command board forwards top-bar park scope to the backend read"
     commandBoardSource,
     /vaccinationCurrentViewScope\(parseScope\(searchParams \?\? \{\}\)\)/,
   );
-  assert.match(commandBoardSource, /getVaccinationCommandBoard\(\{ parkId \}\)/);
+  // The top-bar park reaches the backend read. Asserted over EVERY read below rather than against
+  // one exact call shape, because the read now also carries the selected drive and its park.
   assert.doesNotMatch(commandBoardSource, /selectedDriveBatchId = driveOptions\[0\]\?\.driveBatchId/);
   // Selection identity is (batch, park), matching the API's drive-option row grain, and the
   // narrowed read is scoped to the SELECTED DRIVE's park rather than only the top-bar scope.
   assert.match(commandBoardSource, /resolveSelectedDrive\(driveOptions, driveBatchId, driveParkId\)/);
   assert.match(commandBoardSource, /driveBatchId: selectedDrive\.driveBatchId,/);
-  assert.match(commandBoardSource, /const selectedParkId = selectedDrive\.parkId \|\| driveParkId \|\| parkId;/);
-  assert.match(commandBoardSource, /parkId: selectedParkId,/);
-  assert.match(commandBoardSource, /driveParkId=\{selectedParkId\}/);
+  // The park the sections are narrowed to is the one the CATALOGUE resolved for the selected batch,
+  // falling back to the URL and then the top bar. A board narrowed to the wrong park is a wrong
+  // board, so this is asserted exactly.
+  assert.match(commandBoardSource, /const resolvedParkId = selectedDrive\.parkId \|\| driveParkId \|\| parkId;/);
+  // ONE request serves the narrowed sections AND the full picker: the drive's park rides as its own
+  // parameter while parkId keeps scoping the catalogue. The previous two-request shape awaited a
+  // wide read purely to keep its picker and rebuilt the endpoint's most expensive query twice.
+  assert.match(commandBoardSource, /driveParkId: driveBatchId \? driveParkId : undefined,/);
+  assert.doesNotMatch(commandBoardSource, /Promise\.all/);
+  // The picker's scope is the TOP BAR's park on every call, never the selected drive's — otherwise
+  // choosing one park's drive deletes the other parks' drives from the dropdown.
+  const reads = commandBoardSource.match(/getVaccinationCommandBoard\(\{[\s\S]*?\}\)/g) ?? [];
+  assert.ok(reads.length >= 1, "the board must read the command endpoint");
+  for (const read of reads) {
+    assert.match(read, /parkId,/, `every command-board read keeps the top-bar park scope: ${read}`);
+  }
+  assert.match(commandBoardSource, /driveParkId=\{resolvedParkId\}/);
 });
 
 test("a FAILED narrowed drive read never renders as a successful narrow one", () => {

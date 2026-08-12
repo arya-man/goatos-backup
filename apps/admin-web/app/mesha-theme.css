@@ -578,7 +578,10 @@
      fell back to the clip's intrinsic ratio -- a 720x1280 portrait proof rendered 852x1515 and
      overflowed the 44vh stage, which is what read as a giant black rectangle. Pinned, portrait
      letterboxes with bars left and right and landscape fills the rectangle. */
-  .vr-player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+  /* A photo proof (feed distribution's water proof may be a still) is pinned to the same
+     stage as a clip, so a portrait phone photo letterboxes instead of overflowing. */
+  .vr-player video,
+  .vr-player img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
   .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;border-radius:0;border:0}
   .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
   .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
@@ -2236,6 +2239,14 @@ select:disabled { opacity: .45; }
 /* The bar list keeps its own right gutter for the scrollbar, so the card's own right
    padding would otherwise read as double. */
 .wchart .wbars{padding-right:2px}
+/* Air between a chart's header block and its bars. The title row (`.h`) and the
+   caption under it sat directly on the first bar, so the heading read as part of the
+   series rather than above it. Applied to the bar list itself — not to the heading —
+   so a chart with no caption (sex, stage) gets the same gap as one with a caption
+   (shed, breed, load), and the empty state keeps the same box position as the
+   populated list so toggling weight/gain never shifts the card. */
+.wchart .wbars,
+.wchart .wbars-empty{margin-top:12px}
 /* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
    against the bars above it. */
 .wchart .wbars + .muted,

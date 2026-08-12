@@ -1912,3 +1912,104 @@ func TestReadyClosurePageBoundary_RealPostgres(t *testing.T) {
 		t.Fatalf("PageBoundary (limit=1): batch should show total_count=2, got %d", closures[0].TotalCount)
 	}
 }
+
+// A shed NAME is not unique across the farm. Castro, Gandhi, Godel 1, Godel 2, Mandela 1,
+// Mandela 2 and Yashoda each exist in BOTH parks, so on 2026-08-12 nine of the sixty-seven shed
+// options in the STG queue were exact duplicate labels sitting adjacent under this query's own
+// ORDER BY -- two "Castro - 1" entries with nothing to tell them apart. The option VALUE was
+// never wrong (the id is a shed UUID, never a name), so the filter worked; the reader simply
+// could not see which shed she was choosing, and the park with more pens read as the only park
+// present. The park now travels with the option so a client can group by it.
+//
+// The park is carried BESIDE the label, never folded into it: the label is the shed's operational
+// location and oploc owns that string.
+func TestShedFilterOptionsNameTheParkWhenTwoParksShareAShedName_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+
+	// Two parks, each holding a shed with the SAME name -- the real farm's shape.
+	parkIDs := map[string]string{}
+	shedIDs := map[string]string{}
+	for _, park := range []string{"Coimbatore", "Channapatna"} {
+		var parkID, shedID string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, 'park', $2, $3, 'active')
+RETURNING location_id::text`, tenantID, "dup-park-"+park, park).Scan(&parkID); err != nil {
+			t.Fatalf("insert park %s: %v", park, err)
+		}
+		if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', $3, 'Castro', 'active')
+RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID); err != nil {
+			t.Fatalf("insert shed in %s: %v", park, err)
+		}
+		parkIDs[park] = parkID
+		shedIDs[park] = shedID
+
+		partition := "1"
+		parkID, shedID = parkIDs[park], shedIDs[park]
+		if _, err := repo.CreateItem(ctx, domain.CreateItem{
+			TenantID: tenantID, Vertical: "feed", Module: "feed_direction", Category: "feed_distribution",
+			Source:         domain.SourceRef{Module: "feed", RefType: "feed_distribution_completion", RefID: tenantID},
+			MediaRefs:      []string{"proof-dup-" + park},
+			ParkID:         &parkID,
+			ShedID:         &shedID,
+			PartitionLabel: &partition,
+			CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+			IdempotencyKey: "verification-dup-name-" + park,
+		}); err != nil {
+			t.Fatalf("CreateItem(%s): %v", park, err)
+		}
+	}
+
+	options, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{TenantID: tenantID})
+	if err != nil {
+		t.Fatalf("ListQueueFilterOptions: %v", err)
+	}
+	if len(options.Sheds) != 2 {
+		t.Fatalf("shed options = %+v, want one per park", options.Sheds)
+	}
+
+	// Ordered park-first, so a client groups by arrival without sorting again.
+	if options.Sheds[0].ParkLabel != "Channapatna" || options.Sheds[1].ParkLabel != "Coimbatore" {
+		t.Fatalf("shed options are not ordered park-first: %+v", options.Sheds)
+	}
+	for _, option := range options.Sheds {
+		park := option.ParkLabel
+		if park != "Channapatna" && park != "Coimbatore" {
+			t.Fatalf("option %+v carries no usable park", option)
+		}
+		if option.ParkID != parkIDs[park] {
+			t.Fatalf("option %+v park_id = %q, want %q", option, option.ParkID, parkIDs[park])
+		}
+		// The whole point: same label on both, told apart by park and by id.
+		if option.Label != "Castro - 1" || option.OperationalLocationDisplay != "Castro - 1" {
+			t.Fatalf("option display = %+v, want the oploc composition unchanged", option)
+		}
+		if option.ID != shedIDs[park]+"#1" {
+			t.Fatalf("option %+v ID = %q, want the %s shed", option, option.ID, park)
+		}
+	}
+	if options.Sheds[0].ID == options.Sheds[1].ID {
+		t.Fatalf("both options resolve to the same shed: %+v", options.Sheds)
+	}
+
+	// And the twin the reader picks is the one she gets.
+	rows, err := repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		ShedID:   shedIDs["Channapatna"] + "#1",
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue(Channapatna Castro - 1): %v", err)
+	}
+	if len(rows) != 1 || rows[0].ParkID == nil || *rows[0].ParkID != parkIDs["Channapatna"] {
+		t.Fatalf("rows = %+v, want only the Channapatna shed's item", rows)
+	}
+}
