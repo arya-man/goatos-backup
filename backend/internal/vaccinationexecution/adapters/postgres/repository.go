@@ -2662,6 +2662,7 @@ current_assignment AS (
   SELECT assignment.batch_id, assignment.park_id, assignment.physical_shed
   FROM vaccination_drive_assignments assignment
   WHERE assignment.tenant_id = $1::uuid
+    AND $3::uuid IS NOT NULL
     AND assignment.batch_id = $4::uuid
     AND assignment.shed_id = $2::uuid
     AND (
