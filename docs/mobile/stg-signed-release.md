@@ -175,6 +175,91 @@ make release-tag \
 Do not call the Firebase release closed until the GitHub tag exists and includes
 the Android version/code and Firebase release URL.
 
+## Mandatory mirror: same APK to mesha.sg/app.apk
+
+Trigger phrases that require this section: "Firebase publish", "upload to
+Firebase", "Firebase App Distribution", "release Android STG", "push APK", and
+any STG deploy that includes an Android release artifact.
+
+This section is a release gate, not an optional operator convenience. Do not
+report an Android STG/Firebase release as complete until this mirror is live and
+verified.
+
+Every successful `appDistributionUploadStgRelease` must also publish the exact
+same release APK to the stable operator download URL:
+
+```text
+https://mesha.sg/app.apk
+```
+
+This URL is for field operators who cannot reliably use Firebase App Tester. It
+must download the APK directly; it must never render the Mesha website, a helper
+page, or a Firebase tester page.
+
+Use the APK produced by the same Gradle invocation above:
+
+```bash
+APK=apps/goatos-android/app/build/outputs/apk/stg/release/app-stg-release.apk
+test -f "$APK"
+```
+
+Then update the website repo's static asset before the website deploy:
+
+```bash
+cp "$APK" /Users/ravi/mesha/website/public/app.apk
+npm --prefix /Users/ravi/mesha/website run build
+firebase --project goatos-sheets deploy --only hosting
+```
+
+Do not bump or rebuild another Android version for the website copy. Firebase
+App Distribution and `mesha.sg/app.apk` must carry the same `versionName`,
+`versionCode`, and APK bytes for a given release.
+
+The browser's default save name comes from `website/firebase.json`
+`Content-Disposition`. Before deploying, update it to the release being
+published:
+
+```text
+attachment; filename="Mesha-<versionName>-code-<versionCode>.apk"
+```
+
+For example:
+
+```text
+attachment; filename="Mesha-0.1.17-stg-code-17.apk"
+```
+
+Verify the local website copy is byte-for-byte the Android release APK:
+
+```bash
+shasum -a 256 "$APK" /Users/ravi/mesha/website/public/app.apk /Users/ravi/mesha/website/dist/app.apk
+```
+
+After deploy, verify the URL returns an APK response instead of the website:
+
+```bash
+curl -I https://mesha.sg/app.apk
+```
+
+Expected headers include:
+
+```text
+Content-Type: application/vnd.android.package-archive
+Content-Disposition: attachment; filename="Mesha-<versionName>-code-<versionCode>.apk"
+Cache-Control: no-cache, max-age=0
+```
+
+Also validate the live URL in Chrome before reporting the release complete.
+Because a previous bad deploy can be cached as website HTML, use the versioned
+operator link for the release, for example:
+
+```text
+https://mesha.sg/app.apk?v=<versionCode>
+```
+
+Chrome must start an APK download. Seeing the Mesha website means the release is
+not done, even if `curl` already returns APK headers.
+
 Do not use a dirty upload to answer whether a production-like phone APK contains
 a feature. If `-PallowDirtyFirebaseDistribution=true` is used, mark the Firebase
 release notes as throwaway/debug and record the dirty source label.

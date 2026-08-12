@@ -81,6 +81,7 @@ fun LoginScreen(
     onGoogle: () -> Unit,
     onForgotPassword: (email: String) -> Unit,
     modifier: Modifier = Modifier,
+    appVersionLabel: String? = null,
     isLoading: Boolean = false,
     errorReason: LoginError? = null,
     errorDetail: String? = null,
@@ -104,6 +105,7 @@ fun LoginScreen(
         isLoading = isLoading,
         errorText = resolveErrorText(errorReason, errorDetail),
         resetEmailSent = resetEmailSent,
+        appVersionLabel = appVersionLabel,
         onPermissionGateShown = onPermissionGateShown,
         onPermissionAnswered = onPermissionAnswered,
         modifier = modifier,
@@ -141,6 +143,7 @@ private fun LoginContent(
     isLoading: Boolean = false,
     errorText: String? = null,
     resetEmailSent: String? = null,
+    appVersionLabel: String? = null,
     onPermissionGateShown: (missingPermissions: List<String>) -> Unit = {},
     onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
@@ -229,6 +232,17 @@ private fun LoginContent(
         Spacer(Modifier.height(MeshaDimens.space6))
         FieldLabel(stringResource(R.string.login_app_language))
         LanguageField(language = AppLocaleState.labelFor(currentTag), onClick = { showLangSheet = true })
+
+        appVersionLabel?.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(MeshaDimens.space5))
+            Text(
+                text = it,
+                color = MeshaColors.Faint,
+                style = MeshaType.overline,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Spacer(Modifier.height(MeshaDimens.space8))
     }

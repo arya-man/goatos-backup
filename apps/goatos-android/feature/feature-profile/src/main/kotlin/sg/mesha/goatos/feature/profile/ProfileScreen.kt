@@ -169,6 +169,7 @@ fun ProfileScreen(
     state: ProfileUiState,
     onEvent: (ProfileEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    appVersionLabel: String? = null,
 ) {
     // chrome-guard:ignore: renders identity/settings already carried by the bootstrap contract
     // plus live on-device reader state; there is no independent server read for this screen to
@@ -197,6 +198,9 @@ fun ProfileScreen(
         }
         signOut?.let { row ->
             item { SignOutButton(row = row, onEvent = onEvent) }
+        }
+        appVersionLabel?.takeIf { it.isNotBlank() }?.let { label ->
+            item { AppVersionFooter(label) }
         }
     }
 }
@@ -370,6 +374,19 @@ private fun SignOutButton(row: SettingRow, onEvent: (ProfileEvent) -> Unit) {
             fontFamily = FontFamily.Default,
         )
     }
+}
+
+@Composable
+private fun AppVersionFooter(label: String) {
+    Text(
+        text = label,
+        color = MeshaColors.Faint,
+        style = MeshaType.overline,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp),
+    )
 }
 
 @Preview(backgroundColor = 0xFF0B100D, showBackground = true)

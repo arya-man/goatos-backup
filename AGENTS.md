@@ -284,6 +284,16 @@ If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
 manual Google Cloud Deploy from the latest approved `origin/main`, following the
 runbook.
 
+If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
+Distribution", "release Android STG", "push the APK", or includes an Android APK
+as part of a STG deploy, the Android release is not complete after Firebase App
+Distribution alone. Follow `docs/mobile/stg-signed-release.md` and publish the
+exact same generated APK bytes to the stable operator URL
+`https://mesha.sg/app.apk` in the Mesha website Firebase Hosting site. Do not
+rebuild Android for the website copy. Keep the browser download filename
+versioned as `Mesha-<versionName>-code-<versionCode>.apk`, verify matching APK
+hashes, and validate the live versioned URL in Chrome before reporting done.
+
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.

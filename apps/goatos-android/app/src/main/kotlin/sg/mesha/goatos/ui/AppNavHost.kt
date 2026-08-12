@@ -33,6 +33,7 @@ import androidx.navigation.navArgument
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.delay
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -1887,6 +1888,7 @@ fun AppNavHost(
             var showLanguage by remember { mutableStateOf(false) }
             ProfileScreen(
                 state = state,
+                appVersionLabel = appVersionLabel(),
                 onEvent = { event ->
                     when (event) {
                         ProfileEvent.PairRfid ->
@@ -2980,6 +2982,8 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
         "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
+
+private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 
 private fun executionNavArguments() = listOf(
     navArgument(Routes.SCAN_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
