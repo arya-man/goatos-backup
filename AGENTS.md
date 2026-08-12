@@ -285,14 +285,21 @@ manual Google Cloud Deploy from the latest approved `origin/main`, following the
 runbook.
 
 If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
-Distribution", "release Android STG", "push the APK", or includes an Android APK
-as part of a STG deploy, the Android release is not complete after Firebase App
-Distribution alone. Follow `docs/mobile/stg-signed-release.md` and publish the
-exact same generated APK bytes to the stable operator URL
-`https://mesha.sg/app.apk` in the Mesha website Firebase Hosting site. Do not
-rebuild Android for the website copy. Keep the browser download filename
-versioned as `Mesha-<versionName>-code-<versionCode>.apk`, verify matching APK
-hashes, and validate the live versioned URL in Chrome before reporting done.
+Distribution", "release Android STG", "push the APK", "internal test", "Play
+internal testing", or includes an Android APK/AAB as part of a STG deploy, the
+Android release is not complete after Firebase App Distribution alone. Follow
+`docs/mobile/stg-signed-release.md` and publish the employee/internal release to
+all required channels: Firebase App Distribution, Google Play Internal Testing,
+and the stable operator URL `https://mesha.sg/app.apk` in the Mesha website
+Firebase Hosting site. Use the exact same generated APK bytes for Firebase and
+the website mirror. Play Internal Testing uses an AAB, so build/upload it from
+the same source commit, `versionName`, and `versionCode`; do not invent a second
+release identity. Keep the Play internal tester list to the same email IDs that
+have access to Firebase App Distribution; do not maintain a separate hand-picked
+Play tester list. Do not rebuild Android for the website copy. Keep the browser
+download filename versioned as `Mesha-<versionName>-code-<versionCode>.apk`,
+verify matching APK hashes, and validate the live versioned URL in Chrome before
+reporting done.
 
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
