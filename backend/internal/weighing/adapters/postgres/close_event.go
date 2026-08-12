@@ -88,7 +88,7 @@ func (r *Repository) enqueueCampaignClosed(
 	tx pgx.Tx,
 	cmd domain.CloseCommand,
 	result domain.CloseResult,
-	buckets []closedBucket,
+	operators []closedOperatorSummary,
 ) error {
 	payload := weighingCampaignClosedPayload{
 		TenantID:         cmd.TenantID,
@@ -96,7 +96,7 @@ func (r *Repository) enqueueCampaignClosed(
 		ClosedBy:         cmd.ClosedBy,
 		Reason:           cmd.Reason,
 		NotAcceptedCount: result.NotAcceptedCount,
-		Operators:        summarizeClosedBucketsByOperator(buckets),
+		Operators:        operators,
 		ClosedAt:         result.ClosedAt,
 	}
 	if err := tx.QueryRow(ctx, `
