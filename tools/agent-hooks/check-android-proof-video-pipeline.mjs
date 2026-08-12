@@ -11,6 +11,7 @@ const repo = resolve(import.meta.dirname, "../..");
 const BASE = process.env.ANDROID_PROOF_VIDEO_BASE || "origin/main";
 const FEATURE_ROOT = "apps/goatos-android/feature";
 const APP_VM_ROOT = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel";
+const APP_MODULE = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/di/AppModule.kt";
 
 const banned = [
   { re: /\benqueueProofUpload\s*\(/g, reason: "direct proof upload enqueue; use shared proof capture/orchestration" },
@@ -84,7 +85,9 @@ function selfTest() {
   const badMedia = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "val muxer = MediaMuxer(path, 0)").length === 1;
   const badDirectUpload = scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/Foo.kt", "syncRepository.enqueueProofUpload(group, key, request, uri, duration)").length === 1;
   const goodPort = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "analytics.track(\"proof_upload_started\")").length === 0;
-  const ok = badFirebase && badMedia && badDirectUpload && goodPort;
+  const badNoopBinding = productionProcessorFindings("mediaProcessor = ProofMediaProcessor.Noop").length === 1;
+  const goodBinding = productionProcessorFindings("mediaProcessor = AppProofMediaProcessor(context)").length === 0;
+  const ok = badFirebase && badMedia && badDirectUpload && goodPort && badNoopBinding && goodBinding;
   console.log(ok ? "android-proof-video-pipeline self-test: ok" : "android-proof-video-pipeline self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }
@@ -95,12 +98,8 @@ const targets = process.argv.includes("--all")
   ? [...walk(resolve(repo, FEATURE_ROOT)), ...walk(resolve(repo, APP_VM_ROOT))]
   : changedSources();
 
-if (!targets.length) {
-  console.log("android-proof-video-pipeline: ok (no scanned Android feature/viewmodel files changed)");
-  process.exit(0);
-}
-
 const findings = targets.flatMap(scanFile);
+findings.push(...productionProcessorFindings(readFileSync(resolve(repo, APP_MODULE), "utf8")));
 if (findings.length) {
   console.error("android-proof-video-pipeline guard FAILED — use the shared proof-video pipeline and telemetry ports:");
   for (const finding of findings) {
@@ -109,4 +108,22 @@ if (findings.length) {
   process.exit(1);
 }
 
+if (!targets.length) {
+  console.log("android-proof-video-pipeline: ok (no scanned Android feature/viewmodel files changed)");
+  process.exit(0);
+}
+
 console.log(`android-proof-video-pipeline: ok (${targets.length} file(s) scanned)`);
+
+function productionProcessorFindings(text) {
+  const findings = [];
+  for (const match of text.matchAll(/\bProofMediaProcessor\.Noop\b/g)) {
+    findings.push({
+      rel: APP_MODULE,
+      line: lineNo(text, match.index ?? 0),
+      reason: "production proof media processor is Noop; bind an app-layer processor",
+      snippet: "ProofMediaProcessor.Noop",
+    });
+  }
+  return findings;
+}

@@ -7,11 +7,14 @@ upload video from the phone.
 
 Implementation status for this PR branch: Android now has the durable
 Room/schema fields, state vocabulary, operator permission gate, screenshot
-coverage, telemetry names, Gallery-save hook, and CI guardrails needed by this
-contract. The shared `ProofCaptureRepository` path now selects one final proof
-artifact before upload: processed media when the processor succeeds, original
-media when processing fails, then saves that same artifact to Gallery and queues
-that same artifact for upload.
+coverage, telemetry names, Gallery-save hook, production processor binding, and
+CI guardrails needed by this contract. The shared `ProofCaptureRepository` path
+now selects one final proof artifact before upload, saves that same artifact to
+Gallery, and queues that same artifact for upload. The current app-layer
+processor is intentionally pass-through until the native compression/overlay
+engine lands; it must not be replaced with `ProofMediaProcessor.Noop`, because
+that would record every production capture as a processing failure and silently
+upload originals through the exception fallback.
 
 Current coverage is intentionally explicit. The shared path now covers:
 
