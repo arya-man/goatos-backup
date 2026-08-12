@@ -637,6 +637,18 @@ object AnalyticsEvents {
      */
     const val PROOF_CAPTURE_SCAN_DROPPED = "proof_capture_scan_dropped"
 
+    /** A proof-video job entered a new durable processing/upload state in Room. */
+    const val PROOF_VIDEO_STATE_CHANGED = "proof_video_state_changed"
+
+    /** A proof-video media processing step failed and the pipeline queued original upload. */
+    const val PROOF_VIDEO_PROCESSING_FALLBACK = "proof_video_processing_fallback"
+
+    /** A proof-video upload retry was scheduled from the shared queue. */
+    const val PROOF_VIDEO_UPLOAD_RETRY = "proof_video_upload_retry"
+
+    /** A proof-video job reached a terminal state and will need operator/manual action. */
+    const val PROOF_VIDEO_DEAD_LETTER = "proof_video_dead_letter"
+
     /** Standard event parameter keys. */
     /**
      * The OS notification-permission prompt was shown. Until this existed, POST_NOTIFICATIONS was
@@ -737,6 +749,15 @@ object AnalyticsEvents {
 
         const val ITEM_ID = "item_id"
         const val PROOF_ID = "proof_id"
+        const val PROOF_SURFACE = "proof_surface"
+        const val PROOF_MODE = "proof_mode"
+        const val PROOF_STATE = "proof_state"
+        const val PROOF_STAGE = "proof_stage"
+        const val UPLOAD_ORIGINAL = "upload_original"
+        const val BYTES_IN = "bytes_in"
+        const val BYTES_OUT = "bytes_out"
+        const val LOCATION_STATUS = "location_status"
+        const val GEOCODER_STATUS = "geocoder_status"
         /** What a proof is evidence OF (`shed` for a lump-sum group video, `other` for the
          *  per-animal one). Diagnosing a stuck upload starts with knowing which lane it is in. */
         const val SUBJECT_TYPE = "subject_type"

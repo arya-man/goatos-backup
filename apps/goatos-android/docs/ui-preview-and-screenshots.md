@@ -19,6 +19,28 @@ not a separate fake screen. Cover the awkward cases first:
 - proof missing, uploading, failed, retrying, synced, and background sync states
 - role-specific shell/chrome differences for CEO/director/operator
 - weighing individual versus lumpsum capture states
+- vaccination per-animal scan versus per-shed video-list states
+- every non-weighing/non-vaccination operator camera-proof surface: feed
+  distribution, feed complete, feed packing, feed transport, shifting execute,
+  birth/death workflow, milk preparation, and milk feeding
+
+Proof-video screenshots must resemble the actual feature screen. Do not replace
+an existing feature shape with a generic card/list just to show states. If the
+real surface is a scan screen, show the scan screen. If the real surface is a
+weighing captured-animal list, show that list. If the real surface is a
+multi-video form, show the multi-video form. Feed, shifting, workflow, and milk
+states must be shown inside their production step/action rows.
+
+For proof-video work, every touched feature needs screenshot coverage for:
+
+- preparing proof
+- compressing proof
+- uploading proof
+- proof uploaded
+- processing failed and original upload continues
+- upload failed/retrying
+- retrying original proof upload
+- record again / unrecoverable failure
 
 Launch the debug catalog after installing a dev debug build:
 
@@ -49,6 +71,29 @@ Verify before push:
 ./gradlew :app:verifyPaparazziDevDebug --console=plain
 ```
 
+The proof-video screenshot guard is:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+```
+
+The proof-video pipeline guard is:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-pipeline.mjs
+```
+
+Ordinary local CI runs the diff-scoped guard through `make mobile-guard`. A full
+legacy audit can be run with:
+
+```bash
+node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
+```
+
+The full audit should stay clean for Android feature/ViewModel code. Any new
+operator camera proof surface must route through the shared proof
+capture/orchestration path before screenshot fixtures are accepted.
+
 For focused review, run a single test class or method:
 
 ```bash
@@ -75,3 +120,5 @@ A mobile UI handoff is incomplete until it includes:
 - the Paparazzi command that was run
 - screenshots or snapshot paths for the important edge cases
 - explicit confirmation that production copy contains no internal/debug terms
+- physical-device E2E proof for shared proof-video pipeline changes, except
+  when the PR is documentation-only

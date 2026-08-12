@@ -114,6 +114,13 @@ Operator drill (execution):
   **backend-selected/reserved lot** — the operator scans/confirms the physical vial
   against it; the app does **not** pick FEFO/expiry — cold-chain, animal count,
   operator+backup, video proof, remarks).
+- **Shared proof video processing** — every camera video proof, including
+  vaccination now and weighing/feed/shifting later, uses the common pipeline in
+  [`proof-video-processing-pipeline.md`](proof-video-processing-pipeline.md):
+  operator-only Room-first capture, mandatory precise location, compact burned
+  timestamp/operator/location overlay, WhatsApp-style adaptive compression,
+  queued upload, step telemetry, and original-file upload fallback when
+  processing fails.
 - **You / settings**, **RFID reader** pairing, **Alerts**.
 
 Leadership drill (read-only follow-up):
@@ -143,6 +150,13 @@ Offline · N queued). Tapping it opens the **sync status** sheet — the outbox:
 queued shed record with its state (queued → uploading proof → syncing record →
 synced) and a per-item progress bar. This makes the offline-first behaviour
 visible to the operator instead of a silent background process.
+
+Proof video rows add a visible business progression before upload: preparing
+proof, compressing proof, uploading proof, proof uploaded, failed/retrying, or
+record again. The UI must never expose implementation labels such as Room,
+outbox, encoder, Media3, GCS, signed URL, idempotency, or bitrate.
+Non-operator roles may inspect proof status only through their authorized
+read/review screens; they cannot create phone-camera proof videos.
 
 Full per-screen contract in [screens.md](screens.md).
 

@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -23,8 +22,10 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedCompleteStatus
@@ -51,6 +52,7 @@ import javax.inject.Inject
 class FeedCompleteViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -70,7 +72,6 @@ class FeedCompleteViewModel @Inject constructor(
     private val completionKey = FeedCompletionLocalStore.key(shedId, null, sessionNo, workflow)
 
     private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-direction-complete")
-    private val proofKey = DraftIdempotencyKey(savedStateHandle, KEY_PROOF_IDEMPOTENCY, "feed-direction-proof")
     private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
 
     private val _state = MutableStateFlow(
@@ -113,21 +114,22 @@ class FeedCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
-            val request = ProofUploadRequestDto(
-                proofType = "video",
+            val result = proofCaptureRepository.capture(
+                taskId = shedId,
+                fieldKey = FIELD_FEED_COMPLETE_VIDEO,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = captured.localUri,
                 mimeType = captured.mimeType,
+                caption = "Feed complete session $sessionNo",
                 scopeType = "shed",
                 scopeId = shedId,
-                subjectType = "shed",
-                subjectId = shedId,
-                metadata = mapOf(META_SESSION_NO to JsonPrimitive(sessionNo.toString())),
-            )
-            val result = syncRepository.enqueueProofUpload(
-                groupKey = shedId,
-                idempotencyKey = proofKey.current(),
-                request = request,
-                localFilePath = captured.localUri,
-                durationMs = (captured.endedAtMs - captured.startedAtMs).takeIf { it > 0 },
+                capturedStartMs = captured.startedAtMs,
+                capturedEndMs = captured.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = feedShedProofPolicy(captured.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = completionKey,
             )
             when (result) {
                 is AppResult.Ok -> {
@@ -215,12 +217,19 @@ class FeedCompleteViewModel @Inject constructor(
         const val ARG_SESSION_LABEL = "session_label"
 
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedComplete.completeKey"
-        private const val KEY_PROOF_IDEMPOTENCY = "feedComplete.proofKey"
         private const val KEY_OUTBOX_ITEM_ID = "feedComplete.outboxItemId"
-        private const val META_SESSION_NO = "session_no"
+        private const val FIELD_FEED_COMPLETE_VIDEO = "feed_complete_video"
         private const val QUEUED_MESSAGE = "Saved on this phone. The completion will sync automatically."
         private const val SYNCED_MESSAGE = "Feed direction completed for this shed session."
         private const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
         private const val VIDEO_FAILED = "Couldn't save the video. You can still mark this feeding done."
     }
 }
+
+internal fun feedShedProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "shed_level_video",
+        subjectScope = ProofSubject.SHED.wireValue,
+        expectedSubjects = listOf(ProofSubject.SHED.wireValue),
+        captureSource = captureSource,
+    )

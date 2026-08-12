@@ -66,14 +66,18 @@ Use version-gated Bluetooth permissions:
 <!-- Android 12+. Runtime "Nearby devices" permission for paired-device access. -->
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-<!-- Android 12+. Only needed if the app actively scans for nearby Bluetooth devices. -->
+<!-- Android 12+. Requested for operator routes too, so future in-app scan/pairing
+     affordances cannot bypass the mandatory capture permission contract. -->
 <uses-permission
     android:name="android.permission.BLUETOOTH_SCAN"
     android:usesPermissionFlags="neverForLocation" />
 ```
 
 V1 should avoid in-app Bluetooth discovery unless product explicitly needs a
-branded pairing wizard. The simpler and safer path is:
+branded pairing wizard. Even with that simpler path, operator login/capture gates
+request both Android 12+ Nearby Devices permissions (`BLUETOOTH_CONNECT` and
+`BLUETOOTH_SCAN`) so a later pairing helper cannot become an ungated exception.
+The simpler and safer path is:
 
 ```text
 status/readiness detection in app

@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
@@ -27,12 +26,13 @@ import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingNewRefusalDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingWatchlistAnswerDto
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.counts.MilkFeedingEvent
 import sg.mesha.goatos.feature.counts.MilkFeedingCardUi
 import sg.mesha.goatos.feature.counts.MilkFeedingListEvent
@@ -163,6 +163,7 @@ class MilkFeedingViewModel @Inject constructor(
     private val repo: MilkFeedingRepository,
     private val sync: SyncRepository,
     private val capture: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
     private val drafts: CaptureDraftRepository,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
@@ -254,11 +255,31 @@ class MilkFeedingViewModel @Inject constructor(
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }
         val video = capture.captureVideo(ProofCapturePrompt.MILK_FEEDING, proof.label)
         if (video == null) { draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }; return@launch }
-        val request = ProofUploadRequestDto(proofType = "video", mimeType = video.mimeType, scopeType = "park", scopeId = state.value.parkId, subjectType = "park", subjectId = state.value.parkId, metadata = mapOf("capture_source" to JsonPrimitive(video.captureSource), "captured_start_ms" to JsonPrimitive(video.startedAtMs), "captured_end_ms" to JsonPrimitive(video.endedAtMs), "milk_feeding_step" to JsonPrimitive(code), "verification_label" to JsonPrimitive(proof.label)))
-        when (val result = sync.enqueueProofUpload(groupKey(), proofKeys.getValue(code).current(), request, video.localUri, video.endedAtMs - video.startedAtMs)) {
+        when (val result = proofCaptureRepository.capture(
+            taskId = groupKey(),
+            fieldKey = "milk_feeding_$code",
+            subject = ProofSubject.PARK,
+            subjectId = state.value.parkId,
+            localUri = video.localUri,
+            mimeType = video.mimeType,
+            caption = proof.label,
+            scopeType = "park",
+            scopeId = state.value.parkId,
+            capturedStartMs = video.startedAtMs,
+            capturedEndMs = video.endedAtMs,
+            capturedByPrincipalId = null,
+            proofPolicy = milkParkProofPolicy(video.captureSource),
+            awaitUploadEnqueue = true,
+            uploadGroupKey = groupKey(),
+        )) {
             is AppResult.Ok -> {
+                val proofOutboxId = result.value.outboxItemId
+                if (proofOutboxId.isNullOrBlank()) {
+                    draft.update { it.copy(message = "Proof upload could not be queued", proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }
+                    return@launch
+                }
                 // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
-                drafts.putProof(CaptureFlow.MILK_FEEDING, taskId, code, result.value)
+                drafts.putProof(CaptureFlow.MILK_FEEDING, taskId, code, proofOutboxId)
                 captureDraft = drafts.find(CaptureFlow.MILK_FEEDING, taskId)
                 draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(captured = true, capturing = false) else row }) }
             }

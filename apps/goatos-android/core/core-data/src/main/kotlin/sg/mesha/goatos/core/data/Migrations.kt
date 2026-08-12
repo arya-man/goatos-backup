@@ -1052,3 +1052,68 @@ val MIGRATION_36_37: Migration = object : Migration(36, 37) {
         )
     }
 }
+
+/**
+ * v37 -> v38: proof-video processing gets its own durable state/metrics layer.
+ * Existing proof rows are already captured originals and keep their upload status; new fields are
+ * nullable/defaulted so no queued field proof is lost during upgrade.
+ */
+val MIGRATION_37_38: Migration = object : Migration(37, 38) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `featureSurface` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `proofMode` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `slotIndex` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `slotRequired` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processingState` TEXT NOT NULL DEFAULT 'CAPTURED_ORIGINAL'")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processingAttempted` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `stateAttempt` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadOriginal` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `originalUri` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processedUri` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `originalBytes` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processedBytes` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `inputWidth` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `inputHeight` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `durationMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `targetVideoBitrate` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `targetAudioBitrate` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `locationStatus` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gpsAccuracyM` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `geocoderStatus` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorStage` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorClass` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorRetryable` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorMessageHash` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadSessionId` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `objectGeneration` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadedAtMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `attachedAtMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `updatedAtMs` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE `proof_capture` SET `originalUri` = `localUri`, `durationMs` = MAX(`capturedEndMs` - `capturedStartMs`, 0), `updatedAtMs` = `capturedAtMs`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `proof_capture_state_event` (" +
+                "`id` TEXT NOT NULL, " +
+                "`proofId` TEXT NOT NULL, " +
+                "`fromState` TEXT, " +
+                "`toState` TEXT NOT NULL, " +
+                "`stage` TEXT NOT NULL, " +
+                "`attempt` INTEGER NOT NULL, " +
+                "`occurredAtMs` INTEGER NOT NULL, " +
+                "`durationMs` INTEGER, " +
+                "`bytesIn` INTEGER, " +
+                "`bytesOut` INTEGER, " +
+                "`errorClass` TEXT, " +
+                "`retryable` INTEGER, " +
+                "PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`proofId`) REFERENCES `proof_capture`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_state_event_proofId_occurredAtMs` " +
+                "ON `proof_capture_state_event` (`proofId`, `occurredAtMs`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_state_event_stage_occurredAtMs` " +
+                "ON `proof_capture_state_event` (`stage`, `occurredAtMs`)",
+        )
+    }
+}

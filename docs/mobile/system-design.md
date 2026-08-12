@@ -67,6 +67,12 @@ with its revision; a newer revision refreshes nav/labels on reconnect.
 - **WorkManager**: sync, media upload, retry/dead-letter — survives process death.
   (Reminder *timing* is backend kernel-owned; WorkManager never schedules business
   reminders — it only delivers the app's own outbox to the backend.)
+- **Proof video processing**: shared WorkManager-backed pipeline, not a
+  per-screen implementation. It uses one compression worker at a time, may upload
+  up to two files in parallel, burns timestamp/operator/location overlay into
+  the MP4 during the same transcode pass, and falls back to uploading the
+  original file if processing fails. See
+  [`proof-video-processing-pipeline.md`](./proof-video-processing-pipeline.md).
 - **RFID V1**: Bluetooth HID keyboard-wedge key events are captured at the
   Activity/screen input boundary, buffered until Enter/Tab/newline, then emitted
   through `RfidReaderPort` as tag reads. A future vendor SDK/BLE adapter may use
@@ -154,6 +160,12 @@ shed_opened{shed_id, park, groups}
 scan_tap{shed_id, result: given|skipped, reason?, vaccine}
 shed_submitted{shed_id, animals, vaccines, offline_duration_ms}
 sync_result{submission_id, outcome: acked|conflict|dead_letter, attempts}
+proof_processing_started{module, input_size_bucket, target_bitrate_bucket}
+proof_processing_completed{module, output_size_bucket, duration_ms, upload_original}
+proof_processing_failed{module, error_class, upload_original}
+proof_upload_started{module, size_bucket, upload_original}
+proof_upload_completed{module, duration_ms}
+proof_upload_failed{module, error_class, retryable}
 leadership_view{screen, scope}
 scope_changed{from, to}          data_gaps_opened{scope, count}   // count = backend-provided from the payload, never client-aggregated
 reschedule_confirmed{shed_id, in_buffer}   // in_buffer = backend-provided outcome, never client-computed

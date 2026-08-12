@@ -1,5 +1,3 @@
-@file:androidx.media3.common.util.UnstableApi
-
 package sg.mesha.goatos.feature.feed
 
 // telemetry:exempt presentational screen — analytics (AnalyticsPort.track) and Crashlytics
@@ -45,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import android.graphics.BitmapFactory
@@ -384,6 +383,7 @@ private fun FeedDistPhotoPreview(path: String) {
 }
 
 @Composable
+@UnstableApi
 private fun FeedDistVideoPreview(path: String) {
     val context = LocalContext.current
     var isPlaying by remember(path) { mutableStateOf(false) }

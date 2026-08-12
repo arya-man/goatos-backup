@@ -61,10 +61,12 @@ class FeedDistributionCompleteViewModelTest {
                 CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L),
             ),
         )
+        val proofCaptureRepository = FakeProofCaptureRepository()
         val viewModel = FeedDistributionCompleteViewModel(
             syncRepository = syncRepository,
             proofCaptureSource = videoSource,
             photoCaptureSource = photoSource,
+            proofCaptureRepository = proofCaptureRepository,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -92,9 +94,9 @@ class FeedDistributionCompleteViewModelTest {
         assertEquals(0, syncRepository.completionEnqueueCount)
         assertEquals(false, viewModel.state.value.submitEnabled)
 
-        syncRepository.setItemStatus("proof-item-1", SyncItemStatus.SUCCEEDED)
-        syncRepository.setItemStatus("proof-item-2", SyncItemStatus.SUCCEEDED)
-        syncRepository.setItemStatus("proof-item-3", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-1", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-2", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-3", SyncItemStatus.SUCCEEDED)
         advanceUntilIdle()
         assertEquals(FeedDistributionProofStatus.SYNCED, viewModel.state.value.feedWeightPhotoStatus)
         assertEquals(true, viewModel.state.value.submitEnabled)
@@ -103,14 +105,13 @@ class FeedDistributionCompleteViewModelTest {
         advanceUntilIdle()
         assertEquals(1, syncRepository.completionEnqueueCount)
 
-        assertEquals(listOf("photo", "video", "video"), syncRepository.proofTypes)
         assertEquals(
-            JsonPrimitive("in_app_camera"),
-            syncRepository.proofMetadata.first()["capture_source"],
+            listOf("/proof/feed-weight.jpg", "/proof/feed.mp4", "/proof/water.mp4"),
+            proofCaptureRepository.captureCalls.map { it.localUri },
         )
-        assertEquals("proof-item-1", syncRepository.lastFeedWeightProofOutboxItemId)
-        assertEquals("proof-item-2", syncRepository.lastDistributionProofOutboxItemId)
-        assertEquals("proof-item-3", syncRepository.lastWaterProofOutboxItemId)
+        assertEquals("proof-outbox-1", syncRepository.lastFeedWeightProofOutboxItemId)
+        assertEquals("proof-outbox-2", syncRepository.lastDistributionProofOutboxItemId)
+        assertEquals("proof-outbox-3", syncRepository.lastWaterProofOutboxItemId)
     }
 }
 
