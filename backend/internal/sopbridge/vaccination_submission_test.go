@@ -91,6 +91,19 @@ func (p *captureVerificationProducer) CreateItem(_ context.Context, in verificat
 	return verificationdomain.CreateItemResult{Item: verificationdomain.Item{ItemID: "item-1", TenantID: in.TenantID}, Created: true}, nil
 }
 
+type captureObligationCompleter struct {
+	calls []string
+	err   error
+}
+
+func (c *captureObligationCompleter) MarkCompleted(_ context.Context, _ string, obligationID string) (bool, error) {
+	if c.err != nil {
+		return false, c.err
+	}
+	c.calls = append(c.calls, obligationID)
+	return true, nil
+}
+
 // TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsClips is the per-animal
 // fan-out contract: proof is captured one clip per goat, so ONE goat's multiple clips still land in
 // ONE verification item -- but that item is now keyed to the ANIMAL (ref_type vaccination_goat), not
@@ -148,6 +161,71 @@ func TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsC
 	}
 	if producer.last.IdempotencyKey != "vaccination:submission:sub-1:goat:goat-1" {
 		t.Fatalf("idempotency key = %q", producer.last.IdempotencyKey)
+	}
+}
+
+func TestVaccinationSubmissionBridgeFinalizesNeighborSubmitAlertsAndClosesEveryObligation(t *testing.T) {
+	administeredAt := time.Date(2026, 8, 12, 4, 51, 0, 0, time.UTC)
+	completions := make([]vaccinationdomain.SubmissionCompletion, 0, 10)
+	for _, goatID := range []string{"goat-1", "goat-2", "goat-3", "neighbor-1", "neighbor-2"} {
+		completions = append(completions,
+			vaccinationdomain.SubmissionCompletion{
+				CompletionID:   "completion-et-" + goatID,
+				SubmissionID:   "sub-godel-part-1",
+				ObligationID:   "obligation-et-" + goatID,
+				GoatID:         goatID,
+				ShedID:         "godel-part-1",
+				ShedLabel:      "Godel 1 - Part 1",
+				ParkID:         "cbe",
+				ProofRefIDs:    []string{"proof-" + goatID},
+				AdministeredAt: administeredAt,
+				VaccineLabel:   "ET+TT",
+			},
+			vaccinationdomain.SubmissionCompletion{
+				CompletionID:   "completion-sp-" + goatID,
+				SubmissionID:   "sub-godel-part-1",
+				ObligationID:   "obligation-sp-" + goatID,
+				GoatID:         goatID,
+				ShedID:         "godel-part-1",
+				ShedLabel:      "Godel 1 - Part 1",
+				ParkID:         "cbe",
+				ProofRefIDs:    []string{"proof-" + goatID},
+				AdministeredAt: administeredAt.Add(time.Second),
+				VaccineLabel:   "Sheep Pox",
+			},
+		)
+	}
+	rec := &captureVaccinationRecorder{count: 5, completions: completions}
+	producer := &captureVerificationProducer{}
+	closer := &captureObligationCompleter{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer).WithObligationCompleter(closer)
+
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1",
+		sopdomain.TaskSummary{TaskID: "task-godel", SOPCode: "vaccination.drive", ScopeType: "shed", ScopeID: "godel-part-1"},
+		sopdomain.SubmissionSummary{SubmissionID: "sub-godel-part-1", SubmittedBy: "operator-1"},
+	); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.calls != 5 {
+		t.Fatalf("verification alert items = %d, want 5 goat items", producer.calls)
+	}
+	if len(closer.calls) != 10 {
+		t.Fatalf("closed obligations = %d, want 10 vaccine obligations", len(closer.calls))
+	}
+	seen := map[string]bool{}
+	for _, obligationID := range closer.calls {
+		if seen[obligationID] {
+			t.Fatalf("duplicate obligation close call for %s", obligationID)
+		}
+		seen[obligationID] = true
+	}
+	for _, item := range producer.items {
+		if item.Source.RefType != "vaccination_goat" {
+			t.Fatalf("verification source = %+v, want per-goat alert item", item.Source)
+		}
+		if len(item.MediaRefs) != 1 {
+			t.Fatalf("media refs for %s = %v, want that goat's proof only", item.Source.RefID, item.MediaRefs)
+		}
 	}
 }
 

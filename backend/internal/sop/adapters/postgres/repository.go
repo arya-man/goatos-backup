@@ -1156,7 +1156,7 @@ eligible AS (
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (
@@ -1281,7 +1281,7 @@ WHERE p.tenant_id = $1::uuid
       AND ($3 <> 'goat' OR p.subject_id IS NOT NULL))
   )
   AND p.upload_state = 'completed'
-ORDER BY created_at, proof_id`,
+ORDER BY p.created_at, p.proof_id`,
 		tenantID,
 		taskID,
 		proofSubject,
@@ -2061,13 +2061,15 @@ func insertSubmissionItems(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskC
 		keys = itemKeys(cmd.Body.Answers)
 	}
 	var err error
-	keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
-	if err != nil {
-		return err
-	}
-	keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
-	if err != nil {
-		return err
+	if !cmd.SubmissionFanoutRequired {
+		keys, err = filterSubmissionItemsToPartition(ctx, tx, cmd.TenantID, cmd.Body.PartitionLabel, keys)
+		if err != nil {
+			return err
+		}
+		keys, err = filterSubmissionItemsToProofSheds(ctx, tx, cmd.TenantID, cmd.Body.ProofRefs, cmd.Body.IdempotencyKey, keys)
+		if err != nil {
+			return err
+		}
 	}
 	for _, item := range keys {
 		resultMap := map[string]any{"accepted_at": time.Now().UTC().Format(time.RFC3339)}
@@ -2166,7 +2168,25 @@ WHERE tenant_id = $1::uuid
 		return err
 	}
 	if active == 0 {
-		if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+			return nil
+		}
+		const fallbackQ = `
+SELECT count(*)
+FROM goat_shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+    = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`
+		if tx != nil {
+			err = tx.QueryRow(ctx, fallbackQ, tenantID, shedID, partitionLabel).Scan(&matching)
+		} else {
+			err = r.pool.QueryRow(ctx, fallbackQ, tenantID, shedID, partitionLabel).Scan(&matching)
+		}
+		if err != nil {
+			return err
+		}
+		if matching == 0 {
 			return ports.ErrInvalidFilter
 		}
 		return nil

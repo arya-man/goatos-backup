@@ -207,6 +207,143 @@ Director presentation expectation:
 - Directors are tenant-scoped for their module, so they may see both parks but
   should be able to switch park context with chips.
 
+## Vaccination Neighbor Submit Regression
+
+This is the Godel 1 Part 1 / Part 2 phone regression that caused a submit loop.
+The expected behavior is precise:
+
+- The Part 1 submit payload includes the three Part 1 goats and the two accepted
+  Part 2 neighbor goats.
+- Submit readiness counts expected animals at goat grain, not vaccine-obligation
+  grain. Three goats with ET+TT and Sheep Pox still means three expected animals.
+- Partition validation must accept the `goat_shed_partitions` fallback when the
+  legacy `shed_partitions` catalog is empty.
+- The fanout creates one `sop_submission_items` row per scanned goat, then one
+  `vaccination_completions` row per matching vaccine obligation. One goat scan
+  can therefore close two vaccine obligations.
+- Current shed obligations match by task or batch. Neighbor obligations match by
+  the accepted `neighbor_partition` scan attempt anchor: either the exact
+  obligation, the anchor's batch, or the same goat/protocol/same India business
+  date when the obligations are standalone and have no task/batch.
+- A future Part 2 obligation closed by a Part 1 neighbor scan must no longer
+  appear as future work for Part 2 after the obligation completion cascade runs.
+- RFID lookup must work through both active `animal_identifier_1` and
+  `animal_identifier_2`.
+
+Run the focused guard before touching the phone:
+
+```bash
+make vaccination-neighbor-submit-regression-guard
+```
+
+The guard is also wired into the backend lane when Docker/Postgres integration
+tests are deliberately enabled:
+
+```bash
+GOATOS_RUN_POSTGRES_TESTS=1 make ci-local JOB=backend
+```
+
+For the disposable phone-QA database, reset only the Godel vaccination facts
+before a replay. Do not use this against `goatos-local-current`:
+
+```bash
+export DATABASE_URL='postgres://postgres:goatos@127.0.0.1:15544/goatos?sslmode=disable'
+psql "$DATABASE_URL" <<'SQL'
+WITH target_task AS (
+  SELECT '91000000-0000-4000-8000-000000000702'::uuid AS task_id
+), target_goats AS (
+  SELECT unnest(ARRAY[
+    '91000000-0000-4000-8000-000000001001'::uuid,
+    '91000000-0000-4000-8000-000000001002'::uuid,
+    '91000000-0000-4000-8000-000000001003'::uuid,
+    '9a000000-0000-4000-8000-000000000001'::uuid,
+    '9a000000-0000-4000-8000-000000000002'::uuid
+  ]) AS goat_id
+), doomed_submissions AS (
+  SELECT submission_id
+  FROM sop_submissions
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND task_id = (SELECT task_id FROM target_task)
+), doomed_items AS (
+  SELECT item_id FROM sop_submission_items
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND submission_id IN (SELECT submission_id FROM doomed_submissions)
+), del_fanouts AS (
+  DELETE FROM sop_task_submission_fanouts
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND submission_id IN (SELECT submission_id FROM doomed_submissions)
+), del_completions AS (
+  DELETE FROM vaccination_completions
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND sop_submission_item_id IN (SELECT item_id FROM doomed_items)
+), del_items AS (
+  DELETE FROM sop_submission_items
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND submission_id IN (SELECT submission_id FROM doomed_submissions)
+), del_submissions AS (
+  DELETE FROM sop_submissions
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND submission_id IN (SELECT submission_id FROM doomed_submissions)
+), reset_obligations AS (
+  UPDATE obligation_instances
+  SET status = 'due',
+      completed_at = NULL,
+      row_version = row_version + 1,
+      updated_at = now()
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND target_id IN (SELECT goat_id FROM target_goats)
+    AND target_type = 'goat'
+  RETURNING obligation_id
+)
+UPDATE sop_tasks
+SET state = 'in_progress',
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND task_id = (SELECT task_id FROM target_task);
+SQL
+```
+
+After submit, prove the outcome at the database before asking anyone to repeat
+the phone flow:
+
+```bash
+psql "$DATABASE_URL" <<'SQL'
+SELECT count(*) AS completions
+FROM vaccination_completions
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND goat_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '9a000000-0000-4000-8000-000000000001',
+    '9a000000-0000-4000-8000-000000000002'
+  );
+
+SELECT g.goat_id, pr.dose_code, oi.status
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND oi.target_id IN (
+    '91000000-0000-4000-8000-000000001001',
+    '91000000-0000-4000-8000-000000001002',
+    '91000000-0000-4000-8000-000000001003',
+    '9a000000-0000-4000-8000-000000000001',
+    '9a000000-0000-4000-8000-000000000002'
+  )
+ORDER BY g.goat_id, pr.dose_code;
+SQL
+```
+
+The pass condition is 10 completions and 10 completed obligations: five scanned
+goats times two vaccines. Godel 1 Part 2's two neighbor goats must be included
+in that count even though the operator submitted from Part 1.
+
 ## Weighing Completion And Reopen
 
 Operator or Growth Director can submit a weighing shed. Once completed, the

@@ -533,6 +533,7 @@ run_backend() {
   if postgres_tests_enabled; then
     # A deliberate Postgres run is fail-closed if Docker is unavailable.
     step "go test ./... (explicit Postgres opt-in)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_REQUIRE_DOCKER=1 go test ./...'
+    step "vaccination-neighbor-submit-regression-guard" make vaccination-neighbor-submit-regression-guard
   else
     # Unit/package tests still compile and run; pgtest-backed and direct Docker Postgres tests
     # skip through the central opt-in policy even when Docker happens to be installed.

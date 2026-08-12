@@ -50,6 +50,9 @@ const (
 	vecBatchReady     = "fa000000-0000-4000-8000-0000000000a8"
 	vecItemLegacyGoat = "fa000000-0000-4000-8000-0000000000a9"
 	vecBatchClosed    = "fa000000-0000-4000-8000-0000000000a9"
+	vecItemGoatA      = "fa000000-0000-4000-8000-0000000000aa"
+	vecItemGoatB      = "fa000000-0000-4000-8000-0000000000ab"
+	vecSubmissionGoat = "fa000000-0000-4000-8000-0000000000ac"
 	vecOperatorUser   = "fa000000-0000-4000-8000-0000000000b1"
 )
 
@@ -147,10 +150,14 @@ func vecPayload(itemID, operatorID, decision, reason string, legacy bool) []byte
 // scope can be proven: "sop_submission" IS legacy-covered and suppressed, "vaccination_goat" is
 // NOT (see TestVerificationEventConsumer_LegacyDedup and C-defect-A).
 func vecPayloadGoat(itemID, goatID, operatorID, decision, reason string) []byte {
+	return vecPayloadGoatWithSubmission(itemID, goatID, itemID, operatorID, decision, reason)
+}
+
+func vecPayloadGoatWithSubmission(itemID, goatID, submissionID, operatorID, decision, reason string) []byte {
 	source := map[string]any{
 		"module": "vaccination", "ref_type": "vaccination_goat",
 		"ref_id": goatID, "task_id": "fa000000-0000-4000-8000-0000000000f1",
-		"submission_id": itemID,
+		"submission_id": submissionID,
 	}
 	return vecPayloadWithSource(itemID, operatorID, decision, reason, source)
 }
@@ -371,6 +378,40 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	driveClosedRefs := vecRecipientRefs(t, ctx, pool, vecBatchClosed)
 	if len(driveClosedRefs) != 1 || !driveClosedRefs[vnCEOToken] {
 		t.Fatalf("drive closed recipients = %v, want exactly CEO %q", driveClosedRefs, vnCEOToken)
+	}
+}
+
+func TestVerificationEventConsumer_PendingVaccinationGoatsDoNotCollapseAtSubmissionGrain(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer := vecSetup(t)
+
+	for _, tc := range []struct {
+		itemID string
+		goatID string
+	}{
+		{itemID: vecItemGoatA, goatID: "goat-a"},
+		{itemID: vecItemGoatB, goatID: "goat-b"},
+	} {
+		if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemPending,
+			tc.itemID, vecPayloadGoatWithSubmission(tc.itemID, tc.goatID, vecSubmissionGoat, vnOperatorMember, "", ""))); err != nil {
+			t.Fatalf("pending goat %s handle: %v", tc.goatID, err)
+		}
+	}
+
+	for _, itemID := range []string{vecItemGoatA, vecItemGoatB} {
+		refs := vecRecipientRefs(t, ctx, pool, itemID)
+		if len(refs) != 4 ||
+			!refs[vnVerifierToken] || !refs[vnParkHeadToken] ||
+			!refs[vnLeadershipToken] || !refs[vnCEOToken] {
+			t.Fatalf("pending vaccination_goat item %s recipients = %v, want verifier/park-head/PC director/CEO despite shared submission_id",
+				itemID, refs)
+		}
+	}
+	got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id IN ($2, $3)`,
+		vnTenant, vecItemGoatA, vecItemGoatB)
+	if got != 8 {
+		t.Fatalf("pending vaccination_goat notification rows for two items = %d, want 8 (4 recipients x 2 goat items)", got)
 	}
 }
 

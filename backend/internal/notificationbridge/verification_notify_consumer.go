@@ -914,9 +914,8 @@ func decodePayload(raw []byte) (VerificationEventPayload, error) {
 
 // handleItemPending notifies everyone who must react when an operator submits a shed for review:
 // the park's vaccination verifier duty holder, that park's head, tenant PC directors, and tenant
-// CEOs. Multiple goat-level verification items can be created for one shed submission; when the
-// source carries submission_id, the idempotency key is submission-scoped so those items collapse to
-// one queued push per recipient device.
+// CEOs. Legacy shed-level vaccination items still dedupe at submission grain, but per-animal
+// vaccination_goat items must keep item grain so every goat proof gets its own pending alert.
 func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p VerificationEventPayload) error {
 	tenantID := strings.TrimSpace(p.TenantID)
 	itemID := strings.TrimSpace(p.ItemID)
@@ -981,7 +980,9 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 
 	eventKeySubject := itemID
 	if sourceSubmissionID := strings.TrimSpace(p.Source.SubmissionID); sourceSubmissionID != "" {
-		eventKeySubject = "submission:" + sourceSubmissionID
+		if strings.TrimSpace(p.Source.RefType) != vaccinationGoatSourceRefType {
+			eventKeySubject = "submission:" + sourceSubmissionID
+		}
 	}
 	eventKey := EventVerificationItemPending + ":" + eventKeySubject
 	animalSummary := strings.TrimSpace(p.SubjectLabel)
