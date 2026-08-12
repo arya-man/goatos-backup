@@ -55,6 +55,11 @@ const repo = process.env.ROLE_SCOPED_UI_GUARD_TEST_REPO
 // must be contract-driven. Paths are relative to the repo root.
 export const TARGET_FILES = [
   "apps/admin-web/features/verification-review/verification-review-page.tsx",
+  // oversight-analytics.tsx renders the CEO/PC-Director-only aggregate section (KPI strip,
+  // pending-by-module backlog, per-verifier activity) -- the SAME oversight capability
+  // (permissions.VerificationOversee) as the filters above, added 2026-08-12 alongside the
+  // oversight_analytics page-contract control.
+  "apps/admin-web/features/verification-review/oversight-analytics.tsx",
 ];
 
 // Role/permission string literals that must never drive a rendering branch directly in a
