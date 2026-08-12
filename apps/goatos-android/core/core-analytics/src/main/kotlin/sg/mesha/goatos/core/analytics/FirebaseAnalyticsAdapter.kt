@@ -25,19 +25,14 @@ class FirebaseAnalyticsAdapter(
 ) : AnalyticsPort {
     private val firebaseAnalytics: FirebaseAnalytics = FirebaseAnalytics.getInstance(context)
 
+    init {
+        firebaseAnalytics.setAnalyticsCollectionEnabled(true)
+    }
+
     override fun track(event: String, props: Map<String, String>) {
-        // Stamp the stable per-install device id onto every event (from the bootstrap-populated
-        // AnalyticsContext) so the same login on two phones is distinguishable per-event. Null
-        // before bootstrap resolves; an explicit prop of the same key always wins.
-        val deviceId = analyticsContext.deviceId
-        // Stamp this work session's journey id the same way, so a single login-to-logout drive
-        // (hours long) is reconstructible from one id instead of fragmenting across Firebase's
-        // 30-minute auto-sessions. Null before bootstrap resolves; an explicit prop wins.
-        val journeyId = analyticsContext.journeyId
-        val bundle = Bundle(props.size + 2)
-        if (!deviceId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.DEVICE_ID, deviceId)
-        if (!journeyId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.JOURNEY_ID, journeyId)
-        for ((key, value) in props) bundle.putString(key, value)
+        val mergedProps = analyticsContext.standardEventParams() + props
+        val bundle = Bundle(mergedProps.size)
+        for ((key, value) in mergedProps) bundle.putString(key, value)
         firebaseAnalytics.logEvent(event, bundle)
     }
 
@@ -85,3 +80,17 @@ class FirebaseAnalyticsAdapter(
         private const val USER_ID_CRASH_KEY = "member_id"
     }
 }
+
+fun AnalyticsContext.standardEventParams(): Map<String, String> =
+    buildMap {
+        deviceId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.DEVICE_ID, it) }
+        tenantId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.TENANT, it) }
+        actorId?.takeIf { it.isNotBlank() }?.let { put("actor_id", it) }
+        email?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+        role?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.ROLE, it) }
+        parkScope?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.PRIMARY_PARK, it) }
+        parkId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.PARK_ID, it) }
+        flavor.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.FLAVOR, it) }
+        appVersionName?.takeIf { it.isNotBlank() }?.let { put("app_version_name", it) }
+        appVersionCode?.takeIf { it.isNotBlank() }?.let { put("app_version_code", it) }
+    }

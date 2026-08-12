@@ -141,6 +141,9 @@ interface AppApiService {
     @POST("auth/session-events")
     suspend fun recordAuthSessionEvent(@Body request: AuthSessionEventRequestDto)
 
+    @POST("app/analytics/events")
+    suspend fun recordAnalyticsEvent(@Body request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto
+
     @GET("app/bootstrap")
     suspend fun bootstrap(@Query("device_id") deviceId: String?): BootstrapDto
 
@@ -807,6 +810,9 @@ class RetrofitAppApi(
 ) : AppApi {
     override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
+
+    override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        service.recordAnalyticsEvent(request)
 
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = service.bootstrap(deviceId)
 

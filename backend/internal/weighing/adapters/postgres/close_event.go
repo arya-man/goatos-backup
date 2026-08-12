@@ -45,7 +45,10 @@ type weighingCampaignClosedPayload struct {
 
 // A per-bucket close has exactly ONE event type, eventTypeScopeClosed. The type
 // threaded back through.
-func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult) error {
+func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult, eventType string) error {
+	if eventType == "" {
+		eventType = eventTypeScopeClosed
+	}
 	payload := weighingShedClosedPayload{
 		TenantID:         cmd.TenantID,
 		CampaignID:       cmd.CampaignID,
@@ -72,9 +75,9 @@ WHERE cs.tenant_id=$1::uuid
 		ctx,
 		tx,
 		cmd.TenantID,
-		eventTypeScopeClosed,
+		eventType,
 		cmd.CampaignID,
-		eventTypeScopeClosed+":"+cmd.CampaignShedID+":"+cmd.IdempotencyKey,
+		eventType+":"+cmd.CampaignShedID+":"+cmd.IdempotencyKey,
 		"",
 		payload,
 	)

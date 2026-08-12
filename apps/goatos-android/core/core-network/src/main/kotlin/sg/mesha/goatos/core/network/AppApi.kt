@@ -261,6 +261,21 @@ data class AuthSessionEventRequestDto(
 )
 
 @Serializable
+data class AppAnalyticsEventRequestDto(
+    @SerialName("event_name") val eventName: String,
+    @SerialName("properties") val properties: Map<String, String> = emptyMap(),
+    @SerialName("client_event_time_ms") val clientEventTimeMs: Long,
+    @SerialName("flavor") val flavor: String,
+    @SerialName("app_version_name") val appVersionName: String,
+    @SerialName("app_version_code") val appVersionCode: Int,
+)
+
+@Serializable
+data class AppAnalyticsEventResponseDto(
+    @SerialName("accepted") val accepted: Boolean = true,
+)
+
+@Serializable
 data class NavItemDto(
     val key: String = "",
     val label: String = "",
@@ -298,6 +313,10 @@ data class BootstrapOperatorProfileDto(
 interface AppApi {
     /** POST /auth/session-events — audited sign-in/session-refresh bridge for Firebase auth. */
     suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) = Unit
+
+    /** POST /app/analytics/events — backend mirror for Firebase product analytics. */
+    suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        AppAnalyticsEventResponseDto()
 
     /** GET /app/bootstrap — nav + identity + device state. [deviceId] identifies a
      *  previously-registered device so the backend can return its device_state. */
@@ -1162,6 +1181,9 @@ interface AppApi {
  * responses so previews/tests compile without a live backend.
  */
 class FakeAppApi(private val chrome: String = "expanded") : AppApi {
+    override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto =
+        AppAnalyticsEventResponseDto()
+
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = BootstrapDto(
         navChrome = chrome,
         visibleNavigation = listOf(
