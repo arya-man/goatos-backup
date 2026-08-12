@@ -146,7 +146,7 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
       {row.verificationStatus ? (
         <Tag tone={optionTone(pageContract, "verification_state_chips", row.verificationStatus) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verificationStatus)}</Tag>
       ) : null}
-      {neighborScanCount > 0 ? <Tag tone="info">{neighborScanCount} neighbor {neighborScanCount === 1 ? "goat" : "goats"}</Tag> : null}
+      {neighborScanCount > 0 ? <Tag tone="info">{neighborScanCount} {neighborScanCount === 1 ? "goat" : "goats"} from other shed scanned</Tag> : null}
     </div>
   );
 }

@@ -30,7 +30,7 @@
     <string name="sheds_status_overdue">ಅವಧಿ ಮೀರಿದೆ</string>
     <string name="sheds_status_sent_back">ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
     <string name="sheds_status_complete">ಪೂರ್ಣಗೊಂಡಿದೆ</string>
-    <string name="sheds_status_neighbor_scan">ನೆರೆ ಸ್ಕ್ಯಾನ್‌ಗಳು</string>
+    <string name="sheds_status_neighbor_scan">ಬೇರೆ ಶೆಡ್ ಸ್ಕ್ಯಾನ್ ಆಗಿದೆ</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">ಸಿಬ್ಬಂದಿ ಪರಿವರ್ತನೆಗಳು · ಈ ಡ್ರೈವ್ ಅನುಸೂಚಿತವಾದ ನಂತರ</string>

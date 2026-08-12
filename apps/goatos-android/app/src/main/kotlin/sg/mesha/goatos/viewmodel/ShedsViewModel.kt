@@ -430,6 +430,7 @@ class ShedsViewModel @Inject constructor(
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
             val status = shedStatusForRows(group)
             val counts = executionCardCounts(group)
+            val neighborScanCount = group.maxOfOrNull { it.neighborScanCount.coerceAtLeast(0) }.orZero()
             val vaccineGroups = group.flatMap { row ->
                 row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
                     .map { humanizeVaccineLabel(it) }
@@ -476,6 +477,7 @@ class ShedsViewModel @Inject constructor(
                 // Verifier-side count, kept separate from `done` (see effectiveDoneCount's
                 // doc) so a card never reads "5 DONE" while only 2 have actually cleared review.
                 accepted = group.maxOfOrNull { it.acceptedAnimalCount() }?.coerceAtLeast(0).orZero().toString(),
+                neighborScanCount = neighborScanCount,
                 progressLabel = percentLabel(effectiveDone, counts.target),
                 progressFraction = redoAwareFraction(
                     effectiveDone,
@@ -790,14 +792,16 @@ private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: Shed
 }
 
 private fun List<VaccinationExecutionRowDto>.statusChips(status: ShedStatus): List<ShedStatusChip> {
-	val primary =
-		if (any { it.isVerificationPending() }) {
-			ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
-		} else {
-			ShedStatusChip(status.toChipKey(), status.toChipTone())
-		}
-	val overdue = ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER)
-	return if (any { it.isOverdueWork() } && primary.key != overdue.key) listOf(primary, overdue) else listOf(primary)
+    val primary =
+        if (any { it.isVerificationPending() }) {
+            ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
+        } else {
+            ShedStatusChip(status.toChipKey(), status.toChipTone())
+        }
+    val overdue = ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER)
+    val chips = mutableListOf(primary)
+    if (any { it.isOverdueWork() } && primary.key != overdue.key) chips += overdue
+    return chips
 }
 
 private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
