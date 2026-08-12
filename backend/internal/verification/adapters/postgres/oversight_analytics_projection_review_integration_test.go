@@ -7,133 +7,48 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
-	"github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
-// Adversarial regression tests for the OversightAnalytics aggregates
-// (OversightAnalytics in repository.go).
+// Adversarial regression tests for the oversight-analytics aggregates
+// (Repository.OversightAnalytics and ReviewEventRepository.WatchStates).
 //
-// The projection-review marker on those queries claims:
-//   - membership = verification_items and verification_review_events tenant-scoped,
-//     split by status, module, and verifier.
-//   - group_key = varies per query (none for single aggregates, module, verified_by,
-//     item_id).
-//   - join_cardinality = per-module and per-verifier aggregates pre-collapse to one row
-//     each before returning, and the watch-state per-item GROUP BY prevents fanout.
-//   - pagination = each query aggregates a full time window or keyset in one pass.
-//   - scope = tenant_id only (or tenant + time window, or tenant + item_id list).
+// Each test attacks ONE claim in those queries' projection-review markers, and each is written so
+// that removing the guarantee it names makes it fail:
 //
-// Each test below proves one of those claims against a real Postgres instance.
-
+//   - OneToMany    -- a verifier who owns a RETIRED workforce seat alongside the active one must
+//     not have every verdict row counted twice by the name decoration.
+//     workforce_members is unique on (tenant_id, user_id) only WHERE status='active'
+//     (workforce_members_active_user_unique_idx), so the second seat is legal data.
+//   - PageBoundary -- the watch aggregate must answer for the item_ids it was ASKED about and for
+//     no others, so one page of the queue cannot borrow another page's telemetry.
+//   - StatusMatrix -- every verification_items status must land in exactly one bucket, and a
+//     withdrawn row must inflate neither the waiting count nor the reject rate.
 const (
 	oversightTestTenantID = "10000000-0000-4000-8000-000000000001"
-	oversightTestModule   = "vaccination"
 	oversightTestVerifier = "10000000-0000-4000-8000-000000000002"
 )
 
-// TestOversightAnalyticsOneToManyItemsAggregatedPerModule proves the per-module
-// cardinality claim: 10 items with approved status on module=vaccination produce
-// exactly ONE row whose count = 10, not 10 rows.
-func TestOversightAnalyticsOneToManyItemsAggregatedPerModule(t *testing.T) {
+func TestOversightAnalyticsOneToManyRetiredSeatDoesNotDoubleCountVerdicts(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedOversightTestData(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
+	seedOversightTenant(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
 
-	// Insert 10 approved verification items on the vaccination module.
-	for i := 0; i < 10; i++ {
-		itemID := fmt.Sprintf("10000000-0000-4000-8000-0000000000%02d", i)
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO verification_items (item_id, tenant_id, module, status, verified_by, verified_at, captured_at)
-			VALUES ($1, $2, $3, 'approved', $4, now(), now())
-			ON CONFLICT (item_id) DO NOTHING`,
-			itemID, oversightTestTenantID, oversightTestModule, oversightTestVerifier); err != nil {
-			t.Fatalf("insert verified item %s: %v", itemID, err)
-		}
-	}
+	seedWorkforceSeat(t, ctx, pool, "20000000-0000-4000-8000-000000000001", "VERIF-1", "Jyothi", "active")
+	seedWorkforceSeat(t, ctx, pool, "20000000-0000-4000-8000-000000000002", "VERIF-1-OLD", "Jyothi (retired seat)", "inactive")
 
-	analytics, err := repo.OversightAnalytics(ctx, oversightTestTenantID)
-	if err != nil {
-		t.Fatalf("OversightAnalytics: %v", err)
-	}
-
-	// Find the vaccination module in the per-module latency results.
-	var vaccLatency *domain.ModuleLatency
-	for i := range analytics.KPIs.PerModuleMedianReviewLatencyHours {
-		if analytics.KPIs.PerModuleMedianReviewLatencyHours[i].Module == oversightTestModule {
-			vaccLatency = &analytics.KPIs.PerModuleMedianReviewLatencyHours[i]
-			break
-		}
-	}
-	if vaccLatency == nil {
-		t.Fatalf("vaccination module not found in per-module latencies (join must not fan-out or drop groups)")
-	}
-
-	// Find the vaccination module in the pending backlog results.
-	var vaccBacklog *domain.ModulePendingBacklog
-	for i := range analytics.PendingByModule {
-		if analytics.PendingByModule[i].Module == oversightTestModule {
-			vaccBacklog = &analytics.PendingByModule[i]
-			break
-		}
-	}
-	if vaccBacklog == nil {
-		t.Fatalf("vaccination module not found in pending backlog (group_key=module must produce exactly one row per module)")
-	}
-}
-
-// TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions proves
-// the per-verifier cardinality and pagination claims: 5 items decided by one
-// verifier with mixed approved/rejected statuses and multiple events per item
-// produce exactly ONE row for that verifier, with correct totals.
-func TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedOversightTestData(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-
-	const verifier = "10000000-0000-4000-8000-000000000099"
-	const itemCount = 5
-	const approvedCount = 3
-	const rejectedCount = 2
-
-	// The adversarial setup: workforce_members is unique on (tenant_id, user_id) only WHERE
-	// status = 'active' (workforce_members_active_user_unique_idx), so ONE user legitimately owns
-	// an active row plus any number of retired ones. A name decoration that joins on
-	// (tenant_id, user_id) alone therefore fans every verdict row out once per historical row and
-	// silently doubles the verdict/approved/rejected counts a CEO reads. Seed both rows so the
-	// assertions below fail if the active-status predicate is ever dropped from the join.
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO workforce_members (workforce_member_id, user_id, tenant_id, display_name, status)
-		VALUES ($1, $3, $4, 'Test Verifier', 'active'),
-		       ($2, $3, $4, 'Test Verifier (retired seat)', 'inactive')
-		ON CONFLICT (workforce_member_id) DO NOTHING`,
-		"20000000-0000-4000-8000-000000000099", "20000000-0000-4000-8000-000000000098",
-		verifier, oversightTestTenantID); err != nil {
-		t.Fatalf("insert workforce members: %v", err)
-	}
-
-	// Insert 5 verified items: 3 approved, 2 rejected.
-	for i := 0; i < itemCount; i++ {
-		itemID := fmt.Sprintf("10000000-0000-4000-8000-0000000099%02d", i)
+	const approved, rejected = 3, 2
+	for i := 0; i < approved+rejected; i++ {
 		status := "approved"
-		if i >= approvedCount {
+		if i >= approved {
 			status = "rejected"
 		}
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO verification_items (item_id, tenant_id, status, verified_by, verified_at, captured_at)
-			VALUES ($1, $2, $3, $4, now(), now())
-			ON CONFLICT (item_id) DO NOTHING`,
-			itemID, oversightTestTenantID, status, verifier); err != nil {
-			t.Fatalf("insert item %s: %v", itemID, err)
-		}
+		seedDecidedItem(t, ctx, pool, fmt.Sprintf("30000000-0000-4000-8000-0000000000%02d", i), "vaccination", status)
 	}
 
 	analytics, err := repo.OversightAnalytics(ctx, oversightTestTenantID)
@@ -141,114 +56,198 @@ func TestOversightAnalyticsVerifierActivityPageBoundaryMultipleDimensions(t *tes
 		t.Fatalf("OversightAnalytics: %v", err)
 	}
 
-	// Find the verifier in the activity results.
-	var found *domain.VerifierActivity
-	for i := range analytics.VerifierActivity {
-		if analytics.VerifierActivity[i].VerifierID == verifier {
-			found = &analytics.VerifierActivity[i]
-			break
+	rows := 0
+	for _, activity := range analytics.VerifierActivity {
+		if activity.VerifierID != oversightTestVerifier {
+			continue
+		}
+		rows++
+		if activity.Verdicts != approved+rejected {
+			t.Fatalf("verdicts = %d, want %d -- the retired seat fanned the verdict rows out", activity.Verdicts, approved+rejected)
+		}
+		if activity.Approved != approved {
+			t.Fatalf("approved = %d, want %d", activity.Approved, approved)
+		}
+		if activity.Rejected != rejected {
+			t.Fatalf("rejected = %d, want %d", activity.Rejected, rejected)
+		}
+		if activity.VerifierName != "Jyothi" {
+			t.Fatalf("verifier name = %q, want the ACTIVE seat's name %q", activity.VerifierName, "Jyothi")
 		}
 	}
-
-	if found == nil {
-		t.Fatalf("verifier %s not found in activity (GROUP BY verified_by must produce exactly one row per verifier)", verifier)
-	}
-
-	// Verify the counts are correct and unpacked from a single aggregate.
-	if found.Verdicts != itemCount {
-		t.Fatalf("verifier verdicts = %d, want %d (a second workforce row must not fan the verdict rows out)", found.Verdicts, itemCount)
-	}
-	if found.Approved != approvedCount {
-		t.Fatalf("verifier approved = %d, want %d (FILTER clause on same row set)", found.Approved, approvedCount)
-	}
-	if found.Rejected != rejectedCount {
-		t.Fatalf("verifier rejected = %d, want %d", found.Rejected, rejectedCount)
-	}
-	if found.VerifierName != "Test Verifier" {
-		t.Fatalf("verifier name = %q, want the ACTIVE seat's name 'Test Verifier'", found.VerifierName)
+	if rows != 1 {
+		t.Fatalf("verifier appeared in %d activity rows, want exactly 1 (GROUP BY verified_by)", rows)
 	}
 }
 
-// TestOversightAnalyticsWatchStatePerItemStatusMatrix proves the WatchStates
-// per-item cardinality and status-matrix claims: 10 items with mixed events
-// (played, not-played, varying watch percentages) produce exactly 10 distinct
-// rows, each with correct watch state.
-func TestOversightAnalyticsWatchStatePerItemStatusMatrix(t *testing.T) {
+func TestOversightAnalyticsWatchStatesPageBoundaryExcludesOtherPages(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedOversightTestData(t, ctx, pool)
-	reviewEventRepo := NewReviewEventRepository(pool, 5*time.Second)
+	seedOversightTenant(t, ctx, pool)
+	repo := NewReviewEventRepository(pool, 10*time.Second)
 
-	const itemCount = 10
-	itemIDs := make([]string, itemCount)
-	for i := 0; i < itemCount; i++ {
-		itemIDs[i] = fmt.Sprintf("10000000-0000-4000-8000-0000000080%02d", i)
+	requested := []string{
+		"40000000-0000-4000-8000-000000000001",
+		"40000000-0000-4000-8000-000000000002",
 	}
+	// offPage belongs to a DIFFERENT page of the same queue and carries fully-watched telemetry.
+	// If the aggregate is not bounded to the requested ids, it leaks in here.
+	const offPage = "40000000-0000-4000-8000-000000000099"
 
-	// Insert varied review events: some items opened, some with video played,
-	// some with watched positions.
-	for i, itemID := range itemIDs {
-		actor := fmt.Sprintf("10000000-0000-4000-8000-0000000080%02d", i)
-		payload := make(map[string]interface{})
-		payload["video_duration_ms"] = int64(10000) // 10 seconds
-
-		// Half the items have watched 90%+ (watched_to_end), half have 0%.
-		if i%2 == 0 {
-			payload["video_position_ms"] = int64(9500) // 95% watched
-		} else {
-			payload["video_position_ms"] = int64(0)
-		}
-
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO verification_review_events (
-				tenant_id, item_id, actor_id, event_type, occurred_at, payload, session_id, client_event_id
-			) VALUES ($1, $2, $3, $4, now(), $5::jsonb, '', '')
-			ON CONFLICT (tenant_id, client_event_id) DO NOTHING`,
-			oversightTestTenantID, itemID, actor, "video_play",
-			fmt.Sprintf(`{"video_position_ms": %d, "video_duration_ms": 10000}`, payload["video_position_ms"])); err != nil {
-			t.Fatalf("insert play event for item %s: %v", itemID, err)
-		}
+	for _, itemID := range append(append([]string{}, requested...), offPage) {
+		seedPendingItem(t, ctx, pool, itemID, "weighing")
 	}
+	seedWatchEvents(t, ctx, pool, requested[0], 10_000, 10_000)
+	seedWatchEvents(t, ctx, pool, requested[1], 0, 10_000)
+	seedWatchEvents(t, ctx, pool, offPage, 10_000, 10_000)
 
-	watchStates, err := reviewEventRepo.WatchStates(ctx, oversightTestTenantID, itemIDs)
+	states, err := repo.WatchStates(ctx, oversightTestTenantID, requested)
 	if err != nil {
 		t.Fatalf("WatchStates: %v", err)
 	}
 
-	// Verify all 10 items appear exactly once (no fan-out).
-	if len(watchStates) != itemCount {
-		t.Fatalf("WatchStates returned %d items, want %d (GROUP BY item_id must produce one row per item)", len(watchStates), itemCount)
+	if _, leaked := states[offPage]; leaked {
+		t.Fatalf("item %s was not requested but appeared in the result -- the aggregate is not bounded to the page's item_ids", offPage)
 	}
-
-	for i, itemID := range itemIDs {
-		state, ok := watchStates[itemID]
-		if !ok {
-			t.Fatalf("item %s missing from results (GROUP BY must not drop items)", itemID)
+	if len(states) != len(requested) {
+		t.Fatalf("WatchStates returned %d rows for %d requested ids (one row per item, no fan-out)", len(states), len(requested))
+	}
+	for _, itemID := range requested {
+		if _, ok := states[itemID]; !ok {
+			t.Fatalf("requested item %s is missing from the result", itemID)
 		}
-
-		// Half the items should have 95% watch, half should have 0%.
-		if i%2 == 0 {
-			if state.PercentWatched == nil || *state.PercentWatched != 95 {
-				t.Fatalf("item %d watch percent = %v, want 95", i, state.PercentWatched)
-			}
-		} else {
-			if state.PercentWatched == nil || *state.PercentWatched != 0 {
-				t.Fatalf("item %d watch percent = %v, want 0", i, state.PercentWatched)
-			}
-		}
+	}
+	if got := states[requested[0]].PercentWatched; got == nil || *got != 100 {
+		t.Fatalf("fully-watched item percent = %v, want 100", got)
+	}
+	if got := states[requested[1]].PercentWatched; got == nil || *got != 0 {
+		t.Fatalf("opened-but-unplayed item percent = %v, want 0", got)
 	}
 }
 
-// seedOversightTestData inserts minimal required data for verification_items.
-func seedOversightTestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func TestOversightAnalyticsStatusMatrixWithdrawnInflatesNothing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedOversightTenant(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// One row in every status the table allows. A withdrawn item is not work anyone still owes: it
+	// must not count as waiting, and it must not sit in the reject-rate denominator.
+	seedPendingItem(t, ctx, pool, "50000000-0000-4000-8000-000000000001", "feed")
+	seedPendingItem(t, ctx, pool, "50000000-0000-4000-8000-000000000002", "feed")
+	seedDecidedItem(t, ctx, pool, "50000000-0000-4000-8000-000000000003", "feed", "approved")
+	seedDecidedItem(t, ctx, pool, "50000000-0000-4000-8000-000000000004", "feed", "rejected")
+	seedItem(t, ctx, pool, "50000000-0000-4000-8000-000000000005", "feed", "withdrawn", false)
+
+	analytics, err := repo.OversightAnalytics(ctx, oversightTestTenantID)
+	if err != nil {
+		t.Fatalf("OversightAnalytics: %v", err)
+	}
+
+	if analytics.KPIs.VideosWaiting != 2 {
+		t.Fatalf("videos waiting = %d, want 2 (only pending rows; withdrawn is not waiting work)", analytics.KPIs.VideosWaiting)
+	}
+	backlog := 0
+	for _, module := range analytics.PendingByModule {
+		if module.Module == "feed" {
+			backlog = module.Count
+		}
+	}
+	if backlog != 2 {
+		t.Fatalf("feed pending backlog = %d, want 2 -- the per-module bucket disagrees with the headline waiting count", backlog)
+	}
+	// 1 rejected of 2 decided rows. A withdrawn row in the denominator would read 1/3 instead.
+	rejectRate := analytics.KPIs.RejectRateLast30d
+	if rejectRate == nil {
+		t.Fatalf("reject rate is nil while 2 decided rows exist")
+	}
+	if *rejectRate < 0.49 || *rejectRate > 0.51 {
+		t.Fatalf("reject rate = %v, want ~0.5 (rejected / decided, withdrawn excluded)", *rejectRate)
+	}
+	if analytics.KPIs.OldestPendingAgeHours == nil {
+		t.Fatalf("oldest pending age is nil while 2 items are pending")
+	}
+}
+
+func seedOversightTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO tenants (tenant_id, name) VALUES ($1, 'oversight-test')
-		ON CONFLICT (tenant_id) DO NOTHING`,
-		oversightTestTenantID); err != nil {
+		INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'oversight-test', 'active')
+		ON CONFLICT (tenant_id) DO NOTHING`, oversightTestTenantID); err != nil {
 		t.Fatalf("seed tenant: %v", err)
+	}
+}
+
+func seedWorkforceSeat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, memberID, code, name, status string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)
+		ON CONFLICT (workforce_member_id) DO NOTHING`,
+		memberID, oversightTestTenantID, oversightTestVerifier, code, name, status); err != nil {
+		t.Fatalf("seed workforce seat %s: %v", memberID, err)
+	}
+}
+
+// seedItem writes one verification_items row, filling every NOT NULL column the table declares.
+func seedItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID, module, status string, decided bool) {
+	t.Helper()
+	var verifier, verifiedAt, reason any
+	if decided {
+		verifier = oversightTestVerifier
+		verifiedAt = time.Now().UTC()
+		if status == "rejected" {
+			reason = "seeded rejection reason"
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO verification_items (
+			item_id, tenant_id, vertical, module, category, source_module,
+			source_ref_type, source_ref_id, status, verdict_reason, verified_by, verified_at,
+			captured_at, idempotency_key)
+		VALUES ($1::uuid, $2::uuid, 'preventive_care', $3, $3 || '_proof', $3,
+			'sop_submission', gen_random_uuid(), $4, $5, $6::uuid, $7::timestamptz,
+			now() - interval '2 hours', 'oversight-test:' || $1)
+		ON CONFLICT (item_id) DO NOTHING`,
+		itemID, oversightTestTenantID, module, status, reason, verifier, verifiedAt); err != nil {
+		t.Fatalf("seed %s item %s: %v", status, itemID, err)
+	}
+}
+
+func seedPendingItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID, module string) {
+	t.Helper()
+	seedItem(t, ctx, pool, itemID, module, "pending", false)
+}
+
+func seedDecidedItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID, module, status string) {
+	t.Helper()
+	seedItem(t, ctx, pool, itemID, module, status, true)
+}
+
+// seedWatchEvents writes the open + play pair a real review session produces, so the aggregate sees
+// the same event shape the phone and the drawer emit.
+func seedWatchEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID string, positionMS, durationMS int64) {
+	t.Helper()
+	events := []struct {
+		eventType string
+		payload   string
+	}{
+		{"item_opened", `{}`},
+		{"video_play", fmt.Sprintf(`{"video_position_ms": %d, "video_duration_ms": %d}`, positionMS, durationMS)},
+	}
+	for _, event := range events {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO verification_review_events (
+				tenant_id, item_id, actor_id, event_type, occurred_at, payload, session_id, client_event_id)
+			VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now(), $5::jsonb, 'oversight-test-session', gen_random_uuid())`,
+			oversightTestTenantID, itemID, oversightTestVerifier, event.eventType, event.payload); err != nil {
+			t.Fatalf("seed %s event for item %s: %v", event.eventType, itemID, err)
+		}
 	}
 }
