@@ -386,6 +386,7 @@ run_common() {
   step "critical-animal-action-availability-guard" make critical-animal-action-availability-guard
   step "leadership-assistant-coverage-guard" make leadership-assistant-coverage-guard
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
+  step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "telemetry-guard"           make telemetry-guard
   step "agent: ai-doctor"          make ai-doctor

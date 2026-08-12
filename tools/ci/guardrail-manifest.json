@@ -471,6 +471,17 @@
       "notes": "Maintains separation between Leadership (audit/overview, read-only) and Verifier (action queue, verdict casting) surfaces. Enforces: (1) leadership nav hrefs do not point to /verify* routes, (2) leadership Android screens do not import from feature-verify, (3) verdict controls (approve/reject) do not appear in leadership screens. Incident 2026-08-06: leadership Videos nav was repointed at a verifier route, causing leadership screens to reflect every verifier UI change and creating UX confusion about readable vs. actionable content."
     },
     {
+      "id": "role-scoped-ui-contract",
+      "script": "tools/agent-hooks/check-role-scoped-ui-contract.mjs",
+      "makeTarget": "role-scoped-ui-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-role-scoped-ui-contract.mjs --self-test",
+      "owningDoc": "docs/decisions/role-scoped-ui-is-capability-gated.md",
+      "requiredInCI": true,
+      "ciStep": "role-scoped-ui-contract-guard",
+      "notes": "Admin-web pages are role-agnostic single components, so role differences must come from the backend page contract (capability-gated controls/option_groups), never a role-string conditional in the component. Enforces on a fixed, extendable file list (features/verification-review/verification-review-page.tsx today): (1) no role/permission string literal drives a rendering branch, (2) known oversight-only chrome (module chips, the capture-date range picker) is never present without a controlEnabled(pageContract, ...) gate somewhere in the file. Incident (STG, 2026-08-12): the CEO's oversight filters on /verify rendered for every role that could open the page, including RoleVerifier."
+    },
+    {
       "id": "local-ci-evidence",
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",
