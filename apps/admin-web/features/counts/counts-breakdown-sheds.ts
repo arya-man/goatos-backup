@@ -49,6 +49,17 @@ export type CountsBreakdownShedFacetLike = {
 export function buildShedFilterOptions(
   sheds: readonly CountsBreakdownShedFacetLike[] | undefined,
   selectedParkId: string,
+  /**
+   * park_id -> park display label, taken from the SAME response's `facets.parks` (keyed by park
+   * id, labelled with the park code). It exists because `park_label` on the shed facet is a field
+   * NOTHING EVER FILLS: the frontend type declares it, this helper reads it, and neither the Go
+   * struct nor the OpenAPI schema has it — so the disambiguation below could never fire and the
+   * dropdown showed "Castro" twice, "Mandela 1 - Part 3" twice, and so on, with no way to tell
+   * the two parks apart. Rather than widen the contract for a fact the response already carries,
+   * the park vocabulary is passed in. `park_label` is still preferred when present, so a backend
+   * that starts sending it wins.
+   */
+  parkLabels: ReadonlyMap<string, string> = new Map(),
 ): BreakdownFilterOption[] {
   const filtered = (sheds ?? [])
     .filter((shed) => shed.key !== "")
@@ -81,10 +92,10 @@ export function buildShedFilterOptions(
   // NEVER fall back to park_id here: it is a UUID, and rendering it would put a raw internal id in
   // front of a CEO (the copy-firewall rule in AGENTS.md). With no human park label available we
   // simply omit the suffix -- an ambiguous-but-clean label beats a leaked identifier.
-  const parkLabelFor = new Map<string, string>();
+  const parkLabelFor = new Map<string, string>(parkLabels);
   for (const shed of filtered) {
     const label = (shed.park_label ?? "").trim();
-    if (shed.park_id && label && !parkLabelFor.has(shed.park_id)) {
+    if (shed.park_id && label) {
       parkLabelFor.set(shed.park_id, label);
     }
   }
@@ -107,23 +118,49 @@ export function buildShedFilterOptions(
 
   const options: BreakdownFilterOption[] = [];
 
+  // `numeric` is the point: the facet arrives ordered by shed UUID — an artifact, not a decision —
+  // and a plain string sort inside a shed gives "Part 1, Part 10, Part 2". Both read as noise in a
+  // control the operator is scanning for one pen.
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+  // Sheds in name order, with a park tiebreak so two same-named sheds land next to each other in a
+  // stable order instead of wherever their UUIDs happened to fall.
+  const groupsInOrder = [...shedMap.entries()].sort(([leftKey, left], [rightKey, right]) => {
+    const byName = collator.compare(left[0]?.label ?? "", right[0]?.label ?? "");
+    return byName !== 0 ? byName : collator.compare(leftKey, rightKey);
+  });
+
   // For each shed, add parent aggregate and partition-specific options
-  for (const [groupKey, shedRows] of shedMap) {
+  for (const [groupKey, shedRows] of groupsInOrder) {
     const [parkId, shedId] = groupKey.split("|");
 
     // Find the parent shed row (non-partitioned or the first row for rollup)
     const parentRow = shedRows.find((r) => !r.partition_label || r.partition_label.toLowerCase() === "whole") ||
                       shedRows[0];
 
+    // Add partition-specific options (for partitioned sheds)
+    const partitionedRows = shedRows
+      .filter((r) => r.partition_label && r.partition_label.toLowerCase() !== "whole")
+      .sort((left, right) => collator.compare(left.partition_label ?? "", right.partition_label ?? ""));
+
+    // A subdivided shed becomes an OPTGROUP holding its whole-shed option and one option per pen,
+    // which is the shape the operational-location convention asks for ("group by shed_id first,
+    // list partitions under it" — OL-2). Real data makes this the difference between a usable
+    // control and an unusable one: 148 flat rows, twelve of them starting "Yashoda -", is a wall.
+    // An UNDIVIDED shed gets no group — a one-option group is chrome around a single row.
+    // Options keep their full "Yashoda - 3" label rather than a bare "3": a native select scrolls
+    // its group header out of sight, and the convention requires both halves of a location to
+    // render together.
+    const group = partitionedRows.length ? withPark(parentRow.label, parentRow.label, parkId) : undefined;
+
     // Add parent aggregate option
     options.push({
       key: groupKey,
       value: shedId,
       label: withPark(parentRow.label, parentRow.label, parkId),
+      group,
     });
 
-    // Add partition-specific options (for partitioned sheds)
-    const partitionedRows = shedRows.filter((r) => r.partition_label && r.partition_label.toLowerCase() !== "whole");
     for (const row of partitionedRows) {
       options.push({
         key: `${parkId}|${shedId}|${row.partition_label}`,
@@ -136,6 +173,7 @@ export function buildShedFilterOptions(
           row.label,
           parkId,
         ),
+        group,
       });
     }
   }

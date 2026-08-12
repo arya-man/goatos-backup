@@ -86,7 +86,7 @@ operator/leadership pages:
 ## Verifier WEB workspace (admin-web, maintainer decision 2026-08-03)
 
 The same verifier-only workspace also runs on admin-web, so proof video can be reviewed on a
-laptop-sized screen. It is a LENS over the existing `/actions` screen, not a second product, and it
+laptop-sized screen. It is a LENS over the existing `/verify` screen, not a second product, and it
 carries the SAME five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health —
 with the same registry-declared page tabs.
 
@@ -98,7 +98,7 @@ with the same registry-declared page tabs.
   must keep the full admin IA; the lens must never narrow a leadership principal.
 - **Composition.** The sidebar is built from the Verification type registry's navigation metadata
   (`NavigationModule`/`PageKey`/`PageOrder`), NOT a per-role nav template: one group per evidence
-  module, one leaf per page tab, every leaf pointing at `/actions?category=<disjoint category>`.
+  module, one leaf per page tab, every leaf pointing at `/verify?category=<disjoint category>`.
   Registering a new producer category adds it to both the mobile drawer and this sidebar with no
   nav change. Module order is alphabetical by label because the registry declares no module order;
   page order inside a module is the registry's `PageOrder`.

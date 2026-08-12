@@ -47,6 +47,14 @@ type ListQueueParams struct {
 	// pending items captured before today's business-day start; the two scopes are exclusive.
 	BusinessDate string
 	MissedOnly   bool
+	// BusinessDateFrom/BusinessDateTo bound an INCLUSIVE Asia/Kolkata capture-date range
+	// (YYYY-MM-DD on both ends). They are a third, mutually exclusive way to scope the queue by
+	// date: a caller sends BusinessDate for one day, this pair for a span, or MissedOnly for the
+	// pre-today backlog — never two of the three. Both ends are required together, because a
+	// half-open range would have to invent the missing end and the two plausible inventions
+	// (today, or the beginning of time) mean opposite things to a verifier.
+	BusinessDateFrom string
+	BusinessDateTo   string
 	// CapturedFrom/CapturedBefore are app-normalized UTC instants. Repositories keep captured_at
 	// bare in predicates so verification_items_queue_idx remains usable.
 	CapturedFrom   *time.Time

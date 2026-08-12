@@ -30,7 +30,7 @@ must model it the same way.
 - **Backend:** a standalone `verification` bounded context (its own service +
   ports), NOT inside vaccination. Modules feed it; it knows nothing about any
   specific vertical.
-- **Frontend (admin-web):** a top-level cross-module command screen (`/actions`),
+- **Frontend (admin-web):** a top-level cross-module command screen (`/verify`),
   positioned immediately below **Approvals** and above the vertical/module
   groups. It is filtered by backend-registered action type, disjoint
   Due/Approved/Rejected status, and the shared top-bar business date. It is not

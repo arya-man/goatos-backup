@@ -15,6 +15,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const adminRoot = "apps/admin-web";
 const expectedNodeMajor = "24";
 const requiredTestGlobs = [
+  "components/**/*.test.mjs",
   "features/**/*.test.mjs",
   "lib/**/*.test.mjs",
   "scripts/**/*.test.mjs",
