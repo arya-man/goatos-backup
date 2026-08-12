@@ -94,6 +94,7 @@
         "weighing.observation_accepted",
         "weighing.shed_observation_accepted",
         "weighing.shed_submission.completed",
+        "weighing.shed.abandoned",
         "weighing.shed.reopened",
         "weighing.shed.closed",
         "weighing.observation.verified",

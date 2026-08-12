@@ -6,13 +6,17 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsPort
-import sg.mesha.goatos.core.analytics.LogcatAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FanOutAnalytics
 import sg.mesha.goatos.core.analytics.FirebaseAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.NoopAnalytics
+import sg.mesha.goatos.core.network.AppApi
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -38,21 +42,23 @@ object AnalyticsModule {
         @ApplicationContext context: Context,
         crashReporter: CrashReporter,
         analyticsContext: AnalyticsContext,
-    ): AnalyticsPort {
-        val sink: AnalyticsPort = if (BuildConfig.TELEMETRY_ENABLED) {
-            FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext)
+        appApi: Provider<AppApi>,
+        appScope: CoroutineScope,
+    ): AnalyticsPort =
+        if (BuildConfig.TELEMETRY_ENABLED) {
+            FanOutAnalytics(
+                FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext),
+                BackendAnalyticsAdapter(appApi, appScope, analyticsContext),
+            )
         } else {
             NoopAnalytics()
         }
-        // DEBUG builds also print every event to logcat (tag GoatOSAnalytics). During device E2E
-        // the only way to confirm an event fired was to wait for Firebase, which is invisible when
-        // the app runs under a secondary Android user and impossible on a device without Play
-        // Services. "Did my tap register?" must be answerable from `adb logcat`, not from a
-        // network round trip.
-        return if (BuildConfig.DEBUG) LogcatAnalyticsAdapter(sink, analyticsContext) else sink
-    }
 
     @Provides
     @Singleton
-    fun provideAnalyticsContext(): AnalyticsContext = AnalyticsContext(flavor = BuildConfig.FLAVOR)
+    fun provideAnalyticsContext(): AnalyticsContext =
+        AnalyticsContext(flavor = BuildConfig.FLAVOR).apply {
+            appVersionName = BuildConfig.VERSION_NAME
+            appVersionCode = BuildConfig.VERSION_CODE.toString()
+        }
 }

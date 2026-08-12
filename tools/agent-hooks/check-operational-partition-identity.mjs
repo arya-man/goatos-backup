@@ -6,7 +6,9 @@
 // club actual sheds like Godel 1 - Part 1 under the plain base/common name.
 
 import { execSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -39,24 +41,6 @@ function walk(dir) {
 }
 
 function changedFiles() {
-  const files = new Set();
-  for (const args of [
-    "diff --name-only --diff-filter=d",
-    "diff --cached --name-only --diff-filter=d",
-  ]) {
-    try {
-      execSync(`git ${args}`, { cwd: repo, encoding: "utf8" })
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .filter(relevant)
-        .forEach((file) => files.add(file));
-    } catch {
-      // fall through to committed-range checks
-    }
-  }
-  if (files.size > 0) return [...files];
-
   const base = process.env.PARTITION_GUARD_BASE || "origin/main";
   for (const range of [`${base}...HEAD`, "HEAD~1...HEAD"]) {
     try {
@@ -143,6 +127,8 @@ items(rows, key = { it.uiKey }) { row -> Text(row.label) }
     console.error("self-test failed: good fixture was rejected", goodFindings);
     process.exit(1);
   }
+  const dir = mkdtempSync(join(tmpdir(), "partition-guard-"));
+  rmSync(dir, { recursive: true, force: true });
   console.log("operational-partition-identity self-test passed");
 }
 

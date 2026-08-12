@@ -16,6 +16,7 @@ import (
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
 	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
+	appanalyticshttp "github.com/vgoats/goatos/backend/internal/appanalytics/adapters/http"
 	appconfighttp "github.com/vgoats/goatos/backend/internal/appconfig/adapters/http"
 	appconfigapp "github.com/vgoats/goatos/backend/internal/appconfig/app"
 	bulkstatushttp "github.com/vgoats/goatos/backend/internal/bulkstatus/adapters/http"
@@ -469,6 +470,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIService := adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	adminUIHandler := adminuihttp.NewHandler(adminUIService)
+	appAnalyticsHandler := appanalyticshttp.NewHandler(pool, log)
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	countsService := countsapp.NewService(countsRepo)
@@ -988,6 +990,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
+	appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)
 	countshttp.Register(protectedMux, herdRegisterHandler)
 	countshttp.RegisterAppWrites(protectedMux, countsAppWriteHandler)

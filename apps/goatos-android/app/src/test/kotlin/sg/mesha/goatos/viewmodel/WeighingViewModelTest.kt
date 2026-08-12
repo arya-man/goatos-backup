@@ -1419,7 +1419,7 @@ class WeighingViewModelTest {
         backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
         advanceUntilIdle()
 
-        wizardVm.selectDate("2026-08-12")
+        wizardVm.selectDate("2099-08-12")
         wizardVm.next()
         wizardVm.selectPark("park-cbe")
         wizardVm.next()

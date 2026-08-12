@@ -690,7 +690,7 @@ fun ShedSwitcherSheet(state: ScanUiState, onEvent: (ScanEvent) -> Unit = {}) {
                 ) {
                     items(
                         items = state.shedOptions,
-                        key = { "${it.shedId}|${it.taskId}" },
+                        key = { "partition:${it.shedLabel}|${it.shedId}|${it.taskId}" },
                         contentType = { "shed_switch_option" },
                     ) { option ->
                         ShedSwitchRow(
