@@ -13,6 +13,7 @@ const FEATURE_ROOT = "apps/goatos-android/feature";
 const APP_VM_ROOT = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel";
 
 const banned = [
+  { re: /\benqueueProofUpload\s*\(/g, reason: "direct proof upload enqueue; use shared proof capture/orchestration" },
   { re: /\bcom\.google\.firebase\./g, reason: "direct Firebase SDK usage" },
   { re: /\b(FirebaseAnalytics|FirebaseCrashlytics|FirebasePerformance)\b/g, reason: "direct Firebase SDK usage" },
   { re: /\b(MediaCodec|MediaMuxer|MediaExtractor|MediaMetadataRetriever)\b/g, reason: "per-screen media processing" },
@@ -81,8 +82,9 @@ function scanFile(rel) {
 function selfTest() {
   const badFirebase = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "FirebaseCrashlytics.getInstance()").length === 1;
   const badMedia = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "val muxer = MediaMuxer(path, 0)").length === 1;
+  const badDirectUpload = scanText("apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/Foo.kt", "syncRepository.enqueueProofUpload(group, key, request, uri, duration)").length === 1;
   const goodPort = scanText("apps/goatos-android/feature/x/src/main/Foo.kt", "analytics.track(\"proof_upload_started\")").length === 0;
-  const ok = badFirebase && badMedia && goodPort;
+  const ok = badFirebase && badMedia && badDirectUpload && goodPort;
   console.log(ok ? "android-proof-video-pipeline self-test: ok" : "android-proof-video-pipeline self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }

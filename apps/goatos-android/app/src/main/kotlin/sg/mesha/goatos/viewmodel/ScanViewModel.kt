@@ -1253,7 +1253,7 @@ class ScanViewModel @Inject constructor(
                     subjectId = row.goatId,
                     localUri = captured.localUri,
                     mimeType = captured.mimeType,
-                    caption = null,
+                    caption = row.primaryTag,
                     scopeType = "task",
                     scopeId = selectedTaskId,
                     capturedStartMs = captured.startedAtMs,

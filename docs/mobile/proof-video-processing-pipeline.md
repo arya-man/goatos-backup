@@ -7,10 +7,27 @@ upload video from the phone.
 
 Implementation status for this PR branch: Android now has the durable
 Room/schema fields, state vocabulary, operator permission gate, screenshot
-coverage, telemetry names, and CI guardrails needed by this contract. The media
-worker that replaces the existing direct original-file upload path must be wired
-in the next Android implementation slice; until then, the legacy path still
-uploads the captured original file.
+coverage, telemetry names, Gallery-save hook, and CI guardrails needed by this
+contract. The shared `ProofCaptureRepository` path now selects one final proof
+artifact before upload: processed media when the processor succeeds, original
+media when processing fails, then saves that same artifact to Gallery and queues
+that same artifact for upload.
+
+Current coverage is intentionally explicit:
+
+- Covered by the shared path: vaccination scan proof, vaccination submit video
+  fields, weighing individual proof, and weighing lump-sum/shed proof.
+- Not yet migrated: feed complete, feed distribution feed video, feed
+  distribution water photo/video, feed packing, feed transport, shifting execute,
+  milk preparation, milk feeding, workflow action videos, and death workflow
+  draft videos uploaded on submit.
+
+Until those legacy direct-upload call sites are migrated, they still upload the
+captured original file directly through `SyncRepository.enqueueProofUpload` and
+do not receive the shared processing/Gallery/fallback/state-event behavior. The
+CI guard blocks any new or touched Android feature/ViewModel code from adding
+direct proof-upload enqueue calls; run the full `--all` audit to see the
+remaining legacy bypasses.
 
 This doc extends:
 
@@ -33,6 +50,11 @@ This doc extends:
 - Operator-only capture: only signed-in operator execution flows may create
   camera proofs. Leadership, verifier, admin, and read-only flows can review or
   inspect proofs only through their server-authorized surfaces.
+- Feature-aligned UI states: each operator surface renders the proof status in
+  its own production shape, not a generic proof card. Vaccination scan looks like
+  scan, weighing individual looks like captured animal rows, lump-sum weighing
+  looks like the five-video shed form, feed/milk/shifting/workflow screens keep
+  their own step rows.
 
 ## Non-goals
 
@@ -42,6 +64,10 @@ This doc extends:
 - Do not expose internal words such as Room, outbox, codec, bitrate, or
   idempotency in operator UI.
 - Do not upload video directly from UI state. Room is the source of truth.
+- Do not add feature-local calls to `SyncRepository.enqueueProofUpload` for
+  phone-camera proof capture. Capture surfaces must go through the shared proof
+  capture/orchestration path so processing, Gallery save, fallback, retry, Room
+  events, and Firebase events stay consistent.
 - Do not allow non-operator flows to create phone-camera proof videos through
   this pipeline.
 
@@ -86,6 +112,7 @@ Required lines:
 ```text
 <local timestamp>
 Operator: <logged-in display name>
+RFID: <tag>          # when camera opened from an RFID/scanned animal row
 <address line 1 or lat/lng>
 <address line 2 or accuracy>
 ```

@@ -6,6 +6,7 @@ data class ProofMediaProcessingRequest(
     val fieldKey: String,
     val subjectType: String,
     val subjectId: String?,
+    val rfidTag: String?,
     val originalUri: String,
     val mimeType: String,
     val capturedStartMs: Long,
