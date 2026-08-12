@@ -385,8 +385,12 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 		return domain.CloseResult{}, err
 	}
 
-	labels := make([]string, 0, len(buckets))
-	for _, bucket := range buckets {
+	sampleCount := len(buckets)
+	if sampleCount > domain.CloseNotAcceptedSampleLimit {
+		sampleCount = domain.CloseNotAcceptedSampleLimit
+	}
+	labels := make([]string, 0, sampleCount)
+	for _, bucket := range buckets[:sampleCount] {
 		labels = append(labels, bucket.ShedLabel)
 	}
 	result := domain.CloseResult{
@@ -479,9 +483,11 @@ type closedBucket struct {
 	Status         string `json:"previous_status"`
 }
 
-// campaignNotAcceptedBuckets returns the bounded affected-bucket list plus the
-// exact whole-campaign not-accepted bucket count. Buckets already 'completed' are
-// accepted work and are excluded.
+// campaignNotAcceptedBuckets returns every affected bucket for notification
+// fanout plus the exact whole-campaign not-accepted bucket count. Buckets
+// already 'completed' are accepted work and are excluded. CloseResult.NotAccepted
+// remains capped at domain.CloseNotAcceptedSampleLimit before audit/idempotency
+// recording so replay payloads stay bounded.
 func (r *Repository) campaignNotAcceptedBuckets(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand) ([]closedBucket, int, error) {
 	var total int
 	if err := tx.QueryRow(ctx, `
@@ -498,13 +504,12 @@ FROM weighing_campaign_sheds cs
 WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
   AND cs.status NOT IN ('completed','closed','canceled')
-ORDER BY cs.display_name, cs.campaign_shed_id
-LIMIT $3`, cmd.TenantID, cmd.CampaignID, domain.CloseNotAcceptedSampleLimit)
+ORDER BY cs.display_name, cs.campaign_shed_id`, cmd.TenantID, cmd.CampaignID)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-	buckets := make([]closedBucket, 0, 8)
+	buckets := make([]closedBucket, 0, total)
 	for rows.Next() {
 		var bucket closedBucket
 		if err := rows.Scan(&bucket.CampaignShedID, &bucket.ShedID, &bucket.ShedLabel, &bucket.OperatorID, &bucket.Status); err != nil {
