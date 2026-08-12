@@ -65,8 +65,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mirror one Android analytics event into backend audit storage.
-         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in audit_log with action=app.analytics.event so scan/proof journeys can be queried even when Firebase UI is delayed.
+         * Mirror one Android analytics event into backend analytics storage.
+         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in analytics.app_events with request/client/device metadata so scan/proof journeys can be queried even when Firebase UI is delayed.
          */
         post: operations["recordAppAnalyticsEvent"];
         delete?: never;
