@@ -126,6 +126,31 @@ interface FeedRepository {
 
     /** The paged Feed Packing lines, a Room PagingSource filled by a RemoteMediator. */
     fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>>
+
+    /**
+     * LIVE per-row lifecycle status for one packing PEN-SESSION, straight from the same Room table
+     * [packingRows] renders from. `null` while Room has no cached row for this session yet (e.g. a
+     * fresh screen entry before any worklist page has ever cached it) — the caller should fall back
+     * to its nav-arg hint in that case rather than treating `null` as "open".
+     *
+     * This is what lets [sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel] flip to read-only
+     * live if the session is verified/rejected elsewhere while the completion screen stays open —
+     * the nav-arg lifecycle-status is only a snapshot from the moment the row was tapped (STG
+     * 2026-08-09 gap).
+     */
+    fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?>
+
+    /**
+     * LIVE per-row lifecycle status for a feed-direction shed-session, straight from the same Room
+     * table [directionRows] renders from. A shed-session's lifecycle bucket is shared across every
+     * ration-grain row of that session (see [FeedDirectionRowDto.lifecycleStatus]'s kdoc), so any
+     * one matching row is authoritative. `null` while Room has no cached row yet — the caller should
+     * fall back to its nav-arg hint.
+     *
+     * Used by [sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel] for the same live-status
+     * gating as [observePackingRowStatus].
+     */
+    fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?>
 }
 
 class DefaultFeedRepository(
@@ -210,6 +235,28 @@ class DefaultFeedRepository(
             .map { page -> page.map { entity -> json.decodeFromString<FeedPackingRowDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
     }
+
+    override fun observePackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> =
+        database.feedPackingItemDao()
+            .observeRowForPenSession(shedId, partitionLabel, workflow, sessionNo.toString())
+            .map { entity -> entity?.let { json.decodeFromString<FeedPackingRowDto>(it.dtoJson).lifecycleStatus } }
+            .flowOn(Dispatchers.Default)
+
+    override fun observeDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> =
+        database.feedDirectionItemDao()
+            .observeRowForShedSession(shedId, partitionLabel, workflow, sessionNo.toString())
+            .map { entity -> entity?.let { json.decodeFromString<FeedDirectionRowDto>(it.dtoJson).lifecycleStatus } }
+            .flowOn(Dispatchers.Default)
 }
 
 /**

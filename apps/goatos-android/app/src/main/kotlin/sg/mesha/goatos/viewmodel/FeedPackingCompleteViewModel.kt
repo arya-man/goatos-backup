@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -65,6 +66,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val drafts: CaptureDraftRepository,
+    private val feedRepository: FeedRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -80,11 +82,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
-    // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
-    // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
-    // an operator was shown an empty form for work already submitted (STG 2026-08-09).
-    private val alreadySubmitted: Boolean =
-        !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
+    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped. This is only the
+    // FIRST-PAINT hint: it is a nav-arg snapshot, so a status change while this screen stays open
+    // (verifier approves/rejects elsewhere, or a reinstall lost the local draft for work already
+    // submitted) would leave it stale. [observeLiveLifecycleStatus] below supersedes it with the
+    // Room-backed live value the moment Room has one (STG 2026-08-09).
+    private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
+    private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
     // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
     // proof drains strictly before the gated completion that references it. The PEN, the SESSION and
@@ -125,6 +129,26 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
         observeSyncStatus()
         observeDurableProof()
+        observeLiveLifecycleStatus()
+    }
+
+    /**
+     * Supersede the nav-arg [lifecycleStatusHint] with the LIVE Room-backed status the moment Room
+     * has one for this pen-session — the same table the worklist renders from, so a status change
+     * elsewhere (verifier approves/rejects, or another device submits) flips this screen to
+     * read-only WHILE IT IS OPEN, not only on next entry. A `null` emission means Room has no cached
+     * row for this session yet (e.g. offline-first cold start before any worklist page ever cached
+     * it) and is deliberately IGNORED so the screen keeps the nav-arg hint rather than forcing itself
+     * editable.
+     */
+    private fun observeLiveLifecycleStatus() {
+        viewModelScope.launch {
+            feedRepository.observePackingRowStatus(shedId, partitionLabel, workflow, sessionNo)
+                .collect { liveStatus ->
+                    if (liveStatus == null) return@collect
+                    _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+                }
+        }
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {

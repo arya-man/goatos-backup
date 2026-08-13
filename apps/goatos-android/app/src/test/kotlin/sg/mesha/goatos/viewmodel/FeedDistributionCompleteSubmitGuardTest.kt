@@ -65,9 +65,9 @@ class FeedDistributionCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDist.feedWeightPhotoProofItemId")
-        val videoProofItemId = DraftOutboxItemId(saved, "feedDist.videoProofItemId")
-        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDist.waterVideoProofItemId")
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.feedWeightPhotoProofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.videoProofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.waterVideoProofItemId")
 
         // Pre-set all three proof IDs so canComplete can derive as true
         feedWeightPhotoProofItemId.value = "proof-photo-1"
@@ -82,6 +82,7 @@ class FeedDistributionCompleteSubmitGuardTest {
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = context,
+            feedRepository = FakeFeedRepository(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -126,9 +127,9 @@ class FeedDistributionCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDist.feedWeightPhotoProofItemId")
-        val videoProofItemId = DraftOutboxItemId(saved, "feedDist.videoProofItemId")
-        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDist.waterVideoProofItemId")
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDistribution.feedWeightPhotoProofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDistribution.videoProofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDistribution.waterVideoProofItemId")
 
         // Pre-set all three proof IDs
         feedWeightPhotoProofItemId.value = "proof-photo-1"
@@ -143,6 +144,7 @@ class FeedDistributionCompleteSubmitGuardTest {
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = context,
+            feedRepository = FakeFeedRepository(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -173,11 +175,28 @@ private class CountingFeedDistributionCompleteSyncRepository : SyncRepository {
         private set
     var failNext: Boolean = false
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
-    private val readyProofs = mutableSetOf<String>()
+    // REACTIVE per-item state, not a one-shot flowOf() — see the identical fix + rationale in
+    // FeedPackingCompleteSubmitGuardTest's CountingFeedPackingCompleteSyncRepository. A one-shot
+    // flow computed at the moment the VM subscribes (before the test's markProofReady calls) can
+    // never see the later "ready" transition, so canComplete never flips true and markDone()
+    // silently no-ops — a RED result for the wrong reason.
+    private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
     private var pendingGate: CompletableDeferred<Unit>? = null
 
     fun markProofReady(proofId: String) {
-        readyProofs.add(proofId)
+        items.getOrPut(proofId) { MutableStateFlow(null) }.value = SyncQueueItem(
+            id = proofId,
+            opType = "test",
+            idempotencyKey = "test-key",
+            groupKey = "test-group",
+            status = sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED,
+            attemptCount = 0,
+            maxAttempts = 3,
+            conflict = false,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            lastError = null,
+        )
     }
 
     fun holdNextEnqueueUntil(gate: CompletableDeferred<Unit>) {
@@ -185,25 +204,8 @@ private class CountingFeedDistributionCompleteSyncRepository : SyncRepository {
     }
 
     override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> {
-        return if (itemId in readyProofs) {
-            flowOf(SyncQueueItem(
-                id = itemId,
-                opType = "test",
-                idempotencyKey = "test-key",
-                groupKey = "test-group",
-                status = sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED,
-                attemptCount = 0,
-                maxAttempts = 3,
-                conflict = false,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                lastError = null
-            ))
-        } else {
-            flowOf(null)
-        }
-    }
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        items.getOrPut(itemId) { MutableStateFlow(null) }
 
     override suspend fun enqueueFeedDistributionComplete(
         groupKey: String,

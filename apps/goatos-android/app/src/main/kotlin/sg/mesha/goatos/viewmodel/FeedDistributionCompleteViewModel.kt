@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -34,6 +35,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionResultUi
@@ -67,6 +69,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
+    private val feedRepository: FeedRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -81,6 +84,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
+
+    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped — a FIRST-PAINT hint
+    // only. [observeLiveLifecycleStatus] supersedes it with the Room-backed live value the moment
+    // Room has one, so a status change while this screen stays open (verifier decides elsewhere, or
+    // a reinstall lost the local draft for work already submitted) flips this screen to read-only
+    // live rather than on next entry only. Mirrors FeedPackingCompleteViewModel's same-shaped gate
+    // (STG 2026-08-09).
+    private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
+    private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
     // The shed-session partitions ordering for the proof uploads and completion, so all three
     // proof items drain before the gated completion references them.
@@ -111,6 +123,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             videoStatus = videoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
             waterVideoCaptured = waterVideoProofItemId.value != null,
             waterVideoStatus = waterVideoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
+            alreadySubmitted = alreadySubmitted,
         ),
     )
     val state: StateFlow<FeedDistributionUiState> = _state.asStateFlow()
@@ -129,6 +142,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         feedWeightPhotoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, it) }
         videoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_VIDEO, it) }
         waterVideoProofItemId.value?.let { observeProofItem(ProofSlot.WATER_VIDEO, it) }
+        observeLiveLifecycleStatus()
+    }
+
+    /** See [FeedPackingCompleteViewModel.observeLiveLifecycleStatus] — the same shaped gate for the
+     *  feed-direction shed-session table. A `null` emission (no cached row yet) is ignored so the
+     *  screen keeps [lifecycleStatusHint] rather than forcing itself editable. */
+    private fun observeLiveLifecycleStatus() {
+        viewModelScope.launch {
+            feedRepository.observeDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo)
+                .collect { liveStatus ->
+                    if (liveStatus == null) return@collect
+                    _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+                }
+        }
     }
 
     fun onEvent(event: FeedDistributionEvent) {
