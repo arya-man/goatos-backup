@@ -16759,83 +16759,236 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WeighingGrowthShedLeaderboardRow"
+    GrowthDirectorPeriod:
+      type: object
+      additionalProperties: false
+      required: [start, end, resolution]
+      properties:
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        resolution: { type: string, enum: [campaign_week] }
+    GrowthDirectorPark:
+      type: object
+      additionalProperties: false
+      required: [park_id, name]
+      properties:
+        park_id: { type: string, format: uuid }
+        name: { type: string }
+    GrowthDirectorWeightBand:
+      type: object
+      additionalProperties: false
+      required: [band, identity_count]
+      properties:
+        band: { type: string }
+        identity_count: { type: integer }
+    GrowthDirectorBandMovement:
+      type: object
+      additionalProperties: false
+      required: [pair_identities, moved_up, held, moved_down]
+      properties:
+        pair_identities: { type: integer }
+        moved_up: { type: integer }
+        held: { type: integer }
+        moved_down: { type: integer }
+    GrowthDirectorRoadToSale:
+      type: object
+      additionalProperties: false
+      required:
+        - total_identities
+        - matched_identities
+        - unmatched_identities
+        - bands
+        - movement
+      properties:
+        total_identities: { type: integer }
+        matched_identities: { type: integer }
+        unmatched_identities: { type: integer }
+        bands:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorWeightBand"
+        movement:
+          $ref: "#/components/schemas/GrowthDirectorBandMovement"
+    GrowthDirectorFairFightShed:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - operational_key
+        - shed_display_name
+        - pair_identities
+        - median_adg_g_per_day
+      properties:
+        location_id: { type: string, format: uuid }
+        operational_key: { type: string }
+        shed_display_name: { type: string }
+        pair_identities: { type: integer }
+        median_adg_g_per_day: { type: number }
+    GrowthDirectorFairFightCohort:
+      type: object
+      additionalProperties: false
+      required: [breed, sex, sheds]
+      properties:
+        breed: { type: string }
+        sex: { type: string }
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorFairFightShed"
+    GrowthDirectorFairFight:
+      type: object
+      additionalProperties: false
+      required: [cohorts]
+      properties:
+        cohorts:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorFairFightCohort"
+    GrowthDirectorSlowGrowthGroup:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - operational_key
+        - shed_display_name
+        - breed
+        - sex
+        - pair_identities
+        - median_adg_g_per_day
+        - week_over_week_delta_g
+        - status
+      properties:
+        location_id: { type: string, format: uuid }
+        operational_key: { type: string }
+        shed_display_name: { type: string }
+        breed: { type: string }
+        sex: { type: string }
+        pair_identities: { type: integer }
+        median_adg_g_per_day: { type: number }
+        week_over_week_delta_g: { type: number, nullable: true }
+        status: { type: string, enum: [on_track, below_target, losing] }
+    GrowthDirectorSlowGrowth:
+      type: object
+      additionalProperties: false
+      required: [target_g_per_day, groups]
+      properties:
+        target_g_per_day: { type: number }
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorSlowGrowthGroup"
+    GrowthDirectorFeedVsGrowthShed:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - shed_display_name
+        - feed_g_per_head_per_day
+        - adg_g_per_day
+        - kg_feed_per_kg_gain
+        - basis
+        - is_experiment
+        - pair_identities
+      properties:
+        location_id: { type: string, format: uuid }
+        shed_display_name: { type: string }
+        feed_g_per_head_per_day: { type: number, nullable: true }
+        adg_g_per_day: { type: number, nullable: true }
+        kg_feed_per_kg_gain: { type: number, nullable: true }
+        basis: { type: string, enum: [per_animal, whole_shed] }
+        is_experiment: { type: boolean }
+        pair_identities: { type: integer }
+    GrowthDirectorFeedVsGrowth:
+      type: object
+      additionalProperties: false
+      required: [sheds, estimate]
+      properties:
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorFeedVsGrowthShed"
+        estimate: { type: boolean }
+    GrowthDirectorFeedProblemItem:
+      type: object
+      additionalProperties: false
+      required: [shed_label, feed_item_label, blocked_days, latest_reason_code]
+      properties:
+        shed_label: { type: string }
+        feed_item_label: { type: string }
+        blocked_days: { type: integer }
+        latest_reason_code: { type: string }
+    GrowthDirectorFeedProblems:
+      type: object
+      additionalProperties: false
+      required:
+        - blocked_rows_latest_day
+        - blocked_rows_history
+        - authored_zero_latest_day
+        - authored_zero_history
+        - items
+      properties:
+        blocked_rows_latest_day: { type: integer }
+        blocked_rows_history: { type: integer }
+        authored_zero_latest_day: { type: integer }
+        authored_zero_history: { type: integer }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorFeedProblemItem"
+    GrowthDirectorTrust:
+      type: object
+      additionalProperties: false
+      required:
+        - scans_total
+        - scans_matched
+        - scans_unmatched
+        - identities_total
+        - identities_with_pair
+        - identities_once_only
+        - whole_shed_observations
+        - scans_pending_verification
+        - scans_rework
+      properties:
+        scans_total: { type: integer }
+        scans_matched: { type: integer }
+        scans_unmatched: { type: integer }
+        identities_total: { type: integer }
+        identities_with_pair: { type: integer }
+        identities_once_only: { type: integer }
+        whole_shed_observations: { type: integer }
+        scans_pending_verification: { type: integer }
+        scans_rework: { type: integer }
     GrowthDirectorWeightsResponse:
       type: object
       additionalProperties: false
       required:
-        - weight_distribution
+        - period
+        - parks
+        - road_to_sale
+        - fair_fight
         - slow_growth
         - feed_vs_growth
+        - feed_problems
+        - trust
       properties:
-        weight_distribution:
-          type: object
-          additionalProperties: false
-          required: [bands]
-          properties:
-            bands:
-              type: array
-              items:
-                type: object
-                additionalProperties: false
-                required: [label, count, median_weight_kg]
-                properties:
-                  label: { type: string }
-                  count: { type: integer }
-                  median_weight_kg: { type: number }
+        period:
+          $ref: "#/components/schemas/GrowthDirectorPeriod"
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrowthDirectorPark"
+        road_to_sale:
+          $ref: "#/components/schemas/GrowthDirectorRoadToSale"
+        fair_fight:
+          $ref: "#/components/schemas/GrowthDirectorFairFight"
         slow_growth:
-          type: object
-          additionalProperties: false
-          required: [groups]
-          properties:
-            groups:
-              type: array
-              items:
-                type: object
-                additionalProperties: false
-                required:
-                  - operational_key
-                  - shed_display_name
-                  - breed
-                  - sex
-                  - pair_identities
-                  - median_adg_g_per_day
-                  - week_over_week_delta_g
-                  - status
-                properties:
-                  operational_key: { type: string }
-                  shed_display_name: { type: string }
-                  breed: { type: string }
-                  sex: { type: string }
-                  pair_identities: { type: integer }
-                  median_adg_g_per_day: { type: number }
-                  week_over_week_delta_g: { type: number, nullable: true }
-                  status: { type: string, enum: [losing, below_target, thin_sample] }
+          $ref: "#/components/schemas/GrowthDirectorSlowGrowth"
         feed_vs_growth:
-          type: object
-          additionalProperties: false
-          required: [sheds]
-          properties:
-            sheds:
-              type: array
-              items:
-                type: object
-                additionalProperties: false
-                required:
-                  - location_id
-                  - shed_display_name
-                  - basis
-                  - is_experiment
-                  - feed_g_per_head_per_day
-                  - adg_g_per_day
-                  - kg_feed_per_kg_gain
-                properties:
-                  location_id: { type: string, format: uuid }
-                  shed_display_name: { type: string }
-                  basis: { type: string, enum: [per_animal, shed_average] }
-                  is_experiment: { type: boolean }
-                  feed_g_per_head_per_day: { type: number, nullable: true }
-                  adg_g_per_day: { type: number, nullable: true }
-                  kg_feed_per_kg_gain: { type: number, nullable: true }
+          $ref: "#/components/schemas/GrowthDirectorFeedVsGrowth"
+        feed_problems:
+          $ref: "#/components/schemas/GrowthDirectorFeedProblems"
+        trust:
+          $ref: "#/components/schemas/GrowthDirectorTrust"
     HealthConfigProtocolRow:
       type: object
       additionalProperties: false

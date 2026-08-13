@@ -664,53 +664,7 @@ export async function getWeighingGrowth(params: {
 // Growth Director — the analytics block under the Weights page. One request serves the whole
 // block; every aggregate (bands, medians, feed-per-kg ratios) is computed by the backend over the
 // whole filter, so this layer never re-derives a number from a row slice.
-export type GrowthDirectorWeightsResponse = {
-  road_to_sale: {
-    total_identities: number;
-    matched_identities: number;
-    movement: {
-      moved_up: number;
-      held: number;
-      moved_down: number;
-    };
-    bands: Array<{ band: string; identity_count: number }>;
-  };
-  fair_fight: {
-    cohorts: Array<{
-      breed: string;
-      sex: string;
-      sheds: Array<{
-        operational_key: string;
-        shed_display_name: string;
-        pair_identities: number;
-        median_adg_g_per_day: number;
-      }>;
-    }>;
-  };
-  slow_growth: {
-    groups: Array<{
-      operational_key: string;
-      shed_display_name: string;
-      breed: string;
-      sex: string;
-      pair_identities: number;
-      median_adg_g_per_day: number;
-      week_over_week_delta_g: number | null;
-      status: "losing" | "below_target" | "thin_sample";
-    }>;
-  };
-  feed_vs_growth: {
-    sheds: Array<{
-      location_id: string;
-      shed_display_name: string;
-      basis: "per_animal" | "shed_average";
-      is_experiment: boolean;
-      feed_g_per_head_per_day: number | null;
-      adg_g_per_day: number | null;
-      kg_feed_per_kg_gain: number | null;
-    }>;
-  };
-};
+export type GrowthDirectorWeightsResponse = AppApiComponents["schemas"]["GrowthDirectorWeightsResponse"];
 
 export async function getGrowthDirector(params: {
   park_id?: string;
