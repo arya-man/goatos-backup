@@ -548,6 +548,7 @@ class DefaultProofCaptureRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
     private val locationProvider: ProofLocationProvider = ProofLocationProvider.Unavailable,
+    private val proofArtifactValidator: ProofArtifactValidator = NoopProofArtifactValidator,
     // Production always reconciles orphan uploads on construction. Tests set this false to drive
     // reconcileRecoverableUploadsNow() explicitly (awaited) instead of racing the fire-and-forget
     // init launch — Room's suspend @Query runs on Room's own executor, so a virtual-clock
@@ -682,9 +683,9 @@ class DefaultProofCaptureRepository(
             updatedAtMs = clock(),
         )
         // Gate 3: Backstop validation — file must exist && length > 0 before Room insert
-        val file = runCatching { java.io.File(java.net.URI(localUri)) }.getOrNull()
-        if (file == null || !file.exists() || file.length() <= 0L) {
-            return@withContext AppResult.Err("Proof file is missing or empty. Please re-record.")
+        val validationResult = proofArtifactValidator.validateVideoFile(localUri)
+        if (!validationResult.isValid) {
+            return@withContext AppResult.Err(validationResult.reason ?: "Proof file is invalid. Please re-record.")
         }
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
