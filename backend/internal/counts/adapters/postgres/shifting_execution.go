@@ -845,6 +845,35 @@ func shiftingActionsVisibleSQL(nowParam string) string {
 	                     THEN 1 ELSE 2 END)))`
 }
 
+// shiftingOutstandingActionSQL is the ONE definition of "this movement still needs operator work".
+//
+// It is the predicate behind primary_action_key='execute', and the previous-dates badge counts
+// exactly the rows it matches. Both callers share it deliberately: they drifted apart once and the
+// badge became a lie.
+//
+// A movement is outstanding when it is APPROVED but not yet executed (proof_ref IS NULL — the
+// completion writes the proof, so its presence IS the record of the work), or when a verifier sent
+// its evidence back for a re-shoot (verification_state='rejected'). Everything else is not work:
+//   - 'pending' is unapproved, and by the APPROVE-FIRST gate (maintainer decision 2026-08-09) the
+//     operator cannot act on it at all -- it is visible read-only in its own tab;
+//   - 'applied' with no rejection is DONE;
+//   - 'canceled' is dropped everywhere.
+//
+// The canceled exclusion is redundant for primary_action_key (the page query already drops canceled
+// rows before this expression is reached) and load-bearing for the badge, which has no such
+// enclosing filter.
+//
+// Do NOT reintroduce a bare `event_status <> 'canceled'` for the badge. That counted every
+// non-canceled movement raised on a prior date -- completed ones included -- so a finished day kept
+// advertising work for the full 90-day lookback. Observed 2026-08-13: a movement raised 08-12,
+// approved, executed with proof, still showed "1" while every status tab for that date read
+// authorized=0 rework=0 completed=1.
+func shiftingOutstandingActionSQL() string {
+	return `(se.event_status NOT IN ('canceled', 'pending')
+	         AND ((se.event_status = 'authorized' AND se.proof_ref IS NULL)
+	              OR se.verification_state = 'rejected'))`
+}
+
 // ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
 // projection-review: membership=date-and-status-scoped shifting_events plus one preferred request per event; group_key=shifting_event_id; join_cardinality=request and preview lateral joins reduce to at most one row per event; pagination=keyset over raised_at and shifting_event_id with limit plus one; scope=tenant_id plus business-date status park and shed filters
@@ -919,9 +948,7 @@ WITH page AS (
 	           -- retiring the order-free gates). event_status='pending' is exactly
 	           -- authorization_state='pending': authorizeShiftingEventInTx flips both in one
 	           -- statement, so a row cannot be approved while still reading 'pending' here.
-	           CASE WHEN se.event_status = 'pending' THEN 'none'
-	                WHEN ((se.event_status = 'authorized' AND se.proof_ref IS NULL)
-	                           OR se.verification_state = 'rejected')
+	           CASE WHEN `+shiftingOutstandingActionSQL()+`
 	                THEN 'execute' ELSE 'none' END AS primary_action_key,
 	           se.priority, se.category,
            se.source_park_id, se.source_shed_id, se.source_partition_label,
@@ -1093,9 +1120,14 @@ FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_
 		}
 		// Same visibility filter as the page and the counts: a previous date must not advertise work
 		// the operator cannot yet see when they navigate to it.
+		//
+		// And the same OUTSTANDING-WORK filter as primary_action_key, via the one shared predicate:
+		// this badge is a call to action, so it counts only what the operator still has to do. It
+		// previously carried a bare `event_status <> 'canceled'`, which also counted completed and
+		// unapproved movements.
 		prevRows, err := r.pool.Query(ctx, `SELECT to_char((raised_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'), count(*)
 FROM shifting_events se
-WHERE tenant_id=$1::uuid AND event_status <> 'canceled'
+WHERE tenant_id=$1::uuid AND `+shiftingOutstandingActionSQL()+`
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
   AND ($4::uuid IS NULL OR se.source_park_id = $4::uuid)
   AND ($5::uuid IS NULL OR se.source_shed_id = $5::uuid)
