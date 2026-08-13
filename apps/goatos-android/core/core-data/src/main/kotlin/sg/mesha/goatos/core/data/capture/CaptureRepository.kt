@@ -668,6 +668,11 @@ class DefaultProofCaptureRepository(
             geocodedAddress = location.address,
             updatedAtMs = clock(),
         )
+        // Gate 3: Backstop validation — file must exist && length > 0 before Room insert
+        val file = runCatching { java.io.File(java.net.URI(localUri)) }.getOrNull()
+        if (file == null || !file.exists() || file.length() <= 0L) {
+            return@withContext AppResult.Err("Proof file is missing or empty. Please re-record.")
+        }
         // Room FIRST — the capture is durable before any network call is even attempted.
         dao.insert(entity)
         if (awaitUploadEnqueue) {

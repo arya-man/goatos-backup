@@ -16,6 +16,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import java.io.File
 
 /**
@@ -144,6 +145,15 @@ private fun copyPickedVideoToPrivateCache(
     context.contentResolver.openInputStream(sourceUri)?.use { input ->
         out.outputStream().use { output -> input.copyTo(output) }
     } ?: return@runCatching null
+
+    // Gate 4: Gallery copy validation — copied file non-zero + metadata readable
+    val validator = FileSystemProofArtifactValidator()
+    val validation = validator.validateVideoFile(out.toURI().toString())
+    if (!validation.isValid) {
+        out.delete()
+        return@runCatching null
+    }
+
     CapturedVideo(
         localUri = out.toURI().toString(),
         mimeType = context.contentResolver.getType(sourceUri) ?: "video/mp4",
