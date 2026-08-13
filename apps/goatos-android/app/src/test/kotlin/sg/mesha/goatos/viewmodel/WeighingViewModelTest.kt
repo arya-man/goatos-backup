@@ -1566,6 +1566,54 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `typed per-animal weights survive a simulated process death and reload into the recreated VM`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val scans = FakeScanCaptureRepository()
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "campaignId" to "campaign-1",
+                "workGroupId" to "group-1",
+                "campaignShedId" to "campaign-shed-1",
+                "weighingCategory" to "individual_animal",
+                "tenantId" to "tenant-1",
+                "expectedLocationId" to "shed-1",
+                "expectedLocationLabel" to "Shed 1",
+            ),
+        )
+        val firstVm = weighingViewModel(repository = repository, scoped = true, scanCaptureRepository = scans, savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { firstVm.state.collect {} }
+        advanceUntilIdle()
+
+        scans.recordScan(taskId = "campaign-1:group-1:campaign-shed-1", fieldKey = "weighing_free_flow_scan", tag = "tag-1")
+        scans.recordScan(taskId = "campaign-1:group-1:campaign-shed-1", fieldKey = "weighing_free_flow_scan", tag = "tag-2")
+        advanceUntilIdle()
+
+        // Type weights for BOTH animals, but never tap record -- this is the exact gap: typed-
+        // but-unsubmitted weights that used to live only in the VM's in-heap animalWeightInputs.
+        firstVm.onAnimalWeightInputChange("tag-1", "12.5")
+        firstVm.onAnimalWeightInputChange("tag-2", "8.25")
+        advanceUntilIdle()
+
+        // Process death: a brand-new VM instance built from the SAME SavedStateHandle Bundle --
+        // see the lump-sum draft test above for why this simulates it faithfully.
+        val recreatedVm = weighingViewModel(repository = repository, scoped = true, scanCaptureRepository = scans, savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { recreatedVm.state.collect {} }
+        advanceUntilIdle()
+
+        val rows = recreatedVm.state.value.visibleRows.associateBy { it.animalId }
+        assertEquals(
+            "tag-1's typed-but-unsubmitted weight must reload after a simulated process death",
+            "12.5",
+            rows["tag-1"]?.weightInput,
+        )
+        assertEquals(
+            "tag-2's typed-but-unsubmitted weight must reload after a simulated process death",
+            "8.25",
+            rows["tag-2"]?.weightInput,
+        )
+    }
+
+    @Test
     fun `confirming submit after a simulated process death still enqueues the write, never a silent no-op`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(
             scopeState = WeighingScopeState(
@@ -1628,6 +1676,84 @@ class WeighingViewModelTest {
             repository.submitIndividualScopeCalls.single(),
         )
         assertFalse("the original VM's callback is stale and must never fire", navigatedOnFirstVm)
+    }
+
+    @Test
+    fun `a scope already submitted in the outbox renders read-only on a fresh re-entry`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        // The durable, Room-observed signal a fresh re-entry must derive read-only from --
+        // this fake's `findPendingSubmit` mirrors WeighingRepository's real one, which resolves
+        // the outbox row `submitIndividualScope` itself enqueued (see refreshScopeSubmitted()).
+        repository.pendingSubmitResult = AppResult.Ok(
+            SyncQueueItem(
+                id = "outbox-row-1",
+                idempotencyKey = "submit:campaign-1:campaign-shed-1",
+                opType = "WEIGHING_SCOPE_SUBMIT",
+                groupKey = "campaign-shed-1",
+                status = SyncItemStatus.SUCCEEDED,
+                attemptCount = 1,
+                maxAttempts = 5,
+                conflict = false,
+                createdAt = 1_000,
+                updatedAt = 1_000,
+                lastError = null,
+            ),
+        )
+
+        val vm = weighingViewModel(repository = repository, scoped = true)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(
+            "a fresh VM re-entering a scope whose submit already SUCCEEDED must render read-only " +
+                "from the FIRST emission, not only after some later user action",
+            vm.state.value.isReadOnly,
+        )
+    }
+
+    @Test
+    fun `a scope's read-only state flips reactively while the screen stays open`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val syncRepository = FakeWeighingSyncRepository()
+        val vm = weighingViewModel(repository = repository, scoped = true, syncRepository = syncRepository)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("nothing submitted yet -- must NOT be read-only", vm.state.value.isReadOnly)
+
+        // Mutate the Room-observed outbox state LIVE, exactly as a real drain/reconcile would,
+        // while this screen is still on top -- then nudge the same live sync-status stream this
+        // VM already collects, the way a real Room Flow re-emits on any underlying row change.
+        repository.pendingSubmitResult = AppResult.Ok(
+            SyncQueueItem(
+                id = "outbox-row-1",
+                idempotencyKey = "submit:campaign-1:campaign-shed-1",
+                opType = "WEIGHING_SCOPE_SUBMIT",
+                groupKey = "campaign-shed-1",
+                status = SyncItemStatus.SUCCEEDED,
+                attemptCount = 1,
+                maxAttempts = 5,
+                conflict = false,
+                createdAt = 1_000,
+                updatedAt = 1_000,
+                lastError = null,
+            ),
+        )
+        syncRepository.touch()
+        advanceUntilIdle()
+
+        assertTrue(
+            "the screen must flip to read-only REACTIVELY once the outbox reflects the submit, " +
+                "without the operator navigating away and back",
+            vm.state.value.isReadOnly,
+        )
     }
 
     @Test
@@ -2218,6 +2344,17 @@ class WeighingViewModelTest {
             )
         }
 
+        /**
+         * Forces a new emission on [observeStatus] without changing its meaning -- how a test
+         * simulates "the outbox/Room state changed while this screen is already open" so the
+         * live re-check WeighingViewModel already runs on every sync-status tick (see
+         * refreshScopeSubmitted() being called inside its syncStatuses.collect) actually fires,
+         * the same way a real Room Flow re-emits on any underlying row change.
+         */
+        fun touch() {
+            status.value = status.value.copy(lastSyncAt = (status.value.lastSyncAt ?: 0L) + 1)
+        }
+
         override fun observeStatus(): StateFlow<SyncStatus> = status
         override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
         override suspend fun enqueueShedSubmit(
@@ -2661,10 +2798,18 @@ class WeighingViewModelTest {
             return submitIndividualScopeResult
         }
 
+        /**
+         * The LIVE outbox row this fake answers `findPendingSubmit` with -- a `var`, not a
+         * constructor-only value, so a test can mutate it WHILE a VM is already collecting sync
+         * status (mirroring Room's own live-query semantics) and assert the screen flips to
+         * read-only reactively, not only on the next cold read.
+         */
+        var pendingSubmitResult: AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
+
         override suspend fun findPendingSubmit(
             campaignId: String,
             campaignShedId: String,
-        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
+        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = pendingSubmitResult
 
         override suspend fun reopenScope(
             campaignId: String,

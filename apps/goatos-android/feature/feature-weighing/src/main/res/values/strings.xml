@@ -77,6 +77,7 @@
     <string name="weighing_submit">Submit</string>
     <string name="weighing_blocked_saving">Saving what you entered. One moment.</string>
     <string name="weighing_blocked_no_shed_open">Open a shed before you record this weighing.</string>
+    <string name="weighing_blocked_already_submitted">Already submitted — this shed is read-only.</string>
     <string name="weighing_blocked_need_weight">Enter the weight before you submit.</string>
     <string name="weighing_blocked_need_count">Enter how many animals were on the scale.</string>
     <string name="weighing_blocked_need_video">Record the video of this weighing before you submit.</string>
