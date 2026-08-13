@@ -104,7 +104,8 @@ class ShiftingPendingViewModel @Inject constructor(
 
     fun onEvent(event: ShiftingPendingEvent) {
         when (event) {
-            ShiftingPendingEvent.Refresh -> _selection.value = _selection.value.copy()
+            ShiftingPendingEvent.Refresh ->
+                _selection.value = _selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             ShiftingPendingEvent.PrevDay -> selectDate(LocalDate.parse(_selection.value.dateIso).minusDays(1))
             ShiftingPendingEvent.NextDay -> selectDate(LocalDate.parse(_selection.value.dateIso).plusDays(1))
             ShiftingPendingEvent.Today -> selectDate(today)
@@ -170,7 +171,21 @@ class ShiftingPendingViewModel @Inject constructor(
         if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
     }
 
-    private data class Selection(val dateIso: String, val status: String)
+    /**
+     * The selected work window, plus a [refreshNonce] whose ONLY job is to make a refresh a NEW
+     * value.
+     *
+     * MutableStateFlow conflates on equality, and Selection is a data class, so the previous
+     * `_selection.value = _selection.value.copy()` produced an EQUAL object, emitted nothing, and
+     * left flatMapLatest subscribed to the same page — a refresh that silently did nothing. Both
+     * RefreshOnResume and the sync button went through that path, so a screen already on the back
+     * stack could never pick up server state: the shifting bell kept showing work the backend had
+     * already reported as done (2026-08-13).
+     *
+     * Anything that means "fetch again with the same filters" must bump this, never call a bare
+     * copy().
+     */
+    private data class Selection(val dateIso: String, val status: String, val refreshNonce: Int = 0)
 
     private companion object {
         /** Shifting + feed packing + feed given (docs/decisions/shifting-verification.md). */
