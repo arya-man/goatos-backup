@@ -126,10 +126,25 @@ func (h *Handler) GetItemReviewFacts(w nethttp.ResponseWriter, r *nethttp.Reques
 }
 
 type oversightAnalyticsResponse struct {
-	KPIs             oversightKPIsResponse          `json:"kpis"`
-	PendingByModule  []modulePendingBacklogResponse `json:"pending_by_module"`
-	VerifierActivity []verifierActivityResponse     `json:"verifier_activity"`
-	TraceID          string                         `json:"trace_id"`
+	KPIs               oversightKPIsResponse          `json:"kpis"`
+	PendingAgeBuckets  pendingAgeBucketsResponse      `json:"pending_age_buckets"`
+	DailyVolumeLast14d []dailyVolumeResponse          `json:"daily_volume_last_14d"`
+	PendingByModule    []modulePendingBacklogResponse `json:"pending_by_module"`
+	VerifierActivity   []verifierActivityResponse     `json:"verifier_activity"`
+	TraceID            string                         `json:"trace_id"`
+}
+
+type pendingAgeBucketsResponse struct {
+	UpTo1Day         int `json:"up_to_1_day"`
+	OneToThreeDays   int `json:"one_to_three_days"`
+	ThreeToSevenDays int `json:"three_to_seven_days"`
+	OverSevenDays    int `json:"over_seven_days"`
+}
+
+type dailyVolumeResponse struct {
+	BusinessDate string `json:"business_date"`
+	Verdicts     int    `json:"verdicts"`
+	Arrived      int    `json:"arrived"`
 }
 
 type oversightKPIsResponse struct {
@@ -143,12 +158,15 @@ type oversightKPIsResponse struct {
 
 type moduleLatencyResponse struct {
 	Module      string  `json:"module"`
+	ModuleLabel string  `json:"module_label,omitempty"`
 	MedianHours float64 `json:"median_hours"`
 }
 
 type modulePendingBacklogResponse struct {
-	Module string `json:"module"`
-	Count  int    `json:"count"`
+	Module      string `json:"module"`
+	ModuleLabel string `json:"module_label,omitempty"`
+	NavModule   string `json:"nav_module,omitempty"`
+	Count       int    `json:"count"`
 }
 
 type verifierActivityResponse struct {
@@ -175,11 +193,17 @@ func (h *Handler) GetOversightAnalytics(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	modules := make([]moduleLatencyResponse, len(result.KPIs.PerModuleMedianReviewLatencyHours))
 	for i, m := range result.KPIs.PerModuleMedianReviewLatencyHours {
-		modules[i] = moduleLatencyResponse{Module: m.Module, MedianHours: m.MedianHours}
+		modules[i] = moduleLatencyResponse{Module: m.Module, ModuleLabel: m.ModuleLabel, MedianHours: m.MedianHours}
 	}
 	backlog := make([]modulePendingBacklogResponse, len(result.PendingByModule))
 	for i, b := range result.PendingByModule {
-		backlog[i] = modulePendingBacklogResponse{Module: b.Module, Count: b.Count}
+		backlog[i] = modulePendingBacklogResponse{Module: b.Module, ModuleLabel: b.ModuleLabel, NavModule: b.NavModule, Count: b.Count}
+	}
+	// Always a JSON ARRAY, never null: a sparkline renderer that has to special-case null for "no
+	// days" is one more place the empty state can be got wrong.
+	volume := make([]dailyVolumeResponse, len(result.DailyVolumeLast14d))
+	for i, d := range result.DailyVolumeLast14d {
+		volume[i] = dailyVolumeResponse{BusinessDate: d.BusinessDate, Verdicts: d.Verdicts, Arrived: d.Arrived}
 	}
 	activity := make([]verifierActivityResponse, len(result.VerifierActivity))
 	for i, a := range result.VerifierActivity {
@@ -204,8 +228,15 @@ func (h *Handler) GetOversightAnalytics(w nethttp.ResponseWriter, r *nethttp.Req
 			PerModuleMedianReviewLatencyHours: modules,
 			RejectRateLast30d:                 result.KPIs.RejectRateLast30d,
 		},
-		PendingByModule:  backlog,
-		VerifierActivity: activity,
-		TraceID:          traceID(r),
+		PendingAgeBuckets: pendingAgeBucketsResponse{
+			UpTo1Day:         result.PendingAgeBuckets.UpTo1Day,
+			OneToThreeDays:   result.PendingAgeBuckets.OneToThreeDays,
+			ThreeToSevenDays: result.PendingAgeBuckets.ThreeToSevenDays,
+			OverSevenDays:    result.PendingAgeBuckets.OverSevenDays,
+		},
+		DailyVolumeLast14d: volume,
+		PendingByModule:    backlog,
+		VerifierActivity:   activity,
+		TraceID:            traceID(r),
 	})
 }

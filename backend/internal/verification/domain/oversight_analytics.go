@@ -29,14 +29,26 @@ type OversightKPIs struct {
 
 // ModuleLatency is one module's median review latency (hours between capture and verdict).
 type ModuleLatency struct {
-	Module      string
+	Module string
+	// ModuleLabel is the registry's display copy for Module ("Feed"), resolved by the service.
+	// verification_items.module holds the SOURCE module code ("feed"), which is config vocabulary
+	// and must never reach a leadership screen -- the copy firewall bans raw codes in visible UI,
+	// and admin-web's own nav vocabulary is keyed by NavigationModule ("feed_direction"), so a
+	// renderer cannot resolve this label on its own. Empty when the registry knows no such module.
+	ModuleLabel string
 	MedianHours float64
 }
 
 // ModulePendingBacklog is one module's open (pending) item count.
 type ModulePendingBacklog struct {
 	Module string
-	Count  int
+	// ModuleLabel: see ModuleLatency.ModuleLabel.
+	ModuleLabel string
+	// NavModule is the queue's own module-filter key for this module ("feed_direction" where Module
+	// is "feed"), so the UI can turn a backlog row into the filter that shows exactly those items.
+	// Empty when the registry knows no such module.
+	NavModule string
+	Count     int
 }
 
 // VerifierActivity is one verifier's last-14-day activity plus their watch-integrity aggregate.
@@ -56,9 +68,47 @@ type VerifierActivity struct {
 	VerdictWithoutPlay int
 }
 
+// PendingAgeBuckets is the SHAPE of the pending backlog by how long each video has waited.
+// OldestPendingAgeHours gives the worst case; this says whether the backlog is one forgotten tail or
+// a wall of old work.
+//
+// The four buckets are DISJOINT and computed in the same statement (and therefore the same snapshot)
+// as OversightKPIs.VideosWaiting, so they always sum to it -- a reader can add them up and get the
+// headline number back. Age is ELAPSED TIME since capture, not a business-day count: it is the same
+// clock OldestPendingAgeHours reports, so the two cannot disagree about what "old" means.
+type PendingAgeBuckets struct {
+	UpTo1Day         int
+	OneToThreeDays   int
+	ThreeToSevenDays int
+	OverSevenDays    int
+}
+
+// Total returns the pending count the buckets partition. Equal to OversightKPIs.VideosWaiting by
+// construction (same statement, same snapshot).
+func (b PendingAgeBuckets) Total() int {
+	return b.UpTo1Day + b.OneToThreeDays + b.ThreeToSevenDays + b.OverSevenDays
+}
+
+// DailyVerificationVolume is one Asia/Kolkata business day of flow through the queue: how many
+// videos ARRIVED to be reviewed that day, and how many verdicts were recorded.
+//
+// Arrived-vs-verdicts is what answers "is the backlog getting better or worse" -- a throughput
+// number alone cannot, because 16 verdicts a day is progress against 10 arrivals and a losing battle
+// against 40. Days with no activity are present with zeroes rather than omitted, so a chart cannot
+// silently compress a quiet week into a busy-looking line.
+type DailyVerificationVolume struct {
+	// BusinessDate is YYYY-MM-DD in Asia/Kolkata.
+	BusinessDate string
+	Verdicts     int
+	Arrived      int
+}
+
 // OversightAnalytics is the full GET /verification/oversight-analytics payload.
 type OversightAnalytics struct {
-	KPIs             OversightKPIs
-	PendingByModule  []ModulePendingBacklog
-	VerifierActivity []VerifierActivity
+	KPIs              OversightKPIs
+	PendingAgeBuckets PendingAgeBuckets
+	// DailyVolumeLast14d is oldest-first and always covers 14 consecutive business days.
+	DailyVolumeLast14d []DailyVerificationVolume
+	PendingByModule    []ModulePendingBacklog
+	VerifierActivity   []VerifierActivity
 }

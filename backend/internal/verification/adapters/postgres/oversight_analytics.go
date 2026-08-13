@@ -18,18 +18,37 @@ func (r *Repository) OversightAnalytics(ctx context.Context, tenantID string) (d
 
 	var out domain.OversightAnalytics
 
-	// 1) Videos waiting + oldest pending age.
+	// 1) Videos waiting + oldest pending age + the age SHAPE of that same backlog.
+	//
+	// The buckets are counted in THIS statement rather than a second one on purpose: they partition
+	// the very rows count(*) just counted, so one snapshot means the four buckets always sum back to
+	// videos_waiting. A second query could land either side of a verdict and show a total its own
+	// parts contradict. `FILTER` makes them disjoint by construction (each row satisfies exactly one
+	// half-open age range), and every predicate is on the bare captured_at column, so
+	// verification_items_queue_idx (tenant_id, status, ...) still drives the read.
 	var videosWaiting int
 	var oldestPendingHours *float64
+	var age1, age3, age7, ageOver int
 	if err := r.pool.QueryRow(ctx, `
 SELECT count(*),
-       max(EXTRACT(EPOCH FROM (now() - captured_at)) / 3600.0)
+       max(EXTRACT(EPOCH FROM (now() - captured_at)) / 3600.0),
+       count(*) FILTER (WHERE captured_at >= now() - interval '1 day'),
+       count(*) FILTER (WHERE captured_at <  now() - interval '1 day'  AND captured_at >= now() - interval '3 days'),
+       count(*) FILTER (WHERE captured_at <  now() - interval '3 days' AND captured_at >= now() - interval '7 days'),
+       count(*) FILTER (WHERE captured_at <  now() - interval '7 days')
 FROM verification_items
-WHERE tenant_id = $1::uuid AND status = 'pending'`, tenantID).Scan(&videosWaiting, &oldestPendingHours); err != nil {
+WHERE tenant_id = $1::uuid AND status = 'pending'`, tenantID).Scan(
+		&videosWaiting, &oldestPendingHours, &age1, &age3, &age7, &ageOver); err != nil {
 		return out, err
 	}
 	out.KPIs.VideosWaiting = videosWaiting
 	out.KPIs.OldestPendingAgeHours = oldestPendingHours
+	out.PendingAgeBuckets = domain.PendingAgeBuckets{
+		UpTo1Day:         age1,
+		OneToThreeDays:   age3,
+		ThreeToSevenDays: age7,
+		OverSevenDays:    ageOver,
+	}
 
 	// 2) Verdict throughput: verdicts + distinct active days in the last 7 days.
 	var verdicts7d, activeDays7d int
@@ -113,6 +132,74 @@ ORDER BY module`, tenantID)
 		return out, err
 	}
 	backlogRows.Close()
+
+	// 5b) Daily flow for the last 14 business days: videos ARRIVED vs verdicts RECORDED.
+	//
+	// -- projection-review: membership=verification_items rows for ONE tenant whose captured_at (arrived) or verified_at (verdicts) falls in the trailing 14 Asia/Kolkata days; group_key=the Asia/Kolkata calendar date of that column; join_cardinality=days LEFT JOIN verdicts/arrived on business_date, and each side is already GROUPed to one row per date, so both joins are 1:0..1 and no day can be double-counted; pagination=none, the window is a fixed 14-row series; scope=explicit tenant_id on every branch.
+	// -- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
+	// --   producer unique key = verification_items (tenant_id, item_id) UNIQUE.
+	// --   consumer match key  = business_date, produced by GROUP BY on each branch, so `days` (one
+	// --                        row per date by generate_series) matches at most one row per side.
+	// --   row multiplicity    = exactly 14 output rows, one per business day, zero-filled.
+	// --   key sets compared   = arrived and verdicts range over the SAME 14 dates, which is what
+	// --                        makes their difference a real trajectory rather than two windows
+	// --                        subtracted from each other.
+	//
+	// An item can appear on BOTH sides (arrived Monday, decided Wednesday) and must: they are two
+	// different events about the same video, and the whole point is comparing inflow to outflow.
+	//
+	// The date predicates are on the BARE timestamp columns (>= a computed instant), never on a
+	// converted column: `(verified_at AT TIME ZONE ...)::date >= x` would be non-SARGable and give up
+	// the index (docs/decisions/scale-anti-patterns.md -> "non-SARGable predicate"). The conversion
+	// happens only in the SELECT/GROUP BY, where it costs nothing at this row count.
+	volumeRows, err := r.pool.Query(ctx, `
+WITH bounds AS (
+  SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date - interval '13 days')::date AS first_day,
+         (now() AT TIME ZONE 'Asia/Kolkata')::date AS last_day
+),
+window_start AS (
+  SELECT (first_day::timestamp AT TIME ZONE 'Asia/Kolkata') AS from_instant FROM bounds
+),
+days AS (
+  SELECT generate_series(b.first_day, b.last_day, interval '1 day')::date AS business_date FROM bounds b
+),
+verdicts AS (
+  SELECT (vi.verified_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date, count(*) AS n
+  FROM verification_items vi, window_start w
+  WHERE vi.tenant_id = $1::uuid AND vi.verified_at IS NOT NULL AND vi.verified_at >= w.from_instant
+  GROUP BY 1
+),
+arrived AS (
+  SELECT (vi.captured_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date, count(*) AS n
+  FROM verification_items vi, window_start w
+  WHERE vi.tenant_id = $1::uuid AND vi.captured_at >= w.from_instant
+  GROUP BY 1
+)
+SELECT d.business_date, coalesce(v.n, 0), coalesce(a.n, 0)
+FROM days d
+LEFT JOIN verdicts v ON v.business_date = d.business_date
+LEFT JOIN arrived a ON a.business_date = d.business_date
+ORDER BY d.business_date`, tenantID)
+	if err != nil {
+		return out, err
+	}
+	for volumeRows.Next() {
+		var day time.Time
+		var verdicts, arrived int
+		if err := volumeRows.Scan(&day, &verdicts, &arrived); err != nil {
+			volumeRows.Close()
+			return out, err
+		}
+		out.DailyVolumeLast14d = append(out.DailyVolumeLast14d, domain.DailyVerificationVolume{
+			BusinessDate: day.Format("2006-01-02"),
+			Verdicts:     verdicts,
+			Arrived:      arrived,
+		})
+	}
+	if err := volumeRows.Err(); err != nil {
+		return out, err
+	}
+	volumeRows.Close()
 
 	// 6) Per-verifier last-14-day activity: verdicts/approved/rejected/busiest day, ONE grouped
 	// query keyed by (verified_by, verified_by_name) -- never a per-verifier loop.
