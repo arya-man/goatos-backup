@@ -875,7 +875,7 @@ class DefaultProofCaptureRepository(
     }
 
     override suspend fun activeCount(slot: EvidenceSlot): Int = withContext(dispatchers.io) {
-        dao.activeCountForField(slot.identity.taskId, executionPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" }), slot.fieldKey)
+        dao.activeCountForField(slot.identity.taskId, executionPartitionKey(slot.identity.partitionKey), slot.fieldKey)
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
@@ -1017,6 +1017,88 @@ class DefaultProofCaptureRepository(
 
     private suspend fun prepareFinalArtifact(entity: ProofCaptureEntity): ProofCaptureEntity {
         if (entity.processingAttempted) {
+            // Recovery: if row is in PROCESSING_MEDIA state with no final artifact,
+            // the media processor crashed mid-transform. Re-invoke processing.
+            if (entity.processingState == ProofProcessingState.PROCESSING_MEDIA.name &&
+                entity.processedUri.isNullOrBlank()
+            ) {
+                val attempt = entity.stateAttempt + 1
+                return try {
+                    val processed = mediaProcessor.process(
+                        ProofMediaProcessingRequest(
+                            proofId = entity.id,
+                            taskId = entity.taskId,
+                            fieldKey = entity.fieldKey,
+                            subjectType = entity.proofSubject,
+                            subjectId = entity.subjectId,
+                            rfidTag = humanRfidTag(entity),
+                            originalUri = entity.originalUri ?: entity.localUri,
+                            mimeType = entity.mimeType,
+                            capturedStartMs = entity.capturedStartMs,
+                            capturedEndMs = entity.capturedEndMs,
+                            capturedByPrincipalId = entity.capturedByPrincipalId,
+                            locationAddress = entity.geocodedAddress,
+                            latitude = entity.latitude,
+                            longitude = entity.longitude,
+                            gpsAccuracyM = entity.gpsAccuracyM,
+                            caption = entity.caption,
+                        ),
+                    )
+                    validateProcessedArtifact(entity, processed)
+                    dao.updateProcessingArtifact(
+                        id = entity.id,
+                        localUri = processed.outputUri,
+                        mimeType = processed.outputMimeType,
+                        processingState = ProofProcessingState.PROCESSED.name,
+                        processingAttempted = true,
+                        uploadOriginal = false,
+                        processedUri = processed.outputUri,
+                        originalBytes = processed.originalBytes,
+                        processedBytes = processed.processedBytes,
+                        inputWidth = processed.inputWidth,
+                        inputHeight = processed.inputHeight,
+                        targetVideoBitrate = processed.targetVideoBitrate,
+                        targetAudioBitrate = processed.targetAudioBitrate,
+                        updatedAtMs = clock(),
+                    )
+                    dao.findById(entity.id) ?: entity.copy(
+                        localUri = processed.outputUri,
+                        mimeType = processed.outputMimeType,
+                        processingState = ProofProcessingState.PROCESSED.name,
+                        processingAttempted = true,
+                        stateAttempt = attempt,
+                        uploadOriginal = false,
+                        processedUri = processed.outputUri,
+                        originalBytes = processed.originalBytes,
+                        processedBytes = processed.processedBytes,
+                    )
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    // Fall through to uploadOriginal path same as first-attempt failure
+                    val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+                    dao.updateProcessingArtifact(
+                        id = entity.id,
+                        localUri = entity.originalUri ?: entity.localUri,
+                        mimeType = entity.mimeType,
+                        processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                        processingAttempted = true,
+                        uploadOriginal = true,
+                        processedUri = null,
+                        originalBytes = localFileBytes(entity.originalUri ?: entity.localUri),
+                        processedBytes = null,
+                        inputWidth = entity.inputWidth,
+                        inputHeight = entity.inputHeight,
+                        targetVideoBitrate = entity.targetVideoBitrate,
+                        targetAudioBitrate = entity.targetAudioBitrate,
+                        updatedAtMs = clock(),
+                    )
+                    dao.findById(entity.id) ?: entity.copy(
+                        processingState = ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                        uploadOriginal = true,
+                    )
+                }
+            }
             return awaitFinalArtifact(entity)
         }
         val startedAtMs = clock()
