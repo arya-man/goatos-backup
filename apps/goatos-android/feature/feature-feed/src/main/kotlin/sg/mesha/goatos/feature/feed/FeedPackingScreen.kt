@@ -249,7 +249,7 @@ fun FeedPackingScreen(
 }
 
 private fun FeedPackingRowUi.compatibilityPartitionLabel(): String =
-    partitionLabel.takeIf { locationIdentityKey != shedId }.orEmpty()
+    partitionLabel.takeIf { locationIdentityKey.contains("|legacy-") }.orEmpty()
 
 @Composable
 private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEvent) -> Unit) {

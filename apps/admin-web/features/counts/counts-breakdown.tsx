@@ -204,7 +204,7 @@ export async function CountsBreakdownPage({
       // The park vocabulary is handed over so same-named sheds can be told apart. `park_label` on
       // the shed facet is a field nothing has ever filled — the Go struct and the OpenAPI schema
       // both lack it — so without this the disambiguation was dead code and the dropdown listed
-      // "Castro" twice, "Mandela 1 - Part 3" twice, and so on. `facets.parks` is keyed by park id
+      // "Castro" twice, "Mandela 1 Part 3" twice, and so on. `facets.parks` is keyed by park id
       // and labelled with the park code, in the SAME response, so no extra read is involved.
       options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId, parkLabelsById),
     },

@@ -35,16 +35,16 @@ var goldenFixture = []goldenFixtureRow{
 	{
 		name:      "exact partition shed, worded compatibility partition",
 		shedID:    "shed-godel-1",
-		shedName:  "Godel 1 - Part 3",
+		shedName:  "Godel 1 Part 3",
 		partition: "Part 3",
-		want:      "Godel 1 - Part 3",
+		want:      "Godel 1 Part 3",
 	},
 	{
 		name:      "exact partition shed, two-digit worded compatibility partition",
 		shedID:    "shed-godel-1",
-		shedName:  "Godel 1 - Part 10",
+		shedName:  "Godel 1 Part 10",
 		partition: "Part 10",
-		want:      "Godel 1 - Part 10",
+		want:      "Godel 1 Part 10",
 	},
 	{
 		name:      "exact numbered shed, bare numeric compatibility partition",

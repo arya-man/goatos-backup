@@ -51,7 +51,7 @@ export function buildShedFilterOptions(
    * id, labelled with the park code). It exists because `park_label` on the shed facet is a field
    * NOTHING EVER FILLS: the frontend type declares it, this helper reads it, and neither the Go
    * struct nor the OpenAPI schema has it — so the disambiguation below could never fire and the
-   * dropdown showed "Castro" twice, "Mandela 1 - Part 3" twice, and so on, with no way to tell
+   * dropdown showed "Castro" twice, "Mandela 1 Part 3" twice, and so on, with no way to tell
    * the two parks apart. Rather than widen the contract for a fact the response already carries,
    * the park vocabulary is passed in. `park_label` is still preferred when present, so a backend
    * that starts sending it wins.
@@ -64,23 +64,20 @@ export function buildShedFilterOptions(
 
   const shedIdOf = (row: CountsBreakdownShedFacetLike): string =>
     (row.shed_id ?? "").trim() || ((row.key ?? "").split("#")[0] ?? "");
-  const byExactDisplay = new Map<string, CountsBreakdownShedFacetLike>();
+  const byExactShed = new Map<string, CountsBreakdownShedFacetLike>();
   for (const shed of filtered) {
     const shedId = shedIdOf(shed);
     if (!shedId) continue;
     const label = (shed.operational_location_display || shed.label || "").trim();
     if (!label) continue;
-    // STG has carried alias rows such as a legacy parent+partition projection and the real exact
-    // shed row with the same visible name. The visible/physical identity is park + shed name, not
-    // the stale alias UUID, so collapse those here before they reach the dropdown.
-    const key = `${shed.park_id}|${label.toLocaleLowerCase("en")}`;
-    const existing = byExactDisplay.get(key);
+    const key = `${shed.park_id}|${shedId}`;
+    const existing = byExactShed.get(key);
     if (
       !existing ||
       (!existing.operational_location_display && !!shed.operational_location_display) ||
       (shed.count ?? 0) > (existing.count ?? 0)
     ) {
-      byExactDisplay.set(key, shed);
+      byExactShed.set(key, shed);
     }
   }
 
@@ -91,7 +88,7 @@ export function buildShedFilterOptions(
 
   // Sheds in name order, with a park tiebreak so two same-named sheds land next to each other in a
   // stable order instead of wherever their UUIDs happened to fall.
-  const groupsInOrder = [...byExactDisplay.entries()].sort(([leftKey, left], [rightKey, right]) => {
+  const groupsInOrder = [...byExactShed.entries()].sort(([leftKey, left], [rightKey, right]) => {
     const byName = collator.compare(left.operational_location_display || left.label || "", right.operational_location_display || right.label || "");
     return byName !== 0 ? byName : collator.compare(leftKey, rightKey);
   });

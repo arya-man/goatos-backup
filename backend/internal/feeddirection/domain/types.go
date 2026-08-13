@@ -560,25 +560,22 @@ type FeedItemTotal struct {
 // them -- a single day-total card cannot distinguish a crew that packed the morning share twice from
 // one that packed both correctly, and one video cannot prove two bags.
 //
-// The PARTITION is part of the identity for a different and equally load-bearing reason. Castro 1
-// and Castro 2 are physically different pens holding different animals with different rations;
-// merging them is the 2026-08-08 defect (migration 000137), where one Castro - 1 clip closed out all
-// three pens.
+// The exact shed is part of the identity for a different and equally load-bearing reason. Castro 1
+// and Castro 2 are physically different sheds holding different animals with different rations;
+// merging them is the 2026-08-08 defect (migration 000137), where one Castro 1 clip closed out all
+// three exact sheds.
 type PackingRow struct {
 	ParkID    string `json:"park_id"`
 	ParkLabel string `json:"park_label"`
 	ShedID    string `json:"shed_id"`
 	ShedLabel string `json:"shed_label"`
-	// PartitionLabel is the operational partition this bag is for ("1", "Part 3"), empty for a shed
-	// with no partitions. A packing line is grouped at the same OPERATIONAL LOCATION grain as the
-	// direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Without it a
-	// packer sees two identical "Castro" lines and cannot tell which pen either bag belongs to --
-	// and one shed's partitions can carry very different quantities when some are on an authored
-	// experiment and the rest on the per-head grid.
+	// PartitionLabel is compatibility metadata for old rows. A packing line is grouped at exact
+	// shed grain, so Castro 1 and Castro 2 are two separate bags because their shed ids differ.
+	// Clients must not append this label to ShedLabel or OperationalLocationDisplay.
 	PartitionLabel string `json:"partition_label,omitempty"`
-	// OperationalLocationDisplay is the backend-composed shed+pen label ("Castro - 2",
-	// "Godel 1 - Part 3", bare "Yashoda" when undivided), built with platform/oploc so every surface
-	// renders the pen the same way. The contract has REQUIRED this field since the packing schema was
+	// OperationalLocationDisplay is the exact shed label ("Castro 2",
+	// "Godel 1 Part 3", bare "Yashoda" when undivided), built with platform/oploc so every surface
+	// renders the shed the same way. The contract has REQUIRED this field since the packing schema was
 	// written, but the struct never carried it, so admin-web fell through to its `|| shed_label`
 	// branch and printed a bare "Castro" against all three of Castro's pens.
 	OperationalLocationDisplay string `json:"operational_location_display"`

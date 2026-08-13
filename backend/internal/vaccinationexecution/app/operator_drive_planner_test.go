@@ -21,15 +21,15 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 			{ID: "gandhi-1", Park: "CPT", RawShed: "Gandhi 1", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
 			{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 42, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 60, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 - Part 3", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 - Part 4", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 - Part 4", Animals: 32, Bundle: "Goat: ET+TT Booster + Goat Pox"},
-			{ID: "mandela-2-part-1", Park: "CPT", RawShed: "Mandela 2 - Part 1", Animals: 1, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "mandela-2-part-2", Park: "CPT", RawShed: "Mandela 2 - Part 2", Animals: 2, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "mandela-2-part-3", Park: "CPT", RawShed: "Mandela 2 - Part 3", Animals: 1, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 - Part 7", Animals: 13, Bundle: "Sheep: ET+TT Booster + PPR"},
-			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 - Part 8", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
+			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 Part 1", Animals: 60, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 Part 3", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 Part 4", Animals: 30, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 Part 4", Animals: 32, Bundle: "Goat: ET+TT Booster + Goat Pox"},
+			{ID: "mandela-2-part-1", Park: "CPT", RawShed: "Mandela 2 Part 1", Animals: 1, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "mandela-2-part-2", Park: "CPT", RawShed: "Mandela 2 Part 2", Animals: 2, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "mandela-2-part-3", Park: "CPT", RawShed: "Mandela 2 Part 3", Animals: 1, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 Part 7", Animals: 13, Bundle: "Sheep: ET+TT Booster + PPR"},
+			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 Part 8", Animals: 30, Bundle: "Goat: ET+TT Booster + Goat Pox"},
 			{ID: "old-yashoda-1", Park: "CPT", RawShed: "Old Yashoda 1", Animals: 8, Bundle: "Sheep: ET+TT Booster + PPR"},
 			{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 3, Bundle: "Goat: ET+TT Booster + PPR"},
 		},
@@ -48,14 +48,16 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 	}
 
 	totals := totalsByOperator(plan.Days[0])
-	if totals["Amit Kumar"] != 114 || totals["Darshan Talwar"] != 120 || totals["Sagar Mahoor"] != 90 {
-		t.Fatalf("operator totals = %#v, want Amit 114 Darshan 120 Sagar 90", totals)
+	if totals["Amit Kumar"] != 104 || totals["Darshan Talwar"] != 101 || totals["Sagar Mahoor"] != 119 {
+		t.Fatalf("operator totals = %#v, want Amit 104 Darshan 101 Sagar 119", totals)
 	}
-	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Gandhi", 114)
-	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 1", 120)
-	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Godel 2", 32)
-	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Mandela 2", 47)
-	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Old Yashoda", 11)
+	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Gandhi 1", 42)
+	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Gandhi 3", 42)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi 2", 30)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 1 Part 1", 60)
+	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Godel 1 Part 3", 30)
+	assertShedAssignment(t, plan.Days[0], "Amit Kumar", "Godel 2 Part 4", 32)
+	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Mandela 2 Part 8", 30)
 }
 
 func TestOperatorDrivePlannerCPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays(t *testing.T) {
@@ -71,15 +73,15 @@ func TestOperatorDrivePlannerCPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays(t 
 			{ID: "gandhi-1", Park: "CPT", RawShed: "Gandhi 1", Animals: 42},
 			{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 30},
 			{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 42},
-			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 60},
-			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 - Part 3", Animals: 30},
-			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 - Part 4", Animals: 30},
-			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 - Part 4", Animals: 32},
-			{ID: "mandela-2-part-1", Park: "CPT", RawShed: "Mandela 2 - Part 1", Animals: 1},
-			{ID: "mandela-2-part-2", Park: "CPT", RawShed: "Mandela 2 - Part 2", Animals: 2},
-			{ID: "mandela-2-part-3", Park: "CPT", RawShed: "Mandela 2 - Part 3", Animals: 1},
-			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 - Part 7", Animals: 13},
-			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 - Part 8", Animals: 30},
+			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 Part 1", Animals: 60},
+			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 Part 3", Animals: 30},
+			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 Part 4", Animals: 30},
+			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 Part 4", Animals: 32},
+			{ID: "mandela-2-part-1", Park: "CPT", RawShed: "Mandela 2 Part 1", Animals: 1},
+			{ID: "mandela-2-part-2", Park: "CPT", RawShed: "Mandela 2 Part 2", Animals: 2},
+			{ID: "mandela-2-part-3", Park: "CPT", RawShed: "Mandela 2 Part 3", Animals: 1},
+			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 Part 7", Animals: 13},
+			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 Part 8", Animals: 30},
 			{ID: "old-yashoda-1", Park: "CPT", RawShed: "Old Yashoda 1", Animals: 8},
 			{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 3},
 		},
@@ -90,14 +92,15 @@ func TestOperatorDrivePlannerCPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays(t 
 	if len(plan.Unassigned) != 0 || len(plan.Days) != 2 {
 		t.Fatalf("plan=%#v, want all 324 animals assigned over two days", plan)
 	}
-	if plan.Days[0].Assigned != 193 || plan.Days[1].Assigned != 131 {
-		t.Fatalf("assigned by day=%d/%d, want 193/131", plan.Days[0].Assigned, plan.Days[1].Assigned)
+	if plan.Days[0].Assigned != 199 || plan.Days[1].Assigned != 125 {
+		t.Fatalf("assigned by day=%d/%d, want 199/125", plan.Days[0].Assigned, plan.Days[1].Assigned)
 	}
-	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi", 114)
-	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 2", 32)
-	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Mandela 2", 47)
-	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1", 120)
-	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Old Yashoda", 11)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi 1", 42)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi 2", 30)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi 3", 42)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 1 Part 1", 60)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Mandela 2 Part 7", 13)
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1 Part 3", 30)
 }
 
 func TestOperatorDrivePlannerSpillsToNextDateWithThatDatesAvailability(t *testing.T) {
@@ -346,11 +349,11 @@ func TestOperatorDrivePlannerSplitsOversizedPartitionAcrossOperatorsAndDays(t *t
 	}
 	for _, day := range plan.Days {
 		for _, assignment := range day.Assignments {
-			if assignment.PhysicalShed != "Gandhi" {
-				t.Fatalf("physical shed = %q, want Gandhi", assignment.PhysicalShed)
+			if assignment.PhysicalShed != "Gandhi 1" {
+				t.Fatalf("physical shed = %q, want Gandhi 1", assignment.PhysicalShed)
 			}
-			if len(assignment.Partitions) != 1 || assignment.Partitions[0] != "1" {
-				t.Fatalf("partitions = %#v, want partition 1", assignment.Partitions)
+			if len(assignment.Partitions) != 1 || assignment.Partitions[0] != "whole" {
+				t.Fatalf("partitions = %#v, want whole exact shed", assignment.Partitions)
 			}
 		}
 	}
@@ -378,7 +381,7 @@ func TestOperatorDrivePlannerOnlySplitsPartitionLargerThanConfiguredCap(t *testi
 		WorkBlocks: []DriveWorkBlock{{
 			ID:        "oversized",
 			Park:      "CPT",
-			RawShed:   "Mandela 2 - Part X",
+			RawShed:   "Mandela 2 Part X",
 			Animals:   205,
 			GoatIDs:   numberedGoatIDs(205),
 			DueDate:   date(2026, 7, 23),

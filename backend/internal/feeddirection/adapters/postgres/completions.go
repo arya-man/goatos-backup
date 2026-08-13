@@ -210,6 +210,7 @@ SELECT sp.operational_location_id::text,
 FROM shed_partitions sp
 WHERE sp.tenant_id = $1::uuid
   AND (sp.shed_id = $2::uuid OR sp.operational_location_id = $2::uuid)
+  AND sp.operational_location_id IS NOT NULL
   AND sp.status = 'active'
   AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
       regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')

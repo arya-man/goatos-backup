@@ -5,41 +5,17 @@ import (
 	"fmt"
 )
 
-// ShedScopedLocationSQL is THE query for resolving a shed id to its operational location.
+// ShedScopedLocationSQL resolves a location id to the exact shed display.
 //
-// It exists because the recurring defect on this codebase is not composing the display -- that
-// has had a canonical helper for a while -- it is FETCHING the parts. Every site that needed a
-// partition wrote its own SELECT, and the schema offers two columns that look interchangeable
-// and are not:
-//
-//	partition_label   'Part 3'  the HUMAN label -- the only one that may be displayed
-//	normalized_label  '3'       the scrubbed MATCHING KEY -- joins only, never a screen
-//
-// Selecting the wrong one compiles, passes review, and renders 'Mandela 2 - 3' to an operator.
-// That exact defect shipped, was fixed, and was then reintroduced by a later change to a
-// different module. Centralising the fetch makes the mistake unavailable rather than merely
-// discouraged.
-//
-// AGREE-OR-GO-BARE is baked in: a shed with exactly ONE active real partition resolves to that
-// partition; a shed with several is ambiguous at shed grain, so it returns BARE (empty
-// partition) rather than picking one. `ORDER BY ... LIMIT 1` over rows that can legitimately
-// differ fabricates an answer that silently flips as partitions change.
-//
-// 'whole' is the unpartitioned sentinel. It is filtered here so it can never reach a caller,
-// and therefore never a screen.
+// Live operational identity is the shed row itself: "Castro 2", "Mandela 2 Part 1", etc.
+// Legacy partition rows may still exist for history and migration compatibility, but this
+// resolver must not export them as display identity because callers will otherwise rejoin
+// "shed name + partition" and create labels such as "Castro 2 2".
 //
 // Parameters: $1 tenant_id, $2 shed location_id.
 const ShedScopedLocationSQL = `
 SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
-       COALESCE((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = shed.tenant_id
-           AND sp.shed_id = shed.location_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '')
+       ''
 FROM locations shed
 WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid`
 

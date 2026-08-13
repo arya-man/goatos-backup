@@ -202,7 +202,7 @@ These invariants should become testable for every vertical.
    
    - No partition → `Yashoda` (bare shed name)
    - Numeric partition → `Castro 2`
-   - Prefixed partition → `Godel 1 - Part 3`
+   - Prefixed partition → `Godel 1 Part 3`
    
    Never render a non-partitioned shed as `Yashoda whole` — `whole` is an
    internal matching sentinel only, never user-facing copy. `NULL`, `''`, and

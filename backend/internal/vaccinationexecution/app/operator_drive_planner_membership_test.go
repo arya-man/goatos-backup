@@ -134,8 +134,8 @@ func TestPlannerNamedMembershipIsStableAcrossRuns(t *testing.T) {
 			WorkBlocks: []DriveWorkBlock{
 				namedBlock("gandhi-1", "CPT", "Gandhi 1", "", goatSeries("gandhi1", 95)...),
 				namedBlock("gandhi-2", "CPT", "Gandhi 2", "", goatSeries("gandhi2", 44)...),
-				namedBlock("godel-1-part-1", "CPT", "Godel 1 - Part 1", "", goatSeries("godel1p1", 61)...),
-				namedBlock("godel-1-part-2", "CPT", "Godel 1 - Part 2", "", goatSeries("godel1p2", 12)...),
+				namedBlock("godel-1-part-1", "CPT", "Godel 1 Part 1", "", goatSeries("godel1p1", 61)...),
+				namedBlock("godel-1-part-2", "CPT", "Godel 1 Part 2", "", goatSeries("godel1p2", 12)...),
 			},
 		}
 	}

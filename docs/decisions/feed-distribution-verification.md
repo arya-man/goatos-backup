@@ -201,13 +201,13 @@ crew that packed the morning share twice from one that packed both correctly.
 
 ```
 ONE card per operational location PER FEEDING SESSION
-  Castro - 2                                   [Pending] [Normal]
+  Castro 2                                   [Pending] [Normal]
     Morning
       Maize 12.4 · Soya 4.8 · Mineral mix 0.6
     Pack total                         17.8 kg
   -> ONE mandatory packing video for THIS bag
 
-  Castro - 2                                   [Pending] [Normal]
+  Castro 2                                   [Pending] [Normal]
     Evening
       Maize 12.4 · Soya 4.8 · Mineral mix 0.6
     Pack total                         17.8 kg
@@ -226,13 +226,13 @@ ONE card per operational location PER FEEDING SESSION
   the bag in front of them is real work rather than decoration. The web sheet at `/feed/packing`
   deliberately does not offer the control — it is a printed worklist read down in one pass, and
   hiding half the day's bags from it would understate what the crew must carry out.
-- **The verifier sees ONE bag.** The item's subject is `Session 1 · Castro - 2`; without the prefix a
+- **The verifier sees ONE bag.** The item's subject is `Session 1 · Castro 2`; without the prefix a
   verifier holding a pen's two cards cannot tell which clip proves which bag. Its expected-ration
   context names THAT SESSION's quantities (`Maize 12.5 kg · Soya 4 kg`), never the day's — handed the
   day total she would be checking the clip against twice what it should contain.
 - **The PEN is part of the key, for a separate reason, and survived the merge.** Castro 1 and
   Castro 2 hold different animals on different rations. Migration `000137` exists because one
-  Castro - 1 clip was closing out all three pens. Pinned together with the session by
+  Castro 1 clip was closing out all three pens. Pinned together with the session by
   `TestPackingLinesKeepPartitionsAndSessionsApart` and `FeedPackingSessionRowTest`.
 - **Feed DISTRIBUTION was never merged** and needed no repair. Both flows are gated per shed-session
   and share the session-bearing `completedKey` again; `packingCompletedKey` is deleted.
@@ -325,8 +325,8 @@ verification item, and clears `verified_by`/`verified_at`.
 - **Experiment is EXEMPT.** Its rations are authored as absolute kg per pen, so a head-count change
   moves no quantity there. Reopening one would discard a good video for a sheet that did not change.
 - **Head count only, per PEN.** `AffectedShedIDs` also fires for a relabelled ration group and is
-  shed-wide, so driving the reopen from it would make the packers of Castro - 1 and Castro - 3 refilm
-  because Castro - 2 gained animals. `CellDiff.HeadCountChangedPens` is the strictly narrower signal:
+  shed-wide, so driving the reopen from it would make the packers of Castro 1 and Castro 3 refilm
+  because Castro 2 gained animals. `CellDiff.HeadCountChangedPens` is the strictly narrower signal:
   a grain's head count moved, a grain appeared (animals arrived), or a grain vanished (animals left).
 
 ### There is no new state, so the reason is not optional
@@ -342,7 +342,7 @@ image would change if that line were dropped.
 grain). Head count scales the morning and the evening ration alike, so both of that pen's videos now
 prove the wrong quantity; reopening one would leave the other bag packed for a head count the farm no
 longer has. `ReopenPackingForFeedChange` therefore names pens WITHOUT a session and applies no session
-predicate — the golden shows Castro - 2 twice, Morning and Evening, both carrying the sentence.
+predicate — the golden shows Castro 2 twice, Morning and Evening, both carrying the sentence.
 
 A verdict already CAST is kept as history rather than rewritten: only a still-`pending` item is
 `withdrawn`, because that is the one sitting in a verifier's queue pointing at a stale clip. An

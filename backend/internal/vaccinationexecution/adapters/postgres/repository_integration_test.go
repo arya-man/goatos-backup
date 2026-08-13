@@ -120,12 +120,17 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 		"roster":            scanRosterSQL,
 		"drive assignments": driveAssignmentsSQL,
 	} {
-		if !strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") {
-			t.Fatalf("%s operator-scoped read must join goat_shed_partitions", name)
+		if strings.Contains(sql, "LEFT JOIN goat_shed_partitions gsp") ||
+			strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label))") ||
+			strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label))") {
+			t.Fatalf("%s operator-scoped read must not bind live work through legacy partition labels", name)
 		}
-		if !strings.Contains(sql, "regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')") &&
-			!strings.Contains(sql, "regexp_replace(lower(btrim(effective.partition_label)), '^part[[:space:]]+', '')") {
-			t.Fatalf("%s operator-scoped read must bind assignments to the goat partition with Part N/N normalization", name)
+		if !strings.Contains(sql, "assignment.shed_id = g.shed_id") &&
+			!strings.Contains(sql, "assignment.shed_id = CASE") &&
+			!strings.Contains(sql, "vda.shed_id = g.shed_id") &&
+			!strings.Contains(sql, "g.shed_id = effective.shed_id") &&
+			!strings.Contains(sql, "effective.shed_uuid") {
+			t.Fatalf("%s operator-scoped read must bind assignments to the exact goat shed id", name)
 		}
 	}
 	if strings.Contains(scanRosterSQL, "OR EXISTS (\n      SELECT 1\n      FROM vaccination_drive_assignments assignment") {

@@ -163,7 +163,7 @@ type change struct{ ItemID, Old, New string }
 // does (sopbridge.vaccinationSubjectLabel): shed WITH its partition, then the vaccine(s), then the
 // count. An earlier version resolved the shed from locations.name alone and picked ONE completion
 // with LIMIT 1, which produced "Sumathi 1 · ET+TT · 12 goats" where the writer produces
-// "Sumathi 1 - Part 3 · ET+TT · 12 goats", and on a mixed-vaccine submission named whichever
+// "Sumathi 1 Part 3 · ET+TT · 12 goats", and on a mixed-vaccine submission named whichever
 // vaccine Postgres happened to return first. A backfill that disagrees with the writer is worse
 // than none: it reports success while leaving the queue wrong in a way nobody re-checks.
 //
@@ -302,7 +302,7 @@ func summarise(values []string, plural string) string {
 // planWeighing prefixes weighing labels with the shed the capture belongs to, taking the name from
 // the campaign-shed bucket exactly as the live writer now does. The lump-sum literal "Whole shed"
 // is REPLACED by the real shed rather than prefixed, or the row would read
-// "Godel 1 - Part 3 · Whole shed · 250.0 kg", which is still the bug one segment over.
+// "Godel 1 Part 3 · Whole shed · 250.0 kg", which is still the bug one segment over.
 func planWeighing(ctx context.Context, pool *pgxpool.Pool) ([]change, error) {
 	// Individual and lump-sum captures live in DIFFERENT tables (weighing_observations vs
 	// weighing_shed_observations). An earlier pass joined only the first and silently left every

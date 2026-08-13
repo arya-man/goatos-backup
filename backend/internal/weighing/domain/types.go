@@ -485,7 +485,7 @@ type LeadershipShedVideos struct {
 	// PartitionLabel and OperationalLocationDisplay are DERIVED from ShedName by
 	// oploc.SplitShedPartitionName, never from a join: weighing is an isolated module
 	// and may not read goat_shed_partitions. ShedName carries the catalog name, which
-	// already encodes the partition ("Godel 1 - Part 3"), so the parse is the whole
+	// already encodes the partition ("Godel 1 Part 3"), so the parse is the whole
 	// source. OperationalLocationDisplay is REQUIRED by the OpenAPI schema, so it must
 	// be populated on every construction path -- a required field the backend never
 	// emits is a contract the client cannot rely on.

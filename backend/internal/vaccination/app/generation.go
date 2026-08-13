@@ -894,7 +894,7 @@ func hasPhysicalCampaignPlacement(g domain.EligibleGoat) bool {
 	return strings.TrimSpace(g.ParkID) != "" && strings.TrimSpace(g.ShedID) != ""
 }
 
-func hasPhysicalCampaignPartition(g domain.EligibleGoat) bool {
+func hasLegacyCampaignCohortMarker(g domain.EligibleGoat) bool {
 	return hasPhysicalCampaignPlacement(g) && strings.TrimSpace(g.PartitionLabel) != ""
 }
 
@@ -978,7 +978,7 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 				if !hasPhysicalCampaignPlacement(plan.goat) {
 					continue
 				}
-			} else if !hasPhysicalCampaignPartition(plan.goat) {
+			} else if !hasLegacyCampaignCohortMarker(plan.goat) {
 				continue
 			}
 			if hasVaccineAdministrationHistory(ruleVaccine, history) {
@@ -1524,7 +1524,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			cohortCampaignRealignment = opts.cohortAlignedCampaignByGoat[campaignKey] && isStableAdultCampaignObligationKey(rule, g)
 			if !baseDue.Equal(override) && !isStableAdultCampaignObligationKey(rule, g) {
 				legacyBaseDue := baseDue
-				if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+				if isAdultCampaignRule(rule) && hasLegacyCampaignCohortMarker(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
 					campaignStart := adultCampaignStart(asOf)
 					if legacyBaseDue.Before(campaignStart) {
 						legacyBaseDue = campaignStart
@@ -1542,7 +1542,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			baseDue = override
 		}
-		if isAdultCampaignRule(rule) && hasPhysicalCampaignPartition(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+		if isAdultCampaignRule(rule) && hasLegacyCampaignCohortMarker(g) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
 			campaignStart := adultCampaignStart(asOf)
 			if baseDue.Before(campaignStart) {
 				baseDue = campaignStart

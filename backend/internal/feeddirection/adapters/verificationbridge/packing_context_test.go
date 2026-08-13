@@ -38,7 +38,7 @@ func basePackingRequest() feeddirectionapp.FeedPackingVerificationEnqueueRequest
 		CompletionID:   "22222222-2222-4222-8222-222222222222",
 		ParkID:         "33333333-3333-4333-8333-333333333333",
 		ShedID:         "44444444-4444-4444-8444-444444444444",
-		ShedName:       "Mandela 1",
+		ShedName:       "Mandela 1 Part 2",
 		PartitionLabel: "Part 2",
 		// A real request ALWAYS carries a session: the write path rejects a missing or zero value with
 		// ErrInvalidSession and the table's CHECK refuses it (maintainer decision 2026-08-11). Omitting
@@ -85,22 +85,22 @@ func TestPackingItemOmitsUnknownExpectationRatherThanFakingIt(t *testing.T) {
 	}
 }
 
-// The pen must ride on its OWN field, not only inside the display label. Packing left this column
-// NULL, so anything filtering or grouping by pen missed every packing item.
-func TestPackingItemCarriesPartitionAsAField(t *testing.T) {
+// Exact shed id is the location field. The old partition label is compatibility metadata and must
+// not ride as a second proof/filter grain.
+func TestPackingItemDoesNotCarryCompatibilityPartitionAsProofIdentity(t *testing.T) {
 	got := enqueuePacking(t, basePackingRequest())
 
-	if got.PartitionLabel == nil || *got.PartitionLabel != "Part 2" {
-		t.Fatalf("PartitionLabel = %v, want the pen as its own field", got.PartitionLabel)
+	if got.PartitionLabel != nil {
+		t.Fatalf("PartitionLabel = %v, want nil because ShedID already names the exact shed", got.PartitionLabel)
 	}
-	if got.SubjectLabel == nil || *got.SubjectLabel != "Session 1 · Mandela 1 - Part 2" {
+	if got.SubjectLabel == nil || *got.SubjectLabel != "Session 1 · Mandela 1 Part 2" {
 		t.Errorf("SubjectLabel = %v, want the session and the operational location", got.SubjectLabel)
 	}
 }
 
 // The verifier's subject names the SESSION and the PEN (maintainer decision 2026-08-11, reverting the
 // 2026-08-10 pen-only label). A pen produces TWO packing videos a day, so without the prefix a
-// verifier holding both of Mandela 1 - Part 2's cards cannot tell which bag each clip proves.
+// verifier holding both of Mandela 1 Part 2's cards cannot tell which bag each clip proves.
 //
 // Asserted as an exact string, not a "contains the shed" check: the defect this replaces was a label
 // that was present and correct-looking and still described the wrong scope.
@@ -110,7 +110,7 @@ func TestPackingSubjectNamesTheSessionAndThePen(t *testing.T) {
 	if got.SubjectLabel == nil {
 		t.Fatal("SubjectLabel is nil; the verifier's card would show no location at all")
 	}
-	const want = "Session 1 · Mandela 1 - Part 2"
+	const want = "Session 1 · Mandela 1 Part 2"
 	if *got.SubjectLabel != want {
 		t.Fatalf("SubjectLabel = %q, want %q -- the session prefix, then shed and pen always together",
 			*got.SubjectLabel, want)
@@ -135,7 +135,7 @@ func TestPackingSubjectsOfOnePensTwoBagsDiffer(t *testing.T) {
 	if *gotMorning.SubjectLabel == *gotEvening.SubjectLabel {
 		t.Fatalf("both bags labelled %q; the verifier cannot tell them apart", *gotMorning.SubjectLabel)
 	}
-	if *gotEvening.SubjectLabel != "Session 2 · Mandela 1 - Part 2" {
+	if *gotEvening.SubjectLabel != "Session 2 · Mandela 1 Part 2" {
 		t.Errorf("evening label = %q, want the second session named", *gotEvening.SubjectLabel)
 	}
 }

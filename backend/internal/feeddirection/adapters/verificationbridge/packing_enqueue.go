@@ -31,9 +31,9 @@ var _ feeddirectionapp.FeedPackingVerificationEnqueuer = (*PackingEnqueuer)(nil)
 // packing video travels on ONE item. CreateItem is idempotent on (tenant, idempotency_key), so a retry
 // after a prior failure heals rather than duplicates.
 func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in feeddirectionapp.FeedPackingVerificationEnqueueRequest) error {
-	// The subject names the SESSION and the PEN -- "Session 1 · Castro - 2" (maintainer decision
+	// The subject names the SESSION and the exact shed -- "Session 1 · Castro 2" (maintainer decision
 	// 2026-08-11, reverting the 2026-08-10 pen-only label). A pen produces two packing videos a day
-	// and a verifier holding two cards for Castro - 2 must be able to tell which bag each one proves;
+	// and a verifier holding two cards for Castro 2 must be able to tell which bag each one proves;
 	// without the prefix the two items are indistinguishable in the queue.
 	//
 	// Degrades rather than composing a dangling separator: an unresolvable location leaves the bare
@@ -79,10 +79,9 @@ func (e *PackingEnqueuer) EnqueueFeedPackingVerification(ctx context.Context, in
 		MediaRefs:  []string{in.PackingProofRef},
 		OperatorID: ptrIfSet(in.OperatorID),
 		ShedID:     ptrIfSet(in.ShedID),
-		// The PEN as its own field, not only folded into the label. Packing composed the location
-		// into SubjectLabel and left this column NULL, so anything filtering or grouping by pen --
-		// as opposed to reading the display string -- missed every packing item.
-		PartitionLabel: ptrIfSet(in.PartitionLabel),
+		// Exact shed id is the location identity. PartitionLabel is compatibility metadata from
+		// older feed rows and must not become a second proof/filter grain.
+		PartitionLabel: nil,
 		ParkID:         ptrIfSet(in.ParkID),
 		CapturedAt:     in.CapturedAt,
 		IdempotencyKey: in.IdempotencyKey,

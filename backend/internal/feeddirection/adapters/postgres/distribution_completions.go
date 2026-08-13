@@ -130,7 +130,10 @@ INSERT INTO feed_distribution_completions (
   $8, $9, $10, nullif($11::text, '')::uuid, $12
 )
 ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
-RETURNING completion_id::text, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
+RETURNING completion_id::text, row_version,
+  COALESCE(feed_weight_proof_ref, ''),
+  COALESCE(distribution_proof_ref, ''),
+  COALESCE(water_proof_ref, '')`,
 		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		weightProof, distProof, waterProof, p.CompletedBy, p.IdempotencyKey).
 		Scan(&completionID, &rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof)
@@ -139,7 +142,10 @@ RETURNING completion_id::text, row_version, feed_weight_proof_ref, distribution_
 		// Natural-key conflict: a row for this shed-session already exists. Its state decides the outcome.
 		var existingStatus string
 		if err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
+	SELECT completion_id::text, status, row_version,
+	  COALESCE(feed_weight_proof_ref, ''),
+	  COALESCE(distribution_proof_ref, ''),
+	  COALESCE(water_proof_ref, '')
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
   AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
@@ -163,7 +169,10 @@ SET status = 'pending_verification',
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'rework'
-RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref`,
+	RETURNING row_version,
+	  COALESCE(feed_weight_proof_ref, ''),
+	  COALESCE(distribution_proof_ref, ''),
+	  COALESCE(water_proof_ref, '')`,
 				p.TenantID, completionID, weightProof, distProof, waterProof).
 				Scan(&rowVersion, &canonicalFeedWeightProof, &canonicalDistProof, &canonicalWaterProof); err != nil {
 				return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: resubmit distribution for verification: %w", err)
@@ -227,7 +236,10 @@ func (r *Repository) readDistributionByID(ctx context.Context, tx pgx.Tx, tenant
 	}
 	var out ports.CompleteDistributionResult
 	err := tx.QueryRow(ctx, `
-SELECT completion_id::text, status, row_version, feed_weight_proof_ref, distribution_proof_ref, water_proof_ref
+	SELECT completion_id::text, status, row_version,
+	  COALESCE(feed_weight_proof_ref, ''),
+	  COALESCE(distribution_proof_ref, ''),
+	  COALESCE(water_proof_ref, '')
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, tenantID, completionID).
 		Scan(&out.CompletionID, &out.Status, &out.RowVersion, &out.FeedWeightProofRef, &out.DistributionProofRef, &out.WaterProofRef)

@@ -803,7 +803,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             locationLabel = shedLabel.ifBlank { shedId },
             extraLabel = listOf(
                 sessionLabel.ifBlank { "Session $sessionNo" },
-                partitionLabel,
             ).filter { it.isNotBlank() }.joinToString(" . "),
         )
 

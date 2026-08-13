@@ -2418,7 +2418,7 @@ SELECT vc.completion_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
        COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
-       COALESCE(NULLIF(gsp.partition_label, ''), 'whole')::text,
+       ''::text AS partition_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at,
@@ -2440,10 +2440,6 @@ JOIN goats g
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = g.shed_id
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id
- AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 -- The verifier must be told WHICH vaccine the clip is evidence for. All four joins are LEFT so a
 -- completion whose protocol chain does not resolve still yields its row (the label degrades to
 -- empty and the subject simply omits the vaccine) rather than vanishing from the submission.

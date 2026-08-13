@@ -81,7 +81,7 @@ or rewrite the accepted completion that backs goat history.
 
 Source shed labels with trailing partition numbers must be normalized before
 canonical DB writes. `Gandhi 1` means physical shed `Gandhi`, partition `1`;
-`Godel 1 - Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
+`Godel 1 Part 3` means physical shed `Godel 1`, partition `Part 3`. The raw
 partition label may appear in source/audit output, but active goat placement and
 goat obligation scope must point to the physical shed.
 Fixture validation, source validation, and shed-owner checks all aggregate by

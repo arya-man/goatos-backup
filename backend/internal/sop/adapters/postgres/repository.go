@@ -2182,6 +2182,7 @@ func (r *Repository) validateShedPartition(ctx context.Context, tx pgx.Tx, tenan
 	const q = `
 SELECT
   count(*) FILTER (WHERE status = 'active') AS active_partitions,
+  count(*) FILTER (WHERE status = 'active' AND operational_location_id = $2::uuid) AS exact_matches,
   count(*) FILTER (
     WHERE status = 'active'
       AND regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -2190,15 +2191,18 @@ SELECT
 FROM shed_partitions
 WHERE tenant_id = $1::uuid
   AND (shed_id = $2::uuid OR operational_location_id = $2::uuid)`
-	var active, matching int
+	var active, exact, matching int
 	var err error
 	if tx != nil {
-		err = tx.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+		err = tx.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &exact, &matching)
 	} else {
-		err = r.pool.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &matching)
+		err = r.pool.QueryRow(ctx, q, tenantID, shedID, partitionLabel).Scan(&active, &exact, &matching)
 	}
 	if err != nil {
 		return err
+	}
+	if exact > 0 && !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		return nil
 	}
 	if active == 0 {
 		if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {

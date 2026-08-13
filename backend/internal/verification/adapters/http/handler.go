@@ -99,7 +99,7 @@ type queueItemResponse struct {
 	ShedID                     *string            `json:"shed_id,omitempty"`
 	ShedLabel                  *string            `json:"shed_label,omitempty"`                   // backend-owned display label
 	PartitionLabel             *string            `json:"partition_label,omitempty"`              // raw partition label ('1', 'Part 3'); omitted for non-partitioned
-	OperationalLocationDisplay *string            `json:"operational_location_display,omitempty"` // backend-owned composed location ("Castro 2", "Godel 1 - Part 3")
+	OperationalLocationDisplay *string            `json:"operational_location_display,omitempty"` // backend-owned composed location ("Castro 2", "Godel 1 Part 3")
 	ParkID                     *string            `json:"park_id,omitempty"`
 	ParkLabel                  *string            `json:"park_label,omitempty"` // backend-owned display label
 	CapturedAt                 string             `json:"captured_at"`

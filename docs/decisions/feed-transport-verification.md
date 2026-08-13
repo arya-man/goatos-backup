@@ -19,7 +19,7 @@ cutoff. There is no ordinary lateness grace. See
 - **Nor a PARTITION grain (reaffirmed 2026-08-12).** A shed's pens are packed as separate bags and
   fed separately, but they are LOADED AND STAGED as one trip, so transport is one task and one video
   for the whole shed. Migration `000143` fanned the materializer out over `shed_partitions`, and a
-  partitioned shed such as Castro started listing `Castro - 1`, `Castro - 2`, `Castro - 3` as three
+  partitioned shed such as Castro started listing `Castro 1`, `Castro 2`, `Castro 3` as three
   transport tasks -- three videos of one load. That was never a recorded decision and contradicted
   both this line and AGENTS.md; `000152_feed_transport_restore_shed_grain.sql` is the forward repair.
   `000143`/`000146` are not amended, because STG records migration checksums.

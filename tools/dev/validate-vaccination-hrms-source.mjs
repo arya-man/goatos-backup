@@ -264,7 +264,7 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
   ));
 
   // Partition resolution check: validate that seeded animals in partitioned sheds have partition assignments.
-  // Source shed names like "Godel 1 - Part 3" or "Gandhi 1" are normalized to physical shed + partition.
+  // Source shed names like "Godel 1 Part 3" or "Gandhi 1" are normalized to physical shed + partition.
   // During seed, every animal placed in a partitioned shed must have a matching goat_shed_partitions entry,
   // so downstream queries (verification_items, weighing_campaign_sheds, health_cases) can resolve the
   // partition_label via the canonical goat_shed_partitions table or equivalent shed_partitions catalog lookup.

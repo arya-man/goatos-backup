@@ -34,7 +34,7 @@
 //
 //   [lazy-list-parent-location-key]
 //     A key whose selector is a bare shed/location id inside partition-aware code. Once shed
-//     partitions are operational locations, siblings such as `Godel 2 - Part 1` and
+//     partitions are operational locations, siblings such as `Godel 2 Part 1` and
 //     `Godel 2 - Part 2` can legitimately share the parent shed id. A list key must use the
 //     actual row id or include the partition/operational key.
 //

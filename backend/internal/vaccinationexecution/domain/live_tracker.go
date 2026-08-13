@@ -386,14 +386,9 @@ type LiveTrackerResponse struct {
 
 var partitionPartPrefix = regexp.MustCompile(`^part[[:space:]]*`)
 
-// NormalizePartitionLabel is the ONE partition-identity rule for this read model.
-//
-// goat_shed_partitions.partition_label and vaccination_drive_assignments.partition_label disagree in
-// form for the same physical partition: Old Yashoda is stored as "1".."4" on the goat side and
-// "Part 1".."Part 4" on the assignment side, while Gandhi uses bare "2"/"3" on both and Godel 1 uses
-// "Part N" on both. Joining the raw labels silently drops every Old Yashoda partition into
-// "unassigned" — an operator's whole park vanishes from the board with no error. Both sides of every
-// partition join in this file go through here.
+// NormalizePartitionLabel is kept only for legacy request/cursor parsing. Live shed identity is the
+// exact shed id/name; callers must not append this label to display text or use it as the primary
+// work grain.
 func NormalizePartitionLabel(label string) string {
 	trimmed := strings.ToLower(strings.TrimSpace(label))
 	if trimmed == "" {
@@ -402,9 +397,9 @@ func NormalizePartitionLabel(label string) string {
 	return partitionPartPrefix.ReplaceAllString(trimmed, "")
 }
 
-// ShedDisplayLabel composes the human shed label ("Gandhi 3", "Sumathi 2 - Part 4") the way the
-// operational location display does, so the tracker's shed column matches every other vaccination
-// surface instead of inventing a second format.
+// ShedDisplayLabel returns the exact shed name the way the operational location display does.
+// partitionLabel is compatibility metadata for matching stale rows; it must never be appended into
+// visible copy like "Gandhi 1 1" or "Sumathi 2 Part 4 Part 4".
 func ShedDisplayLabel(shedName, partitionLabel string) string {
 	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 }

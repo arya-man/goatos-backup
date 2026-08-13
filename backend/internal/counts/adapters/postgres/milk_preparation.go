@@ -43,36 +43,19 @@ WITH grouped AS MATERIALIZED (
     g.shed_id AS shed_uuid,
     COALESCE(g.shed_id::text, '') AS shed_id,
     COALESCE(
-      CASE
-        WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
-        WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
-        WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
-        ELSE btrim(gsp.source_shed_name)
-      END,
       NULLIF(shed.name, ''),
       shed.location_code,
       ''
     ) AS shed_label,
     g.management_stage,
     ` + partitionKeyExpr + ` AS partition_key,
-    -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
-    -- display preserves each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
-    -- representative among rows sharing the same normalized key.
-	    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
+    NULL::text AS partition_label_raw,
     count(*)::integer AS head_count
   FROM goats g
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
   LEFT JOIN locations shed
     ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
-  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. A goat
-  -- with no row here is not partitioned and normalizes to 'whole'.
-	  LEFT JOIN goat_shed_partitions gsp
-	    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-	  LEFT JOIN shed_partitions exact_sp
-	    ON exact_sp.tenant_id = g.tenant_id
-	   AND exact_sp.operational_location_id = g.shed_id
-	   AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
@@ -80,12 +63,6 @@ WITH grouped AS MATERIALIZED (
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
   GROUP BY g.park_id, park.location_code, park.name,
            g.shed_id, shed.name, shed.location_code, g.management_stage,
-           CASE
-             WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
-             WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
-             WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
-             ELSE btrim(gsp.source_shed_name)
-           END,
            ` + partitionKeyExpr + `
 ),
 -- grouped_by_shed re-rolls the partition grain back up to the pre-partition (shed, stage) grain.

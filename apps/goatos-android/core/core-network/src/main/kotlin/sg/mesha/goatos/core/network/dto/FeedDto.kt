@@ -289,14 +289,11 @@ internal fun feedOperationalLocationIdentityKey(
     val shedName = shedLabel.trim()
     val display = operationalLocationDisplay.trim()
     val visible = display.ifBlank { shedName }
-    if (visible.isNotBlank() && visible.equals(shedName, ignoreCase = true) && shedNameEncodesPartition(shedName, partition)) {
-        return shedId
-    }
-    if (display.isNotBlank() && !display.equals(shedName, ignoreCase = true)) {
-        return listOf(shedId, "legacy-display", display.lowercase()).joinToString("|")
-    }
     if (shedNameEncodesPartition(shedName, partition)) {
         return shedId
+    }
+    if (visible.isNotBlank() && shedNameEncodesPartition(visible, partition)) {
+        return listOf(shedId, "legacy-display", feedIdentityToken(visible)).joinToString("|")
     }
     return listOf(shedId, "legacy-partition", partition).joinToString("|")
 }
@@ -312,16 +309,17 @@ private fun partitionIdentityToken(raw: String?): String? {
 }
 
 private fun shedNameEncodesPartition(shedName: String, partitionToken: String): Boolean {
-    val normalized = shedName.lowercase()
-        .replace(Regex("[^a-z0-9]+"), " ")
-        .trim()
+    val normalized = feedIdentityToken(shedName)
     if (normalized.isBlank()) return false
     if (Regex("""\bpart\s+${Regex.escape(partitionToken)}\b""").containsMatchIn(normalized)) return true
     if ("part" in normalized) return false
-    val numberedShedFamily = Regex("""^(?:castro|gandhi|(?:new\s+)?yashoda|old\s+yashoda)\s+""")
-        .containsMatchIn(normalized)
-    return numberedShedFamily && normalized.endsWith(" $partitionToken")
+    return normalized.endsWith(" $partitionToken")
 }
+
+private fun feedIdentityToken(raw: String): String =
+    raw.lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
 
 private object NullAsEmptyFeedItemQuantityListSerializer :
     JsonTransformingSerializer<List<FeedItemQuantityDto>>(ListSerializer(FeedItemQuantityDto.serializer())) {

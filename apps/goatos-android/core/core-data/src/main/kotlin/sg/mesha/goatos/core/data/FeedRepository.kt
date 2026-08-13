@@ -268,7 +268,7 @@ private class FeedDirectionRemoteMediator(
             // by the number of DISTINCT sheds returned — NOT by row count, which would skip
             // (rows-per-shed - 1) x pageSize sheds each page and hide whole sheds. End-of-pagination
             // comes from the backend's has_more, not a short row page (a full shed page is > pageSize rows).
-            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val shedsReturned = response.items.map { it.operationalLocationIdentityKey }.distinct().size
             val endReached = !response.hasMore
             val updatedAt = clock()
             database.withTransaction {
@@ -372,7 +372,7 @@ private class FeedPackingRemoteMediator(
             )
             // Backend pages the SHED set; advance by DISTINCT sheds (not rows), end on has_more.
             // See FeedDirectionRemoteMediator for the full rationale.
-            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val shedsReturned = response.items.map { it.operationalLocationIdentityKey }.distinct().size
             val endReached = !response.hasMore
             val updatedAt = clock()
             database.withTransaction {

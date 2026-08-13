@@ -14,7 +14,7 @@ import (
 // PlannerShed.Name at bucket-creation time).
 //
 // A partition-bearing shed's catalog name is the operational shed name itself: "Castro 2",
-// "Godel 1 - Part 3", "Mandela 2 Part 1". Weighing keeps that exact name as the operator
+// "Godel 1 Part 3", "Mandela 2 Part 1". Weighing keeps that exact name as the operator
 // identity; it only tolerates a stored legacy partition_label when reading rows written before the
 // exact-shed cutover.
 //
@@ -26,7 +26,7 @@ func splitShedPartitionName(name string) (parentShedName, partitionLabel string)
 
 // applyShedPartitionDisplay stamps ParentShedName/PartitionLabel/OperationalLocationDisplay on a
 // CampaignShed from its already-loaded DisplayName. DisplayName is already the exact shed name:
-// "Castro 2" and "Godel 1 - Part 3" are not rebuilt from a parent shed plus partition label.
+// "Castro 2" and "Godel 1 Part 3" are not rebuilt from a parent shed plus partition label.
 func applyShedPartitionDisplay(shed *domain.CampaignShed) {
 	parent := strings.TrimSpace(shed.DisplayName)
 	shed.ParentShedName = parent
@@ -40,7 +40,7 @@ func applyShedPartitionDisplay(shed *domain.CampaignShed) {
 func applyShedPartitionDisplayWithStoredLabel(shed *domain.CampaignShed, storedPartitionLabel string) {
 	applyShedPartitionDisplay(shed)
 	// Stored partition_label is compatibility/history metadata. Keeping it blank in the read model
-	// prevents callers from rendering "Castro 2 2" or stripping "Godel 1 - Part 3" back to "Godel 1".
+	// prevents callers from rendering "Castro 2 2" or stripping "Godel 1 Part 3" back to "Godel 1".
 	_ = storedPartitionLabel
 }
 

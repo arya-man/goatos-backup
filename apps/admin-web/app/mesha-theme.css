@@ -774,7 +774,7 @@
   .tsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%}
   .tcount{font-size:12px;color:var(--faint);font-weight:600;white-space:nowrap}
   /* max-width: a native <select> sizes itself to its WIDEST OPTION, so one long
-     option (e.g. "Mandela 2 - Part 10 . Coimbatore" once partition + park
+     option (e.g. "Mandela 2 Part 10 . Coimbatore" once partition + park
      disambiguation landed) stretched the Shed control to 436px and wrapped the
      whole filter bar onto a second row. Option text must never drive layout. */
   .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -814,7 +814,7 @@
   .main table.herd-register-table th:nth-child(7),.main table.herd-register-table td:nth-child(7),.main table.herd-register-table th:nth-child(8),.main table.herd-register-table td:nth-child(8){min-width:84px}
   .main table.herd-register-table th:nth-child(9),.main table.herd-register-table td:nth-child(9),.main table.herd-register-table th:nth-child(10),.main table.herd-register-table td:nth-child(10),.main table.herd-register-table th:nth-child(11),.main table.herd-register-table td:nth-child(11){min-width:116px}
   /* Counts Breakdown census table (6 cols: Farm · Stage · Breed · Gender · Shed · Count).
-     Keep every cell single-line: shed names ("Godel 1 - Part 3") and raw source stage labels
+     Keep every cell single-line: shed names ("Godel 1 Part 3") and raw source stage labels
      ("ICU-Kid", "Kid Stage 2") otherwise wrap mid-value once a column narrows. The table owns
      horizontal scrolling, so nowrap never clips content. */
   .main table.counts-breakdown-table{min-width:820px}

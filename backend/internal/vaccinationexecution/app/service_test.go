@@ -397,15 +397,17 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 		projection("shed-1", due, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.CompletionRecorded = 1
-			p.PhysicalShed = "Godel 1"
-			p.Partition = "Part 3"
+			p.ShedName = "Godel 1 Part 3"
+			p.PhysicalShed = "Godel 1 Part 3"
+			p.Partition = "whole"
 		}),
 		projection("shed-1", due, 2, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.CompletedCount = 1
 			p.CompletionAccepted = 1
-			p.PhysicalShed = "Godel 1"
-			p.Partition = "Part 3"
+			p.ShedName = "Godel 1 Part 3"
+			p.PhysicalShed = "Godel 1 Part 3"
+			p.Partition = "whole"
 		}),
 	}})
 
@@ -430,10 +432,10 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	if len(detail.AnimalStages) != 1 || detail.AnimalStages[0] != "K1" {
 		t.Fatalf("animal stages = %#v want [K1]", detail.AnimalStages)
 	}
-	if detail.PartitionLabel == nil || *detail.PartitionLabel != "Part 3" || detail.OperationalLocationDisplay != "Godel 1 - Part 3" {
+	if detail.PartitionLabel != nil || detail.OperationalLocationDisplay != "Godel 1 Part 3" {
 		t.Fatalf("drilldown location = partition %v display %q", detail.PartitionLabel, detail.OperationalLocationDisplay)
 	}
-	if len(detail.Rows) != 2 || detail.Rows[0].PartitionLabel == nil || *detail.Rows[0].PartitionLabel != "Part 3" || detail.Rows[0].OperationalLocationDisplay != "Godel 1 - Part 3" {
+	if len(detail.Rows) != 2 || detail.Rows[0].PartitionLabel != nil || detail.Rows[0].OperationalLocationDisplay != "Godel 1 Part 3" {
 		t.Fatalf("execution row location = %#v", detail.Rows)
 	}
 }

@@ -12,9 +12,8 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display preserves the legacy park/shed summary shape for this read model.
-  -- For partitioned animals goats.shed_id is the exact pen and shed_group_id is the group key.
-  COALESCE(shed_group.name, shed.name, park.name, 'Unknown location') AS location_display,
+  -- goats.shed_id is the exact physical shed. shed_group_id is grouping metadata only.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(farm.location_code, '')::text AS farm_code,
   COALESCE(farm.name, '')::text AS farm_name,
@@ -23,13 +22,12 @@ SELECT
   COALESCE(park.name, '')::text AS park_name,
   COALESCE(g.shed_id::text, '')::text AS shed_id,
   COALESCE(shed.location_code, '')::text AS shed_code,
-  COALESCE(shed_group.name, shed.name, '')::text AS shed_name,
+  COALESCE(shed.name, '')::text AS shed_name,
   COALESCE(g.cohort_id::text, '')::text AS cohort_id,
   COALESCE(cohort.location_code, '')::text AS cohort_code,
   COALESCE(cohort.name, '')::text AS cohort_name,
-  CASE WHEN gsp.partition_label IS NULL OR lower(btrim(gsp.partition_label)) = 'whole'
-       THEN '' ELSE gsp.partition_label END::text AS partition_label,
-  COALESCE(gsp.source_shed_name, '')::text AS source_shed_name,
+  ''::text AS partition_label,
+  ''::text AS source_shed_name,
   g.species,
   COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
   g.row_version
@@ -39,7 +37,6 @@ LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = 
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations shed_group ON shed_group.tenant_id = g.tenant_id AND shed_group.location_id = g.shed_group_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
   AND animal_id_1.goat_id = g.goat_id
   AND animal_id_1.identifier_type = 'animal_identifier_1'
@@ -64,9 +61,8 @@ SELECT
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display preserves the legacy park/shed summary shape for this read model.
-  -- For partitioned animals goats.shed_id is the exact pen and shed_group_id is the group key.
-  COALESCE(shed_group.name, shed.name, park.name, 'Unknown location') AS location_display,
+  -- goats.shed_id is the exact physical shed. shed_group_id is grouping metadata only.
+  COALESCE(shed.name, park.name, 'Unknown location') AS location_display,
   COALESCE(g.farm_id::text, '')::text AS farm_id,
   COALESCE(farm.location_code, '')::text AS farm_code,
   COALESCE(farm.name, '')::text AS farm_name,
@@ -75,13 +71,12 @@ SELECT
   COALESCE(park.name, '')::text AS park_name,
   COALESCE(g.shed_id::text, '')::text AS shed_id,
   COALESCE(shed.location_code, '')::text AS shed_code,
-  COALESCE(shed_group.name, shed.name, '')::text AS shed_name,
+  COALESCE(shed.name, '')::text AS shed_name,
   COALESCE(g.cohort_id::text, '')::text AS cohort_id,
   COALESCE(cohort.location_code, '')::text AS cohort_code,
   COALESCE(cohort.name, '')::text AS cohort_name,
-  CASE WHEN gsp.partition_label IS NULL OR lower(btrim(gsp.partition_label)) = 'whole'
-       THEN '' ELSE gsp.partition_label END::text AS partition_label,
-  COALESCE(gsp.source_shed_name, '')::text AS source_shed_name,
+  ''::text AS partition_label,
+  ''::text AS source_shed_name,
   g.species,
   COALESCE(g.merged_into_goat_id::text, '')::text AS merged_into_goat_id,
   g.row_version
@@ -91,7 +86,6 @@ LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = 
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations shed_group ON shed_group.tenant_id = g.tenant_id AND shed_group.location_id = g.shed_group_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 LEFT JOIN goat_identifiers animal_id_1 ON animal_id_1.tenant_id = g.tenant_id
   AND animal_id_1.goat_id = g.goat_id
   AND animal_id_1.identifier_type = 'animal_identifier_1'

@@ -320,7 +320,7 @@ function readOptionalCount(formData: FormData, field: string): number | undefine
  * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in a single write.
  *
  * REPLACES the old shed-level, one-item-at-a-time enroller, which had three defects at once: it
- * offered SHEDS (so a new pen of an already-enrolled shed — Godel 1 - Part 8 — was unreachable), it
+ * offered SHEDS (so a new pen of an already-enrolled shed — Godel 1 Part 8 — was unreachable), it
  * derived its candidate list from the current paginated cell page (so a pen configured on page 2
  * looked unconfigured on page 1), and it authored exactly one feed item, which is not what enrolling
  * a pen means. Candidates now come from the pen catalog endpoint, which states per pen whether it is
@@ -355,7 +355,7 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
       const pen = parsed as { s?: unknown; p?: unknown };
       if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
       shedId = pen.s.trim();
-      partitionLabel = "";
+      partitionLabel = typeof pen.p === "string" ? pen.p.trim() : "";
     } else {
       return { ok: false, messageKey: REJECTED };
     }
@@ -414,7 +414,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   if (!parkId || !shedId || !feedItem || !category) {
     return { ok: false, messageKey: REJECTED };
   }
-  const partitionLabel = "";
+  const partitionLabel = readRequiredText(formData, "partition_label");
 
   const absoluteKg = readAuthoredNumber(formData, "absolute_kg");
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
@@ -465,7 +465,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
   const status = readRequiredText(formData, "status");
-  const partitionLabel = "";
+  const partitionLabel = readRequiredText(formData, "partition_label");
   if (!parkId || !shedId || (status !== "active" && status !== "retired")) {
     return { ok: false, messageKey: REJECTED };
   }

@@ -867,19 +867,10 @@ func TestFeedProjectionPageBoundaryTotalRowsInvariantToPaging(t *testing.T) {
 	}
 }
 
-// TestFeedProjectionParkScopeCarriesPartitionLabelFromBothSides is the adversarial scope test for
-// the partition label, and the regression for the defect that 500'd every feed sheet.
-//
-// `combined` selects COALESCE(lv.partition_label_raw, d.partition_label_raw, NULL). The LIVE side
-// always produced that alias; the DELTA side did not, so the whole query failed with
-// "column d.partition_label_raw does not exist (SQLSTATE 42703)" -- and because feed's
-// ProjectedGrainsForSheds is READ 3 inside generate(), every in-horizon feed preview returned 500.
-//
-// Both sides are exercised under one park scope: a live partitioned grain (label from lv) and a
-// delta-only incoming grain into a partitioned destination holding none of that grain (label from
-// d, the side that was missing). A park-scoped read must return each with its OWN partition, not
-// one shed's label smeared across both.
-func TestFeedProjectionParkScopeCarriesPartitionLabelFromBothSides(t *testing.T) {
+// TestFeedProjectionParkScopeIgnoresStalePartitionLabels proves the exact-shed cutover rule for
+// feed: old goat_shed_partitions/shifting partition fields may help resolve an old parent request,
+// but once the shed id is exact they must not be returned as another live display/grain axis.
+func TestFeedProjectionParkScopeIgnoresStalePartitionLabels(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newFeedProjRepo(t, ctx)
 
@@ -914,8 +905,8 @@ WHERE tenant_id = $1::uuid AND logical_shifting_event_key = 'into-part-3'`, coun
 	}
 
 	live := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K2", "female")
-	if live.PartitionLabel != "Part 1" {
-		t.Errorf("live partition_label=%q, want \"Part 1\"", live.PartitionLabel)
+	if live.PartitionLabel != "" {
+		t.Errorf("live partition_label=%q, want empty exact-shed label", live.PartitionLabel)
 	}
 
 	incoming := findFeedProjRow(t, got, feedProjShedB, "Malai", "K2", "male")
@@ -923,11 +914,8 @@ WHERE tenant_id = $1::uuid AND logical_shifting_event_key = 'into-part-3'`, coun
 		t.Errorf("incoming current=%d projected=%d, want 0/6",
 			incoming.CurrentHeadCount, incoming.ProjectedHeadCount)
 	}
-	// THE REGRESSION. This label exists only because the delta CTE now aggregates
-	// min(l.partition_label_raw); without it the query does not run at all.
-	if incoming.PartitionLabel != "Part 3" {
-		t.Errorf("delta-only partition_label=%q, want \"Part 3\" -- the delta side must carry its own label",
-			incoming.PartitionLabel)
+	if incoming.PartitionLabel != "" {
+		t.Errorf("delta-only partition_label=%q, want empty exact-shed label", incoming.PartitionLabel)
 	}
 
 	// Every returned row must stay inside the park the query scoped to.
@@ -938,15 +926,10 @@ WHERE tenant_id = $1::uuid AND logical_shifting_event_key = 'into-part-3'`, coun
 	}
 }
 
-// TestFeedProjectionOneToManyPartitionsOfOneShedStayDistinctGrains is the cardinality adversarial
-// test for partition entering the GROUP BY.
-//
-// Partition is now part of the grain key, which cuts both ways. Too coarse and two pens of the same
-// breed/stage/sex collapse into one row carrying their SUM, so a per-pen feed quantity is computed
-// off the whole shed's head count. Too fine and one pen's animals split across rows and the shed is
-// fed several times over. Same breed, same stage, same sex, two partitions: exactly two rows,
-// carrying their own counts, and summing to the shed.
-func TestFeedProjectionOneToManyPartitionsOfOneShedStayDistinctGrains(t *testing.T) {
+// TestFeedProjectionOneToManyLegacyPartitionsCollapseToExactShedGrain is the cardinality
+// adversarial test for the new exact-shed rule. Same breed/stage/sex with old partition rows must
+// be one shed grain, not one row per stale label.
+func TestFeedProjectionOneToManyLegacyPartitionsCollapseToExactShedGrain(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newFeedProjRepo(t, ctx)
 	target := feedProjDay(2026, time.July, 20)
@@ -975,35 +958,29 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
 		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
 	}
 
-	byPartition := map[string]int64{}
 	rowsForGrain := 0
+	var headCount int64
 	for _, row := range got.Items {
 		if row.ShedID == nil || *row.ShedID != feedProjShedA || row.Breed != "Beetal" {
 			continue
 		}
 		rowsForGrain++
-		byPartition[row.PartitionLabel] += row.CurrentHeadCount
+		if row.PartitionLabel != "" {
+			t.Fatalf("partition_label=%q, want empty exact-shed label", row.PartitionLabel)
+		}
+		headCount += row.CurrentHeadCount
 	}
-	if rowsForGrain != 2 {
-		t.Fatalf("rows for the Beetal/K2/female grain = %d, want exactly 2 (one per partition): %v",
-			rowsForGrain, byPartition)
+	if rowsForGrain != 1 {
+		t.Fatalf("rows for the Beetal/K2/female grain = %d, want exactly 1 exact-shed row", rowsForGrain)
 	}
-	if byPartition["Part 1"] != 3 || byPartition["Part 2"] != 2 {
-		t.Errorf("per-partition head counts = %v, want Part 1=3 Part 2=2", byPartition)
-	}
-	var total int64
-	for _, head := range byPartition {
-		total += head
-	}
-	if total != 5 {
-		t.Errorf("partition rows sum to %d, want 5 -- they must reconcile to the shed", total)
+	if headCount != 5 {
+		t.Errorf("exact-shed head count = %d, want 5", headCount)
 	}
 }
 
-// TestFeedProjectionMultiPagePartitionGrainsAreNeitherDroppedNorDuplicated is the pagination
-// adversarial test for the same change: partitions MULTIPLY the grain count, so a shed that used to
-// be one row can now be several and a drain that pages must still see each exactly once.
-func TestFeedProjectionMultiPagePartitionGrainsAreNeitherDroppedNorDuplicated(t *testing.T) {
+// TestFeedProjectionMultiPageLegacyPartitionRowsDoNotDuplicateExactShed is the pagination
+// adversarial test for exact shed grain: stale partition labels must collapse before pagination.
+func TestFeedProjectionMultiPageLegacyPartitionRowsDoNotDuplicateExactShed(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newFeedProjRepo(t, ctx)
 	target := feedProjDay(2026, time.July, 20)
@@ -1019,32 +996,16 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
 		}
 	}
 
-	seen := map[string]int{}
-	var reportedTotal int64
-	for offset := int32(0); offset < int32(len(labels)); offset += 2 {
-		query := feedProjQuery(target)
-		query.Limit = 2
-		query.Offset = offset
-		query.StableOrder = true
-		got, err := repo.ProjectedShedCountsForFeed(ctx, query)
-		if err != nil {
-			t.Fatalf("offset=%d: %v", offset, err)
-		}
-		if reportedTotal == 0 {
-			reportedTotal = got.TotalRows
-		}
-		// The window count must not move with the page.
-		if got.TotalRows != reportedTotal {
-			t.Errorf("offset=%d total_rows=%d, want %d on every page", offset, got.TotalRows, reportedTotal)
-		}
-		for _, row := range got.Items {
-			seen[row.PartitionLabel]++
-		}
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(target))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
 	}
-	for _, label := range labels {
-		if seen[label] != 1 {
-			t.Errorf("partition %q seen %d time(s) across pages, want exactly 1: %v", label, seen[label], seen)
-		}
+	row := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K2", "female")
+	if row.PartitionLabel != "" {
+		t.Fatalf("partition_label=%q, want empty exact-shed label", row.PartitionLabel)
+	}
+	if row.CurrentHeadCount != int64(len(labels)) {
+		t.Fatalf("current_head_count=%d, want %d", row.CurrentHeadCount, len(labels))
 	}
 }
 

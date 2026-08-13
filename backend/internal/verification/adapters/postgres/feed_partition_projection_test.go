@@ -14,7 +14,7 @@ import (
 // A feed item's PEN must survive the round trip, because the verifier's card is composed from it.
 //
 // Reported on STG 2026-08-09: a feed packing card read "Mandela 1" for a proof filmed in
-// "Mandela 1 - Part 2", so a verifier could not tell which of ten pens a clip came from. The
+// "Mandela 1 Part 2", so a verifier could not tell which of ten pens a clip came from. The
 // producers left verification_items.partition_label NULL (folding the pen into the display label
 // instead), and migration 000139 back-fills the queued rows from their source completion.
 //

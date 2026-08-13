@@ -399,7 +399,7 @@ type Repository interface {
 	// indexed primary-key lookup per observation write, never a scan.
 	CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error)
 	// CampaignShedLocation resolves the shed a campaign-shed bucket stands for: its canonical
-	// location_id, and the operational display the VERIFIER reads ("Godel 1 - Part 3", partition
+	// location_id, and the operational display the VERIFIER reads ("Godel 1 Part 3", partition
 	// included). It exists because a weighing verification item named no shed at all -- lump-sum
 	// items carried the literal "Whole shed" and a NULL shed_id, and individual items carried only
 	// the scanned tag -- so the verifier could not tell which shed or partition a clip came from.

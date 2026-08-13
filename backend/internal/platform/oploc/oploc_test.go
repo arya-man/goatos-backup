@@ -57,13 +57,13 @@ func TestDisplayUsesExactShedName(t *testing.T) {
 		{"Castro 2", "2", "Castro 2"},
 		{"Gandhi 3", "3", "Gandhi 3"},
 		{"Godel 1", "Part 3", "Godel 1"},
-		{"Mandela 1 - Part 10", "Part 10", "Mandela 1 - Part 10"},
+		{"Mandela 1 Part 10", "Part 10", "Mandela 1 Part 10"},
 		{"Ho Chi Minh", "1", "Ho Chi Minh"},
 		{"Yashoda", "", "Yashoda"},
 		{"Old Yashoda 5", "5", "Old Yashoda 5"},
-		{"Godel 1 - Part 1", "1", "Godel 1 - Part 1"},
-		{"Godel 1 - Part 10", "10", "Godel 1 - Part 10"},
-		{"Sumathi 2 - Part 7", "7", "Sumathi 2 - Part 7"},
+		{"Godel 1 Part 1", "1", "Godel 1 Part 1"},
+		{"Godel 1 Part 10", "10", "Godel 1 Part 10"},
+		{"Sumathi 2 Part 7", "7", "Sumathi 2 Part 7"},
 	}
 	for _, c := range cases {
 		loc := OperationalLocation{ShedName: c.shed, PartitionLabel: c.partition}

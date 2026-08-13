@@ -566,13 +566,27 @@ function QueueRow({
 
 // subjectCell renders the Subject column as a headline plus typed chips instead of the raw
 // "·"-joined subject_label. The label's segments carry different kinds of fact depending on the
-// module -- "Godel 1 - Part 2", "31 goats", "Tag 901007000503938", "732.0 kg", "Session 2" -- and
+// module -- "Godel 1 Part 2", "31 goats", "Tag 901007000503938", "732.0 kg", "Session 2" -- and
 // reading them as one grey sentence forced the reviewer to parse every row. The operational
 // location leads (it is what the reviewer is looking at), quantities become chips that scan
 // vertically down the column, and the operator trails as context.
 const COUNT_SEGMENT = /^\d[\d,]*\s+(goats?|animals?|kids?)$/i;
 const WEIGHT_SEGMENT = /^[\d.,]+\s*kg$/i;
 const TAG_SEGMENT = /^tag\s+(\S+)$/i;
+
+function normalizeLocationSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function redundantLocationSegment(location: string, segment: string): boolean {
+  const loc = normalizeLocationSegment(location);
+  const part = normalizeLocationSegment(segment);
+  if (!loc || !part) return false;
+  if (loc === part) return true;
+  if (loc.endsWith(` ${part}`)) return true;
+  if (part.startsWith("part ") && loc.endsWith(` ${part}`)) return true;
+  return false;
+}
 
 function subjectCell(item: VerificationQueueItem): React.ReactNode {
   const location = (item.operational_location_display || item.shed_label || "").trim();
@@ -601,15 +615,12 @@ function subjectCell(item: VerificationQueueItem): React.ReactNode {
       chips.push(<span key={`kg-${segment}`} className="chip kg">{segment}</span>);
       continue;
     }
+    if (redundantLocationSegment(location, segment)) continue;
     rest.push(segment);
   }
 
-  // The headline prefers the label's own descriptive segment when it carries MORE than the shed
-  // name ("Godel 1 - Part 2" beats "Godel 1"); otherwise the resolved location leads and the
-  // remaining segments ("Whole shed", "Session 2") drop to the meta line.
-  const descriptive = rest.find((segment) => location && segment.startsWith(location)) || "";
-  const headline = descriptive || location || rest[0] || item.subject_label?.trim() || "—";
-  const meta = rest.filter((segment) => segment !== headline && segment !== descriptive);
+  const headline = location || rest[0] || item.subject_label?.trim() || "—";
+  const meta = rest.filter((segment) => segment !== headline);
   if (item.operator_name) meta.push(item.operator_name);
 
   return (

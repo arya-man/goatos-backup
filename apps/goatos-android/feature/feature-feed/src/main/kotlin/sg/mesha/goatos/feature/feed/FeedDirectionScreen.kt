@@ -304,7 +304,7 @@ fun FeedDirectionScreen(
 }
 
 private fun FeedDirectionRowUi.compatibilityPartitionLabel(): String =
-    partitionLabel.takeIf { locationIdentityKey != shedId }.orEmpty()
+    partitionLabel.takeIf { locationIdentityKey.contains("|legacy-") }.orEmpty()
 
 private fun FeedDirectionRowUi.distributionSubmissionKey(): String = "$shedId:$sessionNo:$workflow"
 

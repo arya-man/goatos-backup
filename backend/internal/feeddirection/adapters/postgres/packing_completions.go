@@ -480,7 +480,7 @@ func (r *Repository) ReopenPackingForFeedChange(ctx context.Context, p ports.Reo
 
 	// The pen list is unnested into a join rather than compared with a pair of parallel = ANY()
 	// predicates. Two independent array predicates would match the CROSS PRODUCT of the sheds and
-	// the partitions -- reopening Castro - 3 because Castro - 1 changed and Godel 1 - Part 3 did.
+	// the partitions -- reopening Castro - 3 because Castro - 1 changed and Godel 1 Part 3 did.
 	// UNNEST(...) WITH ORDINALITY-free positional pairing keeps each shed bound to its own pen.
 	//
 	// verified_by/verified_at are cleared: the row is no longer verified, and leaving the old

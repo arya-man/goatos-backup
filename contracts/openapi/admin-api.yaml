@@ -5332,15 +5332,14 @@ components:
           type: string
           format: uuid
           description: >-
-            The PARENT physical shed. Never a partition-bearing alias row: the operational-location
-            convention keeps goats.shed_id on the building and the pen in partition_label.
+            Exact physical shed id. If the real place is "Castro 2" or "Mandela 2 Part 1", pass that
+            shed's own id.
         partition_label:
           type: string
           maxLength: 80
           description: >-
-            The pen inside shed_id ('1', 'Part 3'). Omitted or empty means the shed is genuinely
-            undivided -- it does NOT mean "every partition of this shed". Matched tolerantly, so
-            'Part 3' and '3' resolve to the same pen.
+            Legacy compatibility field for old requests. Current callers should omit it and target
+            the exact shed_id directly.
         management_stage:
           type: string
           minLength: 1
@@ -5392,10 +5391,10 @@ components:
         partition_label:
           type: string
           nullable: true
-          description: Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here.
+          description: Legacy compatibility metadata. Current exact-shed responses return null.
         operational_location_display:
           type: string
-          description: Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it.
+          description: Backend-composed exact shed label such as "Castro 2" or "Mandela 2 Part 1". Clients render it verbatim and never recompose it.
         management_stage:
           type: string
           description: The canonical resolved target tag.

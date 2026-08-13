@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func newTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	return tenantID
 }
 
-func TestListQueueKeepsSiblingPartitionsSeparate_RealPostgres(t *testing.T) {
+func TestListQueueKeepsSiblingExactShedsSeparate_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -38,36 +39,38 @@ func TestListQueueKeepsSiblingPartitionsSeparate_RealPostgres(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	tenantID := newTenant(t, ctx, pool)
-	var parkID, shedID string
+	var parkID string
 	if err := pool.QueryRow(ctx, `
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
 VALUES (gen_random_uuid(), $1::uuid, 'park', 'verification-partition-park', 'North Park', 'active')
 RETURNING location_id::text`, tenantID).Scan(&parkID); err != nil {
 		t.Fatalf("insert park: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `
-INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
-VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', 'verification-partition-shed', 'Castro', 'active')
-RETURNING location_id::text`, tenantID, parkID).Scan(&shedID); err != nil {
-		t.Fatalf("insert shed: %v", err)
-	}
 
-	for _, partition := range []string{"1", "2"} {
+	shedIDs := map[string]string{}
+	for _, shedName := range []string{"Castro 1", "Castro 2"} {
+		var shedID string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', $3, $4, 'active')
+RETURNING location_id::text`, tenantID, parkID, "verification-"+strings.ToLower(strings.ReplaceAll(shedName, " ", "-")), shedName).Scan(&shedID); err != nil {
+			t.Fatalf("insert shed %s: %v", shedName, err)
+		}
+		shedIDs[shedName] = shedID
 		created, err := repo.CreateItem(ctx, domain.CreateItem{
 			TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
 			Source:         domain.SourceRef{Module: "vaccination", RefType: "vaccination_goat", RefID: tenantID},
-			MediaRefs:      []string{"proof-partition-" + partition},
+			MediaRefs:      []string{"proof-" + shedName},
 			ParkID:         &parkID,
 			ShedID:         &shedID,
-			PartitionLabel: &partition,
 			CapturedAt:     time.Now().In(biztime.DefaultLocation()),
-			IdempotencyKey: "verification-partition-" + partition,
+			IdempotencyKey: "verification-" + shedName,
 		})
 		if err != nil {
-			t.Fatalf("CreateItem(partition=%s): %v", partition, err)
+			t.Fatalf("CreateItem(%s): %v", shedName, err)
 		}
 		if !created.Created {
-			t.Fatalf("CreateItem(partition=%s) did not create a row", partition)
+			t.Fatalf("CreateItem(%s) did not create a row", shedName)
 		}
 	}
 
@@ -76,50 +79,50 @@ RETURNING location_id::text`, tenantID, parkID).Scan(&shedID); err != nil {
 		t.Fatalf("ListQueueFilterOptions: %v", err)
 	}
 	if len(options.Sheds) != 2 {
-		t.Fatalf("shed options = %+v, want one option per partition", options.Sheds)
+		t.Fatalf("shed options = %+v, want one option per exact shed", options.Sheds)
 	}
-	for index, partition := range []string{"1", "2"} {
+	for index, shedName := range []string{"Castro 1", "Castro 2"} {
 		option := options.Sheds[index]
-		if option.ID != shedID+"#"+partition {
-			t.Fatalf("option[%d].ID = %q, want %q", index, option.ID, shedID+"#"+partition)
+		if option.ID != shedIDs[shedName] {
+			t.Fatalf("option[%d].ID = %q, want %q", index, option.ID, shedIDs[shedName])
 		}
-		if option.PartitionLabel == nil || *option.PartitionLabel != partition {
-			t.Fatalf("option[%d].PartitionLabel = %v, want %q", index, option.PartitionLabel, partition)
+		if option.PartitionLabel != nil {
+			t.Fatalf("option[%d].PartitionLabel = %v, want nil", index, option.PartitionLabel)
 		}
-		if option.Label != "Castro - "+partition || option.OperationalLocationDisplay != "Castro - "+partition {
+		if option.Label != shedName || option.OperationalLocationDisplay != shedName {
 			t.Fatalf("option[%d] display = %+v", index, option)
 		}
 	}
 
-	partitionRows, err := repo.ListQueue(ctx, ports.ListQueueParams{
+	exactRows, err := repo.ListQueue(ctx, ports.ListQueueParams{
 		TenantID: tenantID,
-		ShedID:   shedID + "#1",
+		ShedID:   shedIDs["Castro 1"],
 		Limit:    20,
 	})
 	if err != nil {
-		t.Fatalf("ListQueue(partition 1): %v", err)
+		t.Fatalf("ListQueue(Castro 1): %v", err)
 	}
-	if len(partitionRows) != 1 || partitionRows[0].PartitionLabel == nil || *partitionRows[0].PartitionLabel != "1" {
-		t.Fatalf("partition rows = %+v, want only partition 1", partitionRows)
+	if len(exactRows) != 1 || exactRows[0].ShedLabel == nil || *exactRows[0].ShedLabel != "Castro 1" {
+		t.Fatalf("exact rows = %+v, want only Castro 1", exactRows)
 	}
 
-	wholeShedRows, err := repo.ListQueue(ctx, ports.ListQueueParams{TenantID: tenantID, ShedID: shedID, Limit: 20})
+	bareExactRows, err := repo.ListQueue(ctx, ports.ListQueueParams{TenantID: tenantID, ShedID: shedIDs["Castro 1"], Limit: 20})
 	if err != nil {
-		t.Fatalf("ListQueue(bare shed UUID): %v", err)
+		t.Fatalf("ListQueue(bare exact shed UUID): %v", err)
 	}
-	if len(wholeShedRows) != 2 {
-		t.Fatalf("bare shed UUID returned %d rows, want both partitions", len(wholeShedRows))
+	if len(bareExactRows) != 1 {
+		t.Fatalf("bare exact shed UUID returned %d rows, want one exact shed", len(bareExactRows))
 	}
 
-	partitionOptions, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{
+	exactOptions, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{
 		TenantID: tenantID,
-		ShedID:   shedID + "#2",
+		ShedID:   shedIDs["Castro 2"] + "#whole",
 	})
 	if err != nil {
-		t.Fatalf("ListQueueFilterOptions(partition 2): %v", err)
+		t.Fatalf("ListQueueFilterOptions(Castro 2): %v", err)
 	}
-	if partitionOptions.Counts.Pending != 1 {
-		t.Fatalf("partition 2 pending count = %d, want 1", partitionOptions.Counts.Pending)
+	if exactOptions.Counts.Pending != 1 {
+		t.Fatalf("Castro 2 pending count = %d, want 1", exactOptions.Counts.Pending)
 	}
 }
 
@@ -1330,17 +1333,16 @@ func TestReadyClosureCountsLatestVerdictPerProofAndExcludesSupersededRejections_
 		t.Fatalf("other-park closures=%+v, want none", otherPark)
 	}
 
-	// A shed inside the drive still resolves the WHOLE drive's rollup -- readiness is a property of
-	// the batch, not of the selected shed, so a director filtered to one shed still sees the real
-	// 2-shed / 3-video totals rather than a shed-sized slice of them.
+	// A shed filter is exact physical shed scope. It must not quietly roll a selected Gandhi 1
+	// style shed back up to its sibling sheds.
 	shedScoped, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
 		TenantID: tenantID, Category: "vaccination_proof", ShedID: shedBID,
 	})
 	if err != nil {
 		t.Fatalf("shed-scoped ListReadyVaccinationBatchClosures: %v", err)
 	}
-	if len(shedScoped) != 1 || shedScoped[0].ShedCount != 2 || shedScoped[0].VideoCount != 3 {
-		t.Fatalf("shed-B-scoped closures=%+v, want the whole batch with shed_count=2 video_count=3", shedScoped)
+	if len(shedScoped) != 1 || shedScoped[0].ShedCount != 1 || shedScoped[0].VideoCount != 1 {
+		t.Fatalf("shed-B-scoped closures=%+v, want exact shed slice with shed_count=1 video_count=1", shedScoped)
 	}
 	// A shed that is NOT in this drive must resolve nothing.
 	foreignShed, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
@@ -1916,7 +1918,7 @@ func TestReadyClosurePageBoundary_RealPostgres(t *testing.T) {
 // A shed NAME is not unique across the farm. Castro, Gandhi, Godel 1, Godel 2, Mandela 1,
 // Mandela 2 and Yashoda each exist in BOTH parks, so on 2026-08-12 nine of the sixty-seven shed
 // options in the STG queue were exact duplicate labels sitting adjacent under this query's own
-// ORDER BY -- two "Castro - 1" entries with nothing to tell them apart. The option VALUE was
+// ORDER BY -- two "Castro 1" entries with nothing to tell them apart. The option VALUE was
 // never wrong (the id is a shed UUID, never a name), so the filter worked; the reader simply
 // could not see which shed she was choosing, and the park with more pens read as the only park
 // present. The park now travels with the option so a client can group by it.
@@ -1945,14 +1947,13 @@ RETURNING location_id::text`, tenantID, "dup-park-"+park, park).Scan(&parkID); e
 		}
 		if err := pool.QueryRow(ctx, `
 INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
-VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', $3, 'Castro', 'active')
+VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'shed', $3, 'Castro 1', 'active')
 RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID); err != nil {
 			t.Fatalf("insert shed in %s: %v", park, err)
 		}
 		parkIDs[park] = parkID
 		shedIDs[park] = shedID
 
-		partition := "1"
 		parkID, shedID = parkIDs[park], shedIDs[park]
 		if _, err := repo.CreateItem(ctx, domain.CreateItem{
 			TenantID: tenantID, Vertical: "feed", Module: "feed_direction", Category: "feed_distribution",
@@ -1960,7 +1961,6 @@ RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID);
 			MediaRefs:      []string{"proof-dup-" + park},
 			ParkID:         &parkID,
 			ShedID:         &shedID,
-			PartitionLabel: &partition,
 			CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 			IdempotencyKey: "verification-dup-name-" + park,
 		}); err != nil {
@@ -1989,10 +1989,10 @@ RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID);
 			t.Fatalf("option %+v park_id = %q, want %q", option, option.ParkID, parkIDs[park])
 		}
 		// The whole point: same label on both, told apart by park and by id.
-		if option.Label != "Castro - 1" || option.OperationalLocationDisplay != "Castro - 1" {
+		if option.Label != "Castro 1" || option.OperationalLocationDisplay != "Castro 1" {
 			t.Fatalf("option display = %+v, want the oploc composition unchanged", option)
 		}
-		if option.ID != shedIDs[park]+"#1" {
+		if option.ID != shedIDs[park] {
 			t.Fatalf("option %+v ID = %q, want the %s shed", option, option.ID, park)
 		}
 	}
@@ -2003,11 +2003,11 @@ RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID);
 	// And the twin the reader picks is the one she gets.
 	rows, err := repo.ListQueue(ctx, ports.ListQueueParams{
 		TenantID: tenantID,
-		ShedID:   shedIDs["Channapatna"] + "#1",
+		ShedID:   shedIDs["Channapatna"],
 		Limit:    20,
 	})
 	if err != nil {
-		t.Fatalf("ListQueue(Channapatna Castro - 1): %v", err)
+		t.Fatalf("ListQueue(Channapatna Castro 1): %v", err)
 	}
 	if len(rows) != 1 || rows[0].ParkID == nil || *rows[0].ParkID != parkIDs["Channapatna"] {
 		t.Fatalf("rows = %+v, want only the Channapatna shed's item", rows)

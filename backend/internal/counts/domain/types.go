@@ -448,7 +448,7 @@ type CountsBreakdownRow struct {
 	// PartitionLabel is legacy compatibility metadata from old rows. Exact shed_id/name is the
 	// physical location; this field must not be appended to display or used as live identity.
 	PartitionLabel string `json:"partition_label,omitempty"`
-	// OperationalLocationDisplay is the exact physical shed name: "Castro 2", "Godel 2 - Part 1",
+	// OperationalLocationDisplay is the exact physical shed name: "Castro 2", "Godel 2 Part 1",
 	// or bare "Yashoda". Never synthesize it from ShedLabel + PartitionLabel.
 	OperationalLocationDisplay string `json:"operational_location_display"`
 	ManagementStage            string `json:"management_stage"`
@@ -601,7 +601,7 @@ type ShiftingDestinationShed struct {
 	PartitionLabel *string
 
 	// Display is the operator-facing operational-location label (oploc.OperationalLocation.Display):
-	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 - Part 3" for a partition.
+	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 Part 3" for a partition.
 	Display string
 }
 

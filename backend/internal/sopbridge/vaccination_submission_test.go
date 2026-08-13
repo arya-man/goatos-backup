@@ -191,8 +191,8 @@ func TestVaccinationSubmissionBridgeUsesShedLevelVideoForOneShedVerificationItem
 	rec := &captureVaccinationRecorder{
 		count: 2,
 		completions: []vaccinationdomain.SubmissionCompletion{
-			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt},
-			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Godel 2 Part 4", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ShedLabel: "Godel 2 Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
 		},
 	}
 	producer := &captureVerificationProducer{}
@@ -217,7 +217,7 @@ func TestVaccinationSubmissionBridgeUsesShedLevelVideoForOneShedVerificationItem
 	if producer.last.Source.RefType != "sop_submission" || producer.last.Source.RefID != "sub-1" {
 		t.Fatalf("source = %+v, want one shed submission verification item", producer.last.Source)
 	}
-	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "Godel 2 - Part 4 · 2 goats" {
+	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "Godel 2 Part 4 · 2 goats" {
 		t.Fatalf("subject label = %v, want shed/partition context", producer.last.SubjectLabel)
 	}
 }
@@ -228,7 +228,7 @@ func TestVaccinationSubmissionBridgeLabelsGroupedShedSubmissionHonestly(t *testi
 		count: 3,
 		completions: []vaccinationdomain.SubmissionCompletion{
 			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Godel 1", ParkID: "park-1", AdministeredAt: administeredAt},
-			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-2", ShedLabel: "Godel 2 - Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-2", ShedLabel: "Godel 2 Part 4", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
 			{CompletionID: "completion-3", SubmissionID: "sub-1", GoatID: "goat-3", ShedID: "shed-3", ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt.Add(2 * time.Minute)},
 		},
 	}
@@ -265,7 +265,7 @@ func TestVaccinationSubmissionBridgeDoesNotEmitBarePartitionLabel(t *testing.T) 
 			SubmissionID:   "sub-1",
 			GoatID:         "goat-1",
 			ShedID:         "shed-1",
-			ShedLabel:      " - Part 4",
+			ShedLabel:      " Part 4",
 			ParkID:         "park-1",
 			AdministeredAt: administeredAt,
 		}},

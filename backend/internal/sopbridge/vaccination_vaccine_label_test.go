@@ -3,7 +3,7 @@ package sopbridge
 // A vaccination verification item must name the VACCINE.
 //
 // The verifier's job is deciding whether the clip shows this dose being given to these animals.
-// Before this, a shed-grain item read "Sumathi 1 - Part 3 · 12 goats" and a per-animal item read
+// Before this, a shed-grain item read "Sumathi 1 Part 3 · 12 goats" and a per-animal item read
 // "Gandhi 1 · G-006004": both said WHERE and HOW MANY, neither said WHAT. She was judging a video
 // of an animal against nothing, and a PPR clip filed under an ET+TT drive was indistinguishable
 // from a correct one.
@@ -28,8 +28,8 @@ func TestVaccinationShedSubjectLabelNamesTheVaccine(t *testing.T) {
 	rec := &captureVaccinationRecorder{
 		count: 2,
 		completions: []vaccinationdomain.SubmissionCompletion{
-			{CompletionID: "c-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Sumathi 1 - Part 3", ParkID: "park-1", VaccineLabel: "ET+TT", AdministeredAt: administeredAt},
-			{CompletionID: "c-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ShedLabel: "Sumathi 1 - Part 3", ParkID: "park-1", VaccineLabel: "ET+TT", AdministeredAt: administeredAt.Add(time.Minute)},
+			{CompletionID: "c-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ShedLabel: "Sumathi 1 Part 3", ParkID: "park-1", VaccineLabel: "ET+TT", AdministeredAt: administeredAt},
+			{CompletionID: "c-2", SubmissionID: "sub-1", GoatID: "goat-2", ShedID: "shed-1", ShedLabel: "Sumathi 1 Part 3", ParkID: "park-1", VaccineLabel: "ET+TT", AdministeredAt: administeredAt.Add(time.Minute)},
 		},
 	}
 	producer := &captureVerificationProducer{}
@@ -44,7 +44,7 @@ func TestVaccinationShedSubjectLabelNamesTheVaccine(t *testing.T) {
 		t.Fatalf("vaccination submit: %v", err)
 	}
 	// WHERE (shed + partition) · WHAT (vaccine) · HOW MANY.
-	if got := deref(producer.last.SubjectLabel); got != "Sumathi 1 - Part 3 · ET+TT · 2 goats" {
+	if got := deref(producer.last.SubjectLabel); got != "Sumathi 1 Part 3 · ET+TT · 2 goats" {
 		t.Fatalf("shed subject label = %q, want shed+partition, vaccine, and count", got)
 	}
 }
@@ -58,7 +58,7 @@ func TestVaccinationShedSubjectLabelSummarisesMultipleVaccines(t *testing.T) {
 		for i, label := range labels {
 			out = append(out, vaccinationdomain.SubmissionCompletion{
 				CompletionID: "c-" + label, SubmissionID: "sub-1", GoatID: "goat-" + label,
-				ShedID: "shed-1", ShedLabel: "Sumathi 1 - Part 3", ParkID: "park-1",
+				ShedID: "shed-1", ShedLabel: "Sumathi 1 Part 3", ParkID: "park-1",
 				VaccineLabel: label, AdministeredAt: administeredAt.Add(time.Duration(i) * time.Minute),
 			})
 		}
@@ -80,7 +80,7 @@ func TestVaccinationShedSubjectLabelSummarisesMultipleVaccines(t *testing.T) {
 		return deref(producer.last.SubjectLabel)
 	}
 
-	if got := run(t, completionsFor("PPR", "ET+TT")); got != "Sumathi 1 - Part 3 · ET+TT + PPR · 2 goats" {
+	if got := run(t, completionsFor("PPR", "ET+TT")); got != "Sumathi 1 Part 3 · ET+TT + PPR · 2 goats" {
 		t.Fatalf("two-vaccine subject label = %q, want both vaccines named in a stable order", got)
 	}
 	// Past two the list stops being scannable, so it collapses to a count rather than growing.
@@ -95,7 +95,7 @@ func TestVaccinationPerAnimalSubjectLabelNamesTheVaccine(t *testing.T) {
 		count: 1,
 		completions: []vaccinationdomain.SubmissionCompletion{
 			{CompletionID: "c-1", SubmissionID: "sub-1", GoatID: "goat-1", GoatLabel: "G-006004",
-				ShedID: "shed-1", ShedLabel: "Gandhi 1 - Part 2", ParkID: "park-1",
+				ShedID: "shed-1", ShedLabel: "Gandhi 1 Part 2", ParkID: "park-1",
 				VaccineLabel: "PPR · Booster", ProofRefIDs: []string{"goat-video-1"}, AdministeredAt: administeredAt},
 		},
 	}
@@ -107,7 +107,7 @@ func TestVaccinationPerAnimalSubjectLabelNamesTheVaccine(t *testing.T) {
 	); err != nil {
 		t.Fatalf("vaccination submit: %v", err)
 	}
-	if got := deref(producer.last.SubjectLabel); got != "Gandhi 1 - Part 2 · G-006004 · PPR · Booster" {
+	if got := deref(producer.last.SubjectLabel); got != "Gandhi 1 Part 2 · G-006004 · PPR · Booster" {
 		t.Fatalf("per-animal subject label = %q, want shed+partition, animal, and vaccine", got)
 	}
 }

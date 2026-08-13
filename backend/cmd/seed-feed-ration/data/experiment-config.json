@@ -40,7 +40,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 2 - Part 3",
+    "shed": "Godel 2 Part 3",
     "count": 9.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -53,7 +53,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 2 - Part 4",
+    "shed": "Godel 2 Part 4",
     "count": 10.0,
     "category": "Goat F NEW",
     "kg": {
@@ -66,7 +66,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 2 - Part 5",
+    "shed": "Godel 2 Part 5",
     "count": 10.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -79,7 +79,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 1",
+    "shed": "Godel 1 Part 1",
     "count": 18.0,
     "category": "B+S Goat F OLD",
     "kg": {
@@ -92,7 +92,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 2",
+    "shed": "Godel 1 Part 2",
     "count": 7.0,
     "category": "Sheep F OLD",
     "kg": {
@@ -105,7 +105,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 3",
+    "shed": "Godel 1 Part 3",
     "count": 10.0,
     "category": "M+O Goat F OLD",
     "kg": {
@@ -118,7 +118,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 4",
+    "shed": "Godel 1 Part 4",
     "count": 15.0,
     "category": "B+S Goat F NEW",
     "kg": {
@@ -131,7 +131,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 5",
+    "shed": "Godel 1 Part 5",
     "count": 9.0,
     "category": "Sheep F NEW",
     "kg": {
@@ -144,7 +144,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 6",
+    "shed": "Godel 1 Part 6",
     "count": 9.0,
     "category": "M+O Goat F NEW",
     "kg": {
@@ -235,7 +235,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Godel 2 - Part 1",
+    "shed": "Godel 2 Part 1",
     "count": 38.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -248,7 +248,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Godel 2 - Part 2",
+    "shed": "Godel 2 Part 2",
     "count": 39.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -261,7 +261,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 1",
+    "shed": "Mandela 1 Part 1",
     "count": 10.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -274,7 +274,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 2",
+    "shed": "Mandela 1 Part 2",
     "count": 11.0,
     "category": "Sheep F OLD",
     "kg": {
@@ -287,7 +287,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 3",
+    "shed": "Mandela 1 Part 3",
     "count": 10.0,
     "category": "Sheep M OLD",
     "kg": {
@@ -300,7 +300,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 4",
+    "shed": "Mandela 1 Part 4",
     "count": 10.0,
     "category": "B+S Goat M NEW",
     "kg": {
@@ -313,7 +313,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 5",
+    "shed": "Mandela 1 Part 5",
     "count": 15.0,
     "category": "Sheep F NEW",
     "kg": {
@@ -326,7 +326,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 6",
+    "shed": "Mandela 1 Part 6",
     "count": 8.0,
     "category": "B+S Goat F OLD",
     "kg": {
@@ -339,7 +339,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 7",
+    "shed": "Mandela 1 Part 7",
     "count": 7.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -352,7 +352,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 8",
+    "shed": "Mandela 1 Part 8",
     "count": 15.0,
     "category": "B+S Goat F NEW",
     "kg": {
@@ -365,7 +365,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 9",
+    "shed": "Mandela 1 Part 9",
     "count": 10.0,
     "category": "Sheep M NEW",
     "kg": {
@@ -378,7 +378,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 1 - Part 10",
+    "shed": "Mandela 1 Part 10",
     "count": 13.0,
     "category": "B+S Goat F NEW",
     "kg": {
@@ -391,7 +391,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 7",
+    "shed": "Godel 1 Part 7",
     "count": 7.0,
     "category": "Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW - warmup 20:80",
     "kg": {
@@ -404,7 +404,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 2 - Part 4",
+    "shed": "Mandela 2 Part 4",
     "count": 11.0,
     "category": "Goat M NEW (assumed) - warmup 20:80",
     "kg": {
@@ -417,7 +417,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 2 - Part 5",
+    "shed": "Mandela 2 Part 5",
     "count": 17.0,
     "category": "Goat M NEW (assumed) - warmup 20:80",
     "kg": {
@@ -430,7 +430,7 @@
   },
   {
     "farm": "CPT",
-    "shed": "Mandela 2 - Part 6",
+    "shed": "Mandela 2 Part 6",
     "count": 12.0,
     "category": "Goat M NEW (assumed) - warmup 20:80",
     "kg": {
@@ -443,7 +443,7 @@
   },
   {
     "farm": "CBE",
-    "shed": "Godel 1 - Part 8",
+    "shed": "Godel 1 Part 8",
     "count": 5.0,
     "category": "Mixed Goat M",
     "kg": {

@@ -27,7 +27,7 @@ func TestResolveShedLocationUsesExactShedNameForDisplay(t *testing.T) {
 		name, shed, partition, want string
 	}{
 		{"compatibility partition does not change shed name", "Godel 1", "Part 3", "Godel 1"},
-		{"exact shed name renders as itself", "Godel 1 - Part 3", "Part 3", "Godel 1 - Part 3"},
+		{"exact shed name renders as itself", "Godel 1 Part 3", "Part 3", "Godel 1 Part 3"},
 		{"unpartitioned renders bare, no trailing separator", "Yashoda", "", "Yashoda"},
 		{"whole sentinel never reaches a screen", "Yashoda", "whole", "Yashoda"},
 		{"numeric compatibility partition does not change shed name", "Castro", "2", "Castro"},
@@ -53,18 +53,18 @@ func TestResolveShedLocationPropagatesScanError(t *testing.T) {
 	}
 }
 
-// The canonical SQL must never select the matching key for display. This asserts the query
-// text itself, because the defect it guards is a one-word substitution that compiles cleanly
-// and renders 'Mandela 2 - 3' to an operator.
-func TestShedScopedLocationSQLSelectsHumanLabelNotMatchingKey(t *testing.T) {
-	if !contains(ShedScopedLocationSQL, "sp.partition_label") {
-		t.Fatal("canonical SQL must select partition_label (the human label)")
+// The canonical SQL must never fetch legacy partition labels for display. This asserts the query
+// text itself because the defect it guards compiles cleanly and renders names such as
+// 'Castro 2 2' to an operator.
+func TestShedScopedLocationSQLSelectsExactShedOnly(t *testing.T) {
+	if contains(ShedScopedLocationSQL, "sp.partition_label") {
+		t.Fatal("canonical SQL must not select partition_label for live display")
 	}
 	if contains(ShedScopedLocationSQL, "normalized_label") {
 		t.Fatal("canonical SQL must NEVER select normalized_label -- it is a matching key, not display copy")
 	}
-	if !contains(ShedScopedLocationSQL, "HAVING count(*) = 1") {
-		t.Fatal("canonical SQL must enforce agree-or-go-bare, not pick an arbitrary partition")
+	if contains(ShedScopedLocationSQL, "shed_partitions") {
+		t.Fatal("canonical SQL must not inspect shed_partitions for exact-shed display")
 	}
 	if contains(ShedScopedLocationSQL, "LIMIT 1") {
 		t.Fatal("LIMIT 1 over legitimately-differing rows fabricates a partition")

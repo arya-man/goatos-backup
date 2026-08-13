@@ -30,18 +30,10 @@ const (
 // applying this to an already-normalized breed_key is a no-op rather than a second transform.
 const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '_', 'g'))`
 
-// feedPartitionKeyExpr normalizes a partition label to a comparison key. It mirrors the Go
-// platform/oploc.NormalizePartition exactly:
-// regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', ”)
-// NULL, ”, and 'whole' all collapse to 'whole' because all three mean "not partitioned".
-//
-// When goats.shed_id already points at a shed_partitions.operational_location_id, that location is
-// the physical shed. The legacy goat_shed_partitions row may still exist for history, but using it
-// here would split one exact shed a second time.
-const feedPartitionKeyExpr = `CASE
-      WHEN exact_sp.operational_location_id IS NOT NULL THEN 'whole'
-      ELSE regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-    END`
+// feedPartitionKeyExpr is intentionally constant: the live feed projection is exact-shed grain.
+// Legacy partition labels may still appear on old movement rows as an input bridge to resolve the
+// exact shed id, but once resolved they must not split or display as a second live location axis.
+const feedPartitionKeyExpr = `COALESCE(NULL::text, 'whole')`
 
 // scale-guard:ignore: 5k-50k-envelope — canonical indexed read per
 // docs/decisions/operational-kernel-5k-50k-scale-envelope.md. The live-herd census and the
@@ -99,19 +91,11 @@ WITH live AS MATERIALIZED (
     ` + fmt.Sprintf(feedGrainNormSQL, "g.management_stage") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.sex") + ` AS sex_key,
-    -- projection-review: membership=canonical live goats for the tenant, LEFT JOINed 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)) so an animal cannot be duplicated; group_key=the previous feed grain PLUS the normalized partition key, which SPLITS a shed's projected head count across its pens instead of multiplying it; join_cardinality=every other join here is a label/config lookup on a primary key, 1:{0,1}, and the shifting-delta side is pre-aggregated before it meets the live side; pagination=none, the feed sheet is a whole-scope projection consumed in full; scope=tenant plus the caller's park/shed/business-date predicates
+    -- projection-review: membership=canonical live goats for the tenant at exact shed grain; legacy goat_shed_partitions history is deliberately ignored so an exact shed such as Castro 2 cannot be split again by a stale label; group_key=park/shed/stage/breed/sex; pagination=none, the feed sheet is a whole-scope projection consumed in full; scope=tenant plus the caller's park/shed/business-date predicates
     ` + feedPartitionKeyExpr + ` AS partition_key,
-    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
+    NULL::text AS partition_label_raw,
     count(*) AS head_count
   FROM goats g
-  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
-  -- A goat with no row here is not partitioned and normalizes to 'whole'.
-  LEFT JOIN goat_shed_partitions gsp
-         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  LEFT JOIN shed_partitions exact_sp
-         ON exact_sp.tenant_id = g.tenant_id
-        AND exact_sp.operational_location_id = g.shed_id
-        AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -215,19 +199,12 @@ pending_event AS (
 dest_cohort AS (
   SELECT
     g.shed_id,
-    -- projection-review: membership=the destination-cohort side of the feed projection, drawn from the same canonical live-goat set and LEFT JOINed 1:{0,1} to each animal's own goat_shed_partitions row; group_key=the existing destination grain PLUS the normalized partition key, so a destination shed's projected cohort is resolved per pen instead of being inferred shed-wide; join_cardinality=1:{0,1} on the partition PK and primary-key label lookups elsewhere, so no branch can fan an animal out; pagination=none, the projection is consumed whole; scope=tenant plus the caller's park/shed/business-date predicates
+    -- projection-review: membership=the destination-cohort side of the feed projection, drawn from the same exact-shed live-goat set; group_key=shed only, so stale partition history cannot invent a second destination cohort inside an exact shed; pagination=none, the projection is consumed whole; scope=tenant plus the caller's park/shed/business-date predicates
     ` + feedPartitionKeyExpr + ` AS partition_key,
-    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
+    NULL::text AS partition_label_raw,
     CASE WHEN count(DISTINCT COALESCE(g.management_stage, '')) = 1
          THEN min(g.management_stage) END AS cohort_stage
   FROM goats g
-  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
-  LEFT JOIN goat_shed_partitions gsp
-         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  LEFT JOIN shed_partitions exact_sp
-         ON exact_sp.tenant_id = g.tenant_id
-        AND exact_sp.operational_location_id = g.shed_id
-        AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -248,15 +225,8 @@ pending_leg AS (
     p.feed_effective_date,
     p.source_park_id AS park_id,
     COALESCE(src_sp.operational_location_id, p.source_shed_id) AS shed_id,
-    CASE WHEN src_sp.operational_location_id IS NOT NULL THEN 'whole'
-         ELSE regexp_replace(lower(btrim(COALESCE(p.source_partition_label, 'whole'))), '^part[[:space:]]+', '')
-    END AS partition_key,
-    -- The RAW label travels alongside the normalized key, exactly as the live side carries
-    -- min(gsp.partition_label). partition_key is a matching key ('whole' is never copy); the raw
-    -- label is what a shed row is allowed to DISPLAY. Without it the combined CTE referenced a
-    -- d.partition_label_raw that this CTE never produced, and the whole query failed with
-    -- "column d.partition_label_raw does not exist".
-    CASE WHEN src_sp.operational_location_id IS NOT NULL THEN NULL ELSE p.source_partition_label END AS partition_label_raw,
+    'whole' AS partition_key,
+    NULL::text AS partition_label_raw,
     COALESCE(i.stage_tag, '') AS stage_label,
     i.breed_label             AS breed_label,
     COALESCE(i.sex, '')       AS sex_label,
@@ -284,10 +254,8 @@ pending_leg AS (
     p.feed_effective_date,
     p.destination_park_id,
     COALESCE(dst_sp.operational_location_id, p.destination_shed_id),
-    CASE WHEN dst_sp.operational_location_id IS NOT NULL THEN 'whole'
-         ELSE regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
-    END AS partition_key,
-    CASE WHEN dst_sp.operational_location_id IS NOT NULL THEN NULL ELSE p.destination_partition_label END,
+    'whole',
+    NULL::text,
     -- DESTINATION tag, not the source stage_tag: the animals adopt the destination shed's cohort on
     -- arrival. Falls back to the source tag only when the destination shed is empty/mixed and its
     -- cohort cannot be inferred (bridge limitation until shed_profiles is seeded -- see dest_cohort).
@@ -312,9 +280,7 @@ pending_leg AS (
    )
   LEFT JOIN dest_cohort dc
     ON dc.shed_id = COALESCE(dst_sp.operational_location_id, p.destination_shed_id)
-   AND dc.partition_key = CASE WHEN dst_sp.operational_location_id IS NOT NULL THEN 'whole'
-                               ELSE regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
-                          END
+   AND dc.partition_key = 'whole'
   WHERE p.feed_effective_date <= $5::date
 ),
 -- Pre-aggregate the legs to ONE row per grain BEFORE joining the live herd. This is what keeps a

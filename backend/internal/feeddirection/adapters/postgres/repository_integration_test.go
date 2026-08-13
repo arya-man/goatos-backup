@@ -57,14 +57,42 @@ func setupFeedDirectionDB(t *testing.T, ctx context.Context) (*Repository, *pgxp
 func seedFeedDirectionPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, label string) {
 	t.Helper()
 	normalized := domain.PartitionMatchKey(label)
+	exactShedID := feedDirectionPartitionLocationID(shedID, normalized)
 	if _, err := pool.Exec(ctx, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')
+WITH parent AS (
+  SELECT tenant_id, parent_location_id, location_code, name
+  FROM locations
+  WHERE tenant_id = $1::uuid AND location_id = $2::uuid
+),
+exact AS (
+  INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, location_code, name, status)
+  SELECT $5::uuid, tenant_id, parent_location_id, 'shed', location_code || '-EXACT-' || $4, name || ' Part ' || $4, 'active'
+  FROM parent
+  ON CONFLICT (location_id) DO UPDATE SET status = 'active'
+  RETURNING location_id
+)
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+SELECT $1::uuid, $2::uuid, $3, $4, 'active', 'manual', exact.location_id
+FROM exact
 ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE SET
   partition_label = EXCLUDED.partition_label,
-  status = EXCLUDED.status`,
-		fdTenant, shedID, label, normalized); err != nil {
+  status = EXCLUDED.status,
+  operational_location_id = $5::uuid`,
+		fdTenant, shedID, label, normalized, exactShedID); err != nil {
 		t.Fatalf("seed feed partition %s/%s: %v", shedID, label, err)
+	}
+}
+
+func feedDirectionPartitionLocationID(shedID, normalized string) string {
+	switch shedID + ":" + normalized {
+	case fdShedA + ":1":
+		return "fd000000-0000-4000-8000-000000004101"
+	case fdShedA + ":2":
+		return "fd000000-0000-4000-8000-000000004102"
+	case fdShedA + ":3":
+		return "fd000000-0000-4000-8000-000000004103"
+	default:
+		return "fd000000-0000-4000-8000-000000004199"
 	}
 }
 

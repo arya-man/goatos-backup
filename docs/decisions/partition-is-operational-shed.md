@@ -7,7 +7,7 @@ Applies to: Android, admin-web, backend read models, OpenAPI contracts, seeds, C
 ## Rule
 
 Animals live in exact physical sheds. If farm operations names a shed `Castro 2`,
-`Gandhi 1`, or `Godel 1 - Part 3`, that full stored name is the shed for
+`Gandhi 1`, or `Godel 1 Part 3`, that full stored name is the shed for
 operator work. A common/base name such as `Godel 1`, `Mandela 2`, `Gandhi`, or
 `Old Yashoda` is grouping metadata only when it has exact child sheds.
 
@@ -21,7 +21,7 @@ operational identity:
 
 ```text
 operational shed key   = stable exact-shed identity
-operational shed label = stored exact shed label, for example Godel 1 - Part 1
+operational shed label = stored exact shed label, for example Godel 1 Part 1
 ```
 
 Legacy database/API fields may still carry `shed_group_id`, `physical_shed`, or
@@ -35,8 +35,8 @@ Allowed:
 Castro 1
 Castro 2
 Gandhi 1
-Godel 1 - Part 1
-Godel 1 - Part 2
+Godel 1 Part 1
+Godel 1 Part 2
 Mandela 2 Part 7
 Old Yashoda Part 4
 ```
@@ -50,8 +50,7 @@ Old Yashoda
 Gandhi
 Godel/Mandela/Old Yashoda group
 Castro 1 1
-Castro - 1
-Gandhi 1 - Part 1
+Gandhi 1 Part 1
 exact shed name + partition label
 ```
 
@@ -86,8 +85,8 @@ lists, and proof/close/reopen routes must also use the exact shed identity. A
 bucket or dropdown option named only `Godel 1` is valid only when `Godel 1` is
 itself the exact shed.
 
-When a campaign targets `Godel 1 - Part 1`, `Godel 1 - Part 2`, `Godel 1 - Part
-3`, and `Godel 1 - Part 4`, it must render four separate options/cards. Do not
+When a campaign targets `Godel 1 Part 1`, `Godel 1 Part 2`, `Godel 1 Part
+3`, and `Godel 1 Part 4`, it must render four separate options/cards. Do not
 collapse them into `Godel 1`, and do not rebuild those labels from `Godel 1` plus
 legacy partition labels.
 
