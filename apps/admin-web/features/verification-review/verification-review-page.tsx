@@ -177,7 +177,7 @@ export async function VerificationReviewPage({
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {/* Oversight analytics live behind a right-side panel, not stacked above the queue: the
-            queue is the working surface. Rendered ONLY when the oversight_analytics contract control
+            queue is the working surface. Shown ONLY when the oversight_analytics contract control
             is enabled -- the same capability (permissions.VerificationOversee) that gates the
             endpoint the panel's contents read -- so a verifier gets neither the button nor the data.
 

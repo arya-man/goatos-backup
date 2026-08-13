@@ -17112,6 +17112,7 @@ components:
         - physical_shed
         - partition_label
         - shed_label
+        - operational_location_display
         - park_id
         - park_name
         - vaccine_code
@@ -17131,6 +17132,7 @@ components:
         physical_shed: { type: string }
         partition_label: { type: string }
         shed_label: { type: string }
+        operational_location_display: { type: string }
         park_id: { type: string }
         park_name: { type: string }
         vaccine_code: { type: string }
@@ -17296,6 +17298,8 @@ components:
         - subject_label
         - operator_id
         - shed_id
+        - partition_label
+        - operational_location_display
         - metric_count
         - total_count
         - elapsed_minutes
@@ -17308,6 +17312,8 @@ components:
         subject_label: { type: string }
         operator_id: { type: string }
         shed_id: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
         metric_count: { type: integer }
         total_count: { type: integer }
         elapsed_minutes: { type: integer }

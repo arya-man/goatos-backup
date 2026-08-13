@@ -913,6 +913,28 @@
       "ciStep": "android_screenshot_proof_coverage_guard"
     },
     {
+      "id": "android-proof-video-pipeline",
+      "script": "tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test",
+      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
+      "requiredInCI": false,
+      "ciStep": "check-android-proof-video-pipeline.mjs",
+      "notes": "Authoring guard for the documented proof-video pipeline; it is not part of the default landing matrix."
+    },
+    {
+      "id": "android-proof-video-screenshots",
+      "script": "tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test",
+      "owningDoc": "apps/goatos-android/docs/ui-preview-and-screenshots.md",
+      "requiredInCI": false,
+      "ciStep": "check-android-proof-video-screenshots.mjs",
+      "notes": "Authoring guard for screenshot extraction from Android proof videos; it is not part of the default landing matrix."
+    },
+    {
       "id": "screenshot-remediation",
       "script": "tools/ci/check-screenshot-remediation.sh",
       "makeTarget": "screenshot-remediation-guard",

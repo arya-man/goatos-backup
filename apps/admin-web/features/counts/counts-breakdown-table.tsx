@@ -47,7 +47,7 @@ export function CountsBreakdownTable({
   const shedLabel = useMemo(
     () => (row: CountsBreakdownRow) =>
       row.operational_location_display ||
-      operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label }) ||
+      operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label }) || // operational-location:ignore: owner=ravi issue=OL-FE-HELPER scope=shared-helper-call-not-local-sql-case expiry=2026-11-30
       noShedLabel,
     [noShedLabel],
   );

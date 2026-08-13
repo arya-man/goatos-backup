@@ -233,13 +233,13 @@ func TestLiveTrackerExecutionDateWindowRejectsUnboundedHistory(t *testing.T) {
 // clamps park, and the query narrows again. A read that trusted only the handler would return the
 // other park's drive to any caller who simply omitted park_id.
 func TestLiveTrackerParkScopeIsAppliedInsideTheMembership(t *testing.T) {
-	if !strings.Contains(liveTrackerScopedCTE, "($3::text = '' OR g.park_id::text = $3::text)") {
+	if !strings.Contains(liveTrackerScopedCTE, "($3::text = '' OR g.park_id = NULLIF($3::text, '')::uuid)") {
 		t.Error("park scope must be enforced inside the membership CTE, not only at the handler")
 	}
-	if !strings.Contains(liveTrackerVerificationSQL, "($3::text = '' OR vi.park_id::text = $3::text)") {
+	if !strings.Contains(liveTrackerVerificationSQL, "($3::text = '' OR vi.park_id = NULLIF($3::text, '')::uuid)") {
 		t.Error("the verification block must honour the same park scope as the rest of the page")
 	}
-	if !strings.Contains(liveTrackerVerificationSQL, "($5::text[] IS NULL OR vi.park_id::text = ANY($5::text[]))") {
+	if !strings.Contains(liveTrackerVerificationSQL, "($5::uuid[] IS NULL OR vi.park_id = ANY($5::uuid[]))") {
 		t.Error("the verification block must carry the authorization park set, not only the selected park filter")
 	}
 }
@@ -527,7 +527,7 @@ func TestLiveTrackerVaccineLabelsNeverComeFromTheEmptyCatalog(t *testing.T) {
 // the vaccination surface, so the same partition is not called two different things on two screens.
 func TestLiveTrackerShedLabelMatchesOperationalNaming(t *testing.T) {
 	cases := map[[2]string]string{
-		{"Gandhi", "3"}:         "Gandhi 3",
+		{"Gandhi", "3"}:         "Gandhi - 3",
 		{"Sumathi 2", "Part 4"}: "Sumathi 2 - Part 4",
 		{"Mandela 2", "whole"}:  "Mandela 2",
 		{"Old Yashoda", ""}:     "Old Yashoda",
@@ -829,7 +829,7 @@ func TestLiveTrackerFilterVocabularyDoesNotCollapseTheParkControl(t *testing.T) 
 	// held grants in anything other than exactly one park compiled this vocabulary TENANT-WIDE, and
 	// this query is the only authorization gate that applies to it — so a two-park director was
 	// handed every other park's shed names, partition labels, operator names and vaccine codes.
-	if !strings.Contains(liveTrackerScopedCTE, "($8::text[] IS NULL OR g.park_id::text = ANY($8::text[]))") {
+	if !strings.Contains(liveTrackerScopedCTE, "($8::uuid[] IS NULL OR g.park_id = ANY($8::uuid[]))") {
 		t.Error("the authorization park SET must narrow the membership independently of the caller's own park selection")
 	}
 }

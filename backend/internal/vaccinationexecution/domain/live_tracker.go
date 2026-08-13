@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // LiveTrackerStatus is the ROW-STATE filter for the live drive tracker.
@@ -214,18 +216,19 @@ type LiveTrackerOperatorRow struct {
 
 // LiveTrackerShedRow is one shed×partition proof-progress row.
 type LiveTrackerShedRow struct {
-	ShedID          string `json:"shed_id"`
-	ShedName        string `json:"shed_name"`
-	PhysicalShed    string `json:"physical_shed"`
-	PartitionLabel  string `json:"partition_label"`
-	ShedLabel       string `json:"shed_label"`
-	ParkID          string `json:"park_id"`
-	ParkName        string `json:"park_name"`
-	VaccineCode     string `json:"vaccine_code"`
-	VaccineLabel    string `json:"vaccine_label"`
-	OperatorID      string `json:"operator_id"`
-	OperatorName    string `json:"operator_name"`
-	ScheduledAdmins int    `json:"scheduled_administrations"`
+	ShedID                     string `json:"shed_id"`
+	ShedName                   string `json:"shed_name"`
+	PhysicalShed               string `json:"physical_shed"`
+	PartitionLabel             string `json:"partition_label"`
+	ShedLabel                  string `json:"shed_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ParkID                     string `json:"park_id"`
+	ParkName                   string `json:"park_name"`
+	VaccineCode                string `json:"vaccine_code"`
+	VaccineLabel               string `json:"vaccine_label"`
+	OperatorID                 string `json:"operator_id"`
+	OperatorName               string `json:"operator_name"`
+	ScheduledAdmins            int    `json:"scheduled_administrations"`
 	// ProofVideosReceived is proof ARRIVAL; ClosedAdmins is obligation CLOSURE. Remaining is derived
 	// from closure, so a shed only reads `done` once its obligations are actually closed.
 	ClosedAdmins        int        `json:"closed_administrations"`
@@ -300,15 +303,17 @@ type LiveTrackerActivity struct {
 // LiveTrackerAttentionRow is one attention item. Every row is derived from the same CTEs the tiles
 // and tables use, so the Attention KPI equals len(Attention) by construction.
 type LiveTrackerAttentionRow struct {
-	Kind         string     `json:"kind"`
-	SubjectLabel string     `json:"subject_label"`
-	OperatorID   string     `json:"operator_id"`
-	ShedID       string     `json:"shed_id"`
-	MetricCount  int        `json:"metric_count"`
-	TotalCount   int        `json:"total_count"`
-	ElapsedMin   int        `json:"elapsed_minutes"`
-	SinceAt      *time.Time `json:"since_at"`
-	Severity     string     `json:"severity"`
+	Kind                       string     `json:"kind"`
+	SubjectLabel               string     `json:"subject_label"`
+	OperatorID                 string     `json:"operator_id"`
+	ShedID                     string     `json:"shed_id"`
+	PartitionLabel             string     `json:"partition_label"`
+	OperationalLocationDisplay string     `json:"operational_location_display"`
+	MetricCount                int        `json:"metric_count"`
+	TotalCount                 int        `json:"total_count"`
+	ElapsedMin                 int        `json:"elapsed_minutes"`
+	SinceAt                    *time.Time `json:"since_at"`
+	Severity                   string     `json:"severity"`
 }
 
 // LiveTrackerVerification is the post-drive verification queue block.
@@ -401,15 +406,7 @@ func NormalizePartitionLabel(label string) string {
 // operational location display does, so the tracker's shed column matches every other vaccination
 // surface instead of inventing a second format.
 func ShedDisplayLabel(shedName, partitionLabel string) string {
-	shedName = strings.TrimSpace(shedName)
-	partition := strings.TrimSpace(partitionLabel)
-	if partition == "" || strings.EqualFold(partition, "whole") {
-		return shedName
-	}
-	if strings.HasPrefix(strings.ToLower(partition), "part") {
-		return shedName + " - " + partition
-	}
-	return shedName + " " + partition
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 }
 
 // VaccineFamilyCode reduces a dose code to its antigen family ("goat_pox_adult_w1" -> "goat_pox"),

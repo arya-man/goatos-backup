@@ -6421,6 +6421,7 @@ export interface components {
             physical_shed: string;
             partition_label: string;
             shed_label: string;
+            operational_location_display: string;
             park_id: string;
             park_name: string;
             vaccine_code: string;
@@ -6512,6 +6513,8 @@ export interface components {
             subject_label: string;
             operator_id: string;
             shed_id: string;
+            partition_label: string;
+            operational_location_display: string;
             metric_count: number;
             total_count: number;
             elapsed_minutes: number;

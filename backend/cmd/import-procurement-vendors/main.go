@@ -293,7 +293,7 @@ func optionalInt(raw string) (*int, error) {
 	}
 	n, err := strconv.Atoi(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("not a whole number")
+		return nil, fmt.Errorf("not a whole number: %w", err)
 	}
 	if n < 0 {
 		return nil, fmt.Errorf("negative")

@@ -300,7 +300,7 @@ export async function VaccinationShedBoard({
                           className="shed-summary-row-link"
                           scroll={false}
                           prefetch={false}
-                          aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.operational_location_display || row.shedName}`}
+                          aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.operationalLocationDisplay || row.shedName}`}
                         />
                       ) : null}
                       <span className="shed-summary-cell-content">
@@ -311,7 +311,7 @@ export async function VaccinationShedBoard({
                   const partitionAwareKey = [
                     row.parkId,
                     row.shedId,
-                    row.partition_label ?? "",
+                    row.partitionLabel ?? "",
                     row.nextDue ?? "",
                     row.status,
                     row.capacity,
@@ -331,7 +331,7 @@ export async function VaccinationShedBoard({
                         undefined,
                         true,
                       )}
-                      {cell(<ClipText title={row.operational_location_display || row.shedName}>{row.operational_location_display || row.shedName}</ClipText>)}
+                      {cell(<ClipText title={row.operationalLocationDisplay || row.shedName}>{row.operationalLocationDisplay || row.shedName}</ClipText>)}
                       {cell(row.animals, "muted")}
                       {cell(row.due)}
                       {cell(row.done, "muted")}
