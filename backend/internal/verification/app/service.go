@@ -951,5 +951,49 @@ func (s *Service) OversightAnalytics(ctx context.Context, tenantID string) (doma
 	if !uuidutil.IsUUIDString(tenantID) {
 		return domain.OversightAnalytics{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
 	}
-	return s.repo.OversightAnalytics(ctx, tenantID)
+	result, err := s.repo.OversightAnalytics(ctx, tenantID)
+	if err != nil {
+		return domain.OversightAnalytics{}, err
+	}
+	// Resolve the display label for every module code the aggregate carries. The repo groups by
+	// verification_items.module (the SOURCE module code, "feed"); the registry is the only thing that
+	// knows that module is called "Feed" on screen, and a client cannot map it -- its own module
+	// vocabulary is keyed by NavigationModule ("feed_direction"), so a renderer joining on the code
+	// silently misses and falls back to printing "feed". One map built once, then a lookup per row --
+	// never a per-row registry scan.
+	nav := s.sourceModuleNavigation()
+	for i := range result.KPIs.PerModuleMedianReviewLatencyHours {
+		row := &result.KPIs.PerModuleMedianReviewLatencyHours[i]
+		row.ModuleLabel = nav[row.Module].label
+	}
+	for i := range result.PendingByModule {
+		row := &result.PendingByModule[i]
+		row.ModuleLabel = nav[row.Module].label
+		row.NavModule = nav[row.Module].navModule
+	}
+	return result, nil
+}
+
+type moduleNavigation struct {
+	label     string
+	navModule string
+}
+
+// sourceModuleNavigation maps a registry SOURCE module code (CategoryDefinition.Module, the value
+// stored on verification_items.module) to its display label and to the queue's own module-filter key
+// (NavigationModule). The two are NOT the same string -- "feed" is stored on the item, the filter
+// takes "feed_direction" -- which is exactly why a client cannot derive either one for itself.
+func (s *Service) sourceModuleNavigation() map[string]moduleNavigation {
+	out := make(map[string]moduleNavigation)
+	for _, def := range s.registry.List() {
+		module := strings.TrimSpace(def.Module)
+		label := strings.TrimSpace(def.NavigationModuleLabel)
+		if module == "" || label == "" {
+			continue
+		}
+		if _, exists := out[module]; !exists {
+			out[module] = moduleNavigation{label: label, navModule: strings.TrimSpace(def.NavigationModule)}
+		}
+	}
+	return out
 }

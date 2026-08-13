@@ -23172,12 +23172,23 @@ components:
       additionalProperties: false
       required:
         - kpis
+        - pending_age_buckets
+        - daily_volume_last_14d
         - pending_by_module
         - verifier_activity
         - trace_id
       properties:
         kpis:
           $ref: "#/components/schemas/VerificationOversightKPIs"
+        pending_age_buckets:
+          $ref: "#/components/schemas/VerificationPendingAgeBuckets"
+        daily_volume_last_14d:
+          type: array
+          description: >-
+            Fourteen consecutive Asia/Kolkata business days, oldest first, zero-filled. Days with no
+            activity are present with zeroes so a chart cannot compress a quiet week.
+          items:
+            $ref: "#/components/schemas/VerificationDailyVolume"
         pending_by_module:
           type: array
           items:
@@ -23222,6 +23233,46 @@ components:
           description: >-
             rejected / (approved + rejected) over verdicts recorded in the last 30 days. Absent
             when there were no verdicts in that window.
+    VerificationPendingAgeBuckets:
+      type: object
+      additionalProperties: false
+      description: >-
+        The shape of the pending backlog by how long each video has waited. The four buckets are
+        disjoint and are computed in the same statement as videos_waiting, so they always sum to it.
+        Age is elapsed time since capture -- the same clock oldest_pending_age_hours reports.
+      required:
+        - up_to_1_day
+        - one_to_three_days
+        - three_to_seven_days
+        - over_seven_days
+      properties:
+        up_to_1_day:
+          type: integer
+        one_to_three_days:
+          type: integer
+        three_to_seven_days:
+          type: integer
+        over_seven_days:
+          type: integer
+    VerificationDailyVolume:
+      type: object
+      additionalProperties: false
+      description: >-
+        One business day of flow through the queue. arrived vs verdicts is what says whether the
+        backlog is growing or shrinking; throughput alone cannot.
+      required:
+        - business_date
+        - verdicts
+        - arrived
+      properties:
+        business_date:
+          type: string
+          format: date
+          description: Asia/Kolkata calendar date.
+        verdicts:
+          type: integer
+        arrived:
+          type: integer
     VerificationModuleLatency:
       type: object
       additionalProperties: false
@@ -23231,6 +23282,12 @@ components:
       properties:
         module:
           type: string
+          description: Source module code stored on the item (e.g. feed). Never rendered as copy.
+        module_label:
+          type: string
+          description: >-
+            Backend-owned display label for module, from the verification type registry ("Feed").
+            Absent when the registry knows no such module.
         median_hours:
           type: number
     VerificationModulePendingBacklog:
@@ -23242,6 +23299,18 @@ components:
       properties:
         module:
           type: string
+          description: Source module code stored on the item (e.g. feed). Never rendered as copy.
+        module_label:
+          type: string
+          description: >-
+            Backend-owned display label for module, from the verification type registry ("Feed").
+            Absent when the registry knows no such module.
+        nav_module:
+          type: string
+          description: >-
+            The queue's own module-filter key for this module ("feed_direction" where module is
+            "feed"), so a backlog row can link to the filter that lists exactly those items. Absent
+            when the registry knows no such module.
         count:
           type: integer
     VerificationVerifierActivity:

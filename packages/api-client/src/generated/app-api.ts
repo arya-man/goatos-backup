@@ -8888,6 +8888,9 @@ export interface components {
         };
         VerificationOversightAnalyticsResponse: {
             kpis: components["schemas"]["VerificationOversightKPIs"];
+            pending_age_buckets: components["schemas"]["VerificationPendingAgeBuckets"];
+            /** @description Fourteen consecutive Asia/Kolkata business days, oldest first, zero-filled. Days with no activity are present with zeroes so a chart cannot compress a quiet week. */
+            daily_volume_last_14d: components["schemas"]["VerificationDailyVolume"][];
             pending_by_module: components["schemas"]["VerificationModulePendingBacklog"][];
             verifier_activity: components["schemas"]["VerificationVerifierActivity"][];
             trace_id: string;
@@ -8905,12 +8908,37 @@ export interface components {
             /** @description rejected / (approved + rejected) over verdicts recorded in the last 30 days. Absent when there were no verdicts in that window. */
             reject_rate_last_30d?: number;
         };
+        /** @description The shape of the pending backlog by how long each video has waited. The four buckets are disjoint and are computed in the same statement as videos_waiting, so they always sum to it. Age is elapsed time since capture -- the same clock oldest_pending_age_hours reports. */
+        VerificationPendingAgeBuckets: {
+            up_to_1_day: number;
+            one_to_three_days: number;
+            three_to_seven_days: number;
+            over_seven_days: number;
+        };
+        /** @description One business day of flow through the queue. arrived vs verdicts is what says whether the backlog is growing or shrinking; throughput alone cannot. */
+        VerificationDailyVolume: {
+            /**
+             * Format: date
+             * @description Asia/Kolkata calendar date.
+             */
+            business_date: string;
+            verdicts: number;
+            arrived: number;
+        };
         VerificationModuleLatency: {
+            /** @description Source module code stored on the item (e.g. feed). Never rendered as copy. */
             module: string;
+            /** @description Backend-owned display label for module, from the verification type registry ("Feed"). Absent when the registry knows no such module. */
+            module_label?: string;
             median_hours: number;
         };
         VerificationModulePendingBacklog: {
+            /** @description Source module code stored on the item (e.g. feed). Never rendered as copy. */
             module: string;
+            /** @description Backend-owned display label for module, from the verification type registry ("Feed"). Absent when the registry knows no such module. */
+            module_label?: string;
+            /** @description The queue's own module-filter key for this module ("feed_direction" where module is "feed"), so a backlog row can link to the filter that lists exactly those items. Absent when the registry knows no such module. */
+            nav_module?: string;
             count: number;
         };
         VerificationVerifierActivity: {

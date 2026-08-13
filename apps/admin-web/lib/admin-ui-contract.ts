@@ -365,6 +365,37 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "action.close": "Close",
     "vaccination.clinical_due": "clinical due",
   },
+  // Oversight-analytics copy added with the section's rebuild (mock `card > .hd/.bd` + `.kpi`/`.bar`
+  // anatomy). The backend owns these strings (adminui service.go, "verification-review"); these
+  // fallbacks only keep the section rendering against a backend one release behind, instead of
+  // throwing the page on a missing fixed key.
+  "verification-review": {
+    "oversight_analytics.hint": "Every module and park in the current scope",
+    "oversight_analytics.open": "Analytics",
+    "oversight_analytics.close": "Close analytics",
+    "oversight_analytics.pending_by_module": "Where the backlog sits",
+    "oversight_analytics.largest_backlog": "is the biggest share",
+    "oversight_analytics.oldest_hint": "Longest any video has waited",
+    "oversight_analytics.speed_hint": "Averaged over days with verdicts",
+    "oversight_analytics.clear_hint": "At the current review pace",
+    "oversight_analytics.reject_hint": "A rejected video needs a re-shoot",
+    "oversight_analytics.median_review": "median review",
+    "oversight_analytics.no_median": "No review time recorded yet",
+    "oversight_analytics.no_backlog": "No videos are waiting for review.",
+    "oversight_analytics.age_shape": "How long they have been waiting",
+    "oversight_analytics.age.up_to_1_day": "Under a day",
+    "oversight_analytics.age.one_to_three_days": "1-3 days",
+    "oversight_analytics.age.three_to_seven_days": "3-7 days",
+    "oversight_analytics.age.over_seven_days": "Over a week",
+    "oversight_analytics.trend": "Reviewed vs arrived, last 14 days",
+    "oversight_analytics.trend.verdicts_noun": "reviewed",
+    "oversight_analytics.trend.arrived_noun": "arrived",
+    "oversight_analytics.trend.empty": "No videos arrived or were reviewed in the last 14 days.",
+    "oversight_analytics.trend.grew": "Backlog grew by",
+    "oversight_analytics.trend.shrank": "Backlog shrank by",
+    "oversight_analytics.trend.flat": "Backlog unchanged",
+    "oversight_analytics.open_module_queue": "Open this queue",
+  },
 };
 
 const PROCESS_WORK_STATE_OPTIONS: AdminUiOption[] = [

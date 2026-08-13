@@ -14,6 +14,7 @@ import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, and every date selection silently fell back to today.
 import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
+import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY, AnalyticsPanel } from "./analytics-panel";
 import { OversightAnalytics } from "./oversight-analytics";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
@@ -175,6 +176,40 @@ export async function VerificationReviewPage({
           <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        {/* Oversight analytics live behind a right-side panel, not stacked above the queue: the
+            queue is the working surface. Rendered ONLY when the oversight_analytics contract control
+            is enabled -- the same capability (permissions.VerificationOversee) that gates the
+            endpoint the panel's contents read -- so a verifier gets neither the button nor the data.
+
+            Rollout fallback only for module names: the analytics rows now carry their own
+            backend-owned module_label. This map (filter_options.modules, the same vocabulary the
+            chip row below renders) keeps the backlog rows readable against a backend that predates
+            that field. */}
+        {oversightAnalyticsEnabled ? (
+          <AnalyticsPanel
+            pageContract={pageContract}
+            closeHref={hrefWith(sp, {})}
+            initialOpen={one(sp, ANALYTICS_PANEL_SELECTION_KEY) === ANALYTICS_PANEL_ID}
+          >
+            <OversightAnalytics
+              pageContract={pageContract}
+              moduleLabels={new Map(modules.map((option) => [option.key, option.label]))}
+              // A backlog row is a question ("729 waiting in Feed") whose answer is the queue itself,
+              // so each row links to that queue exactly as the module chip row does -- same
+              // nav_module key, same RESET_ON_FILTER (a cursor from the previous filter points into a
+              // different sequence), same category clear. Built here because only the page has the
+              // live search params; passed as plain data because the panel is a client component.
+              moduleHrefs={
+                new Map(
+                  modules.map((option) => [
+                    option.key,
+                    hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                  ]),
+                )
+              }
+            />
+          </AnalyticsPanel>
+        ) : null}
       </div>
 
       {queue.ok ? null : (
@@ -361,8 +396,6 @@ export async function VerificationReviewPage({
             ))}
           </div>
         ) : null}
-
-        {oversightAnalyticsEnabled ? <OversightAnalytics pageContract={pageContract} /> : null}
 
         <div className="vr-secthd">
           <h2>{tableContract.title}</h2>

@@ -553,6 +553,67 @@
   .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
   .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
   .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
+  /* Verification oversight (CEO/director analytics above the queue). The section is a real mock
+     `card` — `.hd` header rule + padded `.bd` — because the previous build dropped a bare title and
+     inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
+     edge with no breathing room. Spacing rhythm below is one scale: 18px between blocks, 10px
+     between a block heading and its content. */
+  /* The analytics drawer is wider than the record drawer (498px): it carries a KPI strip, a module
+     grid and a six-column table, and squeezing those into a record-sized panel is what made the
+     numbers unreadable in the first place. */
+  aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
+  .vr-analytics-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
+  .vr-analytics-btn .ic{width:16px;height:16px}
+  .vr-oversight{margin:0}
+  /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
+     viewport media query would keep five columns in a 900px panel. */
+  .vr-okpis{grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:11px;margin-bottom:18px}
+  .vr-okpis .kpi{padding:13px 15px}
+  /* Two of these five labels wrap to a second line ("Videos waiting for review", "Est. days to clear
+     backlog"), which pushed their numbers a line lower than the rest and broke the strip's baseline.
+     A two-line label box keeps every value on the same line without truncating any label. */
+  .vr-okpis .kpi{display:flex;flex-direction:column}
+  .vr-okpis .kpi .lab{font-size:11px;line-height:1.35;align-items:flex-start;min-height:2.7em}
+  .vr-okpis .kpi .val{font-size:23px;margin-top:4px}
+  .vr-okpis .kpi .dl{font-size:11px;margin-top:5px;line-height:1.35;font-weight:550}
+  .vr-osec+.vr-osec{margin-top:18px;padding-top:18px;border-top:1px solid var(--line2)}
+  .vr-osec-hd{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}
+  /* One ranked row per module: the widest bar is the bottleneck. A wrapping chip row of raw counts
+     (what this replaced) gave a number with nothing to compare it against. */
+  .vr-omods{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .vr-omod{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .vr-omod .t{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+  .vr-omod .t .n{font-size:12.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vr-omod .t b{margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .vr-omod .m{margin-top:8px;font-size:11px;color:var(--faint);font-weight:600}
+  /* A backlog row is a link to that module's queue. It must LOOK reachable before the pointer is on
+     it -- the "go" line is the affordance, the border/lift is the confirmation. */
+  a.vr-omod-link{display:block;color:inherit;text-decoration:none;position:relative}
+  a.vr-omod-link .go{display:block;margin-top:7px;font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--brand-d);opacity:.85}
+  a.vr-omod-link:hover{border-color:var(--brand);background:var(--panel)}
+  a.vr-omod-link:hover .go{opacity:1}
+  a.vr-omod-link:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  /* Backlog age shape: ONE stacked bar, youngest left, so the red tail's width is the share of the
+     backlog that has waited more than a week. */
+  .vr-agebar{display:flex;height:12px;border-radius:7px;overflow:hidden;background:var(--line2);margin-bottom:10px}
+  .vr-agebar>span{display:block;height:100%}
+  .vr-agelegend{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-agelegend>span{display:flex;align-items:center;gap:6px}
+  .vr-agelegend i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-agelegend b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-trendaxis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);font-weight:600;margin-top:2px}
+  .vr-trendfoot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-trendfoot .k{display:flex;align-items:center;gap:6px}
+  .vr-trendfoot i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-trendfoot b{margin-left:auto;font-size:12px;color:var(--ink)}
+  .vr-trendfoot b.bad{color:var(--danger)}
+  .vr-trendfoot b.good{color:var(--ok)}
+  .vr-otable td.num{font-variant-numeric:tabular-nums;font-weight:650}
+  .vr-owatch{display:flex;flex-wrap:wrap;gap:6px}
+  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+  .vr-owatch span.bad b{color:var(--danger)}
   .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
   .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
   .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
@@ -770,6 +831,17 @@
   .main table.feed-table{min-width:900px}
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
+  /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
+     addition rather than a ported element: the header keeps its exact resting typography and the
+     button is a bare inline trigger, so an unsorted table looks identical to the mock. The
+     indicator sits at the mock's muted tone until a sort is active, when it takes the brand colour
+     so the ordered column is obvious at a glance. */
+  .main th .thsort{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+  .main th .thsort:hover{color:var(--brand-d)}
+  .main th .thsort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+  .main th .thsort-ind{font-size:9px;line-height:1;opacity:.55}
+  .main th[aria-sort="ascending"] .thsort,.main th[aria-sort="descending"] .thsort{color:var(--brand-d)}
+  .main th[aria-sort="ascending"] .thsort-ind,.main th[aria-sort="descending"] .thsort-ind{opacity:1}
   /* Vaccination Command Board */
   .cbm-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
   .cbm-filter-note{font-size:11.5px;color:var(--warn)}
