@@ -22,7 +22,7 @@ type shiftingFeedQueryer interface {
 
 // loadShiftingFeedRequirements resolves every high-priority event in one set-based query.
 //
-// projection-review: membership=request-captured goat_ids for selected shifting events resolved against destination feed config; group_key=tenant_id shifting_event_id and feed_item_key; join_cardinality=request is one per event and goats are pre-aggregated by event, effective stage, pen and breed before config joins, so the config joins are label lookups onto an already-aggregated grain and cannot fan out; pagination=bounded explicit event-id batch with no page-local totals; scope=tenant_id destination park effective management stage and as-of date
+// projection-review: membership=request-captured goat_ids for selected shifting events resolved against destination feed config; group_key=tenant_id shifting_event_id and feed_item_key; join_cardinality=request is one per event and goats are pre-aggregated by event, effective stage, pen and breed before config joins, so the config joins are label lookups onto an already-aggregated grain and cannot fan out; pagination=bounded explicit event-id batch with no page-local totals; scope=tenant_id destination park physical shed destination partition effective management stage and as-of date
 // producer_unique=(tenant_id, shifting_event_id) in shifting_events;
 // consumer_group=(tenant_id, shifting_event_id, feed_item_key). The selected approval request is
 // one row per event through the bounded LATERAL selector; goat_ids is expanded then PRE-AGGREGATED
@@ -40,6 +40,10 @@ func loadShiftingFeedRequirements(
 	rows, err := q.Query(ctx, `
 WITH events AS (
     SELECT se.shifting_event_id, se.destination_park_id, se.destination_shed_id,
+           CASE
+             WHEN se.destination_partition_label IS NULL OR btrim(se.destination_partition_label) = '' THEN 'whole'
+             ELSE feed_config_norm(se.destination_partition_label)
+           END AS destination_partition_key,
            nullif(btrim(se.target_management_stage), '') AS target_stage,
            car.payload
     FROM shifting_events se
@@ -120,7 +124,13 @@ WITH events AS (
            EXISTS (
                SELECT 1 FROM feed_experiment_config x
                WHERE x.tenant_id=$1::uuid AND x.park_id=e.destination_park_id
-                 AND x.shed_id=e.destination_shed_id AND x.status='active'
+                 AND x.shed_id=e.destination_shed_id
+                 -- Experiment membership is an OPERATIONAL-LOCATION fact. One physical shed can
+                 -- contain both experiment and ordinary pens, so omitting the destination partition
+                 -- makes a sibling experiment allocation block the wrong movement (Yashoda 1-4
+                 -- leaked onto Yashoda 10). x.partition_key stays bare for the natural-key index.
+                 AND x.partition_key=e.destination_partition_key
+                 AND x.status='active'
            ) AS has_experiment
     FROM events e
     LEFT JOIN resolved r ON r.shifting_event_id=e.shifting_event_id
