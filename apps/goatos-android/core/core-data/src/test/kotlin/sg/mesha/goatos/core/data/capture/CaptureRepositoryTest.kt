@@ -2068,7 +2068,7 @@ class CaptureRepositoryTest {
             val proofs = DefaultProofCaptureRepository(
                 db.proofCaptureDao(),
                 sync,
-                appScope = this,
+                appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
             )
@@ -2142,8 +2142,16 @@ class CaptureRepositoryTest {
             val proofs = DefaultProofCaptureRepository(
                 db.proofCaptureDao(),
                 sync,
-                appScope = this,
+                appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
+                proofArtifactValidator = object : ProofArtifactValidator {
+                    override fun validateVideoFile(localUri: String): ProofArtifactValidator.ValidationResult =
+                        if (localUri.isBlank()) {
+                            ProofArtifactValidator.ValidationResult(isValid = false, reason = "blank uri")
+                        } else {
+                            ProofArtifactValidator.ValidationResult(isValid = true)
+                        }
+                },
                 reconcileOnStartup = false,
             )
 
@@ -2214,7 +2222,7 @@ class CaptureRepositoryTest {
             val proofs = DefaultProofCaptureRepository(
                 db.proofCaptureDao(),
                 sync,
-                appScope = this,
+                appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
                 reconcileOnStartup = false,
             )
