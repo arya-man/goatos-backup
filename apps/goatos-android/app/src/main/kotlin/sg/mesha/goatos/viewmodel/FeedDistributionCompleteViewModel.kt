@@ -577,7 +577,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ProofSlot.WATER_VIDEO -> waterVideoProofItemId
         }
         val rowId = rowIdState.value ?: proofCaptureRepository
-            .observeProofs(groupKey, partitionLabel)
+            .observeProofs(groupKey)
             .first()
             .firstOrNull { it.outboxItemId == outboxState.value }
             ?.id
@@ -605,7 +605,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     private fun observeDurableProofs() {
         viewModelScope.launch {
-            proofCaptureRepository.observeProofs(groupKey, partitionLabel)
+            // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
+            // partitionMatchToken), so this read is pen-scoped by the task id alone. Passing the
+            // label as well filtered on proof_capture.partitionKey, which capture() writes as
+            // "whole" because the feed capture calls do not pass a label — so on a partitioned
+            // shed the read asked for "3" while the row said "whole" and rehydration silently
+            // returned nothing. Re-entering the screen showed an empty form for a video that was
+            // sitting in Room and already uploading. Keep read and write symmetric (feed transport
+            // and weighing omit it on both sides too); do not "restore" the label on one side only.
+            proofCaptureRepository.observeProofs(groupKey)
                 .collect { rows ->
                     hydrateSlotFromProof(ProofSlot.FEED_WEIGHT_PHOTO, rows.latestFor(FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO))
                     hydrateSlotFromProof(ProofSlot.FEED_VIDEO, rows.latestFor(FIELD_FEED_DISTRIBUTION_VIDEO))

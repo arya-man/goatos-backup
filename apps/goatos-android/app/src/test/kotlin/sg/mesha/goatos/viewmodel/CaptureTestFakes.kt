@@ -236,6 +236,18 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             proofPolicy.maximumCountPerSubject
         }
         val partitionKey = testPartitionKey(partitionLabel)
+        // Mirror the production per-SLOT cap. Without this the fake pools every slot under the
+        // subject cap, which is exactly the behaviour the real repository stopped doing.
+        proofPolicy.maximumCountPerField?.let { perFieldCap ->
+            val activeForField = rows.count {
+                it.partitionKey == partitionKey &&
+                    it.fieldKey == fieldKey &&
+                    it.syncStatus != CaptureSyncStatus.FAILED
+            }
+            if (activeForField >= perFieldCap) {
+                return AppResult.Err("This proof is already recorded. Use re-capture to replace it.")
+            }
+        }
         val activeRows = rows.count {
             it.partitionKey == partitionKey &&
                 it.subjectId == subjectId &&
