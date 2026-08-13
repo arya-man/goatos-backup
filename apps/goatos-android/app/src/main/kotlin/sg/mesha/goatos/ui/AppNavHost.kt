@@ -386,14 +386,14 @@ object Routes {
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
     const val FEED_TRANSPORT = "/feed/transport"
-    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}"
-    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}"
+    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}"
+    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String,parkLabel:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}&park_label=${Uri.encode(parkLabel)}"
 
     // L2 feed-direction completion detail, reached by tapping a shed-session row on either feed
     // screen. Path args are the completion grain; labels are query args (URL-encoded, may contain
     // spaces). Distinct route from the two L0 feed roots (never a prefix reuse).
     const val FEED_COMPLETE =
-        "/feed/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+        "/feed/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}"
 
     fun feedCompleteRoute(
         parkId: String,
@@ -403,11 +403,12 @@ object Routes {
         targetDate: String,
         shedLabel: String,
         sessionLabel: String,
+        parkLabel: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}"
     }
 
     // L2 verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md),
@@ -415,7 +416,7 @@ object Routes {
     // roots and from [FEED_COMPLETE] (the untouched Packing/direction-shared completion) — never a
     // prefix reuse. Same grain args as [FEED_COMPLETE]; the operator records BOTH mandatory proofs here.
     const val FEED_DISTRIBUTION_COMPLETE =
-        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
+        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
 
     fun feedDistributionCompleteRoute(
         parkId: String,
@@ -425,6 +426,7 @@ object Routes {
         targetDate: String,
         shedLabel: String,
         sessionLabel: String,
+        parkLabel: String,
         // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
         // still resolves; the completion needs it because proof is per-pen, not per-shed.
         partitionLabel: String,
@@ -436,7 +438,7 @@ object Routes {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
             "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
     }
 
@@ -448,7 +450,7 @@ object Routes {
     // (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day capture). Grain is
     // park/shed/pen/SESSION/day/workflow.
     const val FEED_PACKING_COMPLETE =
-        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
+        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&partition_label={partition_label}&lifecycle_status={lifecycle_status}"
 
     fun feedPackingCompleteRoute(
         parkId: String,
@@ -458,6 +460,7 @@ object Routes {
         targetDate: String,
         shedLabel: String,
         sessionLabel: String,
+        parkLabel: String,
         // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
         // still resolves; the completion needs it because proof is per-pen, not per-shed.
         partitionLabel: String,
@@ -469,7 +472,7 @@ object Routes {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
             "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
     }
 
@@ -574,6 +577,7 @@ object Routes {
     const val WEIGHING_TENANT_ARG = "tenantId"
     const val WEIGHING_EXPECTED_LOCATION_ARG = "expectedLocationId"
     const val WEIGHING_EXPECTED_LOCATION_LABEL_ARG = "expectedLocationLabel"
+    const val WEIGHING_PARK_LABEL_ARG = "weighingParkLabel"
 
     /**
      * Names the task whose answers the authoring wizard was started FROM. It is a handoff key,
@@ -651,6 +655,7 @@ object Routes {
         tenantId: String,
         expectedLocationId: String,
         expectedLocationLabel: String,
+        parkLabel: String? = null,
         scanTitle: String? = null,
     ): String {
         val args = listOfNotNull(
@@ -661,6 +666,7 @@ object Routes {
             WEIGHING_TENANT_ARG to tenantId,
             WEIGHING_EXPECTED_LOCATION_ARG to expectedLocationId,
             WEIGHING_EXPECTED_LOCATION_LABEL_ARG to expectedLocationLabel,
+            parkLabel?.takeIf { it.isNotBlank() }?.let { WEIGHING_PARK_LABEL_ARG to it },
             scanTitle?.takeIf { it.isNotBlank() }?.let { EXECUTION_SCAN_TITLE_ARG to it },
         )
         return "$WEIGHING_SCAN?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -1163,6 +1169,7 @@ fun AppNavHost(
                                     tenantId = assignment.tenantId,
                                     expectedLocationId = assignment.expectedLocationId,
                                     expectedLocationLabel = assignment.expectedLocationLabel,
+                                    parkLabel = assignment.parkLabel.ifBlank { assignment.parkId },
                                     scanTitle = assignment.label,
                                 ),
                             )
@@ -1578,7 +1585,7 @@ fun AppNavHost(
         }
 
         composable(
-            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_CATEGORY_ARG}={${Routes.WEIGHING_CATEGORY_ARG}}&${Routes.WEIGHING_TENANT_ARG}={${Routes.WEIGHING_TENANT_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
+            route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_CATEGORY_ARG}={${Routes.WEIGHING_CATEGORY_ARG}}&${Routes.WEIGHING_TENANT_ARG}={${Routes.WEIGHING_TENANT_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}}&${Routes.WEIGHING_PARK_LABEL_ARG}={${Routes.WEIGHING_PARK_LABEL_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
             arguments = listOf(
                 navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
                     type = NavType.StringType
@@ -1611,6 +1618,11 @@ fun AppNavHost(
                     defaultValue = null
                 },
                 navArgument(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.WEIGHING_PARK_LABEL_ARG) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -2318,6 +2330,7 @@ fun AppNavHost(
                                         targetDate = state.targetDateLabel,
                                         shedLabel = event.shedLabel,
                                         sessionLabel = event.sessionLabel,
+                                        parkLabel = event.parkLabel,
                                         partitionLabel = event.partitionLabel,
                                         lifecycleStatus = event.lifecycleStatus,
                                     ),
@@ -2365,6 +2378,7 @@ fun AppNavHost(
                                     targetDate = state.feedForDateLabel,
                                     shedLabel = event.shedLabel,
                                     sessionLabel = event.sessionLabel,
+                                    parkLabel = event.parkLabel,
                                     partitionLabel = event.partitionLabel,
                                     lifecycleStatus = event.lifecycleStatus,
                                 ),
@@ -2376,7 +2390,7 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel))}else vm.onEvent(event)}}
+        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel))}else vm.onEvent(event)}}
 
         composable(
             route = Routes.FEED_TRANSPORT_CAPTURE,
@@ -2384,6 +2398,10 @@ fun AppNavHost(
                 navArgument(FeedTransportCaptureViewModel.ARG_TASK_ID) { type = NavType.StringType },
                 navArgument(FeedTransportCaptureViewModel.ARG_SHED_ID) { type = NavType.StringType },
                 navArgument(FeedTransportCaptureViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedTransportCaptureViewModel.ARG_PARK_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },
@@ -2429,6 +2447,10 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(FeedCompleteViewModel.ARG_PARK_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: FeedCompleteViewModel = hiltViewModel()
@@ -2461,6 +2483,10 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedDistributionCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedDistributionCompleteViewModel.ARG_PARK_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },
@@ -2520,6 +2546,10 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedPackingCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_PARK_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },

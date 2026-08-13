@@ -17,7 +17,7 @@ const val ROSTER_SCAN_FIELD_KEY = "__scan_roster__"
 enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 
 enum class ProofProcessingStatus(val wireValue: String, val operatorLabel: String) {
-    PREPARING("preparing", "Preparing proof..."),
+    PREPARING("preparing", "Compressing proof..."),
     COMPRESSING("compressing", "Compressing proof..."),
     UPLOADING("uploading", "Uploading proof..."),
     UPLOADING_ORIGINAL("uploading_original", "Uploading original proof..."),
@@ -133,8 +133,11 @@ data class ProofCaptureRow(
     /** The goat whose single handling this clip proves. Multiple clips may share this id. */
     val subjectId: String? = null,
     val localUri: String,
+    val processedUri: String? = null,
     val mimeType: String,
     val caption: String?,
+    /** Human-readable RFID/tag for individual-animal proof matching and overlay display. */
+    val rfidTag: String? = null,
     val capturedAtMs: Long,
     /** Freshness/anti-fraud metadata — see `ProofCaptureEntity`'s kdoc ("Camera-only capture"). */
     val capturedStartMs: Long,

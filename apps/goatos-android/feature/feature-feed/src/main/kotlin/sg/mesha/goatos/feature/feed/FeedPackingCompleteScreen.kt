@@ -68,10 +68,10 @@ data class FeedPackingCompleteUiState(
      */
     val alreadySubmitted: Boolean = false,
 ) {
-    /** The mandatory video is recorded and the write is not already committed. */
+    /** The mandatory video is queued locally and the write is not already committed. */
     val submitEnabled: Boolean
         get() = !alreadySubmitted && canComplete && videoCaptured && !isCapturingVideo &&
-            videoStatus == FeedDistributionProofStatus.SYNCED &&
+            videoStatus.isQueuedForSubmit() &&
             result?.status != FeedPackingCompleteStatus.SYNCED && result?.status != FeedPackingCompleteStatus.QUEUED
 
     /** Recording is offered only while the session is still the operator's to act on. */
@@ -152,6 +152,7 @@ fun FeedPackingCompleteScreen(
                     loading = state.isCapturingVideo,
                     loadingLabel = stringResource(R.string.feed_pack_complete_video_uploading),
                     retryLabel = stringResource(R.string.feed_pack_complete_retry_video),
+                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
                     enabled = state.captureEnabled && !committed && !state.isCapturingVideo,
                     message = state.videoMessage,
                     onClick = {

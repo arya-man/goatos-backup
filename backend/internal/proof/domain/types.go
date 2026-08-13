@@ -47,6 +47,15 @@ type CreateUpload struct {
 	IdempotencyKey string
 }
 
+type ListUploadedProofsQuery struct {
+	TenantID      string
+	ScopeType     string
+	ScopeID       string
+	ClientTaskKey string
+	FieldKey      string
+	Limit         int
+}
+
 type CompleteUpload struct {
 	TenantID    string
 	ProofID     string

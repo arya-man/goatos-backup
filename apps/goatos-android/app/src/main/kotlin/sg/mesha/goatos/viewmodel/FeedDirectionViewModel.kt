@@ -300,6 +300,7 @@ class FeedDirectionViewModel @Inject constructor(
     ): FeedDirectionRowUi = FeedDirectionRowUi(
         grainKey = grainKey,
         parkId = parkId,
+        parkLabel = parkLabel,
         shedId = shedId,
         sessionNo = sessionNo,
         // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL

@@ -36,6 +36,7 @@ object AnalyticsFunnels {
         const val SUBMIT_ATTEMPTED: String = "funnel_submit_attempted"
         const val SUBMIT_SUCCEEDED: String = "funnel_submit_succeeded"
         const val SUBMIT_FAILED: String = "funnel_submit_failed"
+        const val SUBMIT_STATUS: String = "submit_status"
 
         /** The operator tapped a disabled/blocked Submit — the client-side readiness gate refused
          *  BEFORE anything reached the outbox, so [SUBMIT_ATTEMPTED] never fires. Previously this
@@ -85,6 +86,9 @@ object AnalyticsFunnels {
         const val PLAYER_STATE: String = "player_state"
         const val ARMED: String = "armed"
         const val TARGET_ACTION: String = "target_action"
+        const val SUBMIT_STATUS: String = "submit_status"
+        const val ATTEMPT_COUNT: String = "attempt_count"
+        const val MAX_ATTEMPTS: String = "max_attempts"
     }
 
     private fun safeTrack(analytics: AnalyticsPort, event: String, props: Map<String, String> = emptyMap()) {
@@ -146,6 +150,27 @@ object AnalyticsFunnels {
 
     fun trackSubmitFailed(analytics: AnalyticsPort, taskId: String, reason: String) {
         safeTrack(analytics, Events.SUBMIT_FAILED, mapOf(Params.TASK_ID to taskId, Params.REASON to reason))
+    }
+
+    fun trackSubmitStatus(
+        analytics: AnalyticsPort,
+        taskId: String,
+        status: String,
+        reason: String? = null,
+        attemptCount: Int = 0,
+        maxAttempts: Int = 0,
+    ) {
+        safeTrack(
+            analytics,
+            Events.SUBMIT_STATUS,
+            buildMap {
+                put(Params.TASK_ID, taskId)
+                put(Params.SUBMIT_STATUS, status)
+                if (!reason.isNullOrBlank()) put(Params.REASON, reason.take(80))
+                if (attemptCount > 0) put(Params.ATTEMPT_COUNT, attemptCount.toString())
+                if (maxAttempts > 0) put(Params.MAX_ATTEMPTS, maxAttempts.toString())
+            },
+        )
     }
 
     /** Call from [submit]'s early-return gates when the client-side readiness check refuses a

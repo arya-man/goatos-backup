@@ -18,7 +18,7 @@ function checkSource(source, label) {
   if (nextProof < 0) {
     throw new Error(`${label}: proof_rescan branch no longer requests goat proof`);
   }
-  const repair = source.indexOf("recordRosterScan(row, tag, capturedAtMs)", reason);
+  const repair = source.indexOf("recordRosterScan(row, tag, capturedAtMs", reason);
   if (repair < 0 || repair > nextProof) {
     throw new Error(
       `${label}: proof_rescan must repair the durable roster scan before proof capture; ` +

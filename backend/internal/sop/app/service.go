@@ -2539,7 +2539,7 @@ func mapRepoErr(err error) error {
 	case errors.Is(err, ports.ErrDenied):
 		return Forbidden("permission_denied", "operation is not allowed")
 	case errors.Is(err, ports.ErrInvalidFilter):
-		return BadRequest("invalid_filter", "filter is invalid")
+		return RetryableConflict("stale_scan_roster", "scan roster changed; refresh and retry")
 	default:
 		return err
 	}

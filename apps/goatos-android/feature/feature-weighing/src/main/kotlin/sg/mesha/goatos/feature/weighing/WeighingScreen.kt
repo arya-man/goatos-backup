@@ -353,12 +353,17 @@ data class WeighingAssignmentUiRow(
         get() = listOf(campaignId, workGroupId, campaignShedId, category, periodLabel)
             .joinToString(":")
 
-    // After operator submits, bucket is non-clickable until reopened or verifier sends rework
+    private val durableStatus: String
+        get() = backendStatus.ifBlank { status }
+
+    // After operator submits, bucket is non-clickable until reopened or verifier sends rework.
+    // Do not derive this from rawStatus: open overdue work can display as "delayed", but a
+    // completed overdue bucket is still with the verifier and must not reopen capture.
     val isSubmittedAndWaitingVerification: Boolean
-        get() = rawStatus.equals("completed", ignoreCase = true)
+        get() = durableStatus.equals("completed", ignoreCase = true) && !isRework
 
     val isClosed: Boolean
-        get() = rawStatus.equals("closed", ignoreCase = true)
+        get() = durableStatus.equals("closed", ignoreCase = true)
 
     val isRework: Boolean
         get() = reworkCount > 0
@@ -367,10 +372,15 @@ data class WeighingAssignmentUiRow(
         get() = plannedBusinessDate.isBeforeIsoDate(dueBusinessDate)
 
     val rawStatus: String
-        get() = if (isDelayedBacklog) "delayed" else backendStatus.ifBlank { status }
+        get() = when {
+            isSubmittedAndWaitingVerification -> "completed"
+            isClosed -> "closed"
+            isDelayedBacklog -> "delayed"
+            else -> durableStatus
+        }
 
     val isClickable: Boolean
-        get() = !isSubmittedAndWaitingVerification && !isClosed
+        get() = isRework || (!isSubmittedAndWaitingVerification && !isClosed)
 
     val canClose: Boolean
         get() = readyToClose && !isClosed

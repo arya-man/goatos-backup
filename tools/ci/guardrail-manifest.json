@@ -924,6 +924,39 @@
       "notes": "Authoring guard for the documented proof-video pipeline; it is not part of the default landing matrix."
     },
     {
+      "id": "android-vaccine-weighing-proof-context",
+      "script": "tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test",
+      "owningDoc": "SKILLS.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Vaccination and weighing proof captures must pass feature/task overlay context through the shared proof pipeline, burn RFID only for per-animal captures, and keep the phone-QA 2/3-animal plus two-vaccine fixture."
+    },
+    {
+      "id": "android-feed-proof-submit",
+      "script": "tools/agent-hooks/check-android-feed-proof-submit.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-feed-proof-submit.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test",
+      "owningDoc": "SKILLS.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Feed direction, packing, and transport submit keys must include selected proof ids; submit status must observe by outbox id; packing completion must pass partition_label."
+    },
+    {
+      "id": "firebase-analytics-param-budget",
+      "script": "tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
+      "makeTarget": "telemetry-guard",
+      "realCheck": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs",
+      "selfTest": "node tools/agent-hooks/check-firebase-analytics-param-budget.mjs --self-test",
+      "owningDoc": "SKILLS.md",
+      "requiredInCI": true,
+      "ciStep": "telemetry-guard",
+      "notes": "Firebase proof analytics must stay a compact allowlisted envelope; rich address/location/path/error details stay in backend analytics and Room events."
+    },
+    {
       "id": "android-proof-video-screenshots",
       "script": "tools/agent-hooks/check-android-proof-video-screenshots.mjs",
       "makeTarget": null,

@@ -1,0 +1,115 @@
+#!/usr/bin/env node
+// Feed proof submit guard.
+// Blocks regressions where uploaded feed proof blobs are disconnected from the submit cycle.
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const repo = resolve(import.meta.dirname, "../..");
+
+const files = {
+  distributionVm: "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FeedDistributionCompleteViewModel.kt",
+  packingVm: "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FeedPackingCompleteViewModel.kt",
+  transportVm: "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/FeedTransportViewModel.kt",
+  backendHandler: "backend/internal/feeddirection/adapters/http/handler.go",
+};
+
+function lineNo(text, index) {
+  return text.slice(0, index).split("\n").length;
+}
+
+function finding(rel, text, needle, reason) {
+  const index = needle ? text.indexOf(needle) : -1;
+  return { rel, line: index >= 0 ? lineNo(text, index) : 1, reason, snippet: needle || "missing required pattern" };
+}
+
+function distributionFindings(text, rel = files.distributionVm) {
+  const findings = [];
+  const longLiteralKey = /feed-distribution-complete:\$groupKey:\$feedWeightPhotoItem:\$videoItem:\$waterVideoItem/.test(text);
+  const shortProofSetKey =
+    /feedDistributionCompleteKey\s*\([^)]*feedWeightPhotoItem[^)]*videoItem[^)]*waterVideoItem[^)]*\)[\s\S]*listOf\s*\(\s*groupKey\s*,\s*feedWeightPhotoItem\s*,\s*videoItem\s*,\s*waterVideoItem\s*\)[\s\S]*(UUID\.nameUUIDFromBytes|MessageDigest)/.test(text);
+  if (!longLiteralKey && !shortProofSetKey) {
+    findings.push(finding(rel, text, "feed-distribution-complete", "distribution submit idempotency key must be proof-set-specific and include all three proof item ids before shortening"));
+  }
+  if (/observeStatus\(\)[\s\S]{0,220}items\.firstOrNull\s*\{\s*it\.id\s*==\s*itemId\s*\}/.test(text)) {
+    findings.push(finding(rel, text, "items.firstOrNull { it.id == itemId }", "distribution submit must observe the exact outbox item with observeItem(itemId), not the bounded global status list"));
+  }
+  if (!/observeItem\s*\(\s*itemId\s*\)/.test(text)) {
+    findings.push(finding(rel, text, "observeOutboxItem", "distribution submit observer must call observeItem(itemId)"));
+  }
+  return findings;
+}
+
+function packingFindings(text, rel = files.packingVm) {
+  const findings = [];
+  if (!/feed-packing-complete:\$groupKey:\$videoItem/.test(text)) {
+    findings.push(finding(rel, text, "feed-packing-complete", "packing submit idempotency key must include the selected packing proof item id"));
+  }
+  if (!/observeSyncStatus\s*\(\s*\)/.test(text) || !/inFlightCount\s*>\s*0/.test(text)) {
+    findings.push(finding(rel, text, "observeSyncStatus", "packing refresh state must observe outbox in-flight status"));
+  }
+  return findings;
+}
+
+function transportFindings(text, rel = files.transportVm) {
+  const findings = [];
+  if (!/feed-transport-submit:\$taskId:\$proof/.test(text)) {
+    findings.push(finding(rel, text, "feed-transport-submit", "transport submit idempotency key must include the selected proof item id"));
+  }
+  if (/observeStatus\(\)[\s\S]{0,220}items\.firstOrNull\s*\{\s*it\.id\s*==\s*itemId\s*\}/.test(text)) {
+    findings.push(finding(rel, text, "items.firstOrNull{it.id==itemId}", "transport submit must observe the exact outbox item with observeItem(itemId), not the bounded global status list"));
+  }
+  if (!/observeItem\s*\(\s*itemId\s*\)/.test(text)) {
+    findings.push(finding(rel, text, "observeOutboxItem", "transport submit observer must call observeItem(itemId)"));
+  }
+  if (!/observeSyncStatus\s*\(\s*\)/.test(text) || !/inFlightCount\s*>\s*0/.test(text)) {
+    findings.push(finding(rel, text, "observeSyncStatus", "transport refresh state must observe outbox in-flight status"));
+  }
+  return findings;
+}
+
+function handlerFindings(text, rel = files.backendHandler) {
+  const findings = [];
+  if (!/PartitionLabel\s+string\s+`json:"partition_label"`/.test(text)) {
+    findings.push(finding(rel, text, "completePackingRequest", "packing complete HTTP request must parse partition_label"));
+  }
+  if (!/PartitionLabel:\s+strings\.TrimSpace\(body\.PartitionLabel\)/.test(text)) {
+    findings.push(finding(rel, text, "CompletePackingInput", "packing complete HTTP handler must pass partition_label to the service"));
+  }
+  return findings;
+}
+
+function selfTest() {
+  const badDistribution = distributionFindings("idempotencyKey = \"feed-distribution-complete:$groupKey\"\nsyncRepository.observeStatus().map { status -> status.items.firstOrNull { it.id == itemId } }").length >= 2;
+  const goodDistribution = distributionFindings("idempotencyKey = \"feed-distribution-complete:$groupKey:$feedWeightPhotoItem:$videoItem:$waterVideoItem\"\nsyncRepository.observeItem(itemId)").length === 0;
+  const goodShortDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String, videoItem: String, waterVideoItem: String): String { val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length === 0;
+  const badShortDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String, videoItem: String): String { val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length >= 1;
+  const badPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey\"\nfun syncNow() {}").length >= 2;
+  const goodPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey:$videoItem\"\nfun observeSyncStatus(){ syncRepository.observeStatus().map { it.inFlightCount > 0 } }").length === 0;
+  const badTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId\"\nsync.observeStatus().map{status->status.items.firstOrNull{it.id==itemId}}").length >= 3;
+  const goodTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId:$proof\"\nfun observeOutboxItem(itemId:String){sync.observeItem(itemId)}\nfun observeSyncStatus(){sync.observeStatus().map{it.inFlightCount>0}}").length === 0;
+  const badHandler = handlerFindings("type completePackingRequest struct { ShedID string `json:\"shed_id\"` }\nCompletePackingInput{ShedID: body.ShedID}").length >= 2;
+  const goodHandler = handlerFindings("type completePackingRequest struct { PartitionLabel string `json:\"partition_label\"` }\nCompletePackingInput{PartitionLabel: strings.TrimSpace(body.PartitionLabel)}").length === 0;
+  const ok = badDistribution && goodDistribution && goodShortDistribution && badShortDistribution && badPacking && goodPacking && badTransport && goodTransport && badHandler && goodHandler;
+  console.log(ok ? "android-feed-proof-submit self-test: ok" : "android-feed-proof-submit self-test: FAIL");
+  process.exit(ok ? 0 : 1);
+}
+
+if (process.argv.includes("--self-test")) selfTest();
+
+const findings = [
+  ...distributionFindings(readFileSync(resolve(repo, files.distributionVm), "utf8")),
+  ...packingFindings(readFileSync(resolve(repo, files.packingVm), "utf8")),
+  ...transportFindings(readFileSync(resolve(repo, files.transportVm), "utf8")),
+  ...handlerFindings(readFileSync(resolve(repo, files.backendHandler), "utf8")),
+];
+
+if (findings.length) {
+  console.error("android-feed-proof-submit guard FAILED:");
+  for (const item of findings) {
+    console.error(`  ${item.rel}:${item.line} ${item.reason} (${item.snippet})`);
+  }
+  process.exit(1);
+}
+
+console.log("android-feed-proof-submit: ok");

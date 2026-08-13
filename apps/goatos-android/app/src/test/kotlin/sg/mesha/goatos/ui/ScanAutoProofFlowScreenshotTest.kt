@@ -366,5 +366,5 @@ private fun baseState() = sampleScanState().copy(
     submitLabel = "Finalize shed",
     canSubmit = false,
     scanEnabled = true,
-    lastSyncedAt = 0L,
+    lastSyncedAt = null,
 )

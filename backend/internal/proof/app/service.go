@@ -53,6 +53,27 @@ func (s *Service) CreateUpload(ctx context.Context, in domain.CreateUpload) (dom
 	return target, nil
 }
 
+func (s *Service) ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	query.TenantID = strings.TrimSpace(query.TenantID)
+	query.ScopeType = strings.TrimSpace(query.ScopeType)
+	query.ScopeID = strings.TrimSpace(query.ScopeID)
+	query.ClientTaskKey = strings.TrimSpace(query.ClientTaskKey)
+	query.FieldKey = strings.TrimSpace(query.FieldKey)
+	if !uuidutil.IsUUIDString(query.TenantID) || !uuidutil.IsUUIDString(query.ScopeID) {
+		return nil, ErrInvalid
+	}
+	if !oneOf(query.ScopeType, "tenant", "farm", "park", "shed", "cohort", "batch", "task", "goat") {
+		return nil, ErrInvalid
+	}
+	if query.ClientTaskKey == "" {
+		return nil, ErrInvalid
+	}
+	if query.Limit <= 0 || query.Limit > 20 {
+		query.Limit = 20
+	}
+	return s.repo.ListUploadedProofs(ctx, query)
+}
+
 func (s *Service) CompleteUpload(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error) {
 	normalizeComplete(&in)
 	if err := validateComplete(in); err != nil {

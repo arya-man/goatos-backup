@@ -269,6 +269,9 @@ const WRITE_PATH_ALLOWED_TABLES = new Set([
   // door. Widening this to per-animal load membership means procurement_load_goats
   // and a recorded maintainer exception, exactly like the goats/goat_identifiers one.
   "weighing_shed_load_tags",
+  // Weighing-owned kernel execution rows; submit marks the exact bucket completed so
+  // mobile lists stop reopening finished sheds without reading any herd/vaccine roster.
+  "weighing_work_items",
 ]);
 
 // A CTE may never be NAMED after a banned table. Otherwise it shadows it:

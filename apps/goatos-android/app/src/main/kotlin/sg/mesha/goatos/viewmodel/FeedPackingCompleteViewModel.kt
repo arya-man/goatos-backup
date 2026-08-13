@@ -10,10 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -21,14 +24,19 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteResultUi
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteStatus
 import sg.mesha.goatos.feature.feed.FeedPackingCompleteUiState
+import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import java.util.Locale
 import javax.inject.Inject
 
@@ -69,6 +77,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val targetDate: String = savedStateHandle.get<String>(ARG_TARGET_DATE).orEmpty()
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
+    private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
     // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
@@ -85,6 +94,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
         feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
 
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
+    private var videoProofRowId: String? = null
 
     /** Durable per shed-session; see the shared store's kdoc for why SavedStateHandle lost the clip. */
     private var draft = CaptureDraft()
@@ -100,15 +110,20 @@ class FeedPackingCompleteViewModel @Inject constructor(
     val state: StateFlow<FeedPackingCompleteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var videoStatusJob: Job? = null
+    private var syncStatusJob: Job? = null
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
             _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
+            draft.proofs[STEP_VIDEO]?.let(::observeProofItem)
             recomputeCanComplete()
             draft.submitOutboxItemId?.let(::observeOutboxItem)
         }
+        observeSyncStatus()
+        observeDurableProof()
     }
 
     fun onEvent(event: FeedPackingCompleteEvent) {
@@ -118,7 +133,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
             FeedPackingCompleteEvent.ReRecordPackingVideo -> {
                 viewModelScope.launch {
                     if (_state.value.isCapturingVideo) return@launch
-                    draft.proofs[STEP_VIDEO]?.let { syncRepository.deleteOutboxItem(it) }
+                    if (!discardExistingProof()) {
+                        _state.update { it.copy(videoMessage = it.videoMessage ?: PROOF_FAILED) }
+                        return@launch
+                    }
                     drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     videoKey.invalidate()
@@ -139,7 +157,14 @@ class FeedPackingCompleteViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_PACKING)
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = feedPackingProofCaption(),
+                        primaryTag = shedLabel.ifBlank { shedId },
+                        workLabel = sessionLabel.ifBlank { "Session $sessionNo" },
+                        prompt = ProofCapturePrompt.FEED_PACKING,
+                    ),
+                )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed packing video capture failed")
                 null
@@ -156,7 +181,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     subjectId = shedId,
                     localUri = captured.localUri,
                     mimeType = captured.mimeType,
-                    caption = "Feed packing proof",
+                    caption = feedPackingProofCaption(),
                     scopeType = "shed",
                     scopeId = shedId,
                     capturedStartMs = captured.startedAtMs,
@@ -168,13 +193,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 )
             ) {
                 is AppResult.Ok -> {
+                    videoProofRowId = result.value.id
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                        _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
                         return@launch
                     }
                     drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, proofOutboxId)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                    observeProofItem(proofOutboxId)
                     analytics.track(AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED)
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
                     recomputeCanComplete()
@@ -187,8 +214,105 @@ class FeedPackingCompleteViewModel @Inject constructor(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
                         mapOf(AnalyticsEvents.Params.REASON to result.message),
                     )
-                    _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                    _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
                 }
+            }
+        }
+    }
+
+    private fun observeProofItem(itemId: String) {
+        videoStatusJob?.cancel()
+        videoStatusJob = viewModelScope.launch {
+            syncRepository.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect(::updateProofStatus)
+        }
+    }
+
+    private fun observeDurableProof() {
+        viewModelScope.launch {
+            proofCaptureRepository.observeProofs(groupKey, partitionLabel)
+                .collect { rows ->
+                    val row = rows
+                        .filter { it.fieldKey == FIELD_FEED_PACKING_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
+                        .maxByOrNull { it.capturedAtMs }
+                        ?: return@collect
+                    hydrateFromProof(row)
+                    recomputeCanComplete()
+                }
+        }
+    }
+
+    private suspend fun hydrateFromProof(row: ProofCaptureRow) {
+        videoProofRowId = row.id
+        row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
+            if (draft.proofs[STEP_VIDEO] != outboxId) {
+                drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, outboxId)
+                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+            }
+            observeProofItem(outboxId)
+        }
+        val status = row.toProofStatus()
+        _state.update {
+            it.copy(
+                videoCaptured = true,
+                videoPreviewPath = row.previewUri() ?: it.videoPreviewPath,
+                videoStatus = status,
+                videoMessage = row.toProofMessage(status, VIDEO_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
+            )
+        }
+    }
+
+    private fun updateProofStatus(item: SyncQueueItem) {
+        val proofStatus = when (item.status) {
+            SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
+            SyncItemStatus.IN_FLIGHT -> FeedDistributionProofStatus.UPLOADING
+            SyncItemStatus.SUCCEEDED -> FeedDistributionProofStatus.SYNCED
+            SyncItemStatus.FAILED -> FeedDistributionProofStatus.FAILED
+        }
+        val message = when (proofStatus) {
+            FeedDistributionProofStatus.QUEUED -> VIDEO_QUEUED
+            FeedDistributionProofStatus.UPLOADING -> PROOF_UPLOADING
+            FeedDistributionProofStatus.SYNCED -> PROOF_SYNCED
+            FeedDistributionProofStatus.FAILED -> item.lastError ?: PROOF_FAILED
+            FeedDistributionProofStatus.EMPTY -> null
+        }
+        _state.update {
+            it.copy(
+                videoCaptured = it.videoCaptured || item.localFilePath != null,
+                videoPreviewPath = item.localFilePath ?: it.videoPreviewPath,
+                videoStatus = proofStatus,
+                videoMessage = message,
+            )
+        }
+        recomputeCanComplete()
+    }
+
+    private suspend fun discardExistingProof(): Boolean {
+        val proofOutboxItemId = draft.proofs[STEP_VIDEO]
+        val rowId = videoProofRowId ?: proofCaptureRepository
+            .observeProofs(groupKey, partitionLabel)
+            .first()
+            .firstOrNull { it.outboxItemId == proofOutboxItemId }
+            ?.id
+        if (rowId.isNullOrBlank()) {
+            videoProofRowId = null
+            return true
+        }
+        return when (val removed = proofCaptureRepository.remove(groupKey, rowId)) {
+            is AppResult.Ok -> {
+                videoProofRowId = null
+                true
+            }
+            is AppResult.Err -> {
+                removed.cause?.let { crashReporter.recordException(it, "feed packing proof discard failed") }
+                analytics.track(
+                    AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
+                    mapOf(AnalyticsEvents.Params.REASON to removed.message),
+                )
+                _state.update { it.copy(videoMessage = removed.message) }
+                false
             }
         }
     }
@@ -197,15 +321,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
         val current = _state.value
         val videoItem = draft.proofs[STEP_VIDEO]
         // Defense in depth alongside the UI gate: the video must exist to submit.
-        if (!current.videoCaptured || videoItem.isNullOrBlank()) {
-            _state.update { it.copy(canComplete = false) }
+        if (!current.submitEnabled || videoItem.isNullOrBlank()) {
+            _state.update { it.copy(canComplete = false, videoMessage = "Record the packing video before submitting.") }
             return
         }
         viewModelScope.launch {
-            // STABLE per shed-session and durable: a re-entered screen resends the SAME key so a
-            // completion the server already accepted cannot be submitted twice.
-            val completeIdempotencyKey = draft.submitIdempotencyKey ?: "feed-packing-complete:$groupKey"
-            if (draft.submitIdempotencyKey == null) {
+            // Stable for the selected proof, fresh when the operator re-records. A retry of the same
+            // video must replay; a replacement video must not collide with the old submit payload.
+            val completeIdempotencyKey = "feed-packing-complete:$groupKey:$videoItem"
+            if (draft.submitIdempotencyKey != completeIdempotencyKey) {
                 drafts.putSubmit(CaptureFlow.FEED_PACKING, groupKey, completeIdempotencyKey, null)
                 draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
             }
@@ -274,11 +398,34 @@ class FeedPackingCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun observeSyncStatus() {
+        syncStatusJob?.cancel()
+        syncStatusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status -> status.inFlightCount > 0 }
+                .distinctUntilChanged()
+                .collect { syncing ->
+                    _state.update { it.copy(isSyncing = syncing) }
+                }
+        }
+    }
+
     private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toPackingStatus(): FeedPackingCompleteStatus = when (this) {
         sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED -> FeedPackingCompleteStatus.SYNCED
         sg.mesha.goatos.feature.counts.CountsWriteStatus.FAILED -> FeedPackingCompleteStatus.FAILED
         else -> FeedPackingCompleteStatus.QUEUED
     }
+
+    private fun feedPackingProofCaption(): String =
+        proofOverlayContextLine(
+            feature = "Feed packing",
+            parkLabel = parkLabel.ifBlank { parkId },
+            locationLabel = shedLabel.ifBlank { shedId },
+            extraLabel = listOf(
+                sessionLabel.ifBlank { "Session $sessionNo" },
+                partitionLabel,
+            ).filter { it.isNotBlank() }.joinToString(" . "),
+        )
 
     companion object {
         const val ARG_PARK_ID = "park_id"
@@ -288,6 +435,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
         const val ARG_TARGET_DATE = "target_date"
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
+        const val ARG_PARK_LABEL = "park_label"
 
         /** The PEN worked. Part of the completion's identity: without it one pen's video closed
          *  out every pen of the shed (STG 2026-08-08). */
@@ -296,12 +444,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"
-        private const val KEY_COMPLETE_IDEMPOTENCY = "feedPacking.completeKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedPacking.videoKey"
         private const val FIELD_FEED_PACKING_VIDEO = "feed_packing_video"
         private const val QUEUED_MESSAGE = "Submitted for verification. A verifier will review the packing video."
         private const val SYNCED_MESSAGE = "Submitted. Waiting for verifier approval before this packing is counted."
         private const val VIDEO_QUEUED = "Packing video saved on this phone. It will upload automatically."
+        private const val PROOF_UPLOADING = "Packing video upload is in progress."
+        private const val PROOF_SYNCED = "Packing video is ready."
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 }

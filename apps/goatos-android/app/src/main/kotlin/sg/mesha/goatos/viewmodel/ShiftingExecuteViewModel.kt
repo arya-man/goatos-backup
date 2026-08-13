@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -75,6 +76,8 @@ class ShiftingExecuteViewModel @Inject constructor(
     // The movement's own destination shed is the outbox group key + proof scope. Resolved from the
     // cached row on load, held here so completion/proof enqueues do not re-read Room.
     private var destinationShedId: String = ""
+    private var destinationParkLabel: String = ""
+    private var destinationLocationLabel: String = ""
 
     private val proofKey = DraftIdempotencyKey(savedStateHandle, KEY_PROOF_IDEMPOTENCY, "counts-shifting-proof")
     private val packingProofKey = DraftIdempotencyKey(savedStateHandle, KEY_PACKING_PROOF_IDEMPOTENCY, "counts-shifting-packing-proof")
@@ -137,6 +140,8 @@ class ShiftingExecuteViewModel @Inject constructor(
                     resetFeedEvidenceForChangedConfig()
             }
             destinationShedId = cached.destinationShedId
+            destinationParkLabel = cached.destinationParkName.ifBlank { cached.destinationParkId }
+            destinationLocationLabel = cached.destinationOperationalLocationDisplay.ifBlank { cached.destinationShedName }
             _state.update { current -> cached.toUiState(current) }
         }
     }
@@ -153,7 +158,14 @@ class ShiftingExecuteViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, capturingStep = step, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(prompt)
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = shiftingProofCaption(step),
+                        primaryTag = destinationLocationLabel.ifBlank { destinationShedId },
+                        workLabel = step,
+                        prompt = prompt,
+                    ),
+                )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "shifting execute video capture failed")
                 null
@@ -169,7 +181,7 @@ class ShiftingExecuteViewModel @Inject constructor(
                 subjectId = destinationShedId,
                 localUri = captured.localUri,
                 mimeType = captured.mimeType,
-                caption = "Shifting $step proof",
+                caption = shiftingProofCaption(step),
                 scopeType = "shed",
                 scopeId = destinationShedId,
                 capturedStartMs = captured.startedAtMs,
@@ -222,6 +234,14 @@ class ShiftingExecuteViewModel @Inject constructor(
             }
         }
     }
+
+    private fun shiftingProofCaption(step: String): String =
+        proofOverlayContextLine(
+            feature = "Shifting",
+            parkLabel = destinationParkLabel,
+            locationLabel = destinationLocationLabel.ifBlank { destinationShedId },
+            extraLabel = step.replace('_', ' ').titleCase(),
+        )
 
     /**
      * Replaces one step's clip. The previously queued PROOF_UPLOAD is deleted first (it has not been

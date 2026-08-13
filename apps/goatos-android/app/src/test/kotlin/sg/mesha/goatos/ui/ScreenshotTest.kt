@@ -982,7 +982,7 @@ class ScreenshotTest {
             PagingData.from(
                 listOf(
                     FeedDirectionRowUi(
-                        grainKey = "row-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
+                        grainKey = "row-1", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-1", sessionNo = 1,
                         shedLabel = "Gandhi 1", shedTag = "Adult", breed = "Boer",
                         partitionLabel = "",
                         rationGroup = "Milking does", experimentArm = "",
@@ -993,7 +993,7 @@ class ScreenshotTest {
                         lifecycleStatus = "pending",
                     ),
                     FeedDirectionRowUi(
-                        grainKey = "row-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
+                        grainKey = "row-2", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-2", sessionNo = 1,
                         shedLabel = "Godel 1 - Part 3", shedTag = "Kid", breed = "Sirohi",
                         partitionLabel = "Part 3",
                         rationGroup = "Weaners", experimentArm = "",
@@ -1047,7 +1047,7 @@ class ScreenshotTest {
                     // which nobody has packed at all -- so the chip cannot tell the two apart and this
                     // golden is what proves an operator can.
                     FeedPackingRowUi(
-                        grainKey = "pack-3", parkId = "park-1", shedId = "shed-3", sessionNo = 1,
+                        grainKey = "pack-3", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 1,
                         shedLabel = "Castro - 2",
                         partitionLabel = "2", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 52,
@@ -1057,7 +1057,7 @@ class ScreenshotTest {
                             "quantities changed. Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
-                        grainKey = "pack-4", parkId = "park-1", shedId = "shed-3", sessionNo = 2,
+                        grainKey = "pack-4", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 2,
                         shedLabel = "Castro - 2",
                         partitionLabel = "2", sessionLabel = "Evening",
                         workflow = "normal", experimentArm = "", headCount = 52,
@@ -1067,7 +1067,7 @@ class ScreenshotTest {
                             "quantities changed. Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
-                        grainKey = "pack-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
+                        grainKey = "pack-1", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-1", sessionNo = 1,
                         shedLabel = "Gandhi 1",
                         partitionLabel = "", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 40,
@@ -1076,7 +1076,7 @@ class ScreenshotTest {
                     ),
                     // A PARTITIONED pen, so the golden also shows shed and pen rendering together.
                     FeedPackingRowUi(
-                        grainKey = "pack-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
+                        grainKey = "pack-2", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-2", sessionNo = 1,
                         shedLabel = "Godel 1 - Part 3",
                         partitionLabel = "Part 3", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 18,

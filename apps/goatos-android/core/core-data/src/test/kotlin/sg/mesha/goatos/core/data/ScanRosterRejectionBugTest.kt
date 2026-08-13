@@ -211,6 +211,56 @@ class ScanRosterRejectionBugTest {
     }
 
     @Test
+    fun `in progress sibling vaccine keeps the animal open and out of done ids`() = runTest {
+        val dao = database.scanRosterRowDao()
+        val scopeKey = "castro-1|vaccination"
+
+        dao.upsertAll(
+            listOf(
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#et-tt",
+                    scopeKey = scopeKey,
+                    shedId = "castro-1",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "TAG-1",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "tag1",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "ET+TT",
+                    status = "completed",
+                    scannedAtMs = 1000L,
+                    obligationId = "obl-et-tt",
+                    seq = 0L,
+                    updatedAt = 1000L,
+                ),
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#ppr",
+                    scopeKey = scopeKey,
+                    shedId = "castro-1",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "TAG-1",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "tag1",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "PPR",
+                    status = "in_progress",
+                    scannedAtMs = 1000L,
+                    obligationId = "obl-ppr",
+                    seq = 1L,
+                    updatedAt = 1000L,
+                ),
+            ),
+        )
+
+        assertEquals(emptyList<String>(), dao.observeDoneGoatIds(scopeKey).first())
+        assertEquals(listOf("due" to 1), dao.countByStatus(scopeKey).map { it.status to it.count })
+        assertEquals(listOf("due" to 1), dao.observeCountsByStatus(scopeKey).first().map { it.status to it.count })
+        assertEquals(listOf("due" to 1), dao.countByStatusForGoats(scopeKey, listOf("goat-1")).map { it.status to it.count })
+    }
+
+    @Test
     fun `status stays done if scannedAtMs remains not null`() = runTest {
         val dao = database.scanRosterRowDao()
         val scopeKey = "shed-stable|task-stable"

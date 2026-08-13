@@ -950,7 +950,7 @@ WHERE NOT EXISTS (
     AND oi.status = 'scheduled'
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) > now()
 )
-ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
+ON CONFLICT (tenant_id, task_id, field_key, normalized_tag, COALESCE(obligation_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
 -- A re-scan of the SAME tag (retry of the same cycle, OR a genuinely new capture after a
 -- verifier rejection reopened the obligation — same obligation_id, only its row_version bumps)
 -- must overwrite the durable evidence with what was just scanned, not merely touch updated_at.
@@ -1156,19 +1156,25 @@ eligible AS (
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN eligible e
-    ON e.obligation_id = c.obligation_id
-    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  CROSS JOIN target_shed target
   WHERE c.tenant_id = $1::uuid
     AND c.task_id = $2::uuid
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
+    AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND (
+      NULLIF(BTRIM($5), '') IS NULL
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT subject_id) AS n

@@ -329,12 +329,11 @@ class ShedsViewModelTest {
 
     /**
      * Maintainer-reported: Godel 1 rendered "3 TARGETED · 1 OPEN · 2 DONE · 2 ACCEPTED" and still
-     * refused the tap with "Godel 1 is already submitted for verification".
+     * refused the tap even after the verifier sent work back.
      *
-     * That is the verifier reject/reopen loop. A shed submitted, then partly sent back (or which
-     * gained a newly-due animal), keeps a TERMINAL row status while its open COUNT climbs back
-     * above zero. The record-only predicate read only the statuses, so the card and the tap gate
-     * disagreed on screen: one said a goat was still open, the other said the shed was finished.
+     * That is the verifier reject/reopen loop. A shed submitted, then partly sent back, may keep
+     * terminal submission fields while its `workState` becomes rejected/deferred and its open COUNT
+     * climbs back above zero. The record-only predicate must honor that explicit redo state.
      *
      * Remaining open work must always win -- otherwise the reopened animal can never be worked.
      */
@@ -355,7 +354,7 @@ class ShedsViewModelTest {
                         doneCount = 2,
                         acceptedCount = 2,
                         // Terminal status carried over from the original submission...
-                        workState = "completed",
+                        workState = "rejected",
                         sopStatus = "accepted",
                         verificationStatus = "accepted",
                     ),
@@ -378,6 +377,92 @@ class ShedsViewModelTest {
             "a shed with open work must never be gated as already-submitted",
             false,
             row!!.opensRecordOnly,
+        )
+    }
+
+    @Test
+    fun `a submitted shed stays record-only even when open count lags`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-submitted",
+                        shedName = "Castro 1",
+                        parkId = "park-cpt",
+                        parkName = "CPT",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 3,
+                        doneCount = 3,
+                        acceptedCount = 0,
+                        reviewCount = 3,
+                        workState = "verification_pending",
+                        sopStatus = "submitted",
+                        verificationStatus = "pending",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-submitted" }
+        assertTrue("submitted shed must stay visible for review", row != null)
+        assertEquals(
+            "submitted/review state must win over stale open counts and block scan re-entry",
+            true,
+            row!!.opensRecordOnly,
+        )
+    }
+
+    @Test
+    fun `a proof uploaded shed before submit stays openable for finalize`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-proof-ready",
+                        shedName = "Castro 1",
+                        parkId = "park-cbe",
+                        parkName = "Coimbatore",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 0,
+                        doneCount = 3,
+                        acceptedCount = 0,
+                        workState = "open",
+                        sopStatus = "open",
+                        proofStatus = "uploaded",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-proof-ready" }
+        assertTrue("proof-ready shed must stay on the list", row != null)
+        assertTrue("proof-ready shed remains date-open", row!!.canOpen)
+        assertEquals(
+            "uploaded proof alone must not lock the card before finalize/submit",
+            false,
+            row.opensRecordOnly,
         )
     }
 }

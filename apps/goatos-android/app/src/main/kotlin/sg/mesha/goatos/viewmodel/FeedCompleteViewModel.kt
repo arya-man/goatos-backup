@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -68,6 +69,7 @@ class FeedCompleteViewModel @Inject constructor(
     private val targetDate: String = savedStateHandle.get<String>(ARG_TARGET_DATE).orEmpty()
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
+    private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
 
     private val completionKey = FeedCompletionLocalStore.key(shedId, null, sessionNo, workflow)
 
@@ -105,7 +107,14 @@ class FeedCompleteViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(ProofCapturePrompt.FEED_DISTRIBUTION)
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = feedCompleteProofCaption(),
+                        primaryTag = shedLabel.ifBlank { shedId },
+                        workLabel = sessionLabel.ifBlank { "Session $sessionNo" },
+                        prompt = ProofCapturePrompt.FEED_DISTRIBUTION,
+                    ),
+                )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "feed complete video capture failed")
                 null
@@ -121,7 +130,7 @@ class FeedCompleteViewModel @Inject constructor(
                 subjectId = shedId,
                 localUri = captured.localUri,
                 mimeType = captured.mimeType,
-                caption = "Feed complete session $sessionNo",
+                caption = feedCompleteProofCaption(),
                 scopeType = "shed",
                 scopeId = shedId,
                 capturedStartMs = captured.startedAtMs,
@@ -207,6 +216,14 @@ class FeedCompleteViewModel @Inject constructor(
         else -> FeedCompleteStatus.QUEUED
     }
 
+    private fun feedCompleteProofCaption(): String =
+        proofOverlayContextLine(
+            feature = "Feed direction",
+            parkLabel = parkLabel.ifBlank { parkId },
+            locationLabel = shedLabel.ifBlank { shedId },
+            extraLabel = sessionLabel.ifBlank { "Session $sessionNo" },
+        )
+
     companion object {
         const val ARG_PARK_ID = "park_id"
         const val ARG_SHED_ID = "shed_id"
@@ -215,6 +232,7 @@ class FeedCompleteViewModel @Inject constructor(
         const val ARG_TARGET_DATE = "target_date"
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
+        const val ARG_PARK_LABEL = "park_label"
 
         private const val KEY_COMPLETE_IDEMPOTENCY = "feedComplete.completeKey"
         private const val KEY_OUTBOX_ITEM_ID = "feedComplete.outboxItemId"

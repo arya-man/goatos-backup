@@ -120,6 +120,16 @@ data class WeighingTaskShedUiRow(
 ) {
     val isLumpSum: Boolean get() = category.equals("per_shed_partition", ignoreCase = true)
     val categoryLabel: String get() = if (isLumpSum) "Lump-sum" else "Individual"
+    /**
+     * Operator execution is open only while the bucket is genuinely actionable. A submitted
+     * (`completed`) bucket sits with the verifier and must not reopen scan/capture just because the
+     * task detail card is still visible; verifier-sent rework is the explicit exception.
+     */
+    val canOpenExecution: Boolean
+        get() {
+            val normalized = status.trim().lowercase()
+            return reworked || (normalized != "completed" && normalized != "closed")
+        }
     val uiKey: String
         get() = listOf(campaignId, campaignShedId, locationId, category)
             .joinToString("|") { it.trim() }
@@ -447,7 +457,7 @@ fun WeighingTaskDetailScreen(
             ) { index ->
                 val shed = state.sheds[index]
                 LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }
-                TaskShedCard(row = shed, onOpen = { onOpenShed(shed) })
+                TaskShedCard(row = shed, onOpen = { if (shed.canOpenExecution) onOpenShed(shed) })
             }
             // Secondary actions sit BELOW the work, and ONLY actions that do something.
             //
@@ -545,7 +555,7 @@ private fun TaskShedCard(
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-            .clickable(role = Role.Button, onClick = onOpen)
+            .clickable(enabled = row.canOpenExecution, role = Role.Button, onClick = onOpen)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
@@ -591,8 +601,12 @@ private fun TaskShedCard(
         // ONE affordance per bucket card. Reopen lives on the shed itself, behind its own
         // confirm, so a single stray tap on a card can never hand a bucket back to an operator.
         Text(
-            text = stringResource(R.string.weighing_task_view_shed),
-            color = MeshaColors.BrandD,
+            text = if (row.canOpenExecution) {
+                stringResource(R.string.weighing_task_view_shed)
+            } else {
+                stringResource(R.string.weighing_pending_verification)
+            },
+            color = if (row.canOpenExecution) MeshaColors.BrandD else MeshaColors.Muted,
             style = MeshaType.cta,
             modifier = Modifier.fillMaxWidth(),
         )

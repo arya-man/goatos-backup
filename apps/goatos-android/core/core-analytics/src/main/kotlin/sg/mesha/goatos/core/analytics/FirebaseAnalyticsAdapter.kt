@@ -30,7 +30,7 @@ class FirebaseAnalyticsAdapter(
     }
 
     override fun track(event: String, props: Map<String, String>) {
-        val mergedProps = analyticsContext.standardEventParams() + props
+        val mergedProps = firebaseEventParams(analyticsContext.standardEventParams() + props)
         val bundle = Bundle(mergedProps.size)
         for ((key, value) in mergedProps) bundle.putString(key, value)
         firebaseAnalytics.logEvent(event, bundle)
@@ -80,6 +80,50 @@ class FirebaseAnalyticsAdapter(
         private const val USER_ID_CRASH_KEY = "member_id"
     }
 }
+
+internal const val FIREBASE_MAX_EVENT_PARAMS = 25
+internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
+
+internal fun firebaseEventParams(props: Map<String, String>): Map<String, String> {
+    val result = LinkedHashMap<String, String>(FIREBASE_MAX_EVENT_PARAMS) // mobile-guard:ignore: bounded by FIREBASE_MAX_EVENT_PARAMS and allocated per event only.
+    for (key in FIREBASE_PARAM_ALLOWLIST) {
+        props[key]?.let { value ->
+            if (result.size < FIREBASE_MAX_EVENT_PARAMS) result[key] = value.firebaseParamValue()
+        }
+    }
+    return result
+}
+
+private fun String.firebaseParamValue(): String =
+    if (length <= FIREBASE_MAX_PARAM_VALUE_LENGTH) this else take(FIREBASE_MAX_PARAM_VALUE_LENGTH)
+
+private val FIREBASE_PARAM_ALLOWLIST = listOf(
+    AnalyticsEvents.Params.DEVICE_ID,
+    AnalyticsEvents.Params.JOURNEY_ID,
+    AnalyticsEvents.UserProps.ROLE,
+    AnalyticsEvents.UserProps.PRIMARY_PARK,
+    "proof_id",
+    "task_id",
+    "field_key",
+    "feature_surface",
+    "proof_subject",
+    "rfid_tag",
+    AnalyticsEvents.Params.RFID,
+    AnalyticsEvents.Params.OUTCOME,
+    AnalyticsEvents.Params.REASON,
+    "capture_source",
+    "mime_type",
+    "processing_state",
+    "processing_attempt",
+    "upload_original",
+    "location_status",
+    "geocoder_status",
+    "duration_bucket",
+    "original_size_bucket",
+    "processed_size_bucket",
+    "proof_upload_status",
+    "submit_status",
+)
 
 fun AnalyticsContext.standardEventParams(): Map<String, String> =
     buildMap {
