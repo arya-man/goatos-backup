@@ -26,11 +26,14 @@ import (
 //   - The status/retired_at filters live in the JOIN's ON clause for the shed side. Putting them in
 //     WHERE would silently convert the LEFT JOIN back into an inner join and drop exactly those
 //     empty parks.
-//   - legacy partition-alias locations are suppressed at the shed JOIN. If an active sibling
-//     parent shed ("Castro") has an active partition catalog row "1", then the old active shed row
-//     named "Castro 1" is not a separate destination; the parent+partition row renders as
-//     "Castro - 1". Genuine same-named sheds in different parks remain because the sibling check is
-//     park-local.
+//   - legacy partition-alias locations are suppressed at the shed JOIN through the SHARED
+//     oploc.PartitionAliasExclusionSQL, not a local copy. If an active sibling parent shed
+//     ("Castro") has an active partition catalog row "1", the old active shed row named "Castro 1"
+//     is not a separate destination; the parent+partition row renders as "Castro - 1". The local
+//     copy this replaced handled only that spelling: for "Mandela 1 - Part 3" the remainder is
+//     "part3" against a normalized_label of "3", so every "- Part N" alias survived and the picker
+//     served 195 rows for 120 real locations -- 75 exact-duplicate labels behind two shed ids.
+//     Genuine same-named sheds in different parks remain because the sibling check is park-local.
 //   - partitions comes from the shed_partitions CATALOG (status='active'), LEFT JOINed so a shed
 //     with no catalog rows still yields exactly ONE destination row with partition_label NULL --
 //     the bare, non-partitioned shed. A shed WITH real partitions returns one row per partition.
@@ -52,7 +55,7 @@ import (
 //
 // mobile-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 // scale-guard:ignore: bounded location catalog cached on-device, not a paginated feed
-const shiftingDestinationCatalogQuery = `
+var shiftingDestinationCatalogQuery = `
 SELECT
     park.location_id::text,
     park.name,
@@ -68,27 +71,7 @@ LEFT JOIN locations shed
       AND shed.location_type = 'shed'
       AND shed.status = 'active'
       AND shed.retired_at IS NULL
-      AND NOT EXISTS (
-          SELECT 1
-          FROM locations parent_shed
-          JOIN shed_partitions parent_partition
-            ON parent_partition.tenant_id = parent_shed.tenant_id
-           AND parent_partition.shed_id = parent_shed.location_id
-           AND parent_partition.status = 'active'
-          WHERE parent_shed.tenant_id = shed.tenant_id
-            AND parent_shed.parent_location_id = shed.parent_location_id
-            AND parent_shed.location_type = 'shed'
-            AND parent_shed.status = 'active'
-            AND parent_shed.retired_at IS NULL
-            AND parent_shed.location_id <> shed.location_id
-            AND regexp_replace(lower(btrim(shed.name)), '[^a-z0-9]+', '', 'g')
-                LIKE regexp_replace(lower(btrim(parent_shed.name)), '[^a-z0-9]+', '', 'g') || '%'
-            AND regexp_replace(
-                    regexp_replace(lower(btrim(shed.name)), '[^a-z0-9]+', '', 'g'),
-                    '^' || regexp_replace(lower(btrim(parent_shed.name)), '[^a-z0-9]+', '', 'g'),
-                    ''
-                ) = parent_partition.normalized_label
-      )
+      AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
 -- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
 LEFT JOIN shed_partitions partitions
        ON partitions.tenant_id = park.tenant_id
