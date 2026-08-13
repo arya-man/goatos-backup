@@ -17,6 +17,7 @@ Build and verify these implemented surfaces only:
 - `/workflows/{row_id}`
 - `/vaccination`
 - `/vaccination/execution/sheds/[shedId]`
+- `/vaccination/live-tracker` — Live Drive Tracker: today's drive at administration grain (operator board, shed proof progress, combo doses, live activity feed, attention, verification queue)
 - `/procurement/source-entry`
 - `/procurement/source-entry/loads/{load_id}`
 - `/counts/herd`
