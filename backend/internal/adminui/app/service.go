@@ -366,7 +366,10 @@ func pages() []domain.PageContract {
 			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
 			// which is the config-token-as-UI-copy leak the label rules exist to stop, and it was
 			// redundant besides: action_type already names the same module in human words.
-			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
+			// in_queue/reviewed/review_took/watch are visible to EVERYONE who can open /verify
+			// (verifier + CEO/director oversight alike) -- unlike oversight_analytics above, table
+			// enrichment is not capability-gated: it is queue-row detail, not cross-module chrome.
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "in_queue", "reviewed", "review_took", "status", "reason", "watch"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -1154,6 +1157,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
 			"action.disabled_no_authority": "Acting on the source task is limited to the park head, director, or CEO.",
 			"verdict.note":                 "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
+			// CEO/PC-Director oversight analytics section copy (permissions.VerificationOversee,
+			// same capability as the oversight_analytics/oversight_filters controls). Language is
+			// CEO-plain by design: "videos waiting for review", not internal jargon.
+			"oversight_analytics.title":               "Verification oversight",
+			"oversight_analytics.unavailable":         "Oversight analytics are unavailable right now.",
+			"oversight_analytics.videos_waiting":      "Videos waiting for review",
+			"oversight_analytics.oldest_pending":      "Oldest video still unreviewed",
+			"oversight_analytics.review_speed":        "Verdicts per active day",
+			"oversight_analytics.est_days_to_clear":   "Est. days to clear backlog",
+			"oversight_analytics.reject_rate":         "Reject rate (30d)",
+			"oversight_analytics.module_latency":      "Median review time by module",
+			"oversight_analytics.pending_by_module":   "Videos waiting, by module",
+			"oversight_analytics.verifier_activity":   "Verifier activity (last 14 days)",
+			"oversight_analytics.col.verifier":        "Verifier",
+			"oversight_analytics.col.verdicts":        "Verdicts",
+			"oversight_analytics.col.approved":        "Approved",
+			"oversight_analytics.col.rejected":        "Rejected",
+			"oversight_analytics.col.busiest_day":     "Busiest day",
+			"oversight_analytics.col.watch_integrity": "Watch integrity",
+			"oversight_analytics.tracked":             "tracked",
+			"oversight_analytics.watched_full":        "watched in full",
+			"oversight_analytics.no_play":             "decided without playing",
 		}
 	case "calendar":
 		return map[string]string{

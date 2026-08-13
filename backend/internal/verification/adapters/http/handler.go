@@ -69,6 +69,7 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/vaccination-batches/{batch_id}/close", h.CloseVaccinationBatch)
 	mux.HandleFunc("POST /verification/review-events", h.RecordReviewEvents)
 	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
+	mux.HandleFunc("GET /verification/oversight-analytics", h.GetOversightAnalytics)
 }
 
 type queueItemResponse struct {
@@ -114,6 +115,18 @@ type queueItemResponse struct {
 	// later 410s with proof_object_missing is the terminal signal clients must render.
 	EvidenceAvailable bool           `json:"evidence_available"`
 	Source            sourceResponse `json:"source"`
+	// Watch is the queue table's lightweight per-item watch-telemetry summary (see
+	// domain.ItemWatchState). Nil when review-event telemetry is unavailable for this deployment
+	// (h.reviewEvent not wired) -- distinct from "not opened", which is a real negative fact.
+	Watch *watchStateResponse `json:"watch,omitempty"`
+}
+
+// watchStateResponse is the wire shape for domain.ItemWatchState: "percent watched if known, 'not
+// opened' if no item_opened event, absent when telemetry is unavailable" (see the "Watch" column
+// spec on the Verify queue table).
+type watchStateResponse struct {
+	Opened         bool `json:"opened"`
+	PercentWatched *int `json:"percent_watched,omitempty"`
 }
 
 type sourceResponse struct {
@@ -339,6 +352,10 @@ func (h *Handler) listQueue(
 		// false for other callers (leadership action queue, alerts). Verifier queue read does NOT
 		// clamp to today — it returns the full pending backlog ordered oldest-first.
 		IsVerifierQueueRead: permission == permissions.VerificationReview && !actionQueue,
+		// OversightFiltersEnabled gates the CROSS-MODULE oversight filters (module chips,
+		// capture-date range) on the CAPABILITY, never on a role string. See
+		// permissions.VerificationOversee and ports.ListQueueParams.OversightFiltersEnabled.
+		OversightFiltersEnabled: holdsVerificationPermission(r, permissions.VerificationOversee),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {
@@ -359,8 +376,25 @@ func (h *Handler) listQueue(
 		}
 	}
 	items := make([]queueItemResponse, len(result.Items))
+	itemIDs := make([]string, len(result.Items))
 	for i, row := range result.Items {
 		items[i] = toQueueItemResponse(row)
+		itemIDs[i] = row.Item.ItemID
+	}
+	// Watch state is a bounded batch read over exactly this page's item_ids -- never the whole
+	// queue -- so it stays a single query per page load. Missing telemetry (h.reviewEvent unwired,
+	// or the query itself failing) degrades to an absent "watch" field per row rather than failing
+	// the whole queue read: the Watch column is additive UI, not a queue-read dependency.
+	if h.reviewEvent != nil && len(itemIDs) > 0 {
+		if states, err := h.reviewEvent.WatchStates(r.Context(), params.TenantID, itemIDs); err == nil {
+			for i, id := range itemIDs {
+				if state, ok := states[id]; ok {
+					items[i].Watch = &watchStateResponse{Opened: state.Opened, PercentWatched: state.PercentWatched}
+				}
+			}
+		} else {
+			h.log.Warn("verification.watch_states_failed", "error", err)
+		}
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, queueListResponse{Items: items, FilterOptions: result.FilterOptions, DriveClosures: closures, NextCursor: result.NextCursor, TraceID: traceID(r)})
 }

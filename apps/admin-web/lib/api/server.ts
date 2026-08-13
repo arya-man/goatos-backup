@@ -2086,6 +2086,25 @@ export async function listVerificationQueue(
   return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
 }
 
+export type VerificationOversightAnalyticsResponse =
+  AppApiComponents["schemas"]["VerificationOversightAnalyticsResponse"];
+
+// CEO/PC-Director oversight analytics (GET /verification/oversight-analytics), gated on
+// permissions.VerificationOversee -- the same capability as the /verify page contract's
+// oversight_analytics control. A caller without the capability gets 403 here; the page must only
+// call this when controlEnabled(pageContract, "oversight_analytics", false) is true, so the
+// component never renders a bare error card for a verifier.
+export async function getVerificationOversightAnalytics(): Promise<ApiResult<VerificationOversightAnalyticsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VerificationOversightAnalyticsResponse>("/verification/oversight-analytics", {
+      cache: "no-store",
+    }),
+  );
+}
+
 /**
  * Record the Verifier's approve/reject decision on one verification item
  * (POST /verification/items/{item_id}/verdict, gated on verification.verdict -- the verifier role
