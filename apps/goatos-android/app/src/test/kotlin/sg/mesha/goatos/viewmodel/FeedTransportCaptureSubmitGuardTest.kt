@@ -97,12 +97,55 @@ class FeedTransportCaptureSubmitGuardTest {
             sync.submitEnqueueCalls,
         )
     }
+
+    @Test
+    fun `failed submit resets latch so retry can proceed`() = runTest(dispatcher) {
+        val sync = CountingFeedTransportSyncRepository()
+        sync.failNext = true
+        val drafts = InMemoryCaptureDraftRepository()
+        val saved = SavedStateHandle(
+            mapOf(
+                "task_id" to "task-1",
+                "shed_id" to "shed-1",
+                "shed_label" to "Shed 1",
+                "park_label" to "Farm 1",
+            ),
+        )
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(CapturedVideo(localUri = "file:///video.mp4", startedAtMs = 0L, endedAtMs = 1_000L))
+        val viewModel = FeedTransportCaptureViewModel(
+            sync = sync,
+            capture = proofSource,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = drafts,
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
+            saved = saved,
+        )
+        advanceUntilIdle()
+        viewModel.onEvent(FeedTransportCaptureEvent.RecordVideo)
+        advanceUntilIdle()
+
+        // First attempt fails
+        viewModel.onEvent(FeedTransportCaptureEvent.Submit)
+        advanceUntilIdle()
+        assertEquals("first attempt should fail", 1, sync.submitEnqueueCalls)
+
+        // Reset for retry
+        sync.failNext = false
+        // Retry should succeed (latch was reset on the first failure)
+        viewModel.onEvent(FeedTransportCaptureEvent.Submit)
+        advanceUntilIdle()
+        assertEquals("retry after failure should succeed", 2, sync.submitEnqueueCalls)
+    }
 }
 
 /** Counts [SyncRepository.enqueueFeedTransportSubmit] calls; everything else is unused/no-op. */
 private class CountingFeedTransportSyncRepository : SyncRepository {
     var submitEnqueueCalls: Int = 0
         private set
+    var failNext: Boolean = false
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var pendingGate: CompletableDeferred<Unit>? = null
 
@@ -123,7 +166,11 @@ private class CountingFeedTransportSyncRepository : SyncRepository {
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         submitEnqueueCalls += 1
-        return AppResult.Ok("submit-outbox-$submitEnqueueCalls")
+        return if (failNext) {
+            AppResult.Err("test error", Exception("test failure"))
+        } else {
+            AppResult.Ok("submit-outbox-$submitEnqueueCalls")
+        }
     }
 
     override suspend fun enqueueProofUpload(

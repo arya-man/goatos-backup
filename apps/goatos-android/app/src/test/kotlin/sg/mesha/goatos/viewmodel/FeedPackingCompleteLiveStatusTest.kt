@@ -3,8 +3,10 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -153,6 +155,44 @@ class FeedPackingCompleteLiveStatusTest {
 
         assertTrue(
             "with no cached Room row, the nav-arg hint must still be honoured",
+            viewModel.state.value.alreadySubmitted,
+        )
+    }
+
+    /**
+     * EDITABLE-FLASH: between construction and the delayed Room emission, the intermediate state
+     * must correctly reflect the nav-arg hint — not flip erroneously editable. This guards against
+     * a null-emission window where an early check could see both scopeSubmitted=false (null) and
+     * canComplete=true (proof ready) and briefly allow capture before the live status arrives.
+     */
+    @Test
+    fun `delayed live status emission never permits an editable-flash window`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        // Emit the SUBMITTED status, but delay it past construction so construction sees no value
+        feedRepository.emitPackingStatusWithDelay(FeedStatus.AWAITING, delayMs = 1)
+
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = NoopFeedPackingSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = InMemoryCaptureDraftRepository(),
+            feedRepository = feedRepository,
+            // Nav-arg hint says open, but live status will arrive as submitted after a delay
+            savedStateHandle = savedState(lifecycleStatus = "open"),
+        )
+        // Before advanceUntilIdle, check intermediate state — should respect nav-arg until
+        // the live emission completes
+        assertFalse(
+            "before delayed emission, nav-arg 'open' should be honoured",
+            viewModel.state.value.alreadySubmitted,
+        )
+
+        advanceUntilIdle()
+        // After the delayed emission, live status must override nav-arg
+        assertTrue(
+            "after delayed emission arrives, submitted live status must override nav-arg",
             viewModel.state.value.alreadySubmitted,
         )
     }
