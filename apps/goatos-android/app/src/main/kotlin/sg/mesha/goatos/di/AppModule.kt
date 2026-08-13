@@ -133,6 +133,7 @@ import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.capture.DelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
 import sg.mesha.goatos.capture.AppProofMediaProcessor
+import sg.mesha.goatos.capture.AppProofLocationProvider
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
@@ -598,11 +599,13 @@ object AppModule {
         appScope: CoroutineScope,
         analytics: AnalyticsPort,
         mediaProcessor: AppProofMediaProcessor,
+        locationProvider: AppProofLocationProvider,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
         dao = dao,
         syncRepository = syncRepository,
         appScope = appScope,
         mediaProcessor = mediaProcessor,
+        locationProvider = locationProvider,
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )

@@ -28,7 +28,9 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.capture.ProofMediaProcessingRequest
@@ -65,15 +67,23 @@ class AppProofMediaProcessor @Inject constructor(
         val originalBytes = source.length().takeIf { it > 0L }
         val bitmap = BitmapFactory.decodeFile(source.absolutePath)
             ?: error("proof photo decode failed")
-        val outputBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val resized = resizePhotoForProof(bitmap)
+        val outputBitmap = resized.copy(Bitmap.Config.ARGB_8888, true)
+        if (resized !== bitmap) resized.recycle()
         bitmap.recycle()
         val outputWidth = outputBitmap.width
         val outputHeight = outputBitmap.height
         return try {
-            drawAuditOverlay(Canvas(outputBitmap), outputBitmap.width, outputBitmap.height, overlayLines(request))
+            drawAuditOverlayAtBottomRight(
+                canvas = Canvas(outputBitmap),
+                width = outputBitmap.width,
+                height = outputBitmap.height,
+                lines = overlayLines(request),
+                textScale = photoOverlayScale(outputBitmap.width, outputBitmap.height),
+            )
             val output = processedFile(request.proofId, "jpg")
             output.outputStream().use { stream ->
-                check(outputBitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)) {
+                check(outputBitmap.compress(Bitmap.CompressFormat.JPEG, 88, stream)) {
                     "proof photo encode failed"
                 }
             }
@@ -95,10 +105,10 @@ class AppProofMediaProcessor @Inject constructor(
         val metadata = readVideoMetadata(source)
         val targetVideoBitrate = selectVideoBitrate(metadata.width, metadata.height, metadata.bitrate)
         val targetAudioBitrate = 48_000
-        val overlayBitmap = createOverlayBitmap(overlayLines(request), metadata.width, metadata.height)
+        val overlayBitmap = createVideoOverlayBitmap(overlayLines(request), metadata.width, metadata.height)
         val overlaySettings = StaticOverlaySettings.Builder()
-            .setOverlayFrameAnchor(1f, 1f)
-            .setBackgroundFrameAnchor(1f, -1f)
+            .setOverlayFrameAnchor(0f, 0f)
+            .setBackgroundFrameAnchor(0f, 0f)
             .build()
         val output = processedFile(request.proofId, "mp4")
         val mediaItem = MediaItem.Builder()
@@ -123,28 +133,30 @@ class AppProofMediaProcessor @Inject constructor(
             .setTransmuxAudio(false)
             .setTransmuxVideo(false)
             .build()
-        val transformer = Transformer.Builder(context)
-            .setVideoMimeType(MimeTypes.VIDEO_H264)
-            .setAudioMimeType(MimeTypes.AUDIO_AAC)
-            .setEncoderFactory(
-                DefaultEncoderFactory.Builder(context)
-                    .setRequestedVideoEncoderSettings(
-                        VideoEncoderSettings.Builder()
-                            .setBitrate(targetVideoBitrate)
-                            .setiFrameIntervalSeconds(2f)
-                            .build(),
-                    )
-                    .setRequestedAudioEncoderSettings(
-                        AudioEncoderSettings.Builder()
-                            .setBitrate(targetAudioBitrate)
-                            .build(),
-                    )
-                    .setEnableFallback(true)
-                    .build(),
-            )
-            .build()
         val result = try {
-            transformer.exportAwait(composition, output.absolutePath)
+            withContext(Dispatchers.Main.immediate) {
+                Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .setEncoderFactory(
+                        DefaultEncoderFactory.Builder(context)
+                            .setRequestedVideoEncoderSettings(
+                                VideoEncoderSettings.Builder()
+                                    .setBitrate(targetVideoBitrate)
+                                    .setiFrameIntervalSeconds(2f)
+                                    .build(),
+                            )
+                            .setRequestedAudioEncoderSettings(
+                                AudioEncoderSettings.Builder()
+                                    .setBitrate(targetAudioBitrate)
+                                    .build(),
+                            )
+                            .setEnableFallback(true)
+                            .build(),
+                    )
+                    .build()
+                    .exportAwait(composition, output.absolutePath)
+            }
         } finally {
             overlayBitmap.recycle()
         }
@@ -198,53 +210,232 @@ class AppProofMediaProcessor @Inject constructor(
             ?.takeIf { it.isNotBlank() && it != request.rfidTag }
             ?.let { add(it) }
             ?: add("${request.subjectType}: ${request.subjectId ?: request.taskId}")
-        profile?.primaryLocation?.takeIf { it.isNotBlank() }?.let { add(it) }
+        request.locationAddress?.takeIf { it.isNotBlank() }?.let { add("Loc: $it") }
+            ?: request.latitude?.let { lat ->
+                request.longitude?.let { lon ->
+                    val accuracy = request.gpsAccuracyM?.let { " +/- ${it.toInt()}m" }.orEmpty()
+                    add("Loc: %.5f, %.5f%s".format(Locale.US, lat, lon, accuracy))
+                }
+            }
+            ?: profile?.primaryLocation?.takeIf { it.isNotBlank() }?.let { add("Loc: $it") }
     }
 
     private fun createOverlayBitmap(lines: List<String>, videoWidth: Int, videoHeight: Int): Bitmap {
-        val longest = lines.maxOfOrNull { it.length } ?: 24
-        val width = min(max(360, longest * 18 + 44), (videoWidth * 0.62f).toInt().coerceAtLeast(260))
-        val height = min(lines.size * 34 + 32, (videoHeight * 0.34f).toInt().coerceAtLeast(116))
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-            drawAuditOverlay(Canvas(it), width, height, lines)
+        val layout = overlayLayout(lines, videoWidth, videoHeight)
+        return Bitmap.createBitmap(layout.width, layout.height, Bitmap.Config.ARGB_8888).also {
+            drawAuditOverlay(Canvas(it), layout)
         }
     }
 
-    private fun drawAuditOverlay(canvas: Canvas, width: Int, height: Int, lines: List<String>) {
+    private fun createVideoOverlayBitmap(lines: List<String>, videoWidth: Int, videoHeight: Int): Bitmap =
+        Bitmap.createBitmap(videoWidth.coerceAtLeast(1), videoHeight.coerceAtLeast(1), Bitmap.Config.ARGB_8888).also { bitmap ->
+            drawAuditOverlayAtBottomRight(
+                canvas = Canvas(bitmap),
+                width = bitmap.width,
+                height = bitmap.height,
+                lines = lines,
+                textScale = videoOverlayScale(bitmap.width, bitmap.height),
+            )
+        }
+
+    private fun drawAuditOverlayAtBottomRight(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        lines: List<String>,
+        textScale: Float,
+    ) {
+        val layout = overlayLayout(lines, width, height, textScale)
+        canvas.save()
+        canvas.translate((width - layout.width).toFloat(), (height - layout.height).toFloat())
+        drawAuditOverlay(canvas, layout)
+        canvas.restore()
+    }
+
+    private fun overlayLayout(
+        lines: List<String>,
+        mediaWidth: Int,
+        mediaHeight: Int,
+        textScale: Float = 1f,
+    ): OverlayLayout {
         val density = context.resources.displayMetrics.density
-        val textSize = (14f * density).coerceIn(18f, 30f)
-        val padding = (10f * density).coerceIn(12f, 22f)
-        val lineGap = (4f * density).coerceIn(4f, 8f)
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val widthBound = mediaWidth.coerceAtLeast(1)
+        val heightBound = mediaHeight.coerceAtLeast(1)
+        val minWidth = minOf((260 * textScale).toInt().coerceAtLeast(1), widthBound)
+        val minHeight = minOf((140 * textScale).toInt().coerceAtLeast(1), heightBound)
+        val maxWidth = (mediaWidth * 0.86f).toInt().coerceIn(minWidth, widthBound)
+        val maxHeight = (mediaHeight * 0.92f).toInt().coerceIn(minHeight, heightBound)
+        val baseTextSize = ((14f * density).coerceIn(18f, 30f) * textScale).coerceAtMost(72f)
+        val basePadding = ((10f * density).coerceIn(12f, 22f) * textScale).coerceAtMost(54f)
+        val baseGap = ((4f * density).coerceIn(4f, 8f) * textScale).coerceAtMost(18f)
+        listOf(1f, 0.92f, 0.84f, 0.76f, 0.68f, 0.60f, 0.52f, 0.46f).forEach { shrink ->
+            val textSize = baseTextSize * shrink
+            val padding = basePadding * shrink
+            val lineGap = baseGap * shrink
+            val paint = overlayTextPaint(textSize)
+            val textMaxWidth = (maxWidth - padding * 2f).coerceAtLeast(80f)
+            measuredOverlayLayout(
+                lines = lines,
+                paint = paint,
+                textMaxWidth = textMaxWidth,
+                maxWidth = maxWidth,
+                minWidth = (220 * textScale).toInt(),
+                minHeight = (88 * textScale).toInt(),
+                textSize = textSize,
+                padding = padding,
+                lineGap = lineGap,
+            ).takeIf { it.height <= maxHeight }?.let { return it }
+        }
+        val textSize = baseTextSize * 0.46f
+        val padding = basePadding * 0.46f
+        val lineGap = baseGap * 0.46f
+        val paint = overlayTextPaint(textSize)
+        val textMaxWidth = (maxWidth - padding * 2f).coerceAtLeast(80f)
+        return measuredOverlayLayout(
+            lines = compactLocationLineForOverlay(lines, paint, textMaxWidth),
+            paint = paint,
+            textMaxWidth = textMaxWidth,
+            maxWidth = maxWidth,
+            minWidth = (220 * textScale).toInt(),
+            minHeight = (88 * textScale).toInt(),
+            textSize = textSize,
+            padding = padding,
+            lineGap = lineGap,
+        )
+    }
+
+    private fun measuredOverlayLayout(
+        lines: List<String>,
+        paint: Paint,
+        textMaxWidth: Float,
+        maxWidth: Int,
+        minWidth: Int,
+        minHeight: Int,
+        textSize: Float,
+        padding: Float,
+        lineGap: Float,
+    ): OverlayLayout {
+        val wrapped = wrapOverlayLinesByPaint(lines, paint, textMaxWidth)
+        val contentWidth = wrapped.maxOfOrNull { paint.measureText(it) } ?: 0f
+        val width = min(maxWidth, (contentWidth + padding * 2f).toInt().coerceAtLeast(minWidth))
+        val height = (wrapped.size * (textSize + lineGap) - lineGap + padding * 2f).toInt()
+            .coerceAtLeast(minHeight)
+        return OverlayLayout(
+            width = width,
+            height = height,
+            lines = wrapped,
+            textSize = textSize,
+            padding = padding,
+            lineGap = lineGap,
+        )
+    }
+
+    private fun compactLocationLineForOverlay(lines: List<String>, paint: Paint, maxWidth: Float): List<String> =
+        lines.map { line ->
+            if (!line.startsWith("Loc:", ignoreCase = true)) return@map line
+            val normalized = line.replace(Regex("\\s+"), " ").trim()
+            if (wrapOverlayLinesByPaint(listOf(normalized), paint, maxWidth).size <= 2) return@map normalized
+            ellipsizeToWrappedLineCount(normalized, paint, maxWidth, maxLines = 2)
+        }
+
+    private fun ellipsizeToWrappedLineCount(line: String, paint: Paint, maxWidth: Float, maxLines: Int): String {
+        val suffix = "..."
+        var end = line.length
+        while (end > "Loc: ".length) {
+            val candidate = line.take(end).trimEnd() + suffix
+            if (wrapOverlayLinesByPaint(listOf(candidate), paint, maxWidth).size <= maxLines) return candidate
+            end--
+        }
+        return "Loc: $suffix"
+    }
+
+    private fun drawAuditOverlay(canvas: Canvas, layout: OverlayLayout) {
+        val textPaint = overlayTextPaint(layout.textSize)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(166, 0, 0, 0)
+        }
+        canvas.drawRoundRect(RectF(0f, 0f, layout.width.toFloat(), layout.height.toFloat()), 10f, 10f, bgPaint)
+        var y = layout.padding - textPaint.fontMetrics.ascent
+        layout.lines.forEach { line ->
+            canvas.drawText(line, layout.padding, y, textPaint)
+            y += layout.textSize + layout.lineGap
+        }
+    }
+
+    private fun overlayTextPaint(textSize: Float): Paint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(255, 255, 255, 255)
             this.textSize = textSize
             setShadowLayer(2.5f, 0f, 1.5f, Color.argb(255, 0, 0, 0))
         }
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(166, 0, 0, 0)
+
+    private fun wrapOverlayLinesByPaint(lines: List<String>, paint: Paint, maxWidth: Float): List<String> =
+        lines.flatMap { line ->
+            val words = line.split(' ').filter { it.isNotBlank() }.flatMap { splitWideToken(it, paint, maxWidth) }
+            if (words.isEmpty()) {
+                listOf(line)
+            } else {
+                buildList {
+                    var current = ""
+                    words.forEach { word ->
+                        val candidate = if (current.isBlank()) word else "$current $word"
+                        if (paint.measureText(candidate) <= maxWidth || current.isBlank()) {
+                            current = candidate
+                        } else {
+                            add(current)
+                            current = word
+                        }
+                    }
+                    if (current.isNotBlank()) add(current)
+                }
+            }
         }
-        canvas.drawRoundRect(RectF(0f, 0f, width.toFloat(), height.toFloat()), 10f, 10f, bgPaint)
-        var y = padding - textPaint.fontMetrics.ascent
-        lines.forEach { line ->
-            canvas.drawText(line.take(72), padding, y, textPaint)
-            y += textSize + lineGap
+
+    private fun splitWideToken(token: String, paint: Paint, maxWidth: Float): List<String> {
+        if (paint.measureText(token) <= maxWidth) return listOf(token)
+        return buildList {
+            var current = ""
+            token.forEach { char ->
+                val candidate = current + char
+                if (paint.measureText(candidate) <= maxWidth || current.isBlank()) {
+                    current = candidate
+                } else {
+                    add(current)
+                    current = char.toString()
+                }
+            }
+            if (current.isNotBlank()) add(current)
         }
+    }
+
+    private fun photoOverlayScale(width: Int, height: Int): Float {
+        val longSide = max(width, height).coerceAtLeast(1)
+        return (longSide / 1280f).coerceIn(1.25f, 2.4f)
+    }
+
+    private fun videoOverlayScale(width: Int, height: Int): Float {
+        val longSide = max(width, height).coerceAtLeast(1)
+        return (longSide / 1280f).coerceIn(1.1f, 1.9f)
     }
 
     private fun selectVideoBitrate(width: Int, height: Int, originalBitrate: Int?): Int {
         val longSide = max(width, height)
         val profile = when {
-            longSide >= 1080 -> 6_000_000
-            longSide >= 720 -> 2_500_000
-            else -> 800_000
+            longSide >= 1080 -> 1_600_000
+            longSide >= 720 -> 1_000_000
+            else -> 650_000
         }
-        val capped = originalBitrate?.takeIf { it > 0 }?.let { (it * 0.70f).toInt() } ?: profile
-        val minimum = when {
-            longSide >= 1080 -> 4_000_000
-            longSide >= 720 -> 2_000_000
-            else -> 700_000
-        }
-        return min(profile, max(capped, minimum))
+        val capped = originalBitrate?.takeIf { it > 0 }?.let { (it * 0.35f).toInt() } ?: profile
+        return min(profile, capped.coerceAtLeast(450_000))
+    }
+
+    private fun resizePhotoForProof(source: Bitmap): Bitmap {
+        val longSide = max(source.width, source.height)
+        if (longSide <= PHOTO_MAX_LONG_SIDE_PX) return source
+        val scale = PHOTO_MAX_LONG_SIDE_PX.toFloat() / longSide.toFloat()
+        val targetWidth = (source.width * scale).toInt().coerceAtLeast(1)
+        val targetHeight = (source.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
     }
 
     private fun readVideoMetadata(file: File): VideoMetadata {
@@ -279,4 +470,17 @@ class AppProofMediaProcessor @Inject constructor(
         SimpleDateFormat("MMM d, yyyy h:mm:ss a", Locale.US).format(Date(ms.takeIf { it > 0L } ?: System.currentTimeMillis()))
 
     private data class VideoMetadata(val width: Int, val height: Int, val bitrate: Int?)
+
+    private data class OverlayLayout(
+        val width: Int,
+        val height: Int,
+        val lines: List<String>,
+        val textSize: Float,
+        val padding: Float,
+        val lineGap: Float,
+    )
+
+    private companion object {
+        private const val PHOTO_MAX_LONG_SIDE_PX = 1920
+    }
 }

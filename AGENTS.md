@@ -52,6 +52,46 @@ APK rebuild and no token re-mint are required:
 adb -s <serial> reverse tcp:8080 tcp:8081
 ```
 
+Before telling the maintainer a physical-phone run is clean, verify this exact
+single-target chain and write the result in the handoff:
+
+```bash
+lsof -nP -iTCP:8081 -sTCP:LISTEN
+ps eww -p <8081-pid> | tr ' ' '\n' | rg 'GOATOS_HTTP_ADDR|DATABASE_URL'
+adb -s <serial> reverse --list
+```
+
+Expected for phone QA:
+
+```text
+host API: 127.0.0.1:8081
+host DB:  postgres://postgres:goatos@127.0.0.1:15544/goatos?sslmode=disable
+device:   tcp:8080 -> host tcp:8081
+```
+
+If any of those three do not match, stop and fix the target before scanning.
+Do not debug vaccine counts, disappeared rows, submit state, or proof upload
+state until this target chain is proven. A mismatch means the phone and psql are
+looking at different worlds.
+
+Before a fresh vaccination phone test, clear both durable sides before launch:
+backend vaccination scan/proof/submission rows in the throwaway DB, and Android
+Room/app data for the visible profile. Then install, set `adb reverse`, launch,
+and screenshot-check the actual phone. Do not launch first and clear later. A
+clean test starts from no `sop_task_scan_*`, no vaccination completion/rejection,
+no proof artifact/outbox rows for the prior run, and an app profile cleared via
+the visible Android user.
+
+For Android physical-device work, the target-chain proof is not enough. Every
+time an agent installs, clears, launches, relaunches, changes `adb reverse`,
+changes backend process/port, changes DB seed/reset state, or asks the
+maintainer to test, the agent must also verify the actual opened phone screen is
+showing data from the throwaway DB. Use a real device screenshot or focused UI
+inspection after launch, and compare the visible shed/task/counts/tags against a
+fresh SQL read from `127.0.0.1:15544`. Do not stop after "installed" or "DB
+cleared"; the handoff is only valid after the phone is open, focused, and
+showing the expected throwaway data.
+
 This supersedes any earlier wording suggesting the backend behind `8080` may
 swap its database target. Taking `8080` for phone QA caused a real incident
 (2026-08-03): the maintainer's `5433`-backed API was killed to free the port,

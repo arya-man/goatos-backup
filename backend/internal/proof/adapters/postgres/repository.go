@@ -193,6 +193,37 @@ WHERE tenant_id = $1::uuid
 	return out, nil
 }
 
+func (r *Repository) ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := query.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, artifactSelectSQL(`
+WHERE tenant_id = $1::uuid
+  AND scope_type = $2
+  AND scope_id = $3::uuid
+  AND upload_state = 'completed'
+  AND metadata->>'client_task_key' = $4
+  AND ($5::text = '' OR metadata->>'field_key' = $5)
+ORDER BY created_at DESC, proof_id DESC
+LIMIT $6`), query.TenantID, strings.TrimSpace(query.ScopeType), query.ScopeID, strings.TrimSpace(query.ClientTaskKey), strings.TrimSpace(query.FieldKey), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.Artifact, 0, limit)
+	for rows.Next() {
+		artifact, err := scanArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, artifact)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

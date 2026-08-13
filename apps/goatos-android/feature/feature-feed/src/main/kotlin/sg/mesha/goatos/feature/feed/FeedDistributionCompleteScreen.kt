@@ -7,7 +7,6 @@ package sg.mesha.goatos.feature.feed
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -26,33 +25,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import android.graphics.BitmapFactory
-import android.net.Uri
-import java.io.IOException
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
@@ -66,6 +56,11 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 
 enum class FeedDistributionStatus { QUEUED, SYNCED, FAILED }
 enum class FeedDistributionProofStatus { EMPTY, QUEUED, UPLOADING, SYNCED, FAILED }
+
+fun FeedDistributionProofStatus.isQueuedForSubmit(): Boolean =
+    this == FeedDistributionProofStatus.QUEUED ||
+        this == FeedDistributionProofStatus.UPLOADING ||
+        this == FeedDistributionProofStatus.SYNCED
 
 @androidx.compose.runtime.Immutable
 data class FeedDistributionResultUi(val status: FeedDistributionStatus, val message: String)
@@ -103,12 +98,12 @@ data class FeedDistributionUiState(
     val isFinalSubmitted: Boolean
         get() = result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
-    /** All three proof uploads reached the server and the final write is not already committed. */
+    /** Proof uploads may still be queued; the completion outbox resolves them before syncing. */
     val submitEnabled: Boolean
         get() = canComplete &&
-            feedWeightPhotoStatus == FeedDistributionProofStatus.SYNCED &&
-            videoStatus == FeedDistributionProofStatus.SYNCED &&
-            waterVideoStatus == FeedDistributionProofStatus.SYNCED &&
+            feedWeightPhotoStatus.isQueuedForSubmit() &&
+            videoStatus.isQueuedForSubmit() &&
+            waterVideoStatus.isQueuedForSubmit() &&
             !isFinalSubmitted
 }
 
@@ -177,6 +172,7 @@ fun FeedDistributionCompleteScreen(
                     loading = state.isCapturingFeedWeightPhoto,
                     loadingLabel = stringResource(R.string.feed_dist_water_uploading),
                     retryLabel = stringResource(R.string.feed_dist_retry_feed_weight_photo),
+                    replaceLabel = stringResource(R.string.feed_proof_recapture),
                     enabled = state.feedWeightPhotoCaptureEnabled,
                     message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
@@ -195,6 +191,7 @@ fun FeedDistributionCompleteScreen(
                     loading = state.isCapturingVideo,
                     loadingLabel = stringResource(R.string.feed_dist_video_uploading),
                     retryLabel = stringResource(R.string.feed_dist_retry_feed_video),
+                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
                     enabled = !state.isCapturingVideo && !committed,
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
@@ -213,6 +210,7 @@ fun FeedDistributionCompleteScreen(
                     loading = state.isCapturingWaterVideo,
                     loadingLabel = stringResource(R.string.feed_dist_water_uploading),
                     retryLabel = stringResource(R.string.feed_dist_retry_water_video),
+                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
                     enabled = state.waterVideoCaptureEnabled,
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
@@ -270,7 +268,7 @@ internal fun proofLabel(status: FeedDistributionProofStatus, recordedLabel: Stri
     FeedDistributionProofStatus.EMPTY -> recordedLabel
 }
 
-internal enum class FeedDistPreviewKind { Photo, Video }
+typealias FeedDistPreviewKind = ProofMediaPreviewKind
 
 @Composable
 internal fun FeedDistProofAction(
@@ -285,6 +283,7 @@ internal fun FeedDistProofAction(
     loading: Boolean,
     loadingLabel: String,
     retryLabel: String,
+    replaceLabel: String,
     enabled: Boolean,
     message: String?,
     onClick: () -> Unit,
@@ -311,7 +310,7 @@ internal fun FeedDistProofAction(
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, border, RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled && !captured && !uploading, onClick = onClick)
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -342,7 +341,9 @@ internal fun FeedDistProofAction(
             Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
             if (!previewPath.isNullOrBlank()) {
                 FeedDistPreview(path = previewPath, kind = previewKind)
-                Text(text = stringResource(R.string.feed_dist_reupload_hint), color = MeshaColors.Muted, style = MeshaType.caption)
+                FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
+            } else if (!uploading) {
+                FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)
             }
             if (!message.isNullOrBlank()) {
                 Text(text = message, color = MeshaColors.Faint, style = MeshaType.caption)
@@ -353,102 +354,20 @@ internal fun FeedDistProofAction(
 
 @Composable
 private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind) {
-    when (kind) {
-        FeedDistPreviewKind.Photo -> FeedDistPhotoPreview(path)
-        FeedDistPreviewKind.Video -> FeedDistVideoPreview(path)
-    }
+    ProofMediaPreview(path = path, kind = kind)
 }
 
 @Composable
-private fun FeedDistPhotoPreview(path: String) {
-    val context = LocalContext.current
-    val bitmap = remember(path) {
-        try {
-            val uri = Uri.parse(path)
-            when (uri.scheme) {
-                "content" -> context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-                "file" -> BitmapFactory.decodeFile(uri.path)
-                null, "" -> BitmapFactory.decodeFile(path)
-                else -> BitmapFactory.decodeFile(path.removePrefix("file://"))
-            }
-        } catch (_: IOException) {
-            null
-        } catch (_: SecurityException) {
-            null
-        } catch (_: IllegalArgumentException) {
-            null
-        }
-    }
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
-        )
-    }
-}
-
-@Composable
-@UnstableApi
-private fun FeedDistVideoPreview(path: String) {
-    val context = LocalContext.current
-    var isPlaying by remember(path) { mutableStateOf(false) }
-    val player = remember(path) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(path)))
-            prepare()
-            playWhenReady = false
-        }
-    }
-    DisposableEffect(player) {
-        onDispose { player.release() }
-    }
-    Box(
-        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Bg),
-        contentAlignment = Alignment.Center,
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    this.player = player
-                    useController = false
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
-        Text(
-            text = if (isPlaying) stringResource(R.string.feed_dist_pause_preview) else stringResource(R.string.feed_dist_play_preview),
-            color = MeshaColors.OnBrand,
-            style = MeshaType.cta,
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(MeshaColors.Brand)
-                .clickable {
-                    if (player.isPlaying) {
-                        player.pause()
-                        isPlaying = false
-                    } else {
-                        player.play()
-                        isPlaying = true
-                    }
-                }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-        )
-    }
-}
-
-@Composable
-internal fun FeedDistRetryButton(label: String, onClick: () -> Unit) {
+internal fun FeedDistRetryButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Text(
         text = label,
-        color = MeshaColors.OnBrand,
+        color = if (enabled) MeshaColors.OnBrand else MeshaColors.Muted,
         style = MeshaType.cta,
         modifier = Modifier
             .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Brand)
-            .clickable(onClick = onClick)
+            .background(if (enabled) MeshaColors.Brand else MeshaColors.Surf2)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 13.dp),
     )
 }

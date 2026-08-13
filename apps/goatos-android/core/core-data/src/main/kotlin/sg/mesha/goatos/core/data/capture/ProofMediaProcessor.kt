@@ -12,8 +12,30 @@ data class ProofMediaProcessingRequest(
     val capturedStartMs: Long,
     val capturedEndMs: Long,
     val capturedByPrincipalId: String?,
+    val locationAddress: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val gpsAccuracyM: Double? = null,
     val caption: String? = null,
 )
+
+data class ProofLocationSnapshot(
+    val locationStatus: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val gpsAccuracyM: Double? = null,
+    val geocoderStatus: String? = null,
+    val address: String? = null,
+)
+
+fun interface ProofLocationProvider {
+    suspend fun snapshot(): ProofLocationSnapshot
+
+    object Unavailable : ProofLocationProvider {
+        override suspend fun snapshot(): ProofLocationSnapshot =
+            ProofLocationSnapshot(locationStatus = "unavailable", geocoderStatus = "unavailable")
+    }
+}
 
 data class ProofMediaProcessingResult(
     val outputUri: String,

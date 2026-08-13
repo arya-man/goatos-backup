@@ -62,6 +62,7 @@ data class FeedDirectionRowUi(
     // Completion identity (a whole shed-session is completed at once). Carried so a row tap can build
     // the completion request without re-parsing grainKey.
     val parkId: String,
+    val parkLabel: String,
     val shedId: String,
     val partitionLabel: String = "",
     val sessionNo: Int,
@@ -182,6 +183,7 @@ sealed interface FeedDirectionEvent {
     /** Tap a row to open its shed-session completion detail. */
     data class OpenRow(
         val parkId: String,
+        val parkLabel: String,
         val shedId: String,
         val sessionNo: Int,
         val workflow: String,
@@ -267,6 +269,7 @@ fun FeedDirectionScreen(
                             onEvent(
                                 FeedDirectionEvent.OpenRow(
                                     parkId = row.parkId,
+                                    parkLabel = row.parkLabel,
                                     shedId = row.shedId,
                                     sessionNo = row.sessionNo,
                                     workflow = row.workflow,

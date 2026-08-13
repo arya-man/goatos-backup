@@ -41,21 +41,60 @@ const (
 	eventTypeCampaignClosed = "weighing.campaign.closed"
 )
 
-// readyToCloseCountsSQL is a correlated-subquery fragment for a `cs` alias over
-// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count)
-// for that row, using the SAME definition as pendingVerificationCount below: a
-// submitted individual observation is submitted_at IS NOT NULL, a lump-sum shed
-// observation IS the submission, and 'rework' counts as pending on purpose. It is
-// evaluated by the planner as part of ONE query (no per-row application loop), so
-// this is not the banned N+1 shape.
+// readyToCloseCountsSQL is the common bucket status projection for a `cs` alias
+// over weighing_campaign_sheds. Every bucket-list surface scans this exact shape:
+// closure kind, submitted/pending/rework/verified facts, latest rework reason,
+// and the free-flow weighed/submitted animal counts. Keep it column-compatible
+// with CampaignShed scans in repository.go and campaign_sheds_page.go.
 const readyToCloseCountsSQL = `(
+  COALESCE(cs.closure_kind, '')
+) AS closure_kind,
+(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id)
-) AS submitted_count,
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
+)::int AS submitted_count,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status <> 'verified')
-  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.verification_status <> 'verified')
-) AS pending_verification_count`
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status <> 'verified')
+)::int AS pending_verification_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status='rework')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status='rework')
+)::int AS rework_count,
+COALESCE((
+  SELECT reason
+  FROM (
+    SELECT wo.rework_reason AS reason, COALESCE(wo.verified_at, wo.accepted_at, wo.created_at) AS reason_at
+    FROM weighing_observations wo
+    WHERE wo.tenant_id=cs.tenant_id
+      AND wo.campaign_shed_id=cs.campaign_shed_id
+      AND wo.submitted_at IS NOT NULL
+      AND wo.verification_status='rework'
+      AND NULLIF(BTRIM(wo.rework_reason), '') IS NOT NULL
+    UNION ALL
+    SELECT wso.rework_reason AS reason, COALESCE(wso.verified_at, wso.accepted_at, wso.created_at) AS reason_at
+    FROM weighing_shed_observations wso
+    WHERE wso.tenant_id=cs.tenant_id
+      AND wso.campaign_shed_id=cs.campaign_shed_id
+      AND wso.withdrawn_at IS NULL
+      AND wso.verification_status='rework'
+      AND NULLIF(BTRIM(wso.rework_reason), '') IS NOT NULL
+  ) reasons
+  ORDER BY reason_at DESC
+  LIMIT 1
+), '') AS latest_rework_reason,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status='verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status='verified')
+)::int AS verified_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+)::int AS animals_weighed_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+)::int AS animals_submitted_count`
 
 // pendingVerificationCount counts submitted evidence in this bucket that still has
 // no verdict.

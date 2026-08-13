@@ -415,8 +415,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_captures_idempotency_unique_idx') THEN
     RAISE EXCEPTION 'sop_task_scan_captures_idempotency_unique_idx missing';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_captures_task_field_tag_unique_idx') THEN
-    RAISE EXCEPTION 'sop_task_scan_captures_task_field_tag_unique_idx missing';
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_captures_task_field_tag_obligation_unique_idx') THEN
+    RAISE EXCEPTION 'sop_task_scan_captures_task_field_tag_obligation_unique_idx missing';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'sop_task_scan_attempts_idempotency_unique_idx') THEN
     RAISE EXCEPTION 'sop_task_scan_attempts_idempotency_unique_idx missing';

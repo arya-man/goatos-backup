@@ -336,7 +336,7 @@ data class FeedTransportCaptureUiState(
     val result: FeedTransportResultUi? = null,
 ) {
     val submitEnabled: Boolean
-        get() = videoCaptured && canSubmit && videoStatus == FeedDistributionProofStatus.SYNCED && !isCapturing &&
+        get() = videoCaptured && canSubmit && videoStatus.isQueuedForSubmit() && !isCapturing &&
             result?.status != FeedTransportSubmitStatus.SYNCED &&
             result?.status != FeedTransportSubmitStatus.QUEUED
 }
@@ -399,6 +399,7 @@ fun FeedTransportCaptureScreen(
                     loading = state.isCapturing,
                     loadingLabel = stringResource(R.string.feed_transport_video_uploading),
                     retryLabel = stringResource(R.string.feed_transport_retry_video),
+                    replaceLabel = stringResource(R.string.feed_proof_rerecord),
                     enabled = !committed && !state.isCapturing,
                     message = state.videoMessage,
                     onClick = {

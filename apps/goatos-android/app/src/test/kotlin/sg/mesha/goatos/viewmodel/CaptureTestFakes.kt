@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -22,10 +23,13 @@ import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
+import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
- *  task+field+tag), no Room. Mirrors [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s
- *  observable contract closely enough to drive [SubmitViewModel] tests. */
+ *  task+field+tag+obligation), no Room. Mirrors
+ *  [sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository]'s observable contract closely
+ *  enough to drive [SubmitViewModel] tests: durable rows are obligation-grained, while submitted
+ *  tag answers are still distinct animal/RFID scans. */
 class FakeScanCaptureRepository : ScanCaptureRepository {
     private val rows = mutableListOf<ScannedGoatRow>()
     private val flow = MutableStateFlow<List<ScannedGoatRow>>(emptyList())
@@ -59,7 +63,12 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     ) {
         recordScanCalls++
         val partitionKey = testPartitionKey(partitionLabel)
-        if (rows.none { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag }) {
+        if (rows.none {
+            it.partitionKey == partitionKey &&
+                it.fieldKey == fieldKey &&
+                it.tag == tag &&
+                it.obligationId == obligationId
+        }) {
             rows += ScannedGoatRow(
                 fieldKey = fieldKey,
                 tag = tag,
@@ -80,7 +89,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         partitionLabel: String?,
     ): Boolean {
         val partitionKey = testPartitionKey(partitionLabel)
-        if (rows.any { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag }) return false
+        if (rows.any { it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag && it.obligationId == null }) return false
         recordScan(taskId, fieldKey, tag, capturedAtMs = capturedAtMs, partitionLabel = partitionLabel)
         return true
     }
@@ -100,7 +109,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     }
 
     override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> =
-        rows.filter { it.partitionKey == testPartitionKey(partitionLabel) }.map { it.tag }
+        rows.filter { it.partitionKey == testPartitionKey(partitionLabel) }.map { it.tag }.distinct()
 
     fun rowsForTask(taskId: String): List<ScannedGoatRow> = rows.filter { it.fieldKey.isNotBlank() }
 
@@ -178,6 +187,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         // subjectId = null and identify the animal by CAPTION (the scanned tag). Attribution tests
         // for that module need the caption, not just the subject id.
         val caption: String?,
+        val rfidTag: String?,
         val localUri: String,
         val capturedStartMs: Long,
         val capturedEndMs: Long,
@@ -205,6 +215,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
@@ -215,7 +226,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> {
-        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, rfidTag, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
         // because the whole shed is the proof subject.
@@ -335,12 +346,11 @@ class FakeCaptureBootstrapRepository(
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
 }
 
-/** Minimal [TasksRepository] test double for [ScanViewModel]'s R50-027 proof-policy read — only
- *  [observeTaskDetail] is exercised (the roster scan screen never lists/refreshes tasks itself).
- *  Defaults to [ProofPolicy.Default] (no [detail] supplied) so existing scan tests that do not
- *  care about proof policy keep their historical hardcoded-constant behavior unchanged. */
+/** Minimal [TasksRepository] test double for [ScanViewModel]'s proof-policy read. Vaccination
+ *  execution is per-goat proof by default; scan-only tests must opt out explicitly so the fixture
+ *  cannot mask the production camera path. */
 class FakeTasksRepositoryForCapture(
-    private val detail: TaskDetail? = null,
+    private val detail: TaskDetail? = proofTaskDetail(),
     initialSummary: ShedCompletionSummaryDto? = null,
     private val summaryOnRefresh: ShedCompletionSummaryDto? = initialSummary,
 ) : TasksRepository {
@@ -365,3 +375,26 @@ class FakeTasksRepositoryForCapture(
     private fun initialSummaryForKey(shedId: String?): ShedCompletionSummaryDto? =
         if (shedId == null) null else summaryOnRefresh
 }
+
+fun noProofTaskDetail(): TaskDetail = TaskDetail(
+    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+    form = FormSpec.Empty,
+    proofPolicy = ProofPolicy(
+        types = emptyList(),
+        required = false,
+        proofMode = "none",
+        subjectScope = "",
+        expectedSubjects = emptyList(),
+        minimumCount = 0,
+        maximumCount = 0,
+        minimumCountPerSubject = 0,
+        maximumCountPerSubject = 0,
+        allowedCaptureSources = emptyList(),
+    ),
+)
+
+private fun proofTaskDetail(): TaskDetail = TaskDetail(
+    task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+    form = FormSpec.Empty,
+    proofPolicy = ProofPolicy.Default,
+)

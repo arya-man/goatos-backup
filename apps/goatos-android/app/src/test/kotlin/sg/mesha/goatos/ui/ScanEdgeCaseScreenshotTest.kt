@@ -178,7 +178,7 @@ class ScanEdgeCaseScreenshotTest {
                 proofActionNeeded = sameGoatMultiObligationProofRows(),
                 feed = emptyList(),
                 canSubmit = false,
-                footNote = "Two proof videos needed for the same goat",
+                footNote = "One proof row for one scanned goat with both due vaccines",
             ),
         )
     }
@@ -284,7 +284,7 @@ private fun baseState() = sampleScanState().copy(
     submitLabel = "Finalize shed",
     canSubmit = false,
     scanEnabled = true,
-    lastSyncedAt = 0L,
+    lastSyncedAt = null,
     readerConnection = ScanReaderConnection(
         readerName = "RFID reader",
         statusLabel = "Ready for keyboard-wedge scans",
@@ -341,21 +341,11 @@ private fun sameGoatMultiObligationProofRows() = listOf(
     RosterRow(
         primaryTag = "901007000503785",
         secondaryTag = null,
-        vaccineLabel = "ET+TT",
+        vaccineLabel = "ET+TT · PPR",
         status = ScanStatus.DONE,
         scannedAtLabel = "Scanned Tue, 4:52 PM IST",
         goatId = "goat-same",
-        obligationId = "obligation-et-tt",
-        proofUploadStatus = ProofUploadStatus.MISSING,
-    ),
-    RosterRow(
-        primaryTag = "901007000503785",
-        secondaryTag = null,
-        vaccineLabel = "PPR",
-        status = ScanStatus.DONE,
-        scannedAtLabel = "Scanned Tue, 4:51 PM IST",
-        goatId = "goat-same",
-        obligationId = "obligation-ppr",
+        obligationId = "obligation-et-tt|obligation-ppr",
         proofUploadStatus = ProofUploadStatus.MISSING,
     ),
 )

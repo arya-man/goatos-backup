@@ -125,6 +125,7 @@ class WeighingViewModel @Inject constructor(
     private val tenantId = savedStateHandle.get<String>(Routes.WEIGHING_TENANT_ARG).orEmpty()
     private val expectedLocationId = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_ARG).orEmpty()
     private val expectedLocationLabel = savedStateHandle.get<String>(Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG).orEmpty()
+    private val parkLabel = savedStateHandle.get<String>(Routes.WEIGHING_PARK_LABEL_ARG).orEmpty()
     private val routeTitle = savedStateHandle.get<String>(Routes.EXECUTION_SCAN_TITLE_ARG).orEmpty()
 
     /**
@@ -2173,7 +2174,7 @@ class WeighingViewModel @Inject constructor(
                 val slotNumber = if (replacingIndex >= 0) replacingIndex + 1 else existing + 1
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
-                        title = "Lump-sum weighing proof",
+                        title = weighingLumpSumProofTitle(),
                         primaryTag = expectedLocationLabel.ifBlank { routeTitle },
                         secondaryTag = null,
                         workLabel = "Group video $slotNumber of 5",
@@ -2205,7 +2206,8 @@ class WeighingViewModel @Inject constructor(
                         subjectId = expectedLocationId,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
-                        caption = "Lump-sum group video $slotNumber",
+                        caption = weighingLumpSumProofCaption(slotNumber),
+                        rfidTag = null,
                         scopeType = "shed",
                         scopeId = expectedLocationId,
                         capturedStartMs = captured.startedAtMs,
@@ -2690,7 +2692,7 @@ class WeighingViewModel @Inject constructor(
     private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
         val captured = proofCaptureSource.captureVideo(
             ProofCaptureContext(
-                title = "Weighing proof",
+                title = weighingIndividualProofTitle(row),
                 primaryTag = row.primaryTag.ifBlank { row.displayAnimalId },
                 secondaryTag = null,
                 workLabel = "Weight needed",
@@ -2714,10 +2716,14 @@ class WeighingViewModel @Inject constructor(
             taskId = key,
             fieldKey = INDIVIDUAL_PROOF_FIELD_KEY,
             subject = ProofSubject.OTHER,
+            // Free-flow weighing rows do not carry a backend goat UUID. The scanned RFID is kept
+            // in the burned overlay, caption, analytics, and proof metadata; sending it as
+            // subject_id makes /app/proofs/uploads reject the already-processed file as invalid.
             subjectId = null,
             localUri = captured.localUri,
             mimeType = captured.mimeType,
-            caption = row.displayAnimalId,
+            caption = weighingIndividualProofCaption(row),
+            rfidTag = row.primaryTag.takeIf { it.isNotBlank() },
             scopeType = "shed",
             scopeId = row.expectedLocationId,
             capturedStartMs = captured.startedAtMs,
@@ -3075,8 +3081,42 @@ class WeighingViewModel @Inject constructor(
         if (draftProofId != null) {
             id == draftProofId
         } else {
-            caption == animalId || subjectId == animalId
+            rfidTag == animalId || caption == animalId || caption?.endsWith(" · $animalId") == true || subjectId == animalId
         }
+
+    private fun weighingIndividualProofCaption(row: WeighingRosterRowEntity): String =
+        weighingIndividualProofTitle(row)
+
+    private fun weighingIndividualProofTitle(row: WeighingRosterRowEntity): String =
+        listOf(
+            "Weighing",
+            weighingOverlayParkLabel().takeIf { it.isNotBlank() },
+            row.expectedLocationLabel.ifBlank { expectedLocationLabel.ifBlank { routeTitle } }.takeIf { it.isNotBlank() },
+        )
+            .filterNotNull()
+            .joinToString(" . ")
+
+    private fun weighingLumpSumProofCaption(slotNumber: Int): String =
+        listOf(
+            weighingLumpSumProofTitle(),
+            "video $slotNumber",
+        )
+            .filterNotNull()
+            .joinToString(" · ")
+
+    private fun weighingLumpSumProofTitle(): String =
+        listOf(
+            "Weighing",
+            weighingOverlayParkLabel().takeIf { it.isNotBlank() },
+            expectedLocationLabel.ifBlank { routeTitle }.takeIf { it.isNotBlank() },
+        )
+            .filterNotNull()
+            .joinToString(" . ")
+
+    private fun weighingOverlayParkLabel(): String =
+        parkLabel
+            .ifBlank { knownAssignmentParks.value[selectedAssignmentParkId.value].orEmpty() }
+            .ifBlank { knownTaskParks.value[selectedAssignmentParkId.value].orEmpty() }
 
     private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
         ScanReaderConnection(

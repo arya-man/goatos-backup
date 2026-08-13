@@ -1117,3 +1117,33 @@ val MIGRATION_37_38: Migration = object : Migration(37, 38) {
         )
     }
 }
+
+val MIGRATION_38_39: Migration = object : Migration(38, 39) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `latitude` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `longitude` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `geocodedAddress` TEXT")
+    }
+}
+
+val MIGRATION_39_40: Migration = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `rfidTag` TEXT")
+    }
+}
+
+val MIGRATION_40_41: Migration = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_tag`")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_tag_obligationId` " +
+                "ON `scanned_goat_capture` (`taskId`, `partitionKey`, `fieldKey`, `tag`, `obligationId`)",
+        )
+    }
+}
+
+val MIGRATION_41_42: Migration = object : Migration(41, 42) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
+    }
+}

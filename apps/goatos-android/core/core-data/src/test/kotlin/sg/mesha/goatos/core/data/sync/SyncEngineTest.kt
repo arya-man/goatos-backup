@@ -1166,6 +1166,20 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         it.taskId == taskId && it.partitionKey == partitionKey && it.fieldKey == fieldKey && it.tag == tag
     }
 
+    override suspend fun findByTaskFieldTagObligation(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        obligationId: String?,
+    ): ScannedGoatEntity? = rows.firstOrNull {
+        it.taskId == taskId &&
+            it.partitionKey == partitionKey &&
+            it.fieldKey == fieldKey &&
+            it.tag == tag &&
+            it.obligationId == obligationId
+    }
+
     override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
         rows.replaceAll { row ->
             if (row.id == id) {
@@ -1200,10 +1214,17 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         partitionKey: String,
         fieldKey: String,
         tag: String,
+        obligationId: String?,
         status: String,
     ) {
         rows.replaceAll { row ->
-            if (row.taskId == taskId && row.partitionKey == partitionKey && row.fieldKey == fieldKey && row.tag == tag) {
+            if (
+                row.taskId == taskId &&
+                row.partitionKey == partitionKey &&
+                row.fieldKey == fieldKey &&
+                row.tag == tag &&
+                row.obligationId == obligationId
+            ) {
                 row.copy(syncStatus = status)
             } else {
                 row

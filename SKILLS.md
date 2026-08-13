@@ -134,6 +134,47 @@ compression/overlay locally, or call Firebase SDKs directly. Machine guard:
 guard pins the Android 12+ operator permission contract: both
 `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN` must stay in the shared gate/catalog.
 
+Physical phone QA handoff rule:
+after any physical-device install, app-data clear, backend/runtime clear, port
+reverse, launch, or role-token change, do not tell the maintainer "ready" until
+the phone has been checked. Verify visible Android user/profile, focused app
+package/activity, backend `/readyz`, active test role/user in the backend, and
+the relevant DB/Room/runtime tables requested by the test. If the app was
+force-stopped for a clean state, say that explicitly and do not ask the
+maintainer to test until either the app is launched and focus-verified or the
+maintainer specifically asked to keep it stopped.
+
+Feed proof submit guardrail:
+Direction, packing, and transport proofs upload before the verifier-gated submit.
+The submit idempotency key must include the selected proof outbox id(s), so a
+re-record creates a fresh submit cycle while a retry of the same proof replays.
+Submit UI must observe the exact outbox row by id, and packing complete must pass
+`partition_label` through the backend HTTP handler. Machine guard:
+`make mobile-guard` runs `check-android-feed-proof-submit.mjs`.
+
+Vaccination scan/proof UI ordering guardrail:
+the visible scan list is animal/RFID-grain, never vaccine-obligation-grain. For
+per-goat proof, a fresh RFID read may log an audit attempt immediately, but it
+must not mark the animal DONE, write Room scan rows, or add the visible feed/list
+entry until `captureVideo()` returns a real recording. The first visible row
+after capture must be the single animal row in proof-uploading state, then green
+when synced; stale failed proof rows must not flash red over a new upload. A
+shed with uploaded proof is not submitted yet: uploaded proof must keep the shed
+card openable for Finalize/Submit, and only submitted/verification/final states
+may switch the tap path to the submitted-record gate. Two-vaccine labels must
+render as readable labels such as `ET+TT · PPR`, not as vaccine-obligation rows
+or internal IDs.
+Machine guard: `check-android-vaccine-weighing-proof-context.mjs` plus
+`ScanViewModelTest.accepted vaccine scan does not enter visible scanned list until camera returns video`
+and `ShedsViewModelTest.a proof uploaded shed before submit stays openable for finalize`.
+
+Firebase analytics proof envelope guardrail:
+Firebase/GA4 receives only a compact allowlisted proof envelope: identity/session
+keys, proof/task/field/feature, processing result, media type, location/geocoder
+status, and size/duration buckets. Full address, lat/long, exact dimensions,
+object paths/URLs, local URIs, and raw errors are backend/Room-only. Machine
+guard: `make telemetry-guard` runs `check-firebase-analytics-param-budget.mjs`.
+
 Android Compose list identity guardrail:
 
 ```text

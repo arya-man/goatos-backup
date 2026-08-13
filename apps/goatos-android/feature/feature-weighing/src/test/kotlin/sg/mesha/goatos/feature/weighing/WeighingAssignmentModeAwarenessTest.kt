@@ -113,4 +113,59 @@ class WeighingAssignmentModeAwarenessTest {
         assertEquals(true, row.isDelayedBacklog)
         assertEquals("delayed", row.rawStatus)
     }
+
+    @Test
+    fun `submitted delayed assignment row stays locked for verification`() {
+        val row = individualRow().copy(
+            backendStatus = "completed",
+            plannedBusinessDate = "2026-07-30",
+            dueBusinessDate = "2026-08-11",
+        )
+
+        assertEquals(true, row.isDelayedBacklog)
+        assertEquals("completed", row.rawStatus)
+        assertEquals(true, row.isSubmittedAndWaitingVerification)
+        assertEquals(false, row.isClickable)
+    }
+
+    @Test
+    fun `sent back submitted assignment row can reopen execution`() {
+        val row = individualRow().copy(
+            backendStatus = "completed",
+            reworkCount = 1,
+            plannedBusinessDate = "2026-07-30",
+            dueBusinessDate = "2026-08-11",
+        )
+
+        assertEquals(false, row.isSubmittedAndWaitingVerification)
+        assertEquals(true, row.isClickable)
+    }
+
+    @Test
+    fun `submitted task detail bucket cannot reopen operator capture unless sent back`() {
+        val submitted = taskShedRow(status = "completed", reworked = false)
+        assertEquals(false, submitted.canOpenExecution)
+
+        val sentBack = submitted.copy(reworked = true)
+        assertEquals(true, sentBack.canOpenExecution)
+
+        val open = taskShedRow(status = "in_progress", reworked = false)
+        assertEquals(true, open.canOpenExecution)
+    }
+
+    private fun taskShedRow(status: String, reworked: Boolean) = WeighingTaskShedUiRow(
+        campaignId = "campaign-1",
+        campaignShedId = "campaign-shed-1",
+        tenantId = "tenant-1",
+        locationId = "location-1",
+        shedName = "Castro 1",
+        category = "individual",
+        operatorLabel = "Amit",
+        status = status,
+        reworked = reworked,
+        animalsWeighedCount = 1,
+        animalsSubmittedCount = if (status == "completed") 1 else 0,
+        ladderStep = if (status == "completed") 2 else 1,
+        canReopen = status == "completed" || reworked,
+    )
 }

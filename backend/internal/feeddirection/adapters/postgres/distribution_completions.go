@@ -171,10 +171,16 @@ RETURNING row_version, feed_weight_proof_ref, distribution_proof_ref, water_proo
 				return ports.CompleteDistributionResult{}, err
 			}
 		case domain.DistributionStatusPendingVerification:
-			// Already awaiting verification: idempotent no-op, no new verification item.
+			if weightProof != canonicalFeedWeightProof || distProof != canonicalDistProof || waterProof != canonicalWaterProof {
+				return ports.CompleteDistributionResult{}, ports.ErrDistributionAlreadyRecorded
+			}
+			// Already awaiting verification with the same proof set: idempotent no-op, no new verification item.
 			status = domain.DistributionStatusPendingVerification
 		case domain.DistributionStatusCompleted:
-			// Already verified/completed: no-op.
+			if weightProof != canonicalFeedWeightProof || distProof != canonicalDistProof || waterProof != canonicalWaterProof {
+				return ports.CompleteDistributionResult{}, ports.ErrDistributionAlreadyRecorded
+			}
+			// Already verified/completed with the same proof set: no-op.
 			status = domain.DistributionStatusCompleted
 		default:
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: unexpected distribution status %q", existingStatus)

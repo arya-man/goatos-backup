@@ -49,14 +49,28 @@ class FeedTransportSequenceTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `submit follows distribution proof gating`() {
+    fun `submit follows offline-first proof gating`() {
         assertFalse(FeedTransportCaptureUiState().submitEnabled)
         assertFalse(FeedTransportCaptureUiState(isCapturing = true, videoCaptured = true).submitEnabled)
         assertFalse(FeedTransportCaptureUiState(videoCaptured = true).submitEnabled)
         assertTrue(
             FeedTransportCaptureUiState(
                 videoCaptured = true,
-                videoStatus = FeedDistributionProofStatus.SYNCED,
+                videoStatus = FeedDistributionProofStatus.QUEUED,
+                canSubmit = true,
+            ).submitEnabled,
+        )
+        assertTrue(
+            FeedTransportCaptureUiState(
+                videoCaptured = true,
+                videoStatus = FeedDistributionProofStatus.UPLOADING,
+                canSubmit = true,
+            ).submitEnabled,
+        )
+        assertFalse(
+            FeedTransportCaptureUiState(
+                videoCaptured = true,
+                videoStatus = FeedDistributionProofStatus.FAILED,
                 canSubmit = true,
             ).submitEnabled,
         )

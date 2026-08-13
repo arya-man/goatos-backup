@@ -2424,7 +2424,22 @@ WHERE cs.tenant_id=$1::uuid
 	if err != nil || completed.RowsAffected() == 0 {
 		return err
 	}
+	if err := r.markWorkItemCompletedForScope(ctx, tx, tenantID, campaignShedID); err != nil {
+		return err
+	}
 	return r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID)
+}
+
+func (r *Repository) markWorkItemCompletedForScope(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE weighing_work_items
+SET work_state='completed',
+  terminal_at=COALESCE(terminal_at, now()),
+  updated_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_shed_id=$2::uuid
+  AND work_state <> 'completed'`, tenantID, campaignShedID)
+	return err
 }
 
 // classifyIndividualScopeSubmitFailure runs inside the SAME transaction as the
@@ -2681,6 +2696,9 @@ WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$3::uuid
   AND submitted_at IS NULL
   AND lower(btrim(scanned_identifier))=ANY(SELECT lower(btrim(unnest($4::text[]))))`, tenantID, campaignID, campaignShedID, scannedIdentifiers); err != nil {
+		return err
+	}
+	if err := r.markWorkItemCompletedForScope(ctx, tx, tenantID, campaignShedID); err != nil {
 		return err
 	}
 	if err := r.enqueueShedSubmissionCompleted(ctx, tx, tenantID, campaignShedID); err != nil {
@@ -3532,7 +3550,8 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// selected the name at all, so admin-web always fell back to its
 	// "Roster gap (operator not found)" placeholder for every assigned shed.
 	rows, err := tx.Query(ctx, `
-SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), COALESCE(wi.work_state, cs.status),
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
+  CASE WHEN cs.status IN ('completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
@@ -3579,7 +3598,8 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	// ListCampaignSheds' join, not inventing a second way to resolve an
 	// operator's display name.
 	rows, err := r.pool.Query(ctx, `
-SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), COALESCE(wi.work_state, cs.status),
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
+  CASE WHEN cs.status IN ('completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs

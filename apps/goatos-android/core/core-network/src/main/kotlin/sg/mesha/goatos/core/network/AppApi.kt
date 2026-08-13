@@ -57,6 +57,7 @@ import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.UploadedProofListResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
@@ -687,6 +688,14 @@ interface AppApi {
      *  see [ProofUploadRequestDto]). The offline sync engine's outbox drains this with an
      *  idempotency key exactly like [submitAppTask] / [rescheduleObligation]. */
     suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto
+
+    suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int? = 20,
+    ): UploadedProofListResponseDto
 
     /**
      * The binary-PUT + completion pass that follows a successful [registerProof]
@@ -1494,6 +1503,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             uploadUrl = "https://fake.local/proofs/upload",
             uploadMethod = "PUT",
         )
+
+    override suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int?,
+    ): UploadedProofListResponseDto = UploadedProofListResponseDto()
 
     // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
     // completed under the id `registerProof` handed back, so previews/unit tests that don't care
