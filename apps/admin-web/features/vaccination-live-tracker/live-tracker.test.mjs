@@ -246,7 +246,10 @@ test("the Full Schedule button's fragment matches a section id that is actually 
   // thing that stops this silently rotting again.
   const anchor = board.match(/export const FULL_SCHEDULE_ANCHOR = "([a-z0-9-]+)"/)?.[1];
   assert.ok(anchor, "the schedule anchor must be named once, not inlined into a string concat");
-  assert.match(board, /"#" \+ FULL_SCHEDULE_ANCHOR/, "the href must be built from that constant");
+  assert.match(board, /view: "schedule"/, "the href must open the vaccination page's schedule component");
+  assert.match(board, /schedule_year: String\(vaccinationScheduleYear\(params\.sp\)\)/, "the href must preserve the schedule year selector");
+  assert.match(board, /"#" \+\s+FULL_SCHEDULE_ANCHOR/, "the href must be built from that constant");
+  assert.match(board, /<a href=\{scheduleHref\}/, "cross-page hash navigation should use a native anchor");
   const schedule = readFileSync(
     new URL("../preventive-care-vaccination/full-vaccine-schedule.tsx", import.meta.url),
     "utf8",

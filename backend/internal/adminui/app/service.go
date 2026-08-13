@@ -408,6 +408,7 @@ func pages() []domain.PageContract {
 				table("planned-sessions", "Planned sessions", "/vaccination/sheds/{shed_id}", []string{"session_date", "vaccinations", "daily_limit", "capacity"}, "session"),
 				table("shed-vaccines", "Vaccine breakdown", "/vaccination/sheds/{shed_id}", []string{"vaccine", "status", "last_dose", "next_due", "counts"}, "vaccine"),
 				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "breed", "sex", "age", "lifecycle", "health", "last_vaccination_date", "next_vaccination_date", "vaccination_work"}, "goat_id"),
+				table("shed-drive-rows", "Drive rows", "/vaccination/execution/sheds/{shed_id}", []string{"animal_stage", "drive", "due_date", "work_state", "proof_status", "next_action"}, "drive_row"),
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
 			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
