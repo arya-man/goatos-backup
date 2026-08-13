@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -118,6 +119,31 @@ class FeedTransportCaptureLiveStatusTest {
 
         assertTrue(
             "with no cached Room row, the nav-arg hint must still be honoured",
+            viewModel.state.value.alreadySubmitted,
+        )
+    }
+
+    /**
+     * EDITABLE-FLASH: between construction and the delayed Room emission, the intermediate state
+     * must correctly reflect the nav-arg hint — not flip erroneously editable.
+     */
+    @Test
+    fun `delayed live status emission never permits an editable-flash window`() = runTest(dispatcher) {
+        val transportRepository = FakeFeedTransportStatusSource()
+        // Emit the SUBMITTED status, but delay it past construction so construction sees no value
+        transportRepository.emitWithDelay(FeedStatus.AWAITING, delayMs = 1)
+
+        val viewModel = buildViewModel(transportRepository, lifecycleStatus = "open")
+        // Before advanceUntilIdle, check intermediate state
+        assertFalse(
+            "before delayed emission, nav-arg 'open' should be honoured",
+            viewModel.state.value.alreadySubmitted,
+        )
+
+        advanceUntilIdle()
+        // After the delayed emission, live status must override nav-arg
+        assertTrue(
+            "after delayed emission arrives, submitted live status must override nav-arg",
             viewModel.state.value.alreadySubmitted,
         )
     }

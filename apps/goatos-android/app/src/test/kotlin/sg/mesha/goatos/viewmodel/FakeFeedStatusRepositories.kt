@@ -1,8 +1,12 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.paging.PagingData
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedPackingQuery
@@ -31,8 +35,22 @@ internal class FakeFeedRepository : FeedRepository {
         packingStatus.value = status
     }
 
+    fun emitPackingStatusWithDelay(status: String?, delayMs: Long) {
+        GlobalScope.launch {
+            delay(delayMs)
+            packingStatus.value = status
+        }
+    }
+
     fun emitDirectionStatus(status: String?) {
         directionStatus.value = status
+    }
+
+    fun emitDirectionStatusWithDelay(status: String?, delayMs: Long) {
+        GlobalScope.launch {
+            delay(delayMs)
+            directionStatus.value = status
+        }
     }
 
     override fun observePackingRowStatus(
@@ -64,6 +82,13 @@ internal class FakeFeedTransportStatusSource : FeedTransportStatusSource {
 
     fun emit(status: String?) {
         this.status.value = status
+    }
+
+    fun emitWithDelay(status: String?, delayMs: Long) {
+        GlobalScope.launch {
+            delay(delayMs)
+            this@FakeFeedTransportStatusSource.status.value = status
+        }
     }
 
     override fun observeTaskStatus(taskId: String): Flow<String?> = status
