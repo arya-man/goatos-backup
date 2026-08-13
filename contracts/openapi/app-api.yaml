@@ -2706,6 +2706,127 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/live-tracker:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationLiveTracker
+      summary: Live drive-day tracker — KPIs, operator board, shed proof progress, combo doses, activity feed, attention, verification.
+      description: >-
+        One read backing the whole live drive tracker. Every section derives from a single membership
+        set (the day's protocol-category 'vaccination' obligations at ADMINISTRATION grain), so the
+        KPI tiles reconcile with the tables beneath them.
+
+        Filter scope differs by filter kind and this is deliberate. park_id, shed_id,
+        partition_label, operator_id and vaccine_code are MEMBERSHIP predicates pushed into that one
+        CTE, so they narrow every section including the combo card and the activity feed. `status`
+        is a DERIVED row state (computed from counts plus an elapsed clock), so it narrows only what
+        is folded from those rows: the KPI tiles, the operator board, the shed board and the
+        attention list. The combo card and the activity feed always describe the whole drive day.
+      parameters:
+        - name: business_date
+          in: query
+          required: false
+          description: >-
+            Drive day in the business timezone (defaults to today). This is a BUSINESS DATE, not a
+            projection as_of: the response is always reconstructed from canonical rows, so a past
+            drive day is a supported read. Bounded to the last seven days.
+          schema:
+            type: string
+            format: date
+        - name: park_id
+          in: query
+          required: false
+          description: Optional park narrowing. Clamped server-side to the caller's vaccination park grants.
+          schema:
+            type: string
+            format: uuid
+        - name: shed_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            Partition within the shed. Normalised server-side ("Part 3" and "3" are the same
+            partition) because the goat-side and assignment-side tables spell them differently.
+          schema:
+            type: string
+            maxLength: 64
+        - name: operator_id
+          in: query
+          required: false
+          description: workforce_members.workforce_member_id of the drive operator.
+          schema:
+            type: string
+            format: uuid
+        - name: vaccine_code
+          in: query
+          required: false
+          description: Antigen family code from filter_options.vaccines (for example goat_pox).
+          schema:
+            type: string
+            maxLength: 64
+        - name: status
+          in: query
+          required: false
+          description: >-
+            Derived row state. Narrows the KPI tiles, the operator board, the shed board and the
+            attention list. It does NOT narrow the combo card or the activity feed, which always
+            describe the whole drive day.
+          schema:
+            type: string
+            enum: [active, done, pending, review]
+        - name: activity_limit
+          in: query
+          required: false
+          description: >-
+            Both bounds are enforced with 400 invalid_activity_limit. A value above the maximum is
+            REFUSED, not silently clamped: answering a clamped page with HTTP 200 tells a paging
+            client the limit it asked for was honoured.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 40
+        - name: activity_before
+          in: query
+          required: false
+          description: >-
+            Timestamp half of the activity feed's keyset cursor. Send it together with
+            activity_before_id — occurred_at alone is NOT a key, because burst-written scan captures
+            and scan attempts routinely share a timestamp and a strict comparison skips every event
+            tied with the previous page's last row.
+          schema:
+            type: string
+            format: date-time
+        - name: activity_before_id
+          in: query
+          required: false
+          description: >-
+            Tiebreaker half of the activity feed's keyset cursor — the next_cursor_event_id returned
+            with the previous page. Omitting it drops events sharing the page boundary's timestamp.
+          schema:
+            type: string
+            maxLength: 128
+      responses:
+        "200":
+          description: The live drive tracker for one business date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationLiveTrackerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/operations:
     get:
       tags:
@@ -16427,6 +16548,509 @@ components:
         dueAt:
           type: string
           format: date-time
+    VaccinationLiveTrackerParkCount:
+      type: object
+      additionalProperties: false
+      required: [park_id, park_name, park_code, count]
+      properties:
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        park_code:
+          type: string
+          description: >-
+            Compact location code ("CBE"/"CPT"). Empty when the park has no location_code seeded;
+            consumers fall back to park_name.
+        count:
+          type: integer
+          description: Scheduled ADMINISTRATIONS in this park on the drive day.
+    VaccinationLiveTrackerKPIs:
+      type: object
+      additionalProperties: false
+      required:
+        - scheduled_administrations
+        - scheduled_by_park
+        - proof_videos_received
+        - closed_administrations
+        - awaiting_close
+        - scan_captures
+        - remaining
+        - combo_animals
+        - attention_count
+        - active_parks
+      properties:
+        scheduled_administrations:
+          type: integer
+          description: >-
+            ADMINISTRATION grain — one obligation is one administration, counted over
+            protocol-category 'vaccination' obligations only, excluding the dead statuses
+            canceled/superseded/waived.
+
+            Aggregated over the WHOLE drive day, independent of the row caps below: it is computed by
+            a window aggregate over the untruncated rollup, not folded from the returned rows, so it
+            stays exact when sheds_truncated / operators_truncated / cells_truncated are true. (Under
+            an explicit status filter it describes the filtered subset instead, because a status
+            filter is a narrowing of the day.)
+
+            Reconciliation: equals the sum of the SHED board's scheduled column for the same filter
+            set, provided sheds_truncated and cells_truncated are both false. The OPERATOR board's
+            scheduled column additionally omits unassigned_administrations — administrations in a
+            shed/partition with no vaccination_drive_assignments row for the day have no operator to
+            be attributed to — so operators sum + unassigned_administrations = this tile. The page
+            renders that residual as a visible note under the operator table.
+        scheduled_by_park:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerParkCount" }
+        proof_videos_received:
+          type: integer
+          description: >-
+            ADMINISTRATION grain — administrations whose animal has a completed vaccination video
+            proof on the drive day. On a combo day ONE uploaded video covers two obligations and
+            contributes 2 here, which is why the tile's caption reads "administrations proofed" and
+            not "videos landed".
+        closed_administrations:
+          type: integer
+          description: >-
+            ADMINISTRATION grain — administrations whose obligation_instances row reached
+            status='completed'. Proof ARRIVAL and obligation CLOSURE are different facts and both are
+            reported: in stg on 2026-08-12 all 298 proof videos had landed while 9 of 298 obligations
+            were completed, so a board deriving progress from proof arrival read as a finished drive
+            on a drive that was still open.
+        awaiting_close:
+          type: integer
+          description: proof_videos_received minus closed_administrations, floored at zero.
+        scan_captures:
+          type: integer
+          description: >-
+            ADMINISTRATION grain — administrations whose animal has at least one RFID scan capture on
+            the drive day. This is NOT a count of sop_task_scan_captures rows: an animal scanned three
+            times contributes 1, and a combo animal scanned once contributes 2. The tile is labelled
+            "RFID confirmed / administrations with a scan" for exactly that reason; the operator
+            board's scans column is the physical capture count and is a different figure by design.
+        remaining:
+          type: integer
+          description: >-
+            scheduled_administrations minus closed_administrations, floored at zero — what the drive
+            still owes. It is NOT scheduled minus proofed: that measured proof arrival and let the
+            page read "Remaining 0" while the obligations were still open.
+        combo_animals:
+          type: integer
+          description: ANIMAL grain — animals carrying two or more distinct same-day obligations.
+        attention_count:
+          type: integer
+          description: Exactly len(attention). Never a constant.
+        active_parks:
+          type: integer
+          description: Distinct parks that produced proof or scan evidence on the drive day.
+    VaccinationLiveTrackerOperatorRow:
+      type: object
+      additionalProperties: false
+      required:
+        - operator_id
+        - operator_name
+        - operator_display_code
+        - identity_resolved
+        - park_id
+        - park_name
+        - park_code
+        - current_shed_id
+        - current_shed_label
+        - current_partition_label
+        - current_vaccine_label
+        - scheduled_administrations
+        - proof_videos
+        - scan_captures
+        - closed_administrations
+        - remaining
+        - last_activity_at
+        - idle_minutes
+        - state
+      properties:
+        operator_id: { type: string }
+        operator_name: { type: string }
+        operator_display_code:
+          type: string
+          description: >-
+            Seeded workforce display code. May be an "auth:<uuid>" placeholder in environments where
+            operator identity is only partially seeded; identity_resolved reports which.
+        identity_resolved: { type: boolean }
+        park_id: { type: string }
+        park_name: { type: string }
+        park_code: { type: string }
+        current_shed_id: { type: string }
+        current_shed_label: { type: string }
+        current_partition_label: { type: string }
+        current_vaccine_label: { type: string }
+        scheduled_administrations: { type: integer }
+        proof_videos:
+          type: integer
+          description: >-
+            PHYSICAL count of proof_artifacts rows this person uploaded today — display only. On a
+            combo day one video covers two obligations, so this is deliberately NOT the same grain as
+            scheduled_administrations and must never be subtracted from it.
+        scan_captures:
+          type: integer
+          description: PHYSICAL count of sop_task_scan_captures rows this person captured today.
+        closed_administrations:
+          type: integer
+          description: >-
+            This operator's assigned administrations that reached status='completed' — the same
+            OBLIGATION grain as scheduled_administrations, which is what makes remaining a
+            subtraction of like from like.
+        remaining:
+          type: integer
+          description: scheduled_administrations minus closed_administrations, floored at zero.
+        last_activity_at: { type: string, format: date-time, nullable: true }
+        idle_minutes: { type: integer, nullable: true }
+        state:
+          type: string
+          enum: [active, done, not_started, idle]
+    VaccinationLiveTrackerShedRow:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - physical_shed
+        - partition_label
+        - shed_label
+        - park_id
+        - park_name
+        - vaccine_code
+        - vaccine_label
+        - operator_id
+        - operator_name
+        - scheduled_administrations
+        - closed_administrations
+        - proof_videos_received
+        - remaining
+        - last_proof_at
+        - extra_attempt_count
+        - state
+      properties:
+        shed_id: { type: string }
+        shed_name: { type: string }
+        physical_shed: { type: string }
+        partition_label: { type: string }
+        shed_label: { type: string }
+        park_id: { type: string }
+        park_name: { type: string }
+        vaccine_code: { type: string }
+        vaccine_label: { type: string }
+        operator_id: { type: string }
+        operator_name: { type: string }
+        scheduled_administrations: { type: integer }
+        closed_administrations:
+          type: integer
+          description: Administrations in this cell whose obligation reached status='completed'.
+        proof_videos_received:
+          type: integer
+          description: >-
+            Administrations whose animal has a completed video proof today. Proof ARRIVAL, not
+            closure — remaining is derived from closed_administrations.
+        remaining:
+          type: integer
+          description: scheduled_administrations minus closed_administrations, floored at zero.
+        last_proof_at: { type: string, format: date-time, nullable: true }
+        extra_attempt_count:
+          type: integer
+          description: Duplicate / not-due / unknown scan attempts recorded against this shed's animals today.
+        state:
+          type: string
+          enum: [receiving, slow, done, not_started, review]
+    VaccinationLiveTrackerComboDose:
+      type: object
+      additionalProperties: false
+      required: [obligation_id, vaccine_code, vaccine_label, state]
+      properties:
+        obligation_id: { type: string }
+        vaccine_code: { type: string }
+        vaccine_label: { type: string }
+        state:
+          type: string
+          description: >-
+            A pure function of the OBLIGATION's own status, with proof arrival reported separately.
+            verification_pending means a proof landed for this animal today and the obligation is not
+            closed yet — the same fact the sibling execution read model already calls
+            verification_pending. It is never inferred that a proof closed the obligation.
+          enum: [closed, verification_pending, awaiting_proof, scheduled]
+    VaccinationLiveTrackerComboRow:
+      type: object
+      additionalProperties: false
+      required:
+        - goat_id
+        - display_id
+        - primary_tag
+        - secondary_tag
+        - shed_label
+        - proof_state
+        - proof_count
+        - doses
+      properties:
+        goat_id: { type: string }
+        display_id: { type: string }
+        primary_tag:
+          type: string
+          description: The animal's REAL active primary identifier. No synthetic id is ever generated.
+        secondary_tag:
+          type: string
+          description: Second active tag where the animal is dual-tagged; empty otherwise.
+        shed_label: { type: string }
+        proof_state:
+          type: string
+          enum: [video, uploading, none]
+        proof_count: { type: integer }
+        doses:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerComboDose" }
+    VaccinationLiveTrackerCombo:
+      type: object
+      additionalProperties: false
+      required: [animal_count, vaccine_labels, rows, rows_truncated]
+      properties:
+        animal_count:
+          type: integer
+          description: Exact total combo ANIMALS, computed before the row cap.
+        vaccine_labels:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerComboRow" }
+        rows_truncated: { type: boolean }
+    VaccinationLiveTrackerActivityItem:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - occurred_at
+        - kind
+        - actor_id
+        - actor_name
+        - park_name
+        - shed_label
+        - vaccine_label
+        - goat_id
+        - goat_display_id
+        - scanned_identifier
+        - detail_code
+      properties:
+        event_id:
+          type: string
+          description: "<kind>:<primary key> — stable dedupe key across polls."
+        occurred_at: { type: string, format: date-time }
+        kind:
+          type: string
+          description: >-
+            obligation_closed is one row per obligation_status_events row with event_type='completed'
+            — PER-ANIMAL obligation closure. It was previously labelled shed_submitted, a shed-level
+            name on an animal-grain count; a real shed submission lives in sop_submissions and is not
+            read by this feed.
+          enum: [proof_video, scan_capture, scan_duplicate, scan_unknown, administration, obligation_closed]
+        actor_id: { type: string }
+        actor_name: { type: string }
+        park_name: { type: string }
+        shed_label: { type: string }
+        vaccine_label:
+          type: string
+          description: >-
+            EVERY same-day dose the animal is on, joined with " + ". A combo animal's single video
+            covers both antigens, so naming only one of them silently dropped the other from the row
+            that reports it.
+        goat_id: { type: string }
+        goat_display_id: { type: string }
+        scanned_identifier:
+          type: string
+          description: The tag actually scanned, or the animal's active primary identifier. Never generated.
+        detail_code: { type: string }
+    VaccinationLiveTrackerActivity:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, next_cursor_event_id, observed_per_min, window_minutes]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerActivityItem" }
+        next_cursor:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Timestamp half of the next page's keyset cursor. Must be sent back together with
+            next_cursor_event_id; the feed's sort key is (occurred_at DESC, event_id DESC) and
+            paging on the timestamp alone loses every event tied with this boundary.
+        next_cursor_event_id:
+          type: string
+          nullable: true
+          description: Tiebreaker half of the next page's keyset cursor. Null exactly when next_cursor is null.
+        observed_per_min:
+          type: number
+          nullable: true
+          description: >-
+            Events per minute OBSERVED over the returned window. Null when fewer than two events were
+            returned — the rate is measured, never assumed.
+        window_minutes: { type: integer }
+    VaccinationLiveTrackerAttentionRow:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - subject_label
+        - operator_id
+        - shed_id
+        - metric_count
+        - total_count
+        - elapsed_minutes
+        - since_at
+        - severity
+      properties:
+        kind:
+          type: string
+          enum: [extra_attempts, idle_operator, slow_shed]
+        subject_label: { type: string }
+        operator_id: { type: string }
+        shed_id: { type: string }
+        metric_count: { type: integer }
+        total_count: { type: integer }
+        elapsed_minutes: { type: integer }
+        since_at: { type: string, format: date-time, nullable: true }
+        severity:
+          type: string
+          enum: [warn, dng]
+    VaccinationLiveTrackerVerification:
+      type: object
+      additionalProperties: false
+      required:
+        - awaiting_review_items
+        - awaiting_review_sheds
+        - verified_today_items
+        - verified_today_sheds
+        - rework_requested
+      properties:
+        awaiting_review_items: { type: integer }
+        awaiting_review_sheds: { type: integer }
+        verified_today_items: { type: integer }
+        verified_today_sheds: { type: integer }
+        rework_requested: { type: integer }
+    VaccinationLiveTrackerFilterOption:
+      type: object
+      additionalProperties: false
+      required: [id, code, partition_label, label]
+      properties:
+        id: { type: string }
+        code: { type: string }
+        partition_label: { type: string }
+        label: { type: string }
+    VaccinationLiveTrackerFilterOptions:
+      type: object
+      additionalProperties: false
+      required: [parks, vaccines, operators, sheds, truncated]
+      description: >-
+        The filter bar's vocabulary, compiled from the day's own rows with only the AUTHORIZATION park
+        scope applied (the caller's own park selection is deliberately dropped so the park control
+        cannot self-collapse). Because it comes from real administrations, an option that matches zero
+        rows cannot be offered, and choosing one operator does not collapse the operator list.
+
+        Each kind carries its own server-side cap. A single shared cap across the union was spent in
+        kind-name order, which destroyed the vaccine list entirely before any other list lost a row.
+      properties:
+        parks:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        vaccines:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        operators:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        sheds:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOption" }
+        truncated:
+          type: boolean
+          description: True when any option kind hit its own cap, so the filter bar is incomplete.
+    VaccinationLiveTrackerResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - generated_at
+        - is_live_day
+        - kpis
+        - operators
+        - sheds
+        - combo
+        - operators_total
+        - operators_truncated
+        - sheds_total
+        - sheds_truncated
+        - cells_truncated
+        - unassigned_administrations
+        - activity
+        - attention
+        - attention_total
+        - attention_truncated
+        - verification
+        - filter_options
+      properties:
+        business_date: { type: string, format: date }
+        generated_at: { type: string, format: date-time }
+        is_live_day:
+          type: boolean
+          description: >-
+            True only when business_date is today in business time. A past drive day is a legitimate
+            read on this route, and consumers must not render it under a live badge or keep polling it.
+        freshness: { $ref: "#/components/schemas/VaccinationProjectionFreshness" }
+        kpis: { $ref: "#/components/schemas/VaccinationLiveTrackerKPIs" }
+        operators:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerOperatorRow" }
+        sheds:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerShedRow" }
+        combo: { $ref: "#/components/schemas/VaccinationLiveTrackerCombo" }
+        operators_total:
+          type: integer
+          description: Operator rows BEFORE the server-side cap. Equals operators.length when operators_truncated is false.
+        operators_truncated:
+          type: boolean
+          description: >-
+            True when the operator board was cut to its server-side cap. The KPI tiles are aggregated
+            over the whole day, so while this is true the Scheduled tile intentionally exceeds the sum
+            of the visible operator table's scheduled column.
+        sheds_total:
+          type: integer
+          description: Shed × partition rows BEFORE the server-side cap. Equals sheds.length when sheds_truncated is false.
+        sheds_truncated:
+          type: boolean
+          description: >-
+            True when the shed board was cut to its server-side cap. While true the Scheduled tile
+            intentionally exceeds the sum of the visible shed table's scheduled column.
+        cells_truncated:
+          type: boolean
+          description: >-
+            True when the underlying park × shed × partition × vaccine × operator rollup itself hit
+            its per-read cap, so the two tables list only part of the day. The KPI tiles stay exact —
+            they come from window aggregates over the untruncated rollup, not from the returned rows.
+        unassigned_administrations:
+          type: integer
+          description: >-
+            Scheduled administrations that resolved to NO drive assignment for the day. They are
+            counted in the tiles and rendered in the shed board, but have no operator to be attributed
+            to and appear in no operator row, so the operator table's scheduled column sums to
+            scheduled_administrations minus this figure. On a partially-planned stg day (2026-08-14)
+            that residual is 95 of 199.
+        activity: { $ref: "#/components/schemas/VaccinationLiveTrackerActivity" }
+        attention:
+          type: array
+          items: { $ref: "#/components/schemas/VaccinationLiveTrackerAttentionRow" }
+        attention_total:
+          type: integer
+          description: Attention rows BEFORE the server-side cap. kpis.attention_count equals this.
+        attention_truncated:
+          type: boolean
+          description: True when the attention rail was cut to its server-side cap.
+        verification: { $ref: "#/components/schemas/VaccinationLiveTrackerVerification" }
+        filter_options: { $ref: "#/components/schemas/VaccinationLiveTrackerFilterOptions" }
     VaccinationCommandBoardResponse:
       type: object
       additionalProperties: false

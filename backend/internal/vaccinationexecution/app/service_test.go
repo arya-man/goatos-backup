@@ -27,6 +27,10 @@ func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoa
 	return domain.CommandBoardResponse{}, nil
 }
 
+func (r fakeRepo) LiveTracker(_ context.Context, _ domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	return domain.LiveTrackerResponse{}, nil
+}
+
 func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
 	if r.err != nil {
 		return nil, r.err

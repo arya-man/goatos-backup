@@ -65,6 +65,10 @@ type Reader interface {
 	// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
 	// weekly given, and verification queue.
 	VaccinationCommandBoard(ctx context.Context, q vaccexecd.CommandBoardQuery) (vaccexecd.CommandBoardResponse, error)
+
+	// LiveTracker returns the live drive-day tracker (KPIs, operator board, shed proof board, combo
+	// doses, activity feed, attention, verification, filter vocabulary) in one read.
+	LiveTracker(ctx context.Context, q vaccexecd.LiveTrackerQuery) (vaccexecd.LiveTrackerResponse, error)
 }
 
 // OperatorAssignmentConfigWriter is the write slice for the operator assignment admin screen.
@@ -153,6 +157,7 @@ func (h *Handler) now() time.Time {
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/command", h.GetVaccinationCommandBoard)
+	mux.HandleFunc("GET /vaccination/live-tracker", h.GetVaccinationLiveTracker)
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)

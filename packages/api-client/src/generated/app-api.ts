@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/analytics/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mirror one Android analytics event into backend audit storage.
+         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in audit_log with action=app.analytics.event so scan/proof journeys can be queried even when Firebase UI is delayed.
+         */
+        post: operations["recordAppAnalyticsEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin-web/bootstrap": {
         parameters: {
             query?: never;
@@ -1160,6 +1180,27 @@ export interface paths {
         };
         /** CEO closure view — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */
         get: operations["getVaccinationCommandBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/live-tracker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live drive-day tracker — KPIs, operator board, shed proof progress, combo doses, activity feed, attention, verification.
+         * @description One read backing the whole live drive tracker. Every section derives from a single membership set (the day's protocol-category 'vaccination' obligations at ADMINISTRATION grain), so the KPI tiles reconcile with the tables beneath them.
+         *     Filter scope differs by filter kind and this is deliberate. park_id, shed_id, partition_label, operator_id and vaccine_code are MEMBERSHIP predicates pushed into that one CTE, so they narrow every section including the combo card and the activity feed. `status` is a DERIVED row state (computed from counts plus an elapsed clock), so it narrows only what is folded from those rows: the KPI tiles, the operator board, the shed board and the attention list. The combo card and the activity feed always describe the whole drive day.
+         */
+        get: operations["getVaccinationLiveTracker"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5733,6 +5774,7 @@ export interface components {
             driveId?: string;
             driveName?: string;
             /** @description Vaccine chips for this actual shed card. Counts on the card remain animal-grain: if one animal needs multiple vaccines, one proof/video satisfies all listed labels. */
+            /** @description All vaccine labels represented by this execution row. Mobile shed cards render these as vaccine chips; driveName is only the primary/back-compat label. */
             vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
@@ -6141,6 +6183,231 @@ export interface components {
             status: string;
             /** Format: date-time */
             dueAt?: string;
+        };
+        VaccinationLiveTrackerParkCount: {
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** @description Compact location code ("CBE"/"CPT"). Empty when the park has no location_code seeded; consumers fall back to park_name. */
+            park_code: string;
+            /** @description Scheduled ADMINISTRATIONS in this park on the drive day. */
+            count: number;
+        };
+        VaccinationLiveTrackerKPIs: {
+            /**
+             * @description ADMINISTRATION grain — one obligation is one administration, counted over protocol-category 'vaccination' obligations only, excluding the dead statuses canceled/superseded/waived.
+             *     Aggregated over the WHOLE drive day, independent of the row caps below: it is computed by a window aggregate over the untruncated rollup, not folded from the returned rows, so it stays exact when sheds_truncated / operators_truncated / cells_truncated are true. (Under an explicit status filter it describes the filtered subset instead, because a status filter is a narrowing of the day.)
+             *     Reconciliation: equals the sum of the SHED board's scheduled column for the same filter set, provided sheds_truncated and cells_truncated are both false. The OPERATOR board's scheduled column additionally omits unassigned_administrations — administrations in a shed/partition with no vaccination_drive_assignments row for the day have no operator to be attributed to — so operators sum + unassigned_administrations = this tile. The page renders that residual as a visible note under the operator table.
+             */
+            scheduled_administrations: number;
+            scheduled_by_park: components["schemas"]["VaccinationLiveTrackerParkCount"][];
+            /** @description ADMINISTRATION grain — administrations whose animal has a completed vaccination video proof on the drive day. On a combo day ONE uploaded video covers two obligations and contributes 2 here, which is why the tile's caption reads "administrations proofed" and not "videos landed". */
+            proof_videos_received: number;
+            /** @description ADMINISTRATION grain — administrations whose obligation_instances row reached status='completed'. Proof ARRIVAL and obligation CLOSURE are different facts and both are reported: in stg on 2026-08-12 all 298 proof videos had landed while 9 of 298 obligations were completed, so a board deriving progress from proof arrival read as a finished drive on a drive that was still open. */
+            closed_administrations: number;
+            /** @description proof_videos_received minus closed_administrations, floored at zero. */
+            awaiting_close: number;
+            /** @description ADMINISTRATION grain — administrations whose animal has at least one RFID scan capture on the drive day. This is NOT a count of sop_task_scan_captures rows: an animal scanned three times contributes 1, and a combo animal scanned once contributes 2. The tile is labelled "RFID confirmed / administrations with a scan" for exactly that reason; the operator board's scans column is the physical capture count and is a different figure by design. */
+            scan_captures: number;
+            /** @description scheduled_administrations minus closed_administrations, floored at zero — what the drive still owes. It is NOT scheduled minus proofed: that measured proof arrival and let the page read "Remaining 0" while the obligations were still open. */
+            remaining: number;
+            /** @description ANIMAL grain — animals carrying two or more distinct same-day obligations. */
+            combo_animals: number;
+            /** @description Exactly len(attention). Never a constant. */
+            attention_count: number;
+            /** @description Distinct parks that produced proof or scan evidence on the drive day. */
+            active_parks: number;
+        };
+        VaccinationLiveTrackerOperatorRow: {
+            operator_id: string;
+            operator_name: string;
+            /** @description Seeded workforce display code. May be an "auth:<uuid>" placeholder in environments where operator identity is only partially seeded; identity_resolved reports which. */
+            operator_display_code: string;
+            identity_resolved: boolean;
+            park_id: string;
+            park_name: string;
+            park_code: string;
+            current_shed_id: string;
+            current_shed_label: string;
+            current_partition_label: string;
+            current_vaccine_label: string;
+            scheduled_administrations: number;
+            /** @description PHYSICAL count of proof_artifacts rows this person uploaded today — display only. On a combo day one video covers two obligations, so this is deliberately NOT the same grain as scheduled_administrations and must never be subtracted from it. */
+            proof_videos: number;
+            /** @description PHYSICAL count of sop_task_scan_captures rows this person captured today. */
+            scan_captures: number;
+            /** @description This operator's assigned administrations that reached status='completed' — the same OBLIGATION grain as scheduled_administrations, which is what makes remaining a subtraction of like from like. */
+            closed_administrations: number;
+            /** @description scheduled_administrations minus closed_administrations, floored at zero. */
+            remaining: number;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            idle_minutes: number | null;
+            /** @enum {string} */
+            state: "active" | "done" | "not_started" | "idle";
+        };
+        VaccinationLiveTrackerShedRow: {
+            shed_id: string;
+            shed_name: string;
+            physical_shed: string;
+            partition_label: string;
+            shed_label: string;
+            park_id: string;
+            park_name: string;
+            vaccine_code: string;
+            vaccine_label: string;
+            operator_id: string;
+            operator_name: string;
+            scheduled_administrations: number;
+            /** @description Administrations in this cell whose obligation reached status='completed'. */
+            closed_administrations: number;
+            /** @description Administrations whose animal has a completed video proof today. Proof ARRIVAL, not closure — remaining is derived from closed_administrations. */
+            proof_videos_received: number;
+            /** @description scheduled_administrations minus closed_administrations, floored at zero. */
+            remaining: number;
+            /** Format: date-time */
+            last_proof_at: string | null;
+            /** @description Duplicate / not-due / unknown scan attempts recorded against this shed's animals today. */
+            extra_attempt_count: number;
+            /** @enum {string} */
+            state: "receiving" | "slow" | "done" | "not_started" | "review";
+        };
+        VaccinationLiveTrackerComboDose: {
+            obligation_id: string;
+            vaccine_code: string;
+            vaccine_label: string;
+            /**
+             * @description A pure function of the OBLIGATION's own status, with proof arrival reported separately. verification_pending means a proof landed for this animal today and the obligation is not closed yet — the same fact the sibling execution read model already calls verification_pending. It is never inferred that a proof closed the obligation.
+             * @enum {string}
+             */
+            state: "closed" | "verification_pending" | "awaiting_proof" | "scheduled";
+        };
+        VaccinationLiveTrackerComboRow: {
+            goat_id: string;
+            display_id: string;
+            /** @description The animal's REAL active primary identifier. No synthetic id is ever generated. */
+            primary_tag: string;
+            /** @description Second active tag where the animal is dual-tagged; empty otherwise. */
+            secondary_tag: string;
+            shed_label: string;
+            /** @enum {string} */
+            proof_state: "video" | "uploading" | "none";
+            proof_count: number;
+            doses: components["schemas"]["VaccinationLiveTrackerComboDose"][];
+        };
+        VaccinationLiveTrackerCombo: {
+            /** @description Exact total combo ANIMALS, computed before the row cap. */
+            animal_count: number;
+            vaccine_labels: string[];
+            rows: components["schemas"]["VaccinationLiveTrackerComboRow"][];
+            rows_truncated: boolean;
+        };
+        VaccinationLiveTrackerActivityItem: {
+            /** @description <kind>:<primary key> — stable dedupe key across polls. */
+            event_id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /**
+             * @description obligation_closed is one row per obligation_status_events row with event_type='completed' — PER-ANIMAL obligation closure. It was previously labelled shed_submitted, a shed-level name on an animal-grain count; a real shed submission lives in sop_submissions and is not read by this feed.
+             * @enum {string}
+             */
+            kind: "proof_video" | "scan_capture" | "scan_duplicate" | "scan_unknown" | "administration" | "obligation_closed";
+            actor_id: string;
+            actor_name: string;
+            park_name: string;
+            shed_label: string;
+            /** @description EVERY same-day dose the animal is on, joined with " + ". A combo animal's single video covers both antigens, so naming only one of them silently dropped the other from the row that reports it. */
+            vaccine_label: string;
+            goat_id: string;
+            goat_display_id: string;
+            /** @description The tag actually scanned, or the animal's active primary identifier. Never generated. */
+            scanned_identifier: string;
+            detail_code: string;
+        };
+        VaccinationLiveTrackerActivity: {
+            items: components["schemas"]["VaccinationLiveTrackerActivityItem"][];
+            /**
+             * Format: date-time
+             * @description Timestamp half of the next page's keyset cursor. Must be sent back together with next_cursor_event_id; the feed's sort key is (occurred_at DESC, event_id DESC) and paging on the timestamp alone loses every event tied with this boundary.
+             */
+            next_cursor: string | null;
+            /** @description Tiebreaker half of the next page's keyset cursor. Null exactly when next_cursor is null. */
+            next_cursor_event_id: string | null;
+            /** @description Events per minute OBSERVED over the returned window. Null when fewer than two events were returned — the rate is measured, never assumed. */
+            observed_per_min: number | null;
+            window_minutes: number;
+        };
+        VaccinationLiveTrackerAttentionRow: {
+            /** @enum {string} */
+            kind: "extra_attempts" | "idle_operator" | "slow_shed";
+            subject_label: string;
+            operator_id: string;
+            shed_id: string;
+            metric_count: number;
+            total_count: number;
+            elapsed_minutes: number;
+            /** Format: date-time */
+            since_at: string | null;
+            /** @enum {string} */
+            severity: "warn" | "dng";
+        };
+        VaccinationLiveTrackerVerification: {
+            awaiting_review_items: number;
+            awaiting_review_sheds: number;
+            verified_today_items: number;
+            verified_today_sheds: number;
+            rework_requested: number;
+        };
+        VaccinationLiveTrackerFilterOption: {
+            id: string;
+            code: string;
+            partition_label: string;
+            label: string;
+        };
+        /**
+         * @description The filter bar's vocabulary, compiled from the day's own rows with only the AUTHORIZATION park scope applied (the caller's own park selection is deliberately dropped so the park control cannot self-collapse). Because it comes from real administrations, an option that matches zero rows cannot be offered, and choosing one operator does not collapse the operator list.
+         *     Each kind carries its own server-side cap. A single shared cap across the union was spent in kind-name order, which destroyed the vaccine list entirely before any other list lost a row.
+         */
+        VaccinationLiveTrackerFilterOptions: {
+            parks: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            vaccines: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            operators: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            sheds: components["schemas"]["VaccinationLiveTrackerFilterOption"][];
+            /** @description True when any option kind hit its own cap, so the filter bar is incomplete. */
+            truncated: boolean;
+        };
+        VaccinationLiveTrackerResponse: {
+            /** Format: date */
+            business_date: string;
+            /** Format: date-time */
+            generated_at: string;
+            /** @description True only when business_date is today in business time. A past drive day is a legitimate read on this route, and consumers must not render it under a live badge or keep polling it. */
+            is_live_day: boolean;
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+            kpis: components["schemas"]["VaccinationLiveTrackerKPIs"];
+            operators: components["schemas"]["VaccinationLiveTrackerOperatorRow"][];
+            sheds: components["schemas"]["VaccinationLiveTrackerShedRow"][];
+            combo: components["schemas"]["VaccinationLiveTrackerCombo"];
+            /** @description Operator rows BEFORE the server-side cap. Equals operators.length when operators_truncated is false. */
+            operators_total: number;
+            /** @description True when the operator board was cut to its server-side cap. The KPI tiles are aggregated over the whole day, so while this is true the Scheduled tile intentionally exceeds the sum of the visible operator table's scheduled column. */
+            operators_truncated: boolean;
+            /** @description Shed × partition rows BEFORE the server-side cap. Equals sheds.length when sheds_truncated is false. */
+            sheds_total: number;
+            /** @description True when the shed board was cut to its server-side cap. While true the Scheduled tile intentionally exceeds the sum of the visible shed table's scheduled column. */
+            sheds_truncated: boolean;
+            /** @description True when the underlying park × shed × partition × vaccine × operator rollup itself hit its per-read cap, so the two tables list only part of the day. The KPI tiles stay exact — they come from window aggregates over the untruncated rollup, not from the returned rows. */
+            cells_truncated: boolean;
+            /** @description Scheduled administrations that resolved to NO drive assignment for the day. They are counted in the tiles and rendered in the shed board, but have no operator to be attributed to and appear in no operator row, so the operator table's scheduled column sums to scheduled_administrations minus this figure. On a partially-planned stg day (2026-08-14) that residual is 95 of 199. */
+            unassigned_administrations: number;
+            activity: components["schemas"]["VaccinationLiveTrackerActivity"];
+            attention: components["schemas"]["VaccinationLiveTrackerAttentionRow"][];
+            /** @description Attention rows BEFORE the server-side cap. kpis.attention_count equals this. */
+            attention_total: number;
+            /** @description True when the attention rail was cut to its server-side cap. */
+            attention_truncated: boolean;
+            verification: components["schemas"]["VaccinationLiveTrackerVerification"];
+            filter_options: components["schemas"]["VaccinationLiveTrackerFilterOptions"];
         };
         VaccinationCommandBoardResponse: {
             /** @description Shed x VACCINE, dose collapsed, reported as a flag. DENSE: every shed in view carries a cell for every code in shedVaccineCodes, so a gap in this array is never the answer "clean" — an unplanned vaccine is an explicit not_planned cell. This does NOT supersede shedDoseMatrix, which stays dose-qualified. An earlier attempt to collapse doses in that matrix was reverted because it SUMMED Dose 1 + Dose 2 + Revaccination into a figure that exceeded the cohort head count. This array carries no sum: its cell state is a boolean OR over the shed's doses, so collapsing cannot over-count by construction. The two matrices answer different questions — "how much of each dose" and "is anything behind at all" — and neither is derivable from the other on the client without losing a guarantee. */
@@ -6831,6 +7098,7 @@ export interface components {
             /**
              * Format: date
              * @description Business date originally planned for this operator bucket.
+             * @description Business date originally planned for this operator task.
              */
             planned_business_date?: string;
             /**
@@ -9620,6 +9888,46 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    recordAppAnalyticsEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    event_name: string;
+                    properties?: {
+                        [key: string]: string;
+                    };
+                    /** Format: int64 */
+                    client_event_time_ms: number;
+                    flavor: string;
+                    app_version_name: string;
+                    app_version_code: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Analytics event accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     adminWebBootstrap: {
         parameters: {
             query?: never;
@@ -11491,6 +11799,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationCommandBoardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationLiveTracker: {
+        parameters: {
+            query?: {
+                /** @description Drive day in the business timezone (defaults to today). This is a BUSINESS DATE, not a projection as_of: the response is always reconstructed from canonical rows, so a past drive day is a supported read. Bounded to the last seven days. */
+                business_date?: string;
+                /** @description Optional park narrowing. Clamped server-side to the caller's vaccination park grants. */
+                park_id?: string;
+                shed_id?: string;
+                /** @description Partition within the shed. Normalised server-side ("Part 3" and "3" are the same partition) because the goat-side and assignment-side tables spell them differently. */
+                partition_label?: string;
+                /** @description workforce_members.workforce_member_id of the drive operator. */
+                operator_id?: string;
+                /** @description Antigen family code from filter_options.vaccines (for example goat_pox). */
+                vaccine_code?: string;
+                /** @description Derived row state. Narrows the KPI tiles, the operator board, the shed board and the attention list. It does NOT narrow the combo card or the activity feed, which always describe the whole drive day. */
+                status?: "active" | "done" | "pending" | "review";
+                /** @description Both bounds are enforced with 400 invalid_activity_limit. A value above the maximum is REFUSED, not silently clamped: answering a clamped page with HTTP 200 tells a paging client the limit it asked for was honoured. */
+                activity_limit?: number;
+                /** @description Timestamp half of the activity feed's keyset cursor. Send it together with activity_before_id — occurred_at alone is NOT a key, because burst-written scan captures and scan attempts routinely share a timestamp and a strict comparison skips every event tied with the previous page's last row. */
+                activity_before?: string;
+                /** @description Tiebreaker half of the activity feed's keyset cursor — the next_cursor_event_id returned with the previous page. Omitting it drops events sharing the page boundary's timestamp. */
+                activity_before_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The live drive tracker for one business date. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationLiveTrackerResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -13421,6 +13773,10 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
+                            originalShed?: string;
+                            originalPartitionLabel?: string;
+                            detectedShed?: string;
+                            detectedPartitionLabel?: string;
                             /**
                              * Format: date-time
                              * @description Exact RFID scan timestamp persisted by the backend for this task row.
