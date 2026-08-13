@@ -2817,13 +2817,13 @@ func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.T
 		return fmt.Errorf("verify physical shed placement: %w", err)
 	}
 	if offenders != 0 {
-		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+		return fmt.Errorf("physical shed invariant failed: %d active animals are not placed on active exact shed locations", offenders)
 	}
 	if err := tx.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify shed partition lineage: %w", err)
 	}
 	if offenders != 0 {
-		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+		return fmt.Errorf("shed partition invariant failed: %d active animals with a legacy group are missing exact shed lineage", offenders)
 	}
 	return nil
 }
@@ -2834,13 +2834,13 @@ func verifyActiveGoatsUsePhysicalShedLocations(ctx context.Context, pool *pgxpoo
 		return fmt.Errorf("verify physical shed placement: %w", err)
 	}
 	if offenders != 0 {
-		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
+		return fmt.Errorf("physical shed invariant failed: %d active animals are not placed on active exact shed locations", offenders)
 	}
 	if err := pool.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify shed partition lineage: %w", err)
 	}
 	if offenders != 0 {
-		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+		return fmt.Errorf("shed partition invariant failed: %d active animals with a legacy group are missing exact shed lineage", offenders)
 	}
 	return nil
 }
@@ -2855,8 +2855,7 @@ JOIN locations shed
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
   AND g.merged_into_goat_id IS NULL
-  AND shed.location_type = 'shed'
-  AND shed.name ~* ' - Part [0-9]+$'`
+  AND (shed.location_type <> 'shed' OR shed.status <> 'active')`
 }
 
 func activeGoatPartitionLineageInvariantSQL() string {
@@ -2866,12 +2865,21 @@ FROM goats g
 LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = g.shed_id
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.shed_id = g.shed_group_id
+ AND sp.operational_location_id = g.shed_id
+ AND sp.status = 'active'
+ AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+     regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
   AND g.merged_into_goat_id IS NULL
+  AND g.shed_group_id IS NOT NULL
   AND (
     gsp.goat_id IS NULL
+    OR gsp.shed_id IS DISTINCT FROM g.shed_group_id
+    OR sp.partition_id IS NULL
     OR btrim(gsp.partition_label) = ''
     OR btrim(gsp.source_shed_name) = ''
   )`
