@@ -80,12 +80,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
-    private val partitionLabel: String = ""
+    private val locationIdentityKey: String = savedStateHandle.get<String>(ARG_LOCATION_IDENTITY_KEY).orEmpty()
+    private val partitionLabel: String = savedStateHandle.get<String>(ARG_COMPAT_PARTITION_LABEL).orEmpty()
 
     // The day-shed-session partitions ordering for BOTH proofs AND the completion, so the proofs
     // drain strictly before the gated completion that references them.
     private val groupKey =
-        feedCaptureGroupKey("feed-dist", shedId, "", sessionNo, workflow, targetDate)
+        feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate, locationIdentityKey)
 
     private val feedWeightPhotoKey = DraftIdempotencyKey(savedStateHandle, KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY, "feed-distribution-feed-weight-photo")
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-distribution-video")
@@ -491,7 +492,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     idempotencyKey = feedDistributionCompleteKey(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem),
                     parkId = parkId,
                     shedId = shedId,
-                    partitionLabel = null,
+                    partitionLabel = partitionLabel.ifBlank { null },
                     sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
@@ -822,6 +823,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         const val ARG_SESSION_LABEL = "session_label"
         const val ARG_PARK_LABEL = "park_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
+        const val ARG_LOCATION_IDENTITY_KEY = "location_identity_key"
+        const val ARG_COMPAT_PARTITION_LABEL = "compat_partition_label"
 
         private const val KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY = "feedDistribution.feedWeightPhotoKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"

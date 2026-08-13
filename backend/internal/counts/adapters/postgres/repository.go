@@ -3026,12 +3026,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
 		}
 		if dimension == "shed" {
-			// The exact shed name, then the park in front of it. partition_label may still arrive
-			// from compatibility rows but must never alter the display.
+			// The exact shed name. partition_label may still arrive from compatibility rows but must
+			// never alter the display or produce labels like "Castro 2 2".
 			label = oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display()
-			if parkLabel != "" && label != "" {
-				label = parkLabel + " · " + label
-			}
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {

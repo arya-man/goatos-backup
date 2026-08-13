@@ -138,14 +138,14 @@ class ShiftingViewModelEligibilityTest {
     }
 
     // -------------------------------------------------------------------------------------------
-    // Partition carrying — the maintainer-reported defect: FROM must show the animal's PARTITION,
-    // and MOVE TO must be able to target a different partition of the SAME shed, or any partition
-    // of any other shed. Source: source->UI->submit payload. Destination: catalog->UI->submit.
+    // Exact shed carrying — the maintainer-reported defect: FROM must show the animal's real shed,
+    // and MOVE TO must target another real shed id. Legacy partition labels are compatibility
+    // metadata only; a destination like "Yashoda Part 2" is its own shed, not Yashoda + label 2.
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `selecting an animal in a partitioned shed carries its partition into the UI`() = runTest(dispatcher) {
-        val vm = newViewModel(listOf(animal(lifecycle = "alive", partitionLabel = "1")))
+    fun `selecting an animal in an exact shed carries the shed name into the UI`() = runTest(dispatcher) {
+        val vm = newViewModel(listOf(animal(lifecycle = "alive", shedName = "Yashoda Part 1")))
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
         vm.onEvent(ShiftingEvent.LookupAnimals)
@@ -153,14 +153,12 @@ class ShiftingViewModelEligibilityTest {
 
         vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
 
-        // The DTO -> UI mapping preserves the animal's current partition rather than dropping it,
-        // which is the root cause of the reported "Coimbatore · Yashoda" FROM chip that could not
-        // say which partition the animal was actually in.
-        assertEquals("1", vm.state.value.selectedAnimal?.partitionLabel)
+        assertEquals("Yashoda Part 1", vm.state.value.selectedAnimal?.shedName)
+        assertNull(vm.state.value.selectedAnimal?.partitionLabel)
     }
 
     @Test
-    fun `a same-shed cross-partition move is expressible and carries the destination partition on submit`() =
+    fun `a same-group exact-shed move submits the destination shed without a partition label`() =
         runTest(dispatcher) {
             val sync = NoopShiftingSyncRepository()
             val destinations = listOf(
@@ -168,14 +166,14 @@ class ShiftingViewModelEligibilityTest {
                     parkId = CBE_PARK_ID,
                     name = "Coimbatore",
                     sheds = listOf(
-                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "1"),
-                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "2"),
-                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "3"),
+                        CountsDestinationShedDto(shedId = YASHODA_PART_1_SHED_ID, name = "Yashoda Part 1", partitionLabel = null),
+                        CountsDestinationShedDto(shedId = YASHODA_PART_2_SHED_ID, name = "Yashoda Part 2", partitionLabel = null),
+                        CountsDestinationShedDto(shedId = YASHODA_PART_3_SHED_ID, name = "Yashoda Part 3", partitionLabel = null),
                     ),
                 ),
             )
             val vm = newViewModel(
-                listOf(animal(lifecycle = "alive", shedId = YASHODA_SHED_ID, shedName = "Yashoda", partitionLabel = "1")),
+                listOf(animal(lifecycle = "alive", shedId = YASHODA_PART_1_SHED_ID, shedName = "Yashoda Part 1")),
                 sync,
                 destinations,
             )
@@ -185,12 +183,12 @@ class ShiftingViewModelEligibilityTest {
             advanceUntilIdle()
             vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
 
-            // Three distinct dropdown entries exist for the ONE shed_id, one per partition — the
-            // exact shape that used to be an unexpressible "bare Shed dropdown".
+            // Three distinct dropdown entries exist because they are three real shed ids, not one
+            // parent shed plus partition labels.
             assertEquals(3, vm.state.value.shedsForSelectedPark.size)
 
-            vm.onEvent(ShiftingEvent.SelectDestinationShed(YASHODA_SHED_ID, "2"))
-            assertEquals("2", vm.state.value.destinationPartitionLabel)
+            vm.onEvent(ShiftingEvent.SelectDestinationShed(YASHODA_PART_2_SHED_ID, null))
+            assertNull(vm.state.value.destinationPartitionLabel)
             assertTrue(vm.state.value.canSubmit)
 
             vm.onEvent(ShiftingEvent.Submit)
@@ -199,8 +197,8 @@ class ShiftingViewModelEligibilityTest {
             advanceUntilIdle()
 
             val sent = sync.lastShiftingRequest
-            assertEquals(YASHODA_SHED_ID, sent?.destinationShedId)
-            assertEquals("2", sent?.destinationPartitionLabel)
+            assertEquals(YASHODA_PART_2_SHED_ID, sent?.destinationShedId)
+            assertNull(sent?.destinationPartitionLabel)
         }
 
     @Test
@@ -268,7 +266,9 @@ class ShiftingViewModelEligibilityTest {
         const val CBE_PARK_ID = "00000000-0000-4000-8000-000000003001"
         const val CBE_SHED_ID = "43071c6e-3b00-47a9-860c-1bbacb570575"
         const val CPT_PARK_ID = "00000000-0000-4000-8000-000000003002"
-        const val YASHODA_SHED_ID = "63071c6e-3b00-47a9-860c-1bbacb570576"
+        const val YASHODA_PART_1_SHED_ID = "63071c6e-3b00-47a9-860c-1bbacb570576"
+        const val YASHODA_PART_2_SHED_ID = "63071c6e-3b00-47a9-860c-1bbacb570577"
+        const val YASHODA_PART_3_SHED_ID = "63071c6e-3b00-47a9-860c-1bbacb570578"
     }
 }
 

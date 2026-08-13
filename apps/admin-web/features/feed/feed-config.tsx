@@ -471,11 +471,6 @@ export async function FeedConfigPage({
   // each exist in BOTH parks, so a name-keyed option would merge two different buildings into one
   // row and narrow to whichever the backend matched first.
   //
-  // In all-parks mode the label is park-qualified for the same reason: two options reading "Castro"
-  // are indistinguishable to the operator even though their values differ. This is a park + shed
-  // pair, not a shed + partition operational location, so it composes here rather than through
-  // oploc — that helper owns the shed/partition display and would be the wrong shape for this.
-  const parkNameById = new Map(locations.parks.map((park) => [park.id, park.name]));
   // Exact shed options. Old partition metadata may arrive on compatibility rows, but the live
   // location identity and label are the shed id/name itself: "Castro 1", "Mandela 2 Part 1".
   const experimentPenOptions = (pens?.items ?? [])
@@ -490,9 +485,7 @@ export async function FeedConfigPage({
     .filter((pen) => pen.has_experiment_config)
     .map((pen) => ({
       value: pen.shed_id,
-      label: experimentParkId
-        ? pen.operational_location_display
-        : `${parkNameById.get(pen.park_id) ?? ""} · ${pen.operational_location_display}`.replace(/^ · /, ""),
+      label: pen.operational_location_display,
     }))
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   // EVERY control on the bar, so an empty grid says which of the two things happened: nothing is

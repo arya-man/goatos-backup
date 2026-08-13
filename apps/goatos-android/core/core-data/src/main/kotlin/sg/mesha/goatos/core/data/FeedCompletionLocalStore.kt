@@ -75,12 +75,18 @@ class FeedCompletionLocalStore {
          * CURRENT BUSINESS DAY. The date is part of the key (not an argument) so every caller —
          * writer and reader — is day-scoped without change.
          */
-        /** The optimistic key uses exact shed id. Castro 1 and Castro 2 no longer share a parent
-         *  shed id after the operational-shed cutover; partitionLabel is compatibility metadata. */
-        fun key(shedId: String, partitionLabel: String?, sessionNo: Int, workflow: String): String =
+        /** The optimistic key uses exact shed id. During rollout, stale rows can still share a
+         *  parent shed id; [locationIdentityKey] carries the hidden row identity for those rows. */
+        fun key(
+            shedId: String,
+            partitionLabel: String?,
+            sessionNo: Int,
+            workflow: String,
+            locationIdentityKey: String = "",
+        ): String =
             listOf(
                 businessDate(),
-                shedId,
+                locationIdentityKey.trim().ifEmpty { shedId },
                 sessionNo.toString(),
                 workflow,
             ).joinToString("|")

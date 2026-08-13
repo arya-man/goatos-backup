@@ -68,6 +68,8 @@ data class FeedDirectionRowUi(
     val shedLabel: String,
     /** Legacy backend compatibility metadata; never used for live display or completion identity. */
     val partitionLabel: String,
+    /** Hidden compatibility identity for stale parent-shed rows; exact rows equal [shedId]. */
+    val locationIdentityKey: String = shedId,
     val shedTag: String,
     val breed: String,
     val rationGroup: String,
@@ -191,6 +193,8 @@ sealed interface FeedDirectionEvent {
         val shedLabel: String,
         val sessionLabel: String,
         val lifecycleStatus: String,
+        val locationIdentityKey: String,
+        val compatibilityPartitionLabel: String,
     ) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
 }
@@ -276,6 +280,8 @@ fun FeedDirectionScreen(
                                     shedLabel = row.shedLabel,
                                     sessionLabel = row.sessionLabel,
                                     lifecycleStatus = row.lifecycleStatus,
+                                    locationIdentityKey = row.locationIdentityKey,
+                                    compatibilityPartitionLabel = row.compatibilityPartitionLabel(),
                                 ),
                             )
                         } else {
@@ -296,6 +302,9 @@ fun FeedDirectionScreen(
         }
     }
 }
+
+private fun FeedDirectionRowUi.compatibilityPartitionLabel(): String =
+    partitionLabel.takeIf { locationIdentityKey != shedId }.orEmpty()
 
 private fun FeedDirectionRowUi.distributionSubmissionKey(): String = "$shedId:$sessionNo:$workflow"
 

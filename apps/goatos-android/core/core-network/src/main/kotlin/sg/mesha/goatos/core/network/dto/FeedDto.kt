@@ -177,13 +177,16 @@ data class FeedDirectionRowDto(
      */
     val grainKey: String
         get() = listOf(
-            feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay),
+            operationalLocationIdentityKey,
             workflow,
             rationGroup,
             experimentArm,
             shedTag,
             sessionNo.toString(),
         ).joinToString("|")
+
+    val operationalLocationIdentityKey: String
+        get() = feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay)
 }
 
 /** Whole-filtered-scope rollup (invariant to limit/offset). */
@@ -261,10 +264,13 @@ data class FeedPackingRowDto(
 ) {
     val grainKey: String
         get() = listOf(
-            feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay),
+            operationalLocationIdentityKey,
             workflow,
             sessionNo.toString(),
         ).joinToString("|")
+
+    val operationalLocationIdentityKey: String
+        get() = feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay)
 
     companion object {
         const val STATUS_READY = "ready"

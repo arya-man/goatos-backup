@@ -1654,7 +1654,7 @@ WHERE tenant_id = $1::uuid
 	    partition_label = EXCLUDED.partition_label,
 	    source_shed_name = EXCLUDED.source_shed_name,
 	    updated_at = now()`,
-			in.TenantID, intakeLocation.ExactShedID, oploc.WholeSentinel, sourceShedName, goatIDs)
+			in.TenantID, intakeLocation.GroupShedID, partitionLabel, sourceShedName, goatIDs)
 	} else {
 		_, err = tx.Exec(ctx, `
 DELETE FROM goat_shed_partitions

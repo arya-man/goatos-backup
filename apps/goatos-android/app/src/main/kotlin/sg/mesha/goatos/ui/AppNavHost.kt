@@ -416,7 +416,7 @@ object Routes {
     // roots and from [FEED_COMPLETE] (the untouched Packing/direction-shared completion) — never a
     // prefix reuse. Same grain args as [FEED_COMPLETE]; the operator records BOTH mandatory proofs here.
     const val FEED_DISTRIBUTION_COMPLETE =
-        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
+        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&lifecycle_status={lifecycle_status}&location_identity_key={location_identity_key}&compat_partition_label={compat_partition_label}"
 
     fun feedDistributionCompleteRoute(
         parkId: String,
@@ -431,12 +431,15 @@ object Routes {
         // is already with the verifier; without it the screen has only the LOCAL draft to go on,
         // and a reinstall wipes that.
         lifecycleStatus: String,
+        locationIdentityKey: String = "",
+        compatibilityPartitionLabel: String = "",
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
-            "&lifecycle_status=${e(lifecycleStatus)}"
+            "&lifecycle_status=${e(lifecycleStatus)}&location_identity_key=${e(locationIdentityKey)}" +
+            "&compat_partition_label=${e(compatibilityPartitionLabel)}"
     }
 
     // L2 verifier-GATED feed-PACKING completion, reached ONLY by tapping a shed-session row on Feed
@@ -447,7 +450,7 @@ object Routes {
     // (maintainer decision 2026-08-11, reverting the 2026-08-10 day-level capture). Grain is
     // park/shed/SESSION/day/workflow.
     const val FEED_PACKING_COMPLETE =
-        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
+        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&park_label={park_label}&lifecycle_status={lifecycle_status}&location_identity_key={location_identity_key}&compat_partition_label={compat_partition_label}"
 
     fun feedPackingCompleteRoute(
         parkId: String,
@@ -462,12 +465,15 @@ object Routes {
         // is already with the verifier; without it the screen has only the LOCAL draft to go on,
         // and a reinstall wipes that.
         lifecycleStatus: String,
+        locationIdentityKey: String = "",
+        compatibilityPartitionLabel: String = "",
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
-            "&lifecycle_status=${e(lifecycleStatus)}"
+            "&lifecycle_status=${e(lifecycleStatus)}&location_identity_key=${e(locationIdentityKey)}" +
+            "&compat_partition_label=${e(compatibilityPartitionLabel)}"
     }
 
     /**
@@ -2332,6 +2338,8 @@ fun AppNavHost(
                                         sessionLabel = event.sessionLabel,
                                         parkLabel = event.parkLabel,
                                         lifecycleStatus = event.lifecycleStatus,
+                                        locationIdentityKey = event.locationIdentityKey,
+                                        compatibilityPartitionLabel = event.compatibilityPartitionLabel,
                                     ),
                                 ) { launchSingleTop = true }
                             }
@@ -2379,6 +2387,8 @@ fun AppNavHost(
                                     sessionLabel = event.sessionLabel,
                                     parkLabel = event.parkLabel,
                                     lifecycleStatus = event.lifecycleStatus,
+                                    locationIdentityKey = event.locationIdentityKey,
+                                    compatibilityPartitionLabel = event.compatibilityPartitionLabel,
                                 ),
                             ) { launchSingleTop = true }
                         }
@@ -2492,6 +2502,14 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(FeedDistributionCompleteViewModel.ARG_LOCATION_IDENTITY_KEY) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedDistributionCompleteViewModel.ARG_COMPAT_PARTITION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: FeedDistributionCompleteViewModel = hiltViewModel()
@@ -2548,6 +2566,14 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedPackingCompleteViewModel.ARG_LIFECYCLE_STATUS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_LOCATION_IDENTITY_KEY) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_COMPAT_PARTITION_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },

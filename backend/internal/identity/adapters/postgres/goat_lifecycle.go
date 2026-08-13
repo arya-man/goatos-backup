@@ -176,15 +176,25 @@ INSERT INTO goat_location_history (
 	// animal used to occupy, or it keeps a goat_shed_partitions row pointing at the shed it just
 	// left and every partition-aware read reports it in the wrong place.
 	if toLocationID != "" && toShedID != "" && toLocationID != toShedID {
+		var sourceShedName string
+		if err := tx.QueryRow(ctx, `
+SELECT name
+FROM locations
+WHERE tenant_id = $1::uuid
+  AND location_id = $2::uuid
+  AND location_type = 'shed'`, cmd.TenantID, toLocationID).Scan(&sourceShedName); err != nil {
+			return nil, fmt.Errorf("identity: move goat: resolve destination shed name: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'whole', $4, now())
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, now())
 ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
     shed_id = EXCLUDED.shed_id,
     partition_label = EXCLUDED.partition_label,
     source_shed_name = EXCLUDED.source_shed_name,
     updated_at = now()`,
-			cmd.TenantID, cmd.GoatID, toLocationID, toLocationID); err != nil {
+			cmd.TenantID, cmd.GoatID, cmd.ToShedID, stringValue(toPartitionLabel),
+			oploc.OperationalLocation{ShedID: toLocationID, ShedName: sourceShedName}.Display()); err != nil {
 			return nil, fmt.Errorf("identity: move goat: upsert goat_shed_partitions: %w", err)
 		}
 	} else if _, err := tx.Exec(ctx,

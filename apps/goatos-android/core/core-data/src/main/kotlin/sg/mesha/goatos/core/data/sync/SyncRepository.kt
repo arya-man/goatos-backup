@@ -913,7 +913,7 @@ class DefaultSyncRepository(
             FeedDistributionCompletePayload(
                 parkId = parkId?.trim()?.ifBlank { null },
                 shedId = shedId.trim(),
-                partitionLabel = null,
+                partitionLabel = partitionLabel?.trim()?.ifBlank { null },
                 sessionNo = sessionNo,
                 targetDate = targetDate.trim(),
                 workflow = workflow.trim(),
@@ -942,7 +942,7 @@ class DefaultSyncRepository(
             FeedPackingCompletePayload(
                 parkId = parkId?.trim()?.ifBlank { null },
                 shedId = shedId.trim(),
-                partitionLabel = null,
+                partitionLabel = partitionLabel?.trim()?.ifBlank { null },
                 sessionNo = sessionNo,
                 targetDate = targetDate.trim(),
                 workflow = workflow.trim(),
