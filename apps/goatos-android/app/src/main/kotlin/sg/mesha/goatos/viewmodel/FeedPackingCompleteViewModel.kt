@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -190,22 +191,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
-            // New media is in hand, so the old take can now be dropped. Nothing above this line
-            // destroys the existing proof: a cancelled camera leaves the slot exactly as it was.
-            if (replacing) {
-                if (!discardExistingProof()) {
-                    _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
-                    return@launch
-                }
-                drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
-                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-                videoKey.invalidate()
-                _state.update { it.copy(videoCaptured = false, canComplete = false) }
-            }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedProofIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_PACKING_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_PACKING_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -324,34 +318,6 @@ class FeedPackingCompleteViewModel @Inject constructor(
             )
         }
         recomputeCanComplete()
-    }
-
-    private suspend fun discardExistingProof(): Boolean {
-        val proofOutboxItemId = draft.proofs[STEP_VIDEO]
-        val rowId = videoProofRowId ?: proofCaptureRepository
-            .observeProofs(groupKey)
-            .first()
-            .firstOrNull { it.outboxItemId == proofOutboxItemId }
-            ?.id
-        if (rowId.isNullOrBlank()) {
-            videoProofRowId = null
-            return true
-        }
-        return when (val removed = proofCaptureRepository.remove(groupKey, rowId)) {
-            is AppResult.Ok -> {
-                videoProofRowId = null
-                true
-            }
-            is AppResult.Err -> {
-                removed.cause?.let { crashReporter.recordException(it, "feed packing proof discard failed") }
-                analytics.track(
-                    AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to removed.message),
-                )
-                _state.update { it.copy(videoMessage = removed.message) }
-                false
-            }
-        }
     }
 
     private fun markDone() {
