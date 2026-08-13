@@ -143,7 +143,7 @@ private class CountingFeedTransportSyncRepository : SyncRepository {
     override suspend fun triggerDrain() = Unit
 }
 
-private class InMemoryCaptureDraftRepository : CaptureDraftRepository {
+internal class InMemoryCaptureDraftRepository : CaptureDraftRepository {
     private val rows = mutableMapOf<String, CaptureDraft>()
 
     override suspend fun find(flowKey: String, entityId: String): CaptureDraft = rows[entityId] ?: CaptureDraft()

@@ -76,6 +76,8 @@ class FeedCompleteViewModel @Inject constructor(
     private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-direction-complete")
     private val outboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
 
+    private var submitInFlight = false
+
     private val _state = MutableStateFlow(
         FeedCompleteUiState(
             shedLabel = shedLabel,
@@ -154,7 +156,8 @@ class FeedCompleteViewModel @Inject constructor(
     }
 
     private fun markDone() {
-        if (!_state.value.canComplete) return
+        if (submitInFlight || !_state.value.canComplete) return
+        submitInFlight = true
         viewModelScope.launch {
             val result = syncRepository.enqueueFeedDirectionComplete(
                 // The shed-session key partitions ordering so two completions of the same shed-session
@@ -176,6 +179,7 @@ class FeedCompleteViewModel @Inject constructor(
                     analytics.track(AnalyticsEvents.FEED_DIRECTION_COMPLETED)
                 }
                 is AppResult.Err -> {
+                    submitInFlight = false
                     result.cause?.let { crashReporter.recordException(it, "feed complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_COMPLETE_FAILURE,

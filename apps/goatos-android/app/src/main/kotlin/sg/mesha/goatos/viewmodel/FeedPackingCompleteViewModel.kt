@@ -112,6 +112,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private var statusJob: Job? = null
     private var videoStatusJob: Job? = null
     private var syncStatusJob: Job? = null
+    private var submitInFlight = false
 
     init {
         analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
@@ -320,11 +321,17 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun markDone() {
         val current = _state.value
         val videoItem = draft.proofs[STEP_VIDEO]
-        // Defense in depth alongside the UI gate: the video must exist to submit.
-        if (!current.submitEnabled || videoItem.isNullOrBlank()) {
+        // Defense in depth alongside the UI gate: the video must exist to submit. Also check the
+        // submitInFlight latch (SubmitViewModel idiom): a plain latch checked-and-set BEFORE the
+        // enqueue coroutine launches, so a second tap landing in the async gap between the tap and
+        // the state update reflecting it (`result`/`canComplete`) cannot slip past submitEnabled
+        // and enqueue a second write. Reset on any terminal outcome (success or error) so a real
+        // failure stays retryable.
+        if (submitInFlight || !current.submitEnabled || videoItem.isNullOrBlank()) {
             _state.update { it.copy(canComplete = false, videoMessage = "Record the packing video before submitting.") }
             return
         }
+        submitInFlight = true
         viewModelScope.launch {
             // Stable for the selected proof, fresh when the operator re-records. A retry of the same
             // video must replay; a replacement video must not collide with the old submit payload.
@@ -354,6 +361,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     _state.update { it.copy(canComplete = false) }
                 }
                 is AppResult.Err -> {
+                    submitInFlight = false
                     result.cause?.let { crashReporter.recordException(it, "feed packing complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
