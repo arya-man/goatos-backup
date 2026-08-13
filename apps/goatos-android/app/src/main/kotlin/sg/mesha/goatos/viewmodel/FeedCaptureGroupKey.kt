@@ -1,5 +1,8 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.data.capture.ProofFlow
+
 /**
  * The identity of ONE feed capture flow: a shed's PEN, on one feed DAY, in one session, in one
  * workflow.
@@ -46,21 +49,26 @@ internal fun feedCaptureGroupKey(
     sessionNo: Int,
     workflow: String,
     targetDate: String,
-): String =
-    "$prefix:${dateToken(targetDate)}:$shedId:${partitionMatchToken(partitionLabel)}:$sessionNo:$workflow"
+): String {
+    // Map prefix to ProofFlow
+    val proofFlow = when (prefix) {
+        "feed-pack" -> ProofFlow.FEED_PACKING
+        "feed-dist" -> ProofFlow.FEED_DISTRIBUTION
+        "feed-transport" -> ProofFlow.FEED_TRANSPORT
+        else -> ProofFlow.FEED_COMPLETE
+    }
 
-/**
- * The feed day as a key segment.
- *
- * Blank collapses to [UNDATED_TOKEN] rather than an empty segment, so a route that somehow omits the
- * date still yields a well-formed key instead of one that reads `feed-pack::shed-x:...`. That is a
- * degraded case, not a supported one — two undated opens on different days DO still share a key —
- * but every real caller passes the row's `target_date`, and a missing one is a routing bug to fix at
- * the route rather than something to paper over with a device clock read here. Reading the clock
- * would be worse: it would key an in-progress capture to the day it happened to be opened, so a
- * capture started before midnight would lose its draft when submitted after.
- */
-private fun dateToken(targetDate: String): String = targetDate.trim().ifEmpty { UNDATED_TOKEN }
+    val identity = ProofIdentity(
+        flow = proofFlow,
+        taskId = shedId,
+        partitionKey = partitionMatchToken(partitionLabel),
+        flowPrefix = prefix,
+        targetDate = targetDate,
+        sessionNo = sessionNo,
+        workflow = workflow,
+    )
+    return identity.captureGroupKey()
+}
 
 /**
  * Device-local matching token for a pen: trimmed, lowercased, internal whitespace collapsed.
@@ -75,7 +83,5 @@ internal fun partitionMatchToken(partitionLabel: String): String {
 }
 
 private const val WHOLE_SHED_TOKEN = "whole"
-
-private const val UNDATED_TOKEN = "undated"
 
 private val WHITESPACE_RUN = Regex("\\s+")
