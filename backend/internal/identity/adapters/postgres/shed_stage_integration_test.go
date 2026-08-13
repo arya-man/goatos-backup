@@ -380,6 +380,51 @@ WHERE tenant_id=$1::uuid AND event_type='goat.stage_changed' AND aggregate_id=$2
 	}
 }
 
+// TestReclassifyShedStageRepairsSameStageStaleAgeBand covers the silent stale-band case: a goat
+// can already carry the target cohort label while its durable age_band is still wrong. The command
+// must repair that row because vaccination and health schedules read age_band, not just the label.
+func TestReclassifyShedStageRepairsSameStageStaleAgeBand(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+
+	f := seedShedStageFixture(t, ctx, pool)
+	seedStageVocabulary(t, ctx, pool)
+
+	stale := seedStageGoat(t, ctx, pool, f.castroShed, "1", "Mother", "kid")
+
+	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-stale-preview"))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if preview.Changing != 1 || preview.Unchanged != 0 {
+		t.Fatalf("preview changing=%d unchanged=%d, want 1/0 for a same-stage stale age_band", preview.Changing, preview.Unchanged)
+	}
+
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-stale-band"))
+	if err != nil {
+		t.Fatalf("reclassify: %v", err)
+	}
+	if result.Reclassified != 1 || result.Unchanged != 0 {
+		t.Fatalf("reclassified=%d unchanged=%d, want 1/0 for a stale age_band repair", result.Reclassified, result.Unchanged)
+	}
+	if stage, band := readStageAndBand(t, ctx, pool, stale); stage != "Mother" || band != "adult" {
+		t.Fatalf("goat = (%s, %s), want (Mother, adult) -- same-stage stale age_band must be repaired", stage, band)
+	}
+
+	var events int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id=$1::uuid AND event_type='goat.stage_changed' AND aggregate_id=$2::uuid`,
+		ssTenant, stale).Scan(&events); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if events != 1 {
+		t.Fatalf("%d stage-change events, want 1 so downstream vaccination rechecks the repaired band", events)
+	}
+}
+
 // TestReclassifyShedStageRendersDisplayLabelNotNormalizedKey pins operational-location defect
 // class 1: partition_label ('Part 2') is the human label and normalized_label ('2') is a matching
 // key. Selecting the key renders "Castro - 2" where the farm says "Castro - Part 2". That defect
