@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.network.dto.ScanCaptureDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
@@ -38,6 +39,7 @@ class SyncRepositoryTest {
         store: OutboxStore = FakeOutboxStore(),
         api: ScriptedAppApi = ScriptedAppApi(),
         online: Boolean = true,
+        weighingTransitionEpochDao: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao? = null,
     ): DefaultSyncRepository {
         val engine = SyncEngine(
             store = store,
@@ -45,6 +47,7 @@ class SyncRepositoryTest {
             connectivityGate = { online },
             dispatchers = unconfinedDispatchers,
             clock = { 0L },
+            weighingTransitionEpochDao = weighingTransitionEpochDao,
         )
         return DefaultSyncRepository(
             store = store,
@@ -54,6 +57,25 @@ class SyncRepositoryTest {
             dispatchers = unconfinedDispatchers,
             clock = { 0L },
         )
+    }
+
+    /** In-memory stand-in for the Room DAO, sufficient for asserting epoch-advance timing. */
+    private class FakeWeighingTransitionEpochDao : sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao {
+        private val rows = mutableMapOf<String, sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity>()
+        val upsertCalls = mutableListOf<sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity>()
+
+        override suspend fun get(scopeId: String): String? = rows[scopeId]?.epoch
+
+        override suspend fun upsert(row: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity) {
+            rows[row.scopeId] = row
+            upsertCalls += row
+        }
+
+        override suspend fun insertIfAbsent(row: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity) {
+            rows.putIfAbsent(row.scopeId, row)
+        }
+
+        override suspend fun pruneOutsideNewest(keep: Int) = Unit
     }
 
     private fun submitRequest(key: String) = SubmitTaskRequestDto(sopVersionId = "sop-1", idempotencyKey = key)
@@ -90,6 +112,126 @@ class SyncRepositoryTest {
         val secondId = (second as AppResult.Ok).value
         assertEquals(firstId, secondId)
         assertEquals(1, repo.observeStatus().value.items.size)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // WEIGHING_SCOPE_SUBMIT outbox path (weighing-durable-state item 3): the same durable-
+    // enqueue guarantees every other outbox op has already had proven above, plus the
+    // submit-specific "epoch only advances on SUCCEEDED, never optimistically at enqueue" rule
+    // that only this op type carries (see SyncEngine.reconcileFeatureSuccess).
+    // ---------------------------------------------------------------------------------------
+
+    private fun scopeSubmitRequest(vararg tags: String) = WeighingScopeSubmitRequestDto(tags.toList())
+
+    @Test
+    fun `enqueueWeighingScopeSubmit produces exactly one durable outbox row keyed by its idempotency key`() = runBlocking {
+        val repo = repository()
+        assertEquals(0, repo.observeStatus().value.items.size)
+
+        val result = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = scopeSubmitRequest("tag-1", "tag-2"),
+        )
+
+        assertTrue("enqueue must succeed", result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals("exactly one outbox row for one submit", 1, status.items.size)
+        assertEquals("submit-key-1", status.items.single().idempotencyKey)
+        assertEquals(
+            "the fake api's default submitWeighingScope succeeds, so drain should terminalize it",
+            SyncItemStatus.SUCCEEDED,
+            status.items.single().status,
+        )
+    }
+
+    @Test
+    fun `re-invoking enqueueWeighingScopeSubmit with the SAME idempotency key never creates a duplicate outbox row`() = runBlocking {
+        val store = FakeOutboxStore()
+        val repo = repository(store = store)
+        val request = scopeSubmitRequest("tag-1")
+
+        val first = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = request,
+        )
+        val second = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = request,
+        )
+
+        val firstId = (first as AppResult.Ok).value
+        val secondId = (second as AppResult.Ok).value
+        assertEquals("re-enqueuing the same key must return the SAME outbox row id, not mint a new one", firstId, secondId)
+        assertEquals(1, repo.observeStatus().value.items.size)
+    }
+
+    @Test
+    fun `the local transition epoch advances ONLY after the submit reaches SUCCEEDED, never optimistically at enqueue`() = runBlocking {
+        val epochDao = FakeWeighingTransitionEpochDao()
+        val store = FakeOutboxStore()
+        // start OFFLINE: enqueue must queue, not drain, so the "at enqueue" moment is observable
+        // in isolation. repository()'s `online` is fixed at construction, so this test builds the
+        // engine/repo pair directly instead, letting it flip online mid-run and drive an explicit
+        // drain -- the same way SyncWorker triggers a real pass once connectivity returns.
+        val online = booleanArrayOf(false)
+        val engine = SyncEngine(
+            store = store,
+            api = ScriptedAppApi(),
+            connectivityGate = { online[0] },
+            dispatchers = unconfinedDispatchers,
+            clock = { 0L },
+            weighingTransitionEpochDao = epochDao,
+        )
+        val liveRepo = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { online[0] },
+            appScope = CoroutineScope(Dispatchers.Unconfined),
+            dispatchers = unconfinedDispatchers,
+            clock = { 0L },
+        )
+
+        liveRepo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = scopeSubmitRequest("tag-1"),
+        )
+
+        assertEquals(
+            "the row must be QUEUED, not yet drained, while offline",
+            SyncItemStatus.QUEUED,
+            liveRepo.observeStatus().value.items.single().status,
+        )
+        assertTrue(
+            "enqueue itself must NOT advance the epoch -- only a SUCCEEDED drain may",
+            epochDao.upsertCalls.isEmpty(),
+        )
+
+        online[0] = true
+        engine.drainOnce()
+
+        assertEquals(
+            "after a successful drain the row is SUCCEEDED",
+            SyncItemStatus.SUCCEEDED,
+            liveRepo.observeStatus().value.items.single().status,
+        )
+        assertEquals(
+            "the epoch must advance exactly once, only now that the submit is SUCCEEDED",
+            1,
+            epochDao.upsertCalls.size,
+        )
+        assertEquals("submit:campaign-1:shed-1", epochDao.upsertCalls.single().scopeId)
     }
 
     @Test
