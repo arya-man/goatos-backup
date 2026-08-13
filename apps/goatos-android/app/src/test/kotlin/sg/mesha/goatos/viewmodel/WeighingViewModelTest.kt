@@ -23,6 +23,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -1974,17 +1975,33 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `reinstall after durable-draft: fresh VM with no drafts rejects submit on already-submitted scope`() = runTest(dispatcher) {
+    fun `reinstall after durable-draft fresh VM with no drafts rejects submit on already-submitted scope`() = runTest(dispatcher) {
         // Simulates: app killed after submit confirmation enqueued, relaunched fresh
         // The scope was submitted, but the VM is reconstructed empty (SavedStateHandle fresh, no local cache)
         val repository = FakeWeighingRepository(
-            // The scope is already submitted (server state)
             scopeState = WeighingScopeState(
                 rosterWindow = emptyList(),
                 individualDrafts = emptyList(), // Empty: fresh startup before cache loads
                 shedDrafts = emptyList(),
                 totalExpected = 1,
-                verificationStatus = "pending_verification", // Already submitted
+            ),
+        )
+        // The durable, Room-observed signal a fresh re-entry must derive read-only from -- the
+        // scope is already submitted (server state), so the outbox row Room persisted resolves
+        // SUCCEEDED even though the fresh VM has no local drafts to reconstruct from.
+        repository.pendingSubmitResult = AppResult.Ok(
+            SyncQueueItem(
+                id = "outbox-row-2",
+                idempotencyKey = "submit:campaign-1:campaign-shed-1",
+                opType = "WEIGHING_SCOPE_SUBMIT",
+                groupKey = "campaign-shed-1",
+                status = SyncItemStatus.SUCCEEDED,
+                attemptCount = 1,
+                maxAttempts = 5,
+                conflict = false,
+                createdAt = 1_000,
+                updatedAt = 1_000,
+                lastError = null,
             ),
         )
         val freshHandle = androidx.lifecycle.SavedStateHandle(
@@ -1997,13 +2014,14 @@ class WeighingViewModelTest {
         val vm = weighingViewModel(
             repository = repository,
             scoped = true,
-            savedStateHandle = freshHandle,
+            savedStateHandleOverride = freshHandle,
         )
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
 
         // The fresh VM should recognize the scope is already submitted and block capture
         assertFalse("fresh VM with submitted scope must not allow submit", vm.state.value.individualSubmitReady)
+        assertTrue("fresh VM with submitted scope must render read-only", vm.state.value.isReadOnly)
         // No crash, just read-only state
         assertNotNull("view model should be stable without crashing", vm.state.value)
     }
