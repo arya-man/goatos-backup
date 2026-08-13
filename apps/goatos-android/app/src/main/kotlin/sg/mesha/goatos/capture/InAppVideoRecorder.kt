@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,7 +64,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -84,11 +88,12 @@ import java.io.File
 fun InAppVideoRecorderOverlay(
     captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
+    // MEDIUM: Accept validator as dependency instead of constructing inline
+    artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { ProofCameraSession() }
-    val artifactValidator = remember { FileSystemProofArtifactValidator() }
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
     val previewTimeoutMessage = stringResource(R.string.proof_camera_preview_timeout)
     val invalidVideoMessage = stringResource(R.string.proof_capture_invalid_video)
@@ -105,6 +110,8 @@ fun InAppVideoRecorderOverlay(
     var previewStreaming by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var previewTimeoutTriggered by remember { mutableStateOf(false) }
+    var retryGeneration by remember { mutableStateOf(0) }
+    var pendingValidation by remember { mutableStateOf<File?>(null) }  // HIGH-2: validation off-main
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -138,27 +145,12 @@ fun InAppVideoRecorderOverlay(
                 if (event is VideoRecordEvent.Finalize) {
                     isRecording = false
                     activeRecording = null
-                    val endedAtMs = System.currentTimeMillis()
                     if (cancelled) {
                         file.delete()
                         deliver(null)
                     } else if (!event.hasError()) {
-                        // Gate 2: Artifact validation at Finalize — ensure file is valid before deliver
-                        val validation = artifactValidator.validateVideoFile(file.toURI().toString())
-                        if (validation.isValid) {
-                            deliver(
-                                CapturedVideo(
-                                    localUri = file.toURI().toString(),
-                                    startedAtMs = startedAtMs,
-                                    endedAtMs = endedAtMs,
-                                ),
-                            )
-                        } else {
-                            // Invalid video — delete file, show error, offer re-record
-                            file.delete()
-                            cameraError = invalidVideoMessage
-                            deliver(null)
-                        }
+                        // HIGH-2: Defer validation to LaunchedEffect (off-main) to avoid jank at Stop-tap
+                        pendingValidation = file
                     } else {
                         file.delete()
                         deliver(null)
@@ -210,6 +202,30 @@ fun InAppVideoRecorderOverlay(
         }
     }
 
+    // HIGH-2: Validate off-main to avoid jank at Stop-tap
+    LaunchedEffect(pendingValidation) {
+        val fileToValidate = pendingValidation
+        if (fileToValidate != null) {
+            withContext(Dispatchers.IO) {
+                val validation = artifactValidator.validateVideoFile(fileToValidate.toURI().toString())
+                if (validation.isValid) {
+                    deliver(
+                        CapturedVideo(
+                            localUri = fileToValidate.toURI().toString(),
+                            startedAtMs = startedAtMs,
+                            endedAtMs = System.currentTimeMillis(),
+                        ),
+                    )
+                } else {
+                    // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
+                    fileToValidate.delete()
+                    cameraError = invalidVideoMessage
+                }
+            }
+            pendingValidation = null
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             // Release the recorder + unbind the camera the instant this leaves composition —
@@ -228,7 +244,9 @@ fun InAppVideoRecorderOverlay(
             .fillMaxSize()
             .background(MeshaColors.ViewfinderBackdrop),
     ) {
-        androidx.compose.ui.viewinterop.AndroidView(
+        // CRITICAL-1: key() forces AndroidView factory re-run + camera rebind on retry
+        key(retryGeneration) {
+            androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -264,6 +282,7 @@ fun InAppVideoRecorderOverlay(
             },
             modifier = Modifier.fillMaxSize(),
         )
+        }  // end key(retryGeneration)
         // Directional scrims keep the live preview clear while making overlay text legible.
         Box(
             Modifier
@@ -339,6 +358,7 @@ fun InAppVideoRecorderOverlay(
                     cameraReady = false
                     videoCapture = null
                     previewStreaming = false
+                    retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
                 },
                 onClick = { if (isRecording) finishRecording() else startRecording() },
                 modifier = Modifier.fillMaxWidth(),

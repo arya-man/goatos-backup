@@ -510,7 +510,8 @@ class SubmitViewModel @Inject constructor(
                 if (captured != null) {
                     val shedScopeId = selectedShedId.value
                         ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
-                    proofCaptureRepository.capture(
+                    // HIGH-1: Pattern-match capture() result like every other caller (removeProof:546 style)
+                    when (val captureResult = proofCaptureRepository.capture(
                         taskId = task.taskId,
                         fieldKey = key,
                         subject = subject,
@@ -525,7 +526,21 @@ class SubmitViewModel @Inject constructor(
                         capturedByPrincipalId = currentPrincipalId,
                         proofPolicy = currentProofPolicy.copy(captureSource = captured.captureSource),
                         partitionLabel = activePartitionLabel(),
-                    )
+                    )) {
+                        is AppResult.Ok -> {
+                            _state.update { it.copy(lastError = null) }
+                        }
+                        is AppResult.Err -> {
+                            // Gate-3 backstop: surface proof capture error via screen's existing error channel
+                            crashReporter.recordException(
+                                captureResult.cause ?: IllegalStateException(captureResult.message),
+                                "SubmitViewModel.requestVideoCapture proof persist failed",
+                            )
+                            _state.update {
+                                it.copy(lastError = captureResult.message.ifBlank { "Could not save proof video. Try again." })
+                            }
+                        }
+                    }
                 }
             } finally {
                 captureInFlightKey = null
