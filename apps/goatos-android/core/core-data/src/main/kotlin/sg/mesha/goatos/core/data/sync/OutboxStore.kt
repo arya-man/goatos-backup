@@ -17,6 +17,14 @@ interface OutboxStore {
     suspend fun insert(entity: OutboxEntity)
     suspend fun findById(id: String): OutboxEntity?
     suspend fun findByIdempotencyKey(key: String): OutboxEntity?
+
+    /** The single most recent row for (groupKey, opType) through EVERY status, including
+     *  terminal SUCCEEDED. See [sg.mesha.goatos.core.database.outbox.OutboxDao.findLatestForGroupAndOpType]
+     *  — use this, never [findByIdempotencyKey], to answer "is there an outstanding/landed write
+     *  for this scope" when the idempotency key can rotate out from under a landed row (weighing
+     *  scope-submit epoch). */
+    suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
+
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
     /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
@@ -96,6 +104,8 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun insert(entity: OutboxEntity) = dao.insert(entity)
     override suspend fun findById(id: String): OutboxEntity? = dao.findById(id)
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
+        dao.findLatestForGroupAndOpType(groupKey, opType)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
     override suspend fun findActiveForGroup(

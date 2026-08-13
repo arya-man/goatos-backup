@@ -98,6 +98,22 @@ interface OutboxDao {
         limit: Int,
     ): List<OutboxEntity>
 
+    /**
+     * The single most recent row for one ordering group + op type, through EVERY status
+     * including terminal SUCCEEDED — unlike [findActiveForGroup] / [findByIdempotencyKey],
+     * this does NOT filter by status and does NOT key off the current idempotency epoch. A
+     * caller asking "is there an outstanding/landed submission for this scope?" must find the
+     * row by its stable identity (groupKey, opType), because [findByIdempotencyKey] re-derives
+     * a key from the CURRENT epoch — which the SUCCEEDED row's own success already rotated
+     * past (see `WeighingRepository.findPendingSubmit` / `SyncEngine.reconcileFeatureSuccess`),
+     * so a key-based lookup misses the very row it is trying to find.
+     */
+    @Query(
+        "SELECT * FROM outbox WHERE groupKey = :groupKey AND opType = :opType " +
+            "ORDER BY createdAt DESC LIMIT 1",
+    )
+    suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
+
     /** Observes ONE row by id through EVERY status, including terminal SUCCEEDED/conflict/
      *  attempt-exhausted (R50-030: leadership close must follow its own submission to a terminal
      *  state even when that row is older than the bounded recent-terminal window, which

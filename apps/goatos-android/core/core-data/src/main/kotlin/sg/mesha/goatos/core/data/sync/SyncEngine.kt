@@ -394,6 +394,11 @@ class SyncEngine(
                 weighingTransitionEpochDao?.upsert(
                     WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
                 )
+                // Every OTHER epoch writer (WeighingRepository.advanceTransitionEpoch for
+                // reopen/close-shed/close-campaign/update) prunes to the same bound right after
+                // upserting; this one was skipped, leaving the transition-epoch table growing
+                // unboundedly by one row per scope ever submitted. Same bound, same table.
+                weighingTransitionEpochDao?.pruneOutsideNewest(WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES)
             }
             else -> Unit
         }
@@ -934,5 +939,8 @@ class SyncEngine(
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
+        // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
+        // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
+        const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50
     }
 }

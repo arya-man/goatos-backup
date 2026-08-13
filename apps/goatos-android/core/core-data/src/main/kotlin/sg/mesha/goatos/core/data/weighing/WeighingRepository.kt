@@ -2038,9 +2038,35 @@ class DefaultWeighingRepository(
     ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = withContext(Dispatchers.IO) {
         val sync = syncRepository
             ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
-        val scopeId = "$campaignId:$campaignShedId"
-        val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
-        sync.findOutboxItemByIdempotencyKey(idempotencyKey)
+        // MUST find the row by its stable (groupKey, opType) identity, never by re-deriving an
+        // idempotency key from transitionIdempotencyKey(). SyncEngine.reconcileFeatureSuccess
+        // advances the submit epoch the moment this row reaches SUCCEEDED, so a key re-derived
+        // AFTER success is already a DIFFERENT key than the one the succeeded row was written
+        // under -- findOutboxItemByIdempotencyKey would miss it, scopeSubmitted would flip back
+        // to false/null, the screen would unlock, and a re-tap would dispatch a genuinely new
+        // POST under a fresh key against a shed that was already submitted.
+        val result = sync.findLatestOutboxItem(
+            groupKey = campaignShedId,
+            opType = sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT.name,
+        )
+        // groupKey is the shed alone (see enqueueWeighingScopeSubmit's `groupKey = campaignShedId`),
+        // so if the same shed is reused across a LATER, different campaign the latest row by
+        // groupKey could belong to that other campaign. The idempotency key still encodes both
+        // ids ("weighing:submit:submit:$campaignId:$campaignShedId:$epoch" -- see
+        // transitionIdempotencyKey), so cross-check it and treat a mismatch as "no pending
+        // submit for THIS campaign scope" rather than surfacing an unrelated campaign's row.
+        when (result) {
+            is AppResult.Ok -> {
+                val item = result.value
+                val expectedPrefix = "weighing:submit:submit:$campaignId:$campaignShedId:"
+                if (item == null || !item.idempotencyKey.startsWith(expectedPrefix)) {
+                    AppResult.Ok(null)
+                } else {
+                    result
+                }
+            }
+            is AppResult.Err -> result
+        }
     }
 
     override suspend fun reopenScope(
