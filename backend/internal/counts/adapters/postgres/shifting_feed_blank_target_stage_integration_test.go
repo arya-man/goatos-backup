@@ -89,7 +89,7 @@ WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID)
 // parent shed. A partitioned shed may mix ordinary and experiment pens: an experiment allocation
 // for pen 1 must not block a high-priority movement into ordinary pen 10. This is the exact live
 // Yashoda 10 failure from 2026-08-13.
-func TestHighPriorityShiftingExperimentConfigIsScopedToDestinationPartition(t *testing.T) {
+func TestHighPriorityShiftingExperimentConfigScopeHierarchyStatusMatrixOneToManyPagination(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	repo := newRealIdentityApprovalRepo(t, pool)
