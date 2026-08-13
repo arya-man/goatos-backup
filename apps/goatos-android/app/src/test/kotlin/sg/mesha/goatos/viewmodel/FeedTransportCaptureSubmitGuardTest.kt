@@ -71,6 +71,7 @@ class FeedTransportCaptureSubmitGuardTest {
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
             saved = saved,
         )
         advanceUntilIdle()

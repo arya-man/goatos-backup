@@ -477,6 +477,11 @@ object AppModule {
 
     @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
 
+    /** The narrow live-status surface FeedTransportCaptureViewModel depends on — same singleton
+     *  instance as [provideFeedTransportRepository], bound to its slimmer interface so tests can
+     *  fake just that surface without a real [GoatDatabase]. */
+    @Provides @Singleton fun provideFeedTransportStatusSource(repository: FeedTransportRepository): sg.mesha.goatos.core.data.FeedTransportStatusSource = repository
+
     @Provides
     @Singleton
     fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =

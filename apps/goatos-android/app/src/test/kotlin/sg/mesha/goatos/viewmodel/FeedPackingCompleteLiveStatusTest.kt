@@ -1,0 +1,195 @@
+package sg.mesha.goatos.viewmodel
+
+import androidx.lifecycle.SavedStateHandle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import sg.mesha.goatos.boot.RecordingAnalytics
+import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.core.analytics.NoopCrashReporter
+import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.feature.feed.FeedStatus
+
+/**
+ * Feed-submit-hardening, round 2: FeedPackingCompleteViewModel snapshotted `lifecycle_status` ONCE
+ * from the nav-arg at construction (`alreadySubmitted`, see FeedPackingCompleteViewModel.kt ~L83).
+ * Reinstall or a status change while the screen stays open left an editable form for an
+ * already-submitted session (STG 2026-08-09). This pins the fix: a LIVE Room-backed observer
+ * supersedes the nav-arg hint.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
+class FeedPackingCompleteLiveStatusTest {
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    @Before
+    fun setUp() = Dispatchers.setMain(dispatcher)
+
+    @After
+    fun tearDown() = Dispatchers.resetMain()
+
+    private fun savedState(lifecycleStatus: String) = SavedStateHandle(
+        mapOf(
+            "shed_id" to "shed-1",
+            "session_no" to "1",
+            "workflow" to "feed",
+            "target_date" to "2026-08-13",
+            "shed_label" to "Shed 1",
+            "session_label" to "Session 1",
+            "park_label" to "Farm 1",
+            "partition_label" to "A",
+            "lifecycle_status" to lifecycleStatus,
+        ),
+    )
+
+    /**
+     * REINSTALL CASE: no local draft AND the stale nav-arg hint says "open" — but the Room-backed
+     * live source (server truth, filled by the worklist's RemoteMediator) already reports the
+     * session as submitted. Server truth must win over the nav-arg hint, even at construction —
+     * this asserts the FIRST emitted state, before any explicit "time passes" step.
+     */
+    @Test
+    fun `stale open nav-arg hint is overridden by an already-submitted live status`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.emitPackingStatus(FeedStatus.AWAITING)
+
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = NoopFeedPackingSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = InMemoryCaptureDraftRepository(),
+            feedRepository = feedRepository,
+            // The nav-arg hint alone says "open" (capturable) — this is exactly the stale-snapshot
+            // shape from the STG 2026-08-09 report.
+            savedStateHandle = savedState(lifecycleStatus = "open"),
+        )
+        advanceUntilIdle()
+
+        assertTrue(
+            "a submitted live status must win over a stale 'open' nav-arg hint",
+            viewModel.state.value.alreadySubmitted,
+        )
+        assertFalse("capture must be disabled once already-submitted", viewModel.state.value.captureEnabled)
+    }
+
+    /**
+     * LIVE FLIP WHILE OPEN: the screen opens with an editable ("open") hint AND an initially-open
+     * live status — canComplete-adjacent capture is allowed — and then a verifier action (or another
+     * device's submit) flips the SAME Room row to submitted while the screen is still on screen. The
+     * state must flip to read-only without the operator navigating away and back.
+     */
+    @Test
+    fun `live status flips to read-only while the screen stays open`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository()
+        feedRepository.emitPackingStatus(FeedStatus.PENDING)
+
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = NoopFeedPackingSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = InMemoryCaptureDraftRepository(),
+            feedRepository = feedRepository,
+            savedStateHandle = savedState(lifecycleStatus = "open"),
+        )
+        advanceUntilIdle()
+        assertFalse("session starts capturable per the live status", viewModel.state.value.alreadySubmitted)
+
+        // The verifier (or another device) decides the session WHILE this screen is open.
+        feedRepository.emitPackingStatus(FeedStatus.AWAITING)
+        advanceUntilIdle()
+
+        assertTrue(
+            "a live status flip while the screen is open must flip the screen to read-only",
+            viewModel.state.value.alreadySubmitted,
+        )
+        assertFalse(viewModel.state.value.captureEnabled)
+    }
+
+    /**
+     * OFFLINE-FIRST FALLBACK: Room has no cached row yet for this session (fresh install, cold
+     * start before the worklist has ever paged it). The `null` emission must NOT force the screen
+     * editable OR read-only on its own — it must keep the nav-arg hint.
+     */
+    @Test
+    fun `no cached room row keeps the nav-arg hint instead of forcing editable`() = runTest(dispatcher) {
+        val feedRepository = FakeFeedRepository() // never emits a non-null status
+
+        val viewModel = FeedPackingCompleteViewModel(
+            syncRepository = NoopFeedPackingSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            analytics = RecordingAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            drafts = InMemoryCaptureDraftRepository(),
+            feedRepository = feedRepository,
+            // The hint says already-submitted; Room has nothing yet, so the hint must stand.
+            savedStateHandle = savedState(lifecycleStatus = FeedStatus.COMPLETED),
+        )
+        advanceUntilIdle()
+
+        assertTrue(
+            "with no cached Room row, the nav-arg hint must still be honoured",
+            viewModel.state.value.alreadySubmitted,
+        )
+    }
+}
+
+/** Everything no-ops; these tests never reach a write. */
+private class NoopFeedPackingSyncRepository : SyncRepository {
+    private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+    override suspend fun enqueueFeedPackingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        packingProofOutboxItemId: String,
+    ): AppResult<String> = error("unused")
+    override suspend fun enqueueProofUpload(
+        groupKey: String,
+        idempotencyKey: String,
+        request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
+    ): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String, feedWeightProofOutboxItemId: String, waterProofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
+    override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun triggerDrain() = Unit
+}

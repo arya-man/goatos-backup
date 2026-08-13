@@ -88,6 +88,14 @@ data class FeedDistributionUiState(
     val canComplete: Boolean = false,
     val isSyncing: Boolean = false,
     val result: FeedDistributionResultUi? = null,
+    /**
+     * The shed-session already went to the verifier (or was approved/rejected) somewhere else, so
+     * there is nothing to record here. Backend-owned: derived from the row's lifecycle bucket, NOT
+     * from local capture-draft presence — a reinstall wipes the draft, which previously left an
+     * empty, fully-editable form for work already submitted (STG 2026-08-09; mirrors
+     * [FeedPackingCompleteUiState.alreadySubmitted]).
+     */
+    val alreadySubmitted: Boolean = false,
 ) {
     val feedWeightPhotoCaptureEnabled: Boolean
         get() = !isCapturingFeedWeightPhoto && !isFinalSubmitted
@@ -95,8 +103,12 @@ data class FeedDistributionUiState(
     val waterVideoCaptureEnabled: Boolean
         get() = !isCapturingWaterVideo && !isFinalSubmitted
 
+    val videoCaptureEnabled: Boolean
+        get() = !isCapturingVideo && !isFinalSubmitted
+
     val isFinalSubmitted: Boolean
-        get() = result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
+        get() = alreadySubmitted ||
+            result?.status == FeedDistributionStatus.SYNCED || result?.status == FeedDistributionStatus.QUEUED
 
     /** Proof uploads may still be queued; the completion outbox resolves them before syncing. */
     val submitEnabled: Boolean
@@ -152,6 +164,18 @@ fun FeedDistributionCompleteScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // ALREADY SUBMITTED: the session went to the verifier (or was decided) elsewhere, so
+            // there is nothing to record. Mirrors FeedPackingCompleteScreen's same-shaped gate.
+            if (state.alreadySubmitted) {
+                item {
+                    FeedDistStatusCardBody(
+                        text = stringResource(R.string.feed_complete_already_submitted_body),
+                        tone = MeshaColors.Muted,
+                    )
+                }
+                return@LazyColumn
+            }
+
             item {
                 FeedDistStatusCard(
                     state = state,

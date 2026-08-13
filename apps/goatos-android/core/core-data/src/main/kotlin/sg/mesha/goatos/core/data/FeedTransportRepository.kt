@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
@@ -28,12 +29,24 @@ data class FeedTransportQuery(
         get() = listOf(businessDate, parkId, shedId, status).joinToString("|")
 }
 
+/**
+ * The narrow surface [sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel] depends on for live
+ * status gating — split out so tests can fake it directly rather than needing a real [GoatDatabase]
+ * to construct a [FeedTransportRepository]. See [FeedRepository]'s own interface/impl split for the
+ * same shape.
+ */
+interface FeedTransportStatusSource {
+    /** LIVE status for one transport task, straight from the same Room table the task list renders
+     *  from. `null` while Room has no cached row for this task yet. */
+    fun observeTaskStatus(taskId: String): Flow<String?>
+}
+
 class FeedTransportRepository(
     private val api: AppApi,
     private val db: GoatDatabase,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
-) {
+) : FeedTransportStatusSource {
     /**
      * Cache-first page Flow. The per-row `dtoJson` decode is CPU work over the whole visible
      * window and Room emits on its query executor, so the mapping is moved off the collector's
@@ -52,6 +65,18 @@ class FeedTransportRepository(
                 ?: FeedTransportFilterOptionsDto(),
         )
     }.flowOn(Dispatchers.Default)
+
+    /**
+     * LIVE status for one transport task, straight from the same Room table [observe] renders from.
+     * `null` while Room has no cached row for this task yet — the caller should fall back to its
+     * nav-arg hint in that case. Lets [sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel] flip
+     * to read-only live if the task is verified/rejected elsewhere while the capture screen is open,
+     * mirroring the packing/distribution completion screens' status gating.
+     */
+    override fun observeTaskStatus(taskId: String): Flow<String?> =
+        db.feedTransportScopedItemDao().observeByTaskId(taskId)
+            .map { entity -> entity?.let { json.decodeFromString<FeedTransportTaskDto>(it.dtoJson).status } }
+            .flowOn(Dispatchers.Default)
 
     suspend fun refresh(query: FeedTransportQuery): Result<Unit> = runCatching {
         val page = fetch(query, cursor = null)

@@ -57,7 +57,7 @@ class FeedPackingCompleteSubmitGuardTest {
 
         // Set up a proof as if it's already captured (simulates successful RecordPackingVideo)
         val proofOutboxId = "packing-proof-1"
-        val groupKey = "feed-pack:shed-1:A:1:feed:2026-08-13"
+        val groupKey = "feed-pack:2026-08-13:shed-1:a:1:feed" // feedCaptureGroupKey("feed-pack", shed-1, A, 1, feed, 2026-08-13)
         drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
 
         val saved = SavedStateHandle(
@@ -80,6 +80,7 @@ class FeedPackingCompleteSubmitGuardTest {
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
+            feedRepository = FakeFeedRepository(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -114,7 +115,7 @@ class FeedPackingCompleteSubmitGuardTest {
 
         // Set up a proof as if it's already captured
         val proofOutboxId = "packing-proof-1"
-        val groupKey = "feed-pack:shed-1:A:1:feed:2026-08-13"
+        val groupKey = "feed-pack:2026-08-13:shed-1:a:1:feed" // feedCaptureGroupKey("feed-pack", shed-1, A, 1, feed, 2026-08-13)
         drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
 
         val saved = SavedStateHandle(
@@ -137,6 +138,7 @@ class FeedPackingCompleteSubmitGuardTest {
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
             drafts = drafts,
+            feedRepository = FakeFeedRepository(),
             savedStateHandle = saved,
         )
         advanceUntilIdle()
@@ -165,11 +167,28 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
         private set
     var failNext: Boolean = false
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
-    private val readyProofs = mutableSetOf<String>()
+    // REACTIVE per-item state, not a one-shot flowOf(): observeItem is called ONCE, while the VM
+    // is loading its draft, BEFORE the test calls markProofReady — a one-shot flowOf(null) would
+    // complete immediately and the VM's collector would never see the later "ready" transition, so
+    // canComplete would never flip true and markDone() would silently no-op (RED for the wrong
+    // reason: not the double-tap guard, but a fake that cannot model a status arriving later).
+    private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
     private var pendingGate: CompletableDeferred<Unit>? = null
 
     fun markProofReady(proofId: String) {
-        readyProofs.add(proofId)
+        items.getOrPut(proofId) { MutableStateFlow(null) }.value = SyncQueueItem(
+            id = proofId,
+            opType = "test",
+            idempotencyKey = "test-key",
+            groupKey = "test-group",
+            status = sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED,
+            attemptCount = 0,
+            maxAttempts = 3,
+            conflict = false,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            lastError = null,
+        )
     }
 
     fun holdNextEnqueueUntil(gate: CompletableDeferred<Unit>) {
@@ -177,25 +196,8 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     }
 
     override fun observeStatus(): kotlinx.coroutines.flow.StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> {
-        return if (itemId in readyProofs) {
-            flowOf(SyncQueueItem(
-                id = itemId,
-                opType = "test",
-                idempotencyKey = "test-key",
-                groupKey = "test-group",
-                status = sg.mesha.goatos.core.data.sync.SyncItemStatus.QUEUED,
-                attemptCount = 0,
-                maxAttempts = 3,
-                conflict = false,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                lastError = null
-            ))
-        } else {
-            flowOf(null)
-        }
-    }
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
+        items.getOrPut(itemId) { MutableStateFlow(null) }
 
     override suspend fun enqueueFeedPackingComplete(
         groupKey: String,

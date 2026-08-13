@@ -96,6 +96,27 @@ interface FeedDirectionItemDao {
     )
     fun pagingSource(queryKey: String): PagingSource<Int, FeedDirectionItemEntity>
 
+    /**
+     * The MOST RECENTLY cached row for a shed-session, across ANY filter scope this app instance
+     * has paged. A shed-session's lifecycle bucket is shared by every ration-grain row of that
+     * session (see [sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.lifecycleStatus]'s kdoc),
+     * so any one matching row is authoritative — there is no need to reconstruct the exact
+     * `queryKey` the list screen happened to be filtered by when it cached the row. `grainKey` is
+     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`; the two unknown
+     * middle segments (ration group / experiment arm / shed tag) are wildcarded.
+     */
+    @Query(
+        "SELECT * FROM feed_direction_items WHERE grainKey LIKE " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|%|' || :sessionNo " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeRowForShedSession(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: String,
+    ): Flow<FeedDirectionItemEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedDirectionItemEntity>)
 
@@ -199,6 +220,27 @@ interface FeedPackingItemDao {
             "ORDER BY sortIndex ASC, grainKey ASC",
     )
     fun pagingSource(queryKey: String): PagingSource<Int, FeedPackingItemEntity>
+
+    /**
+     * The MOST RECENTLY cached row for one PEN-SESSION, across ANY filter scope this app instance
+     * has paged (not just the exact `queryKey` the worklist happened to be filtered by). `grainKey`
+     * is `shedId|partitionLabel|workflow|sessionNo` — see
+     * [sg.mesha.goatos.core.network.dto.FeedPackingRowDto.grainKey]. Used to observe a session's
+     * live `lifecycleStatus` from the same Room table the worklist renders from, so a completion
+     * screen left open across a status change (verified/rejected elsewhere) sees it without a
+     * screen re-entry.
+     */
+    @Query(
+        "SELECT * FROM feed_packing_items WHERE grainKey = " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|' || :sessionNo " +
+            "ORDER BY updatedAt DESC LIMIT 1",
+    )
+    fun observeRowForPenSession(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: String,
+    ): Flow<FeedPackingItemEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<FeedPackingItemEntity>)
