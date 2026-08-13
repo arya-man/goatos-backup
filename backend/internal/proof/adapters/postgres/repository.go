@@ -200,6 +200,15 @@ func (r *Repository) ListUploadedProofs(ctx context.Context, query domain.ListUp
 	if limit <= 0 || limit > 20 {
 		limit = 20
 	}
+	if !query.AllAuthorizedParks {
+		ok, err := r.proofListScopeAuthorized(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, ports.ErrForbidden
+		}
+	}
 	rows, err := r.pool.Query(ctx, artifactSelectSQL(`
 WHERE tenant_id = $1::uuid
   AND scope_type = $2
@@ -222,6 +231,36 @@ LIMIT $6`), query.TenantID, strings.TrimSpace(query.ScopeType), query.ScopeID, s
 		out = append(out, artifact)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) proofListScopeAuthorized(ctx context.Context, query domain.ListUploadedProofsQuery) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+SELECT CASE
+  WHEN $2 = 'park' THEN $3::uuid = ANY($4::uuid[])
+  WHEN $2 = 'shed' THEN EXISTS (
+    SELECT 1
+    FROM locations shed
+    WHERE shed.tenant_id = $1::uuid
+      AND shed.location_id = $3::uuid
+      AND shed.location_type = 'shed'
+      AND shed.parent_location_id = ANY($4::uuid[])
+  )
+  WHEN $2 = 'task' THEN EXISTS (
+    SELECT 1
+    FROM sop_tasks st
+    JOIN locations shed
+      ON shed.tenant_id = st.tenant_id
+     AND shed.location_id = st.scope_id
+     AND shed.location_type = 'shed'
+    WHERE st.tenant_id = $1::uuid
+      AND st.task_id = $3::uuid
+      AND st.scope_type = 'shed'
+      AND shed.parent_location_id = ANY($4::uuid[])
+  )
+  ELSE false
+END`, query.TenantID, strings.TrimSpace(query.ScopeType), query.ScopeID, query.AuthorizedParkIDs).Scan(&ok)
+	return ok, err
 }
 
 func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error) {

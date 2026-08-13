@@ -48,12 +48,14 @@ type CreateUpload struct {
 }
 
 type ListUploadedProofsQuery struct {
-	TenantID      string
-	ScopeType     string
-	ScopeID       string
-	ClientTaskKey string
-	FieldKey      string
-	Limit         int
+	TenantID           string
+	ScopeType          string
+	ScopeID            string
+	ClientTaskKey      string
+	FieldKey           string
+	Limit              int
+	AllAuthorizedParks bool
+	AuthorizedParkIDs  []string
 }
 
 type CompleteUpload struct {

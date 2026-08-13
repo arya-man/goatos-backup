@@ -19,6 +19,7 @@ var (
 	// ErrNotFound (no such proof row) and from an unexpected server fault. Callers must NOT retry.
 	ErrObjectMissing = errors.New("proof: stored object is missing or unreadable")
 	ErrInUse         = errors.New("proof: artifact is already attached")
+	ErrForbidden     = errors.New("proof: forbidden")
 	// ErrIdempotencyConflict is returned when a CreateProof call reuses an Idempotency-Key
 	// already bound to a different logical request (different scope/subject/mime/type) —
 	// a same-key exact replay is NOT an error, it returns the original Artifact.

@@ -240,11 +240,24 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 func TestListUploadedProofsRequiresSessionIdentity(t *testing.T) {
 	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
 	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
-		TenantID:  proofTestTenant,
-		ScopeType: "shed",
-		ScopeID:   proofTestShed,
+		TenantID:           proofTestTenant,
+		ScopeType:          "shed",
+		ScopeID:            proofTestShed,
+		AllAuthorizedParks: true,
 	}); err == nil {
 		t.Fatal("ListUploadedProofs() without client_task_key or field_key succeeded")
+	}
+}
+
+func TestListUploadedProofsFailsClosedWithoutAuthorizedParkScope(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
+		TenantID:      proofTestTenant,
+		ScopeType:     "shed",
+		ScopeID:       proofTestShed,
+		ClientTaskKey: "feed-pack:shed-1:whole:1:normal:2026-08-13",
+	}); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("ListUploadedProofs() err = %v, want ErrForbidden", err)
 	}
 }
 

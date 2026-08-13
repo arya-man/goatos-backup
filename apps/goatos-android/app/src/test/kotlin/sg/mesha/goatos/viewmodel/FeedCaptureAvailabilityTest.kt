@@ -103,10 +103,11 @@ class FeedCaptureAvailabilityTest {
         val failed = FeedPackingCompleteUiState(
             videoCaptured = true,
             videoStatus = FeedDistributionProofStatus.FAILED,
-            canComplete = true,
+            canComplete = false,
             alreadySubmitted = false,
         )
 
+        assertFalse(failed.canComplete)
         assertFalse(failed.submitEnabled)
     }
 }
