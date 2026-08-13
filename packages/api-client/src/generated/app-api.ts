@@ -6500,40 +6500,118 @@ export interface components {
             losing_animals: components["schemas"]["WeighingGrowthLosingAnimal"][];
             shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
         };
+        GrowthDirectorPeriod: {
+            /** Format: date */
+            start: string;
+            /** Format: date */
+            end: string;
+            /** @enum {string} */
+            resolution: "campaign_week";
+        };
+        GrowthDirectorPark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+        };
+        GrowthDirectorWeightBand: {
+            band: string;
+            identity_count: number;
+        };
+        GrowthDirectorBandMovement: {
+            pair_identities: number;
+            moved_up: number;
+            held: number;
+            moved_down: number;
+        };
+        GrowthDirectorRoadToSale: {
+            total_identities: number;
+            matched_identities: number;
+            unmatched_identities: number;
+            bands: components["schemas"]["GrowthDirectorWeightBand"][];
+            movement: components["schemas"]["GrowthDirectorBandMovement"];
+        };
+        GrowthDirectorFairFightShed: {
+            /** Format: uuid */
+            location_id: string;
+            operational_key: string;
+            shed_display_name: string;
+            pair_identities: number;
+            median_adg_g_per_day: number;
+        };
+        GrowthDirectorFairFightCohort: {
+            breed: string;
+            sex: string;
+            sheds: components["schemas"]["GrowthDirectorFairFightShed"][];
+        };
+        GrowthDirectorFairFight: {
+            cohorts: components["schemas"]["GrowthDirectorFairFightCohort"][];
+        };
+        GrowthDirectorSlowGrowthGroup: {
+            /** Format: uuid */
+            location_id: string;
+            operational_key: string;
+            shed_display_name: string;
+            breed: string;
+            sex: string;
+            pair_identities: number;
+            median_adg_g_per_day: number;
+            week_over_week_delta_g: number | null;
+            /** @enum {string} */
+            status: "on_track" | "below_target" | "losing";
+        };
+        GrowthDirectorSlowGrowth: {
+            target_g_per_day: number;
+            groups: components["schemas"]["GrowthDirectorSlowGrowthGroup"][];
+        };
+        GrowthDirectorFeedVsGrowthShed: {
+            /** Format: uuid */
+            location_id: string;
+            shed_display_name: string;
+            feed_g_per_head_per_day: number | null;
+            adg_g_per_day: number | null;
+            kg_feed_per_kg_gain: number | null;
+            /** @enum {string} */
+            basis: "per_animal" | "whole_shed";
+            is_experiment: boolean;
+            pair_identities: number;
+        };
+        GrowthDirectorFeedVsGrowth: {
+            sheds: components["schemas"]["GrowthDirectorFeedVsGrowthShed"][];
+            estimate: boolean;
+        };
+        GrowthDirectorFeedProblemItem: {
+            shed_label: string;
+            feed_item_label: string;
+            blocked_days: number;
+            latest_reason_code: string;
+        };
+        GrowthDirectorFeedProblems: {
+            blocked_rows_latest_day: number;
+            blocked_rows_history: number;
+            authored_zero_latest_day: number;
+            authored_zero_history: number;
+            items: components["schemas"]["GrowthDirectorFeedProblemItem"][];
+        };
+        GrowthDirectorTrust: {
+            scans_total: number;
+            scans_matched: number;
+            scans_unmatched: number;
+            identities_total: number;
+            identities_with_pair: number;
+            identities_once_only: number;
+            whole_shed_observations: number;
+            scans_pending_verification: number;
+            scans_rework: number;
+        };
         GrowthDirectorWeightsResponse: {
-            weight_distribution: {
-                bands: {
-                    label: string;
-                    count: number;
-                    median_weight_kg: number;
-                }[];
-            };
-            slow_growth: {
-                groups: {
-                    operational_key: string;
-                    shed_display_name: string;
-                    breed: string;
-                    sex: string;
-                    pair_identities: number;
-                    median_adg_g_per_day: number;
-                    week_over_week_delta_g: number | null;
-                    /** @enum {string} */
-                    status: "losing" | "below_target" | "thin_sample";
-                }[];
-            };
-            feed_vs_growth: {
-                sheds: {
-                    /** Format: uuid */
-                    location_id: string;
-                    shed_display_name: string;
-                    /** @enum {string} */
-                    basis: "per_animal" | "shed_average";
-                    is_experiment: boolean;
-                    feed_g_per_head_per_day: number | null;
-                    adg_g_per_day: number | null;
-                    kg_feed_per_kg_gain: number | null;
-                }[];
-            };
+            period: components["schemas"]["GrowthDirectorPeriod"];
+            parks: components["schemas"]["GrowthDirectorPark"][];
+            road_to_sale: components["schemas"]["GrowthDirectorRoadToSale"];
+            fair_fight: components["schemas"]["GrowthDirectorFairFight"];
+            slow_growth: components["schemas"]["GrowthDirectorSlowGrowth"];
+            feed_vs_growth: components["schemas"]["GrowthDirectorFeedVsGrowth"];
+            feed_problems: components["schemas"]["GrowthDirectorFeedProblems"];
+            trust: components["schemas"]["GrowthDirectorTrust"];
         };
         HealthConfigProtocolRow: {
             disease_key: string;
