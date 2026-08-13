@@ -104,6 +104,17 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
 	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
+	if !params.OversightFiltersEnabled {
+		// The oversight-only query shape: a cross-module NavigationModule filter and a
+		// multi-day BusinessDateFrom/BusinessDateTo range. A caller without
+		// permissions.VerificationOversee is IGNORED here, not 403'd -- a hand-edited or stale
+		// URL (e.g. a bookmark saved while the caller held the capability, or shared by a
+		// principal who does) must fall back to that caller's normal one-business-day queue
+		// rather than take the whole board down. See ports.ListQueueParams.OversightFiltersEnabled.
+		params.NavigationModule = ""
+		params.BusinessDateFrom = ""
+		params.BusinessDateTo = ""
+	}
 	if err := s.applyNavigationModuleFilter(&params); err != nil {
 		return QueueResult{}, err
 	}
@@ -205,7 +216,15 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		options.Sheds = []domain.LocationFilterOption{}
 	}
 	options.ActionTypes = s.actionTypeOptions()
-	options.Modules = s.moduleOptions()
+	if params.OversightFiltersEnabled {
+		// The module-chip row is data-driven (verification-review-page.tsx renders it only when
+		// it has more than one option): leaving Modules empty for a non-oversight caller removes
+		// the chip row along with the query capability that backed it, with no frontend
+		// role/permission branch required. See VerificationOversee's doc comment.
+		options.Modules = s.moduleOptions()
+	} else {
+		options.Modules = []domain.QueueModuleOption{}
+	}
 	// The page chips are scoped by the SELECTED category, which for a verifier does not arrive in
 	// params.Category: the handler resolves her authorization into params.Categories and blanks
 	// Category (so the repository filters on the authorized set). Reading Category alone therefore
@@ -922,4 +941,15 @@ func (s *Service) MarkVerdictApplied(
 func isAlreadyDecided(err error) bool {
 	decided := &ports.AlreadyDecidedError{}
 	return errors.As(err, &decided)
+}
+
+// OversightAnalytics returns the CEO/PC-Director oversight aggregate. The permission check
+// (verification.oversee) is enforced at the HTTP layer via the route permission table, matching
+// every other endpoint in this module -- the service trusts its caller, same as ListQueue.
+func (s *Service) OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return domain.OversightAnalytics{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	return s.repo.OversightAnalytics(ctx, tenantID)
 }

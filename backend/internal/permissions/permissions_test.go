@@ -530,6 +530,7 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
 		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
 		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close", "closeVaccinationBatch", VerificationAct},
+		{"GET", "/verification/oversight-analytics", "getVerificationOversightAnalytics", VerificationOversee},
 	} {
 		route, ok := Match(item.method, item.path)
 		if !ok {
@@ -541,6 +542,31 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		if len(route.Permissions) != 1 || route.Permissions[0] != item.permission {
 			t.Fatalf("permissions=%v, want [%s]", route.Permissions, item.permission)
 		}
+	}
+}
+
+// TestVerificationOversightAnalyticsRouteIsOverseeOnly pins the 403 boundary for the new
+// GET /verification/oversight-analytics endpoint: a verifier holds verification.review and
+// verification.verdict (she can see and decide the queue) but NOT verification.oversee, so she
+// must be refused this route exactly like the oversight_analytics/oversight_filters page-contract
+// controls refuse her the matching UI. CEO/CxO and pc_director, who DO hold
+// permissions.VerificationOversee, must authorize it.
+func TestVerificationOversightAnalyticsRouteIsOverseeOnly(t *testing.T) {
+	route, ok := Match("GET", "/verification/oversight-analytics")
+	if !ok {
+		t.Fatal("getVerificationOversightAnalytics route is not registered")
+	}
+	if RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier must NOT authorize the oversight-analytics route (holds review/verdict, not oversee) — 403 expected")
+	}
+	if RolesAuthorize([]string{RoleGrowthDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("growth_director must NOT authorize the oversight-analytics route — 403 expected")
+	}
+	if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal must authorize the oversight-analytics route")
+	}
+	if !RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("pc_director must authorize the oversight-analytics route")
 	}
 }
 

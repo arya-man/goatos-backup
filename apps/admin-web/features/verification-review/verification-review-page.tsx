@@ -7,13 +7,14 @@ import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime, todayIso } from "@/lib/format";
+import { fmtDateTime, humanizeDurationMs, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
 import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, and every date selection silently fell back to today.
 import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
+import { OversightAnalytics } from "./oversight-analytics";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
@@ -130,6 +131,25 @@ export async function VerificationReviewPage({
   const feedback = { status: one(sp, "va_status"), code: one(sp, "va_code") };
   const columns = tableLabels(pageContract, "verification-actions");
   const tableContract = table(pageContract, "verification-actions");
+  // Gates the CROSS-MODULE oversight chrome (module chips, capture-date range picker):
+  // permissions.VerificationOversee, backend/internal/permissions/permissions.go. These filters
+  // were built for the CEO's oversight view but rendered for every role that can open /verify,
+  // including RoleVerifier, before this fix (STG incident, 2026-08-12) -- because /verify is one
+  // role-agnostic component. This is the UI half of the gate; the backend independently ignores
+  // nav_module/business_date_from/business_date_to for callers without the capability and blanks
+  // filter_options.modules, so a hand-edited URL cannot reach the oversight query shape even if
+  // this control were somehow bypassed. See docs/decisions/role-scoped-ui-is-capability-gated.md.
+  //
+  // Status chips and the shed filter are NOT gated here: both predate the oversight rollout (the
+  // verifier's original working-queue screen, commit 89b16c0fa / fe06be1ed) and stay available to
+  // every role that can open this page.
+  const oversightFiltersEnabled = controlEnabled(pageContract, "oversight_filters", false);
+  // Gates the CEO/PC-Director-only analytics section rendered ABOVE the queue table (KPI strip,
+  // pending-by-module, per-verifier activity + watch integrity). Same capability
+  // (permissions.VerificationOversee) as oversightFiltersEnabled above, but a DISTINCT contract
+  // control -- see compileVerificationReviewControls's oversight_analytics doc comment for why
+  // this is not folded into oversight_filters.
+  const oversightAnalyticsEnabled = controlEnabled(pageContract, "oversight_analytics", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -198,7 +218,7 @@ export async function VerificationReviewPage({
             it enabled for leadership, whose single nav item makes this row their only module
             picker. Defaulting to true keeps a backend one release behind — which declares no such
             control — showing the row. */}
-        {moduleFilterOffered && modules.length > 1 ? (
+        {moduleFilterOffered && oversightFiltersEnabled && modules.length > 1 ? (
           <div className="vr-legend" role="group" aria-label={copy(pageContract, "filter.module")}>
             <Link
               href={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
@@ -236,24 +256,26 @@ export async function VerificationReviewPage({
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
         <div className="vr-frow">
-          <ActionsDateFilter
-            basePath={PATHNAME}
-            from={dateRange.from}
-            to={dateRange.to}
-            today={today}
-            labels={{
-              field: copy(pageContract, "filter.date"),
-              today: copy(pageContract, "filter.date.today"),
-              single: copy(pageContract, "filter.date.single"),
-              range: copy(pageContract, "filter.date.range"),
-              aria: copy(pageContract, "filter.date.aria"),
-              previousMonth: copy(pageContract, "filter.date.previous_month"),
-              nextMonth: copy(pageContract, "filter.date.next_month"),
-              rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-              rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-              rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-            }}
-          />
+          {oversightFiltersEnabled ? (
+            <ActionsDateFilter
+              basePath={PATHNAME}
+              from={dateRange.from}
+              to={dateRange.to}
+              today={today}
+              labels={{
+                field: copy(pageContract, "filter.date"),
+                today: copy(pageContract, "filter.date.today"),
+                single: copy(pageContract, "filter.date.single"),
+                range: copy(pageContract, "filter.date.range"),
+                aria: copy(pageContract, "filter.date.aria"),
+                previousMonth: copy(pageContract, "filter.date.previous_month"),
+                nextMonth: copy(pageContract, "filter.date.next_month"),
+                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+              }}
+            />
+          ) : null}
           {sheds.length ? (
             <>
             <form action={PATHNAME} style={{ display: "contents" }}>
@@ -339,6 +361,8 @@ export async function VerificationReviewPage({
             ))}
           </div>
         ) : null}
+
+        {oversightAnalyticsEnabled ? <OversightAnalytics pageContract={pageContract} /> : null}
 
         <div className="vr-secthd">
           <h2>{tableContract.title}</h2>
@@ -480,12 +504,19 @@ function QueueRow({
         </div>)}
       </td>
       <td>
-        {cell(item.subject_label?.trim()
-          ? item.subject_label
-          : `${item.operator_name || "—"} · ${item.operational_location_display || item.shed_label || "—"}`)}
+        {cell(subjectCell(item))}
       </td>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(fmtDateTime(item.captured_at))}
+      </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(inQueueCell(item))}
+      </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(item.verified_at ? fmtDateTime(item.verified_at) : <span className="small">—</span>)}
+      </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(reviewTookCell(item))}
       </td>
       <td>
         {cell(<Tag tone={item.status === "rejected" ? "dng" : item.status === "approved" ? "ok" : "warn"}>{statusLabels[item.status] || item.status}</Tag>)}
@@ -493,8 +524,112 @@ function QueueRow({
       <td>
         {cell(<span className="muted small">{item.verdict_reason || "—"}</span>)}
       </td>
+      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+        {cell(watchCell(item))}
+      </td>
     </tr>
   );
+}
+
+// subjectCell renders the Subject column as a headline plus typed chips instead of the raw
+// "·"-joined subject_label. The label's segments carry different kinds of fact depending on the
+// module -- "Godel 1 - Part 2", "31 goats", "Tag 901007000503938", "732.0 kg", "Session 2" -- and
+// reading them as one grey sentence forced the reviewer to parse every row. The operational
+// location leads (it is what the reviewer is looking at), quantities become chips that scan
+// vertically down the column, and the operator trails as context.
+const COUNT_SEGMENT = /^\d[\d,]*\s+(goats?|animals?|kids?)$/i;
+const WEIGHT_SEGMENT = /^[\d.,]+\s*kg$/i;
+const TAG_SEGMENT = /^tag\s+(\S+)$/i;
+
+function subjectCell(item: VerificationQueueItem): React.ReactNode {
+  const location = (item.operational_location_display || item.shed_label || "").trim();
+  const segments = (item.subject_label || "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const chips: React.ReactNode[] = [];
+  const rest: string[] = [];
+  for (const segment of segments) {
+    const tag = TAG_SEGMENT.exec(segment);
+    if (tag) {
+      chips.push(
+        <span key={`tag-${segment}`} className="chip tag" title={tag[1]}>
+          {tag[1]}
+        </span>,
+      );
+      continue;
+    }
+    if (COUNT_SEGMENT.test(segment)) {
+      chips.push(<span key={`count-${segment}`} className="chip count">{segment}</span>);
+      continue;
+    }
+    if (WEIGHT_SEGMENT.test(segment)) {
+      chips.push(<span key={`kg-${segment}`} className="chip kg">{segment}</span>);
+      continue;
+    }
+    rest.push(segment);
+  }
+
+  // The headline prefers the label's own descriptive segment when it carries MORE than the shed
+  // name ("Godel 1 - Part 2" beats "Godel 1"); otherwise the resolved location leads and the
+  // remaining segments ("Whole shed", "Session 2") drop to the meta line.
+  const descriptive = rest.find((segment) => location && segment.startsWith(location)) || "";
+  const headline = descriptive || location || rest[0] || item.subject_label?.trim() || "—";
+  const meta = rest.filter((segment) => segment !== headline && segment !== descriptive);
+  if (item.operator_name) meta.push(item.operator_name);
+
+  return (
+    <div className="vr-subj">
+      <span className="t" title={item.subject_label || headline}>{headline}</span>
+      {chips.length || meta.length ? (
+        <span className="m">
+          {chips}
+          {meta.length ? <span>{meta.join(" · ")}</span> : null}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+// IN_QUEUE_AMBER_MS / IN_QUEUE_RED_MS are the "In queue" column's age thresholds for a still-
+// pending item: amber past 4 hours, red past 7 days. Reviewed/decided items never age, so this
+// only applies to status === "pending".
+const IN_QUEUE_AMBER_MS = 4 * 60 * 60 * 1000;
+const IN_QUEUE_RED_MS = 7 * 24 * 60 * 60 * 1000;
+
+// inQueueCell renders the age since captured_at for a still-pending item, colored amber past 4h
+// and red past 7d; decided items show "—" (their age in the pending queue no longer matters --
+// "Review took" answers the equivalent question for them).
+function inQueueCell(item: VerificationQueueItem): React.ReactNode {
+  if (item.status !== "pending") return <span className="small">—</span>;
+  const capturedMs = Date.parse(item.captured_at);
+  if (Number.isNaN(capturedMs)) return <span className="small">—</span>;
+  const ageMs = Date.now() - capturedMs;
+  const tone = ageMs >= IN_QUEUE_RED_MS ? "dng" : ageMs >= IN_QUEUE_AMBER_MS ? "warn" : undefined;
+  return <span className={tone ? `small ${tone === "dng" ? "vr-age-red" : "vr-age-amber"}` : "small"}>{humanizeDurationMs(ageMs)}</span>;
+}
+
+// reviewTookCell renders the elapsed time between capture and verdict for a decided item; absent
+// for a still-pending item, which has not been reviewed yet.
+function reviewTookCell(item: VerificationQueueItem): React.ReactNode {
+  if (!item.verified_at) return <span className="small">—</span>;
+  const capturedMs = Date.parse(item.captured_at);
+  const verifiedMs = Date.parse(item.verified_at);
+  if (Number.isNaN(capturedMs) || Number.isNaN(verifiedMs)) return <span className="small">—</span>;
+  return <span className="small">{humanizeDurationMs(verifiedMs - capturedMs)}</span>;
+}
+
+// watchCell renders the queue row's watch-telemetry summary: "not opened" when the verifier never
+// opened the item, "N%" when a video position/duration pair was reported, "—" when the item was
+// opened but no duration telemetry exists, or when telemetry is unavailable for this deployment
+// (item.watch absent -- see domain.ItemWatchState's doc comment).
+function watchCell(item: VerificationQueueItem): React.ReactNode {
+  const watch = item.watch;
+  if (!watch) return <span className="small">—</span>;
+  if (!watch.opened) return <span className="small">not opened</span>;
+  if (watch.percent_watched === undefined || watch.percent_watched === null) return <span className="small">—</span>;
+  return <span className="small">{watch.percent_watched}%</span>;
 }
 
 /**
