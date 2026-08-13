@@ -1264,3 +1264,10 @@ func operatorConfigChangePayload(parkID string) []byte {
 func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	return s.repo.VaccinationCommandBoard(ctx, q)
 }
+
+// LiveTracker returns the live drive-day tracker: KPI tiles, operator board, shed × partition proof
+// board, combo-dose card, activity feed, attention list, verification block and filter vocabulary —
+// all derived from one membership set so the tiles reconcile with the tables beneath them.
+func (s *Service) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	return s.repo.LiveTracker(ctx, q)
+}

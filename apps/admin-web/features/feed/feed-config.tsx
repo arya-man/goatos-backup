@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
-import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigExperiment } from "@/lib/api/server";
 import {
   firstAuthRequiredError,
@@ -22,7 +22,7 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { isConfiguredZero } from "./feed-quantity";
-import { RationRateValue } from "./feed-rate-optimistic";
+import { RationGridTable } from "./ration-grid-table";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
   enrolExperimentPen,
@@ -40,7 +40,6 @@ import {
   ExperimentShedSwitch,
   FeedItemCreator,
   FeedItemStatusSwitch,
-  RationRateEditor,
   ScheduleEditor,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
@@ -456,7 +455,8 @@ export async function FeedConfigPage({
     .filter((item) => item.status === "active")
     .map((item) => item.feed_item);
 
-  const gridCols = tableLabels(pageContract, "ration-grid");
+  // The compiled table contract drives the grid's columns, labels, visibility and sort affordances.
+  const gridTable = table(pageContract, "ration-grid");
   const sessionCols = tableLabels(pageContract, "session-template");
   const scheduleCols = tableLabels(pageContract, "schedule-config");
   const experimentCols = tableLabels(pageContract, "experiment-config");
@@ -767,77 +767,25 @@ export async function FeedConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.ration_grid.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.ration_grid.aria")}>
-            <thead>
-              <tr>
-                {gridCols.map((col) => (
-                  <th key={col}>{col}</th>
-                ))}
-                <th>{copy(pageContract, "action.edit_rate")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gridRows.length === 0 ? (
-                <tr>
-                  <td colSpan={gridCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {!ratesResult || ratesResult.ok
-                        ? hasGridFilter
-                          ? copy(pageContract, "empty.ration_grid_filtered")
-                          : copy(pageContract, "empty.ration_grid")
-                        : copy(pageContract, "state.ration_grid_unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                gridRows.map((row) => {
-                  return (
-                    <tr key={row.ration_rate_id}>
-                      {/* No park cell. Every /feed-config/* read requires park_id and filters on
-                          it, and all four sections on this page share ONE Park filter — so a park
-                          column would repeat the same value on every row. */}
-                      <td>{row.ration_group}</td>
-                      <td className="muted">{row.shed_tag}</td>
-                      <td>{row.feed_item}</td>
-                      {/* A client cell so a just-saved quantity appears at once. Saving writes in
-                          ~0.3s but the number only lands when revalidatePath re-renders this whole
-                          route, and until then the cell showed the OLD figure beside a form that had
-                          closed on success — which reads as "nothing happened" on a screen whose
-                          numbers are feeding instructions. The authored-zero rule travels with it. */}
-                      <td>
-                        <RationRateValue
-                          pageContract={pageContract}
-                          parkId={row.park_id}
-                          rationGroup={row.ration_group}
-                          shedTag={row.shed_tag}
-                          feedItem={row.feed_item}
-                          gramsPerHead={row.grams_per_head}
-                        />
-                      </td>
-                      <td colSpan={2}>
-                        <EffectiveWindow
-                          validFrom={row.valid_from}
-                          validTo={row.valid_to}
-                          pageContract={pageContract}
-                        />
-                      </td>
-                      <td>
-                        <RationRateEditor
-                          pageContract={pageContract}
-                          action={saveRationRate}
-                          parkId={row.park_id}
-                          rationGroup={row.ration_group}
-                          shedTag={row.shed_tag}
-                          feedItem={row.feed_item}
-                          gramsPerHead={row.grams_per_head}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          {/* Headless table: TanStack owns the column model and the page-local sort; the markup
+              stays the mock's `.feed-table` anatomy. Column keys, labels and which headers sort
+              come from the compiled contract, so this page declares no local column list. */}
+          <RationGridTable
+            contract={gridTable}
+            pageContract={pageContract}
+            rows={gridRows}
+            ariaLabel={copy(pageContract, "table.ration_grid.aria")}
+            action={saveRationRate}
+            empty={
+              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                {!ratesResult || ratesResult.ok
+                  ? hasGridFilter
+                    ? copy(pageContract, "empty.ration_grid_filtered")
+                    : copy(pageContract, "empty.ration_grid")
+                  : copy(pageContract, "state.ration_grid_unavailable")}
+              </div>
+            }
+          />
         </div>
 
         {/* Inside the held-back region too: the pager describes the page being replaced, so leaving

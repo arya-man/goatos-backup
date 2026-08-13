@@ -100,6 +100,10 @@ export type VaccinationExecutionVerificationStatus = AppApiComponents["schemas"]
 
 // Shed-wise vaccination read model (the main /vaccination table + shed detail + capacity planner).
 export type VaccinationShedSummaryResponse = AppApiComponents["schemas"]["VaccinationShedSummaryResponse"];
+export type VaccinationLiveTrackerResponse = AppApiComponents["schemas"]["VaccinationLiveTrackerResponse"];
+export type VaccinationLiveTrackerStatus = NonNullable<
+  AppApiPaths["/vaccination/live-tracker"]["get"]["parameters"]["query"]
+>["status"];
 export type VaccinationShedSummaryRow = AppApiComponents["schemas"]["VaccinationShedSummaryRow"] & {
   partitionLabel?: string;
   operationalLocationDisplay?: string;
@@ -967,6 +971,104 @@ export async function listFeedConfigFeedItems(params: {
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Procurement vendor register (/procurement/vendors)
+// ---------------------------------------------------------------------------------------------
+
+export type ProcurementVendor = AppApiComponents["schemas"]["ProcurementVendor"];
+export type ProcurementVendorPage = AppApiComponents["schemas"]["ProcurementVendorPage"];
+export type ProcurementVendorWrite = AppApiComponents["schemas"]["ProcurementVendorWrite"];
+export type ProcurementVendorCatalog = AppApiComponents["schemas"]["ProcurementVendorCatalog"];
+
+/**
+ * One keyset page of the vendor register.
+ *
+ * `total` on the response is the WHOLE-FILTER count and must be rendered as-is; it is deliberately
+ * not `vendors.length` -- the page count is derived from it.
+ *
+ * Paging is by BOUNDED offset (capped server-side), not a keyset cursor, because the register needs
+ * a Back control and a page number and a forward-only cursor can express neither. See the endpoint
+ * description for why that is safe here and not a licence to use offset on herd-sized tables.
+ */
+export async function listProcurementVendors(params: {
+  search?: string;
+  record_type?: string;
+  status?: string;
+  state?: string;
+  city?: string;
+  breed?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<ProcurementVendorPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorPage>("/procurement/vendors", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** The business-managed dropdown vocabularies behind the register's filters and form. */
+export async function listProcurementVendorCatalog(): Promise<ApiResult<ProcurementVendorCatalog>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", { cache: "no-store" }),
+  );
+}
+
+export async function createProcurementVendor(
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendor>("/procurement/vendors", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Replace a vendor. `body.row_version` MUST carry the value read with the row -- the backend
+ * rejects a stale one with 409 rather than overwriting another editor's save.
+ */
+export async function updateProcurementVendor(
+  vendorId: string,
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "PUT", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Change ONLY a vendor's trading status.
+ *
+ * Deliberately not routed through updateProcurementVendor: that is a replace, so a status flip
+ * through it would have to resend every field and would clear anything the caller's screen did not
+ * render (payment details, for a caller without the finance permission).
+ */
+export async function updateProcurementVendorStatus(
+  vendorId: string,
+  body: { status: string; row_version: number },
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "POST", cache: "no-store", body }),
+  );
+}
+
 export async function listFeedConfigRationGroups(params: {
   limit?: number;
   offset?: number;
@@ -1831,6 +1933,51 @@ export async function getVaccinationCommandBoard(params: {
   );
 }
 
+// Live drive-day tracker. ONE read backs the whole page: KPI tiles, operator board, shed proof
+// progress, combo doses, activity feed, attention and verification. It is one call rather than six
+// because a single filter set has to narrow every section at once — and because this page polls, so
+// each extra endpoint would multiply the refresh cost.
+export async function getVaccinationLiveTracker(
+  params: {
+    businessDate?: string;
+    parkId?: string;
+    shedId?: string;
+    partitionLabel?: string;
+    operatorId?: string;
+    vaccineCode?: string;
+    status?: VaccinationLiveTrackerStatus;
+    activityLimit?: number;
+    // Both halves of the feed's keyset cursor. The feed's sort key is (occurred_at, event_id);
+    // sending the timestamp alone drops every event tied with the previous page's last row.
+    activityBefore?: string;
+    activityBeforeId?: string;
+  } = {},
+): Promise<ApiResult<VaccinationLiveTrackerResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationLiveTrackerResponse>("/vaccination/live-tracker", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          business_date: params.businessDate,
+          park_id: params.parkId,
+          shed_id: params.shedId,
+          partition_label: params.partitionLabel,
+          operator_id: params.operatorId,
+          vaccine_code: params.vaccineCode,
+          status: params.status,
+          activity_limit: params.activityLimit,
+          activity_before: params.activityBefore,
+          activity_before_id: params.activityBeforeId,
+        }),
+      }),
+    ),
+  );
+}
+
 // Admin update vaccination operator assignment config (validate-or-reject, optimistic concurrency via rowVersion).
 export async function putVaccinationOperatorAssignmentConfig(
   body: UpdateVaccinationOperatorAssignmentConfigRequest
@@ -2084,6 +2231,25 @@ export async function listVerificationQueue(
   );
   if (!result.ok) return result;
   return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
+}
+
+export type VerificationOversightAnalyticsResponse =
+  AppApiComponents["schemas"]["VerificationOversightAnalyticsResponse"];
+
+// CEO/PC-Director oversight analytics (GET /verification/oversight-analytics), gated on
+// permissions.VerificationOversee -- the same capability as the /verify page contract's
+// oversight_analytics control. A caller without the capability gets 403 here; the page must only
+// call this when controlEnabled(pageContract, "oversight_analytics", false) is true, so the
+// component never renders a bare error card for a verifier.
+export async function getVerificationOversightAnalytics(): Promise<ApiResult<VerificationOversightAnalyticsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VerificationOversightAnalyticsResponse>("/verification/oversight-analytics", {
+      cache: "no-store",
+    }),
+  );
 }
 
 /**

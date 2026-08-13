@@ -948,13 +948,47 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: actReason,
 		Action:         "POST /admin/tasks/{task_id}/rework",
 	})
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "reassign_task",
 		Label:          copy["reassign.submit"],
 		Kind:           "action",
 		Enabled:        mayAct,
 		DisabledReason: actReason,
 		Action:         "POST /admin/tasks/{task_id}/assign",
+	})
+	// oversight_filters gates the CROSS-MODULE oversight chrome on /verify (module chips, the
+	// capture-date range picker): see permissions.VerificationOversee. Incident (2026-08-12, STG):
+	// these filters were built for the CEO's oversight view but rendered for every role that can
+	// open /verify, including RoleVerifier, because the page is a single role-agnostic component.
+	// The renderer must gate on THIS control -- not on the caller's role, and not by inferring
+	// oversight from grant shape -- so the verifier's working queue (status chips, shed filter;
+	// both predate the oversight rollout) is unaffected. See
+	// docs/decisions/role-scoped-ui-is-capability-gated.md.
+	mayOversee := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationOversee})
+	oversightReason := ""
+	if !mayOversee {
+		oversightReason = controlCopy(copy, "oversight_filters.disabled_no_access", "Cross-module filters are limited to leadership oversight of verification.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "oversight_filters",
+		Label:          copy["filter.module"],
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "",
+	})
+	// oversight_analytics gates the CEO/Director analytics section ABOVE the queue table on
+	// /verify: waiting count, per-module pending, per-verifier last-14d, watch-integrity. Same
+	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
+	// control rather than the renderer reusing oversight_filters for two different pieces of
+	// chrome, so a future change to one visibility rule cannot silently move the other.
+	return upsertControl(out, domain.Control{
+		ID:             "oversight_analytics",
+		Label:          controlCopy(copy, "oversight_analytics.title", "Verification oversight"),
+		Kind:           "visibility",
+		Enabled:        mayOversee,
+		DisabledReason: oversightReason,
+		Action:         "GET /verification/oversight-analytics",
 	})
 }
 
@@ -1285,6 +1319,12 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":
 		return []string{permissions.ProcurementRead}
+	case "procurement-vendors":
+		// The dedicated register permission, NOT ProcurementRead. ProcurementRead is held by seven
+		// roles including operator and park_head because it gates the source-entry/intake screens
+		// they work; the register carries negotiated prices, contact numbers and banking
+		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
+		return []string{permissions.VendorRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
 	case "weighing-weights":

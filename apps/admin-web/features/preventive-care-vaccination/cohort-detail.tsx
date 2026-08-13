@@ -88,10 +88,10 @@ export function VaccinationCohortDetail({
                 {paged.items.map((c) => {
                   const href = scopeHref("/vaccination", scope, {}, { cohort_record: cohortRecordId(c) });
                   return (
-                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partition_label ?? ""}`}>
+                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <b>{`${c.stage} · ${c.operational_location_display || c.shedName}`}</b>
+                          <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                           <div className="muted small">{c.parkName}</div>
                         </LocalOverlayLink>
                       </td>
@@ -144,7 +144,10 @@ export function VaccinationCohortDetail({
         </div>
       )}
       <VaccinationRecordVerifyLocalDrawer
-        records={cohorts.map((cohort) => ({ id: cohortRecordId(cohort), context: { cohort } }))}
+        records={cohorts.map((cohort) => ({
+          id: cohortRecordId(cohort),
+          context: { cohort: { ...cohort, partitionLabel: cohort.partitionLabel ?? undefined } },
+        }))}
         selectionKey="cohort_record"
         initialSelectedId={selectedId}
         scope={scope}
@@ -155,5 +158,5 @@ export function VaccinationCohortDetail({
 }
 
 function cohortRecordId(cohort: VaccinationOperationsResponse["cohorts"][number]): string {
-  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}|${cohort.partition_label ?? ""}`;
+  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}|${cohort.partitionLabel ?? ""}`;
 }

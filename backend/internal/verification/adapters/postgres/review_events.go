@@ -154,6 +154,59 @@ ORDER BY actor_id, occurred_at`, tenantID, itemID)
 	return facts, nil
 }
 
+// WatchStates computes the LIGHTWEIGHT per-item "Watch" column aggregate for a bounded set of
+// item_ids -- the page's own rows, never the whole queue. ONE query, no N+1: a per-row telemetry
+// lookup on a list page is exactly the fan-out docs/decisions/scale-anti-patterns.md bans (see
+// GetItemProofRefs's doc comment for the same reasoning on this module's other list-page batch
+// read). Unlike ItemReviewFacts, this does NOT merge play/pause/seek intervals -- it is a single
+// max(video_position_ms)/max(video_duration_ms) per item across every actor's events, which is all
+// a queue-row summary needs; the full interval-merge integrity signal stays on the per-item detail
+// path.
+func (r *ReviewEventRepository) WatchStates(ctx context.Context, tenantID string, itemIDs []string) (map[string]domain.ItemWatchState, error) {
+	out := map[string]domain.ItemWatchState{}
+	if len(itemIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT item_id::text,
+       bool_or(event_type = 'item_opened') AS opened,
+       max((payload->>'video_position_ms')::bigint) AS max_position_ms,
+       max((payload->>'video_duration_ms')::bigint) AS max_duration_ms
+FROM verification_review_events
+WHERE tenant_id = $1::uuid AND item_id = ANY($2::uuid[])
+GROUP BY item_id`, tenantID, itemIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemID string
+		var opened bool
+		var maxPositionMs, maxDurationMs *int64
+		if err := rows.Scan(&itemID, &opened, &maxPositionMs, &maxDurationMs); err != nil {
+			return nil, err
+		}
+		state := domain.ItemWatchState{ItemID: itemID, Opened: opened}
+		if maxDurationMs != nil && *maxDurationMs > 0 && maxPositionMs != nil {
+			pct := int(float64(*maxPositionMs) / float64(*maxDurationMs) * 100)
+			if pct > 100 {
+				pct = 100
+			}
+			if pct < 0 {
+				pct = 0
+			}
+			state.PercentWatched = &pct
+		}
+		out[itemID] = state
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WatchedFullThreshold is the configurable bar for the "did they actually watch it" integrity
 // signal. 0.9 (90%) tolerates a verifier who skipped the last few seconds of credits/blank frames
 // without letting a rubber-stamped 10%-watched approval count as full.

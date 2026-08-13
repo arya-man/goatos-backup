@@ -186,6 +186,22 @@ var protectedRoutes = []Route{
 	{OperationID: "dispatchProcurementSourceEntryLoad", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/dispatch", Permissions: []string{ProcurementWrite}},
 	{OperationID: "recordProcurementArrivalReview", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/arrival-review", Permissions: []string{ProcurementReview}},
 	{OperationID: "acceptProcurementIntake", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/accept-intake", Permissions: []string{ProcurementReview}},
+
+	// Procurement VENDOR REGISTER (/procurement/vendors), the counterparty contact book.
+	//
+	// Gated on the dedicated VendorRead/VendorWrite rather than ProcurementRead/ProcurementWrite:
+	// those are held by seven roles including operator and park_head, and the register carries
+	// negotiated prices, phone numbers and banking instruments. See VendorRead's doc comment.
+	//
+	// The catalog route is the business-managed dropdown vocabulary behind the register's selects
+	// (record types, breeds, states, cities, statuses, feed kinds). It is a READ of the same screen
+	// and carries VendorRead.
+	{OperationID: "listProcurementVendors", Method: "GET", Pattern: "/procurement/vendors", Permissions: []string{VendorRead}},
+	{OperationID: "getProcurementVendor", Method: "GET", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorRead}},
+	{OperationID: "createProcurementVendor", Method: "POST", Pattern: "/procurement/vendors", Permissions: []string{VendorWrite}},
+	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
+	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
+	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 
@@ -225,6 +241,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationCommandBoard", Method: "GET", Pattern: "/vaccination/command", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	// Live drive-day tracker: same park-scope authority and same permission triple as its command-board
+	// sibling — it is the same vaccination execution data at administration grain, read live.
+	{OperationID: "getVaccinationLiveTracker", Method: "GET", Pattern: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationShedSummary", Method: "GET", Pattern: "/vaccination/sheds", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationShedDetail", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationShedAnimals", Method: "GET", Pattern: "/vaccination/sheds/{shed_id}/animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
@@ -504,6 +523,12 @@ var protectedRoutes = []Route{
 	// they cannot write. See context/architecture/verifier-app-and-flow.md -> Roles.
 	{OperationID: "recordVerificationReviewEvents", Method: "POST", Pattern: "/verification/review-events", Permissions: []string{VerificationVerdict}},
 	{OperationID: "getVerificationItemReviewFacts", Method: "GET", Pattern: "/verification/items/{item_id}/review-facts", Permissions: []string{VerificationReview}},
+	// CEO/PC-Director oversight analytics (KPI strip, pending backlog by module, per-verifier
+	// activity + watch integrity). Gated on verification.oversee -- the SAME capability as the
+	// /verify page contract's oversight_analytics/oversight_filters controls, never role strings.
+	// A verifier holds verification.review/verdict but NOT verification.oversee, so this route
+	// 403s for her even though she can read the plain queue. See permissions.VerificationOversee.
+	{OperationID: "getVerificationOversightAnalytics", Method: "GET", Pattern: "/verification/oversight-analytics", Permissions: []string{VerificationOversee}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

@@ -93,4 +93,13 @@ type Repository interface {
 	// cohort×vaccine pending matrix, shed×dose state matrix, weekly given chart, and verification queue.
 	// All aggregations are served from canonical indexed SQL (5k-50k envelope); no projection tables.
 	VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error)
+
+	// LiveTracker returns the whole live drive-day tracker in ONE read: KPI tiles, the operator
+	// board, the shed × partition proof board, the combo-dose card, the keyset activity feed, the
+	// attention list, the verification block and the filter vocabulary.
+	//
+	// It is one call rather than six because the page's contract is that a single filter set applies
+	// to every section at once; six independent reads cannot keep tiles and tables reconciled, and
+	// would multiply the polling cost by six.
+	LiveTracker(ctx context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error)
 }

@@ -350,7 +350,7 @@ type ShedVaccineCell = {
   vaccineCode: string;
   state: "behind" | "verifying" | "ok" | "not_planned";
   behindAnimals: number;
-  verifyingAnimals: number;
+  verifyingAnimals?: number;
   totalAnimals: number;
   proofVideos?: Array<{ path: string }>;
   flaggedAnimals?: Array<{

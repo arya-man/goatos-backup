@@ -58,6 +58,16 @@ const (
 	RoleCountsApprover = "counts_approver"
 	RoleOperator       = "operator"
 	RoleCEOInternal    = "ceo_internal"
+	// RoleProcurementManager runs the vendor register.
+	//
+	// Unlike RoleCountsApprover, this IS a job rather than a per-person authority: running the
+	// procurement desk is somebody's role, and a future holder of that desk SHOULD inherit the
+	// register. So the authority is attached by granting a named person THIS role, never by adding
+	// vendor.* to an unrelated director job -- which would widen it to every future holder of that
+	// job and reverse the one-module-one-director segregation lock.
+	//
+	// Catalog row: migration 000156 (tier 'manager', vertical 'procurement').
+	RoleProcurementManager = "procurement_manager"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -224,8 +234,34 @@ const (
 	ProcurementRead          = "procurement.read"
 	ProcurementWrite         = "procurement.write"
 	ProcurementReview        = "procurement.review"
-	RosterRead               = "roster.read"
-	RosterManage             = "roster.manage"
+	// VendorRead gates the procurement VENDOR REGISTER (/procurement/vendors): the farm's
+	// counterparty contact book -- livestock agents and stockists, transport, feed, manure, pellet
+	// factories, labour, insurance, test labs and site trades.
+	//
+	// It is DELIBERATELY not a reuse of ProcurementRead, which is held by seven roles including
+	// RoleOperator and RoleParkHead because it gates the source-entry/intake screens those roles
+	// actually work. The register is a different thing: it carries a vendor's negotiated price, its
+	// banking instrument, and the phone number of the person the farm buys from. Gating it on
+	// ProcurementRead would have handed every operator the payment details of every supplier as a
+	// side effect of being able to see an arriving load.
+	VendorRead = "procurement.vendor.read"
+	// VendorWrite gates adding a vendor and editing one. Held by the same two roles as VendorRead
+	// today; kept separate so a future read-only procurement analyst is expressible without a
+	// schema change.
+	VendorWrite = "procurement.vendor.write"
+	// VendorFinanceRead gates the PAYMENT INSTRUMENTS on a vendor row -- bank name, account number,
+	// IFSC, UPI id and PAN. Without it the register still renders in full; those five fields come
+	// back null with FinanceRedacted set, so the screen says "hidden" rather than showing a
+	// misleading blank.
+	//
+	// Maintainer decision 2026-08-12 was "leadership + a procurement role" WITHOUT a finance split,
+	// so today it is granted to exactly the roles that hold VendorRead and nobody sees anything
+	// different. It exists as a separate permission because withdrawing it later is then a one-line
+	// grant change rather than a schema, API and UI change -- and because the redaction path has to
+	// be built and tested from the start to be trustworthy at all. Do not fold it into VendorRead.
+	VendorFinanceRead = "procurement.vendor.finance.read"
+	RosterRead        = "roster.read"
+	RosterManage      = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -457,6 +493,29 @@ const (
 	// invariant; visibility is already satisfied by the read.
 	VerificationVerdict = "verification.verdict"
 	VerificationAct     = "verification.act"
+	// VerificationOversee gates the CROSS-MODULE OVERSIGHT controls on the /verify screen: the
+	// module chips (All modules/Counts/Feed/Health/Milk/Vaccination), the capture-date range
+	// picker, and any other tenant-wide filter that lets a caller slice the WHOLE verification
+	// backlog across modules and days. It is a rendering/query-shape authority layered on TOP of
+	// VerificationReview (the read itself) -- not a substitute for it.
+	//
+	// Incident (2026-08-12, STG): these filters shipped for the CEO's oversight view but rendered
+	// for every role that can open /verify, including RoleVerifier, because /verify is a single
+	// role-agnostic admin-web page. A verifier does not pick a module or a historical date range --
+	// her queue is the open backlog for the categories she is on duty for, oldest-first (see
+	// IsVerifierQueueRead in verification/app/service.go) -- so the extra controls were confusing
+	// chrome on her working queue, not a capability she needed.
+	//
+	// Granted to RoleCEOInternal and RolePCDirector: exactly the two roles that already receive the
+	// UNRESTRICTED (cross-category, "leadership") branch of
+	// verification/adapters/http/handler.go's resolveVerifierCategories -- i.e. VerificationReview
+	// without VerificationVerdict. This capability makes that existing distinction explicit and
+	// checkable instead of leaving it as an inference over grant shape ("does this caller's
+	// verdict permission absence imply oversight?"). Never granted to RoleVerifier (the same
+	// separation of duty as VerificationVerdict/VerificationReview: the verifier works ONE
+	// module's queue, oversight watches ALL of them) and never inferred from a role string --
+	// callers must be checked for this permission, not for RoleCEOInternal/RolePCDirector by name.
+	VerificationOversee = "verification.oversee"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -533,6 +592,13 @@ var rolePermissions = map[string]map[string]struct{}{
 		// verifier-only and is deliberately NOT added here: an independent second check the
 		// checked party can sign is not independent.
 		VerificationReview: {}, VerificationAct: {},
+		// The cross-module oversight filters on /verify (module chips, capture-date range) --
+		// pc_director already receives the unrestricted, cross-category branch of
+		// resolveVerifierCategories alongside RoleCEOInternal (VerificationReview without
+		// VerificationVerdict), so this makes that existing distinction an explicit, checkable
+		// capability instead of an inference over grant shape. See VerificationOversee's doc
+		// comment.
+		VerificationOversee: {},
 		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
 		// raising a report is HealthReport, which every field tier holds.
 		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
@@ -693,6 +759,21 @@ var rolePermissions = map[string]map[string]struct{}{
 	//
 	// Nothing else belongs in this map. Every addition here silently widens what a per-person
 	// authority grant carries, on every person already holding it.
+	// RoleProcurementManager: the vendor register, and NOTHING else.
+	//
+	// It holds AdminWebBootstrap because the register is an admin-web screen and a role with no
+	// bootstrap has nowhere to render. It holds ProcurementRead so the holder can see the
+	// source-entry/intake screens their own suppliers feed into -- that permission is already held
+	// by seven roles including operator and park_head, so it widens nothing.
+	//
+	// It deliberately does NOT hold ProcurementWrite or ProcurementReview: authoring the contact
+	// book is not the same authority as accepting an arriving load of animals or passing a
+	// pre-dispatch health decision. Those stay with the roles that already run intake.
+	RoleProcurementManager: {
+		AdminWebBootstrap: {},
+		VendorRead:        {}, VendorWrite: {}, VendorFinanceRead: {},
+		ProcurementRead: {},
+	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
 		CountsApproveLifecycle: {},
@@ -757,11 +838,20 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedTransportRead:    {},
 		VerificationReview:   {},
 		VerificationAct:      {},
-		HealthRead:           {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		// Founder/builder visibility invariant, and the tenant-wide oversight filters (module
+		// chips, capture-date range) on /verify -- CEO/CxO is exactly one of the two roles that
+		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See
+		// VerificationOversee's doc comment.
+		VerificationOversee: {},
+		HealthRead:          {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.
 		HealthConfigRead: {}, HealthConfigWrite: {},
+		// The procurement vendor register (/procurement/vendors), including its payment
+		// instruments. Founder/builder visibility invariant: the platform-owner cohort holds the
+		// grants for every built visible module.
+		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 	},
 }
 

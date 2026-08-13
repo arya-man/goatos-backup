@@ -365,6 +365,37 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "action.close": "Close",
     "vaccination.clinical_due": "clinical due",
   },
+  // Oversight-analytics copy added with the section's rebuild (mock `card > .hd/.bd` + `.kpi`/`.bar`
+  // anatomy). The backend owns these strings (adminui service.go, "verification-review"); these
+  // fallbacks only keep the section rendering against a backend one release behind, instead of
+  // throwing the page on a missing fixed key.
+  "verification-review": {
+    "oversight_analytics.hint": "Every module and park in the current scope",
+    "oversight_analytics.open": "Analytics",
+    "oversight_analytics.close": "Close analytics",
+    "oversight_analytics.pending_by_module": "Where the backlog sits",
+    "oversight_analytics.largest_backlog": "is the biggest share",
+    "oversight_analytics.oldest_hint": "Longest any video has waited",
+    "oversight_analytics.speed_hint": "Averaged over days with verdicts",
+    "oversight_analytics.clear_hint": "At the current review pace",
+    "oversight_analytics.reject_hint": "A rejected video needs a re-shoot",
+    "oversight_analytics.median_review": "median review",
+    "oversight_analytics.no_median": "No review time recorded yet",
+    "oversight_analytics.no_backlog": "No videos are waiting for review.",
+    "oversight_analytics.age_shape": "How long they have been waiting",
+    "oversight_analytics.age.up_to_1_day": "Under a day",
+    "oversight_analytics.age.one_to_three_days": "1-3 days",
+    "oversight_analytics.age.three_to_seven_days": "3-7 days",
+    "oversight_analytics.age.over_seven_days": "Over a week",
+    "oversight_analytics.trend": "Reviewed vs arrived, last 14 days",
+    "oversight_analytics.trend.verdicts_noun": "reviewed",
+    "oversight_analytics.trend.arrived_noun": "arrived",
+    "oversight_analytics.trend.empty": "No videos arrived or were reviewed in the last 14 days.",
+    "oversight_analytics.trend.grew": "Backlog grew by",
+    "oversight_analytics.trend.shrank": "Backlog shrank by",
+    "oversight_analytics.trend.flat": "Backlog unchanged",
+    "oversight_analytics.open_module_queue": "Open this queue",
+  },
 };
 
 const PROCESS_WORK_STATE_OPTIONS: AdminUiOption[] = [
@@ -484,6 +515,33 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
       row_click: {
         enabled: false,
         param: "schedule_row",
+        target_drawer: "",
+        summary_fields: [],
+        detail_fields: [],
+      },
+      summary_fields: [],
+      detail_fields: [],
+    },
+  },
+  "shed-execution": {
+    "shed-drive-rows": {
+      id: "shed-drive-rows",
+      title: "Drive rows",
+      data_source: "/vaccination/execution/sheds/{shed_id}",
+      columns: [
+        { key: "animal_stage", label: "Animal stage", sortable: false, visible: true },
+        { key: "drive", label: "Drive", sortable: false, visible: true },
+        { key: "due_date", label: "Due date", sortable: false, visible: true },
+        { key: "work_state", label: "Work state", sortable: false, visible: true },
+        { key: "proof_status", label: "Proof status", sortable: false, visible: true },
+        { key: "next_action", label: "Next action", sortable: false, visible: true },
+      ],
+      filters: [],
+      sort_keys: [],
+      page_size_options: [],
+      row_click: {
+        enabled: false,
+        param: "drive_row",
         target_drawer: "",
         summary_fields: [],
         detail_fields: [],

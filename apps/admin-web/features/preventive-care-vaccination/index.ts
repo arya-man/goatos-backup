@@ -12,3 +12,4 @@ export {
 export { VaccinationRecordFormFields } from "./record-verify-drawer";
 export { VACCINATION_DRIVE_SOP_STEPS, type SopStep } from "./vaccination-sop-steps";
 export { vaccinationDriveDisplayName } from "./vaccine-display";
+export { vaccinationScheduleYear } from "./full-vaccine-schedule";

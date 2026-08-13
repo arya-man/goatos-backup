@@ -55,11 +55,17 @@ type fakeReader struct {
 	optionValues  domain.TaskOptionValuesResponse
 
 	lastCommandBoard domain.CommandBoardQuery
+	lastLiveTracker  domain.LiveTrackerQuery
 }
 
 func (f *fakeReader) VaccinationCommandBoard(_ context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	f.lastCommandBoard = q
 	return domain.CommandBoardResponse{}, nil
+}
+
+func (f *fakeReader) LiveTracker(_ context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	f.lastLiveTracker = q
+	return domain.LiveTrackerResponse{BusinessDate: q.BusinessDate.Format("2006-01-02")}, nil
 }
 
 type fakeWriter struct {
