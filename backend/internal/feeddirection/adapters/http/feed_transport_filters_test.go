@@ -103,6 +103,21 @@ type transportScopeSpyService struct {
 	completePackingCalls int
 	completePackingInput app.CompletePackingInput
 	completePackingErr   error
+
+	completeDistributionCalls int
+	completeDistributionInput app.CompleteDistributionInput
+}
+
+func (s *transportScopeSpyService) CompleteDistribution(
+	_ context.Context, in app.CompleteDistributionInput,
+) (ports.CompleteDistributionResult, error) {
+	s.completeDistributionCalls++
+	s.completeDistributionInput = in
+	return ports.CompleteDistributionResult{
+		CompletionID: "50000000-0000-4000-8000-000000000002",
+		Status:       "pending_verification",
+		NewlyPending: true,
+	}, nil
 }
 
 func (s *transportScopeSpyService) ListTransportTasks(_ context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
@@ -248,6 +263,51 @@ func TestPostCompletePackingPassesPartitionLabel(t *testing.T) {
 	}
 	if got := service.completePackingInput.PartitionLabel; got != "Castro 1" {
 		t.Fatalf("partition_label=%q, want Castro 1", got)
+	}
+}
+
+// TestPostCompleteDistributionPassesPartitionLabel is the DISTRIBUTION twin of the packing test
+// above, and its absence is why the defect shipped: packing declared partition_label and was pinned
+// by a test, distribution declared it in OpenAPI and never in the Go request struct, so
+// encoding/json dropped the pen silently.
+//
+// Consequence when it was missing: the write path saw a blank pen, resolved the completion to the
+// shed as a whole, and the catalog check rejected it with ErrInvalidPartition -- a 400 that made
+// feed distribution UNSUBMITTABLE on every partitioned shed. Reported 2026-08-13 for Castro - 1
+// session 2, and reproduced against the live local API before this test was written.
+//
+// The padded input also pins the trim, so " 1 " and "1" cannot become two different pens.
+func TestPostCompleteDistributionPassesPartitionLabel(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	service := &transportScopeSpyService{}
+	req := httptest.NewRequest(http.MethodPost, "/feed-direction/distribution/complete", strings.NewReader(`{
+		"park_id":"20000000-0000-4000-8000-000000000001",
+		"shed_id":"30000000-0000-4000-8000-000000000001",
+		"partition_label":" 1 ",
+		"session_no":2,
+		"target_date":"2026-08-13",
+		"workflow":"experiment",
+		"feed_weight_proof_ref":"proof-feed-weight-photo-1",
+		"distribution_proof_ref":"proof-feed-distribution-video-1",
+		"water_proof_ref":"proof-water-video-1"
+	}`))
+	req.Header.Set("Idempotency-Key", "feed-distribution-complete-test-0001")
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	recorder := httptest.NewRecorder()
+
+	NewHandler(service, slog.Default()).PostCompleteDistribution(recorder, req.WithContext(ctx))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.completeDistributionCalls != 1 {
+		t.Fatalf("complete distribution calls=%d, want 1", service.completeDistributionCalls)
+	}
+	if got := service.completeDistributionInput.PartitionLabel; got != "1" {
+		t.Fatalf("partition_label=%q, want 1 -- the pen the phone sent must reach the service", got)
 	}
 }
 
