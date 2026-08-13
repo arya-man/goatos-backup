@@ -167,6 +167,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/shed-weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read admin weighing shed-weight rollups. */
+        get: operations["adminGetWeighingShedWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/weight-demographics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read admin weighing demographics and gain buckets. */
+        get: operations["adminGetWeighingWeightDemographics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/weighing/leadership/growth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read admin weighing growth leaderboard and losing animals. */
+        get: operations["adminGetWeighingLeadershipGrowth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/campaigns": {
         parameters: {
             query?: never;
@@ -1340,6 +1391,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-config/feed-items/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire or restore one feed item. */
+        post: operations["setFeedConfigFeedItemStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/session-templates": {
         parameters: {
             query?: never;
@@ -1408,6 +1476,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-config/pens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List operational pens/sheds that can be enrolled into feed experiments. */
+        get: operations["listFeedConfigPens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/experiment": {
         parameters: {
             query?: never;
@@ -1432,6 +1517,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-config/experiment/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Author all feed-item quantities for one experiment pen atomically. */
+        post: operations["upsertFeedConfigExperimentBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/experiment/shed-status": {
         parameters: {
             query?: never;
@@ -1446,6 +1548,159 @@ export interface paths {
          * @description Flips the status of EVERY one of the shed's authored experiment rows in one statement. This changes WHAT THE ANIMALS ARE FED, not merely what is displayed: status='active' feeds the shed the absolute kg authored here, and status='retired' returns it to the normal per-head grid (projected head count x grams per head x shed factor). It is whole-shed because a planner owns a shed rather than a cell, so a half-enrolled shed has no representable feed. Withdrawal is a status flip rather than a delete, so the authored quantities survive and a shed can be restored without re-keying them. A shed with no authored rows at all is 404: there is no experiment configuration to switch, and a caller wanting to enrol one authors its first quantity through POST /feed-config/experiment instead.
          */
         post: operations["setFeedConfigExperimentShedStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/counts/milk-preparation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the milk-preparation worklist and summary. */
+        get: operations["getMilkPreparation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/growth-director/weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the Growth Director weights analytics block. */
+        get: operations["getGrowthDirectorWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/protocols": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List authored treatment protocols for Health Config. */
+        get: operations["listHealthConfigProtocols"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/protocols/{protocol_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one authored treatment protocol version. */
+        get: operations["getHealthConfigProtocol"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/diseases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a disease and open treatment drafts. */
+        post: operations["createHealthConfigDisease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open or return the draft for one disease and age band. */
+        post: operations["openHealthConfigDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/drafts/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the content of one draft treatment protocol. */
+        post: operations["saveHealthConfigDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/protocols/{protocol_version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a draft treatment protocol. */
+        post: operations["publishHealthConfigDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/protocols/{protocol_version_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard a draft treatment protocol. */
+        post: operations["discardHealthConfigDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6158,6 +6413,209 @@ export interface components {
             offset: number;
             has_more: boolean;
         };
+        WeighingShedWeightsSummary: {
+            sheds_weighed: number;
+            sheds_in_scope: number;
+            animals_weighed: number;
+            total_weight_kg: number;
+            average_weight_kg: number | null;
+            at_or_above_30kg: number;
+            at_or_above_35kg: number;
+            threshold_basis_animals: number;
+        };
+        WeighingShedWeightsRow: {
+            /** Format: uuid */
+            location_id: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            shed_display_name: string;
+            partition_label?: string | null;
+            operational_location_display?: string | null;
+            weighing_category: string;
+            animals_weighed: number;
+            average_weight_kg: number;
+            total_weight_kg: number;
+            /** Format: date */
+            last_weighed_date?: string | null;
+            bucket_status: string;
+            shed_average_gain_g_per_day?: number | null;
+            gain_span_days?: number | null;
+        };
+        WeighingShedWeightsResponse: {
+            rows: components["schemas"]["WeighingShedWeightsRow"][];
+            summary: components["schemas"]["WeighingShedWeightsSummary"];
+            parks: {
+                /** Format: uuid */
+                park_id: string;
+                name: string;
+            }[];
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+            by_load: {
+                load_ref: string;
+                owner_name?: string | null;
+                average_weight_kg: number;
+                gain_g_per_day?: number | null;
+                gain_span_days?: number | null;
+            }[];
+            load_unattributed_sheds: number;
+        };
+        WeighingWeightDemographicBucket: {
+            label: string;
+            average_weight_kg: number;
+        };
+        WeighingWeightGainBucket: {
+            label: string;
+            median_gain_g_per_day: number;
+        };
+        WeighingWeightDemographicsResponse: {
+            by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
+            by_sex: components["schemas"]["WeighingWeightDemographicBucket"][];
+            by_stage: components["schemas"]["WeighingWeightDemographicBucket"][];
+            gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
+            gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
+            gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
+            unresolved_animals: number;
+        };
+        WeighingGrowthLosingAnimal: {
+            scanned_identifier: string;
+            shed_display_name: string;
+            previous_weight_kg: number;
+            latest_weight_kg: number;
+            days_between: number;
+            /** Format: date */
+            latest_weigh_date: string;
+        };
+        WeighingGrowthShedLeaderboardRow: {
+            /** Format: uuid */
+            location_id: string;
+            display_name: string;
+            adg_pair_count: number;
+            median_adg_g_per_day: number;
+        };
+        WeighingGrowthADGResponse: {
+            losing_animals: components["schemas"]["WeighingGrowthLosingAnimal"][];
+            shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
+        };
+        GrowthDirectorWeightsResponse: {
+            weight_distribution: {
+                bands: {
+                    label: string;
+                    count: number;
+                    median_weight_kg: number;
+                }[];
+            };
+            slow_growth: {
+                groups: {
+                    operational_key: string;
+                    shed_display_name: string;
+                    breed: string;
+                    sex: string;
+                    pair_identities: number;
+                    median_adg_g_per_day: number;
+                    week_over_week_delta_g: number | null;
+                    /** @enum {string} */
+                    status: "losing" | "below_target" | "thin_sample";
+                }[];
+            };
+            feed_vs_growth: {
+                sheds: {
+                    /** Format: uuid */
+                    location_id: string;
+                    shed_display_name: string;
+                    /** @enum {string} */
+                    basis: "per_animal" | "shed_average";
+                    is_experiment: boolean;
+                    feed_g_per_head_per_day: number | null;
+                    adg_g_per_day: number | null;
+                    kg_feed_per_kg_gain: number | null;
+                }[];
+            };
+        };
+        HealthConfigProtocolRow: {
+            disease_key: string;
+            display_name: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            duration_days: number;
+            step_count: number;
+            medication_count: number;
+            critical_action_count: number;
+            /** Format: uuid */
+            published_version_id?: string | null;
+            published_version?: number | null;
+            has_draft: boolean;
+            /** Format: uuid */
+            draft_version_id?: string | null;
+        };
+        HealthConfigProtocolPage: {
+            items: components["schemas"]["HealthConfigProtocolRow"][];
+            next_cursor?: string | null;
+        };
+        HealthConfigStep: {
+            /** Format: uuid */
+            step_id?: string | null;
+            day_no: number;
+            seq: number;
+            session?: string | null;
+            record_type?: string | null;
+            medicine_name?: string | null;
+            dosage_text?: string | null;
+            dosage_denominator?: string | null;
+            medicine_route?: string | null;
+            instruction?: string | null;
+            critical_action_type?: string | null;
+        };
+        HealthConfigVersionSummary: {
+            /** Format: uuid */
+            protocol_version_id: string;
+            version: number;
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            step_count: number;
+            duration_days: number;
+            /** Format: date-time */
+            published_at?: string | null;
+        };
+        HealthConfigProtocolDetail: {
+            /** Format: uuid */
+            protocol_version_id: string;
+            disease_key: string;
+            display_name: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            /** @enum {string} */
+            status: "draft" | "published" | "retired";
+            version: number;
+            duration_days: number;
+            open_case_count: number;
+            row_version?: string | null;
+            steps?: components["schemas"]["HealthConfigStep"][];
+            history?: components["schemas"]["HealthConfigVersionSummary"][];
+        };
+        HealthConfigWriteResult: {
+            outcome: string;
+        };
+        CreateHealthConfigDiseaseRequest: {
+            display_name: string;
+            duration_days?: number;
+        };
+        OpenHealthConfigDraftRequest: {
+            disease_key: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+        };
+        SaveHealthConfigDraftRequest: {
+            disease_key: string;
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            display_name: string;
+            duration_days?: number;
+            steps: components["schemas"]["HealthConfigStep"][];
+        };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected";
         VerificationSourceRef: {
@@ -7300,6 +7758,90 @@ export interface operations {
                 };
                 content: {
                     "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingShedWeights: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shed-level weighing rollups for the selected window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingShedWeightsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingWeightDemographics: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing demographic averages and gain buckets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingWeightDemographicsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingLeadershipGrowth: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weighing growth leaderboard and losing-animal rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingGrowthADGResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9489,6 +10031,38 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    setFeedConfigFeedItemStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigFeedItemStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description The status flip outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedConfigSessionTemplates: {
         parameters: {
             query: {
@@ -9646,6 +10220,36 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listFeedConfigPens: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
+                limit?: components["parameters"]["FeedConfigLimit"];
+                /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedConfigOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of authorable feed-config pens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigPenPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedConfigExperiment: {
         parameters: {
             query: {
@@ -9711,6 +10315,38 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    upsertFeedConfigExperimentBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertFeedConfigExperimentBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description The batch edit outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     setFeedConfigExperimentShedStatus: {
         parameters: {
             query?: never;
@@ -9733,6 +10369,279 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getMilkPreparation: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Milk-preparation page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MilkPreparationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getGrowthDirectorWeights: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Growth Director weights analytics. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrowthDirectorWeightsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthConfigProtocols: {
+        parameters: {
+            query?: {
+                age_band?: "adult" | "kid";
+                search?: string;
+                draft_only?: boolean;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Treatment protocol catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigProtocolPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthConfigProtocol: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                protocol_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Treatment protocol detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigProtocolDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createHealthConfigDisease: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateHealthConfigDiseaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Health config write outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigWriteResult"];
+                };
+            };
+            /** @description Disease created and drafts opened. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    openHealthConfigDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenHealthConfigDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft protocol detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigProtocolDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    saveHealthConfigDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveHealthConfigDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft save outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    publishHealthConfigDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                protocol_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Publish outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    discardHealthConfigDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                protocol_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discard outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthConfigWriteResult"];
                 };
             };
             400: components["responses"]["BadRequest"];

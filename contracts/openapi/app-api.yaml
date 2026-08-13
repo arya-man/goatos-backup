@@ -347,6 +347,96 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/shed-weights:
+    get:
+      tags:
+        - Weighing
+      operationId: adminGetWeighingShedWeights
+      summary: Read admin weighing shed-weight rollups.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Shed-level weighing rollups for the selected window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingShedWeightsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /weighing/weight-demographics:
+    get:
+      tags:
+        - Weighing
+      operationId: adminGetWeighingWeightDemographics
+      summary: Read admin weighing demographics and gain buckets.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Weighing demographic averages and gain buckets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingWeightDemographicsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /weighing/leadership/growth:
+    get:
+      tags:
+        - Weighing
+      operationId: adminGetWeighingLeadershipGrowth
+      summary: Read admin weighing growth leaderboard and losing animals.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Weighing growth leaderboard and losing-animal rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingGrowthADGResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/weighing/campaigns:
     get:
       tags:
@@ -3396,6 +3486,33 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-config/feed-items/status:
+    post:
+      tags:
+        - Feed Config
+      operationId: setFeedConfigFeedItemStatus
+      summary: Retire or restore one feed item.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetFeedConfigFeedItemStatusRequest"
+      responses:
+        "200":
+          description: The status flip outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /feed-config/session-templates:
     get:
       tags:
@@ -3600,6 +3717,30 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-config/pens:
+    get:
+      tags:
+        - Feed Config
+      operationId: listFeedConfigPens
+      summary: List operational pens/sheds that can be enrolled into feed experiments.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/FeedConfigLimit"
+        - $ref: "#/components/parameters/FeedConfigOffset"
+      responses:
+        "200":
+          description: One bounded page of authorable feed-config pens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigPenPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /feed-config/experiment:
     get:
       tags:
@@ -3691,6 +3832,33 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed-config/experiment/batch:
+    post:
+      tags:
+        - Feed Config
+      operationId: upsertFeedConfigExperimentBatch
+      summary: Author all feed-item quantities for one experiment pen atomically.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertFeedConfigExperimentBatchRequest"
+      responses:
+        "200":
+          description: The batch edit outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /feed-config/experiment/shed-status:
     post:
       tags:
@@ -3734,6 +3902,259 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /counts/milk-preparation:
+    get:
+      tags:
+        - Counts
+      operationId: getMilkPreparation
+      summary: Read the milk-preparation worklist and summary.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Milk-preparation page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MilkPreparationPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /growth-director/weights:
+    get:
+      tags:
+        - Growth Director
+      operationId: getGrowthDirectorWeights
+      summary: Read the Growth Director weights analytics block.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Growth Director weights analytics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrowthDirectorWeightsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols:
+    get:
+      tags:
+        - Health Config
+      operationId: listHealthConfigProtocols
+      summary: List authored treatment protocols for Health Config.
+      parameters:
+        - name: age_band
+          in: query
+          required: false
+          schema: { type: string, enum: [adult, kid] }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: draft_only
+          in: query
+          required: false
+          schema: { type: boolean }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        "200":
+          description: Treatment protocol catalog.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}:
+    get:
+      tags:
+        - Health Config
+      operationId: getHealthConfigProtocol
+      summary: Read one authored treatment protocol version.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Treatment protocol detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolDetail"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diseases:
+    post:
+      tags:
+        - Health Config
+      operationId: createHealthConfigDisease
+      summary: Create a disease and open treatment drafts.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHealthConfigDiseaseRequest"
+      responses:
+        "200":
+          description: Health config write outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "201":
+          description: Disease created and drafts opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/drafts:
+    post:
+      tags:
+        - Health Config
+      operationId: openHealthConfigDraft
+      summary: Open or return the draft for one disease and age band.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenHealthConfigDraftRequest"
+      responses:
+        "200":
+          description: Draft protocol detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolDetail"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/drafts/save:
+    post:
+      tags:
+        - Health Config
+      operationId: saveHealthConfigDraft
+      summary: Replace the content of one draft treatment protocol.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveHealthConfigDraftRequest"
+      responses:
+        "200":
+          description: Draft save outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}/publish:
+    post:
+      tags:
+        - Health Config
+      operationId: publishHealthConfigDraft
+      summary: Publish a draft treatment protocol.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Publish outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}/discard:
+    post:
+      tags:
+        - Health Config
+      operationId: discardHealthConfigDraft
+      summary: Discard a draft treatment protocol.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Discard outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /calendar/vaccination/events:
     get:
       tags:
@@ -16151,6 +16572,403 @@ components:
         limit: { type: integer }
         offset: { type: integer }
         has_more: { type: boolean }
+    WeighingShedWeightsSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - sheds_weighed
+        - sheds_in_scope
+        - animals_weighed
+        - total_weight_kg
+        - average_weight_kg
+        - at_or_above_30kg
+        - at_or_above_35kg
+        - threshold_basis_animals
+      properties:
+        sheds_weighed: { type: integer }
+        sheds_in_scope: { type: integer }
+        animals_weighed: { type: integer }
+        total_weight_kg: { type: number }
+        average_weight_kg: { type: number, nullable: true }
+        at_or_above_30kg: { type: integer }
+        at_or_above_35kg: { type: integer }
+        threshold_basis_animals: { type: integer }
+    WeighingShedWeightsRow:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - park_id
+        - park_name
+        - shed_display_name
+        - weighing_category
+        - animals_weighed
+        - average_weight_kg
+        - total_weight_kg
+        - bucket_status
+      properties:
+        location_id: { type: string, format: uuid }
+        park_id: { type: string, format: uuid }
+        park_name: { type: string }
+        shed_display_name: { type: string }
+        partition_label: { type: string, nullable: true }
+        operational_location_display: { type: string, nullable: true }
+        weighing_category: { type: string }
+        animals_weighed: { type: integer }
+        average_weight_kg: { type: number }
+        total_weight_kg: { type: number }
+        last_weighed_date: { type: string, format: date, nullable: true }
+        bucket_status: { type: string }
+        shed_average_gain_g_per_day: { type: number, nullable: true }
+        gain_span_days: { type: number, nullable: true }
+    WeighingShedWeightsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - rows
+        - summary
+        - parks
+        - period_start
+        - period_end
+        - by_load
+        - load_unattributed_sheds
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingShedWeightsRow"
+        summary:
+          $ref: "#/components/schemas/WeighingShedWeightsSummary"
+        parks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [park_id, name]
+            properties:
+              park_id: { type: string, format: uuid }
+              name: { type: string }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        by_load:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [load_ref, average_weight_kg]
+            properties:
+              load_ref: { type: string }
+              owner_name: { type: string, nullable: true }
+              average_weight_kg: { type: number }
+              gain_g_per_day: { type: number, nullable: true }
+              gain_span_days: { type: number, nullable: true }
+        load_unattributed_sheds: { type: integer }
+    WeighingWeightDemographicBucket:
+      type: object
+      additionalProperties: false
+      required: [label, average_weight_kg]
+      properties:
+        label: { type: string }
+        average_weight_kg: { type: number }
+    WeighingWeightGainBucket:
+      type: object
+      additionalProperties: false
+      required: [label, median_gain_g_per_day]
+      properties:
+        label: { type: string }
+        median_gain_g_per_day: { type: number }
+    WeighingWeightDemographicsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - by_breed
+        - by_sex
+        - by_stage
+        - gain_by_breed
+        - gain_by_sex
+        - gain_by_stage
+        - unresolved_animals
+      properties:
+        by_breed:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightDemographicBucket"
+        by_sex:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightDemographicBucket"
+        by_stage:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightDemographicBucket"
+        gain_by_breed:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightGainBucket"
+        gain_by_sex:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightGainBucket"
+        gain_by_stage:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingWeightGainBucket"
+        unresolved_animals: { type: integer }
+    WeighingGrowthLosingAnimal:
+      type: object
+      additionalProperties: false
+      required:
+        - scanned_identifier
+        - shed_display_name
+        - previous_weight_kg
+        - latest_weight_kg
+        - days_between
+        - latest_weigh_date
+      properties:
+        scanned_identifier: { type: string }
+        shed_display_name: { type: string }
+        previous_weight_kg: { type: number }
+        latest_weight_kg: { type: number }
+        days_between: { type: integer }
+        latest_weigh_date: { type: string, format: date }
+    WeighingGrowthShedLeaderboardRow:
+      type: object
+      additionalProperties: false
+      required:
+        - location_id
+        - display_name
+        - adg_pair_count
+        - median_adg_g_per_day
+      properties:
+        location_id: { type: string, format: uuid }
+        display_name: { type: string }
+        adg_pair_count: { type: integer }
+        median_adg_g_per_day: { type: number }
+    WeighingGrowthADGResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - losing_animals
+        - shed_leaderboard
+      properties:
+        losing_animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingGrowthLosingAnimal"
+        shed_leaderboard:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingGrowthShedLeaderboardRow"
+    GrowthDirectorWeightsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - weight_distribution
+        - slow_growth
+        - feed_vs_growth
+      properties:
+        weight_distribution:
+          type: object
+          additionalProperties: false
+          required: [bands]
+          properties:
+            bands:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [label, count, median_weight_kg]
+                properties:
+                  label: { type: string }
+                  count: { type: integer }
+                  median_weight_kg: { type: number }
+        slow_growth:
+          type: object
+          additionalProperties: false
+          required: [groups]
+          properties:
+            groups:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - operational_key
+                  - shed_display_name
+                  - breed
+                  - sex
+                  - pair_identities
+                  - median_adg_g_per_day
+                  - week_over_week_delta_g
+                  - status
+                properties:
+                  operational_key: { type: string }
+                  shed_display_name: { type: string }
+                  breed: { type: string }
+                  sex: { type: string }
+                  pair_identities: { type: integer }
+                  median_adg_g_per_day: { type: number }
+                  week_over_week_delta_g: { type: number, nullable: true }
+                  status: { type: string, enum: [losing, below_target, thin_sample] }
+        feed_vs_growth:
+          type: object
+          additionalProperties: false
+          required: [sheds]
+          properties:
+            sheds:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - location_id
+                  - shed_display_name
+                  - basis
+                  - is_experiment
+                  - feed_g_per_head_per_day
+                  - adg_g_per_day
+                  - kg_feed_per_kg_gain
+                properties:
+                  location_id: { type: string, format: uuid }
+                  shed_display_name: { type: string }
+                  basis: { type: string, enum: [per_animal, shed_average] }
+                  is_experiment: { type: boolean }
+                  feed_g_per_head_per_day: { type: number, nullable: true }
+                  adg_g_per_day: { type: number, nullable: true }
+                  kg_feed_per_kg_gain: { type: number, nullable: true }
+    HealthConfigProtocolRow:
+      type: object
+      additionalProperties: false
+      required:
+        - disease_key
+        - display_name
+        - age_band
+        - duration_days
+        - step_count
+        - medication_count
+        - critical_action_count
+        - has_draft
+      properties:
+        disease_key: { type: string }
+        display_name: { type: string }
+        age_band: { type: string, enum: [adult, kid] }
+        duration_days: { type: integer }
+        step_count: { type: integer }
+        medication_count: { type: integer }
+        critical_action_count: { type: integer }
+        published_version_id: { type: string, format: uuid, nullable: true }
+        published_version: { type: integer, nullable: true }
+        has_draft: { type: boolean }
+        draft_version_id: { type: string, format: uuid, nullable: true }
+    HealthConfigProtocolPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigProtocolRow"
+        next_cursor: { type: string, nullable: true }
+    HealthConfigStep:
+      type: object
+      additionalProperties: false
+      required: [day_no, seq]
+      properties:
+        step_id: { type: string, format: uuid, nullable: true }
+        day_no: { type: integer }
+        seq: { type: integer }
+        session: { type: string, nullable: true }
+        record_type: { type: string, nullable: true }
+        medicine_name: { type: string, nullable: true }
+        dosage_text: { type: string, nullable: true }
+        dosage_denominator: { type: string, nullable: true }
+        medicine_route: { type: string, nullable: true }
+        instruction: { type: string, nullable: true }
+        critical_action_type: { type: string, nullable: true }
+    HealthConfigVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - version
+        - status
+        - step_count
+        - duration_days
+      properties:
+        protocol_version_id: { type: string, format: uuid }
+        version: { type: integer }
+        status: { type: string, enum: [draft, published, retired] }
+        step_count: { type: integer }
+        duration_days: { type: integer }
+        published_at: { type: string, format: date-time, nullable: true }
+    HealthConfigProtocolDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - disease_key
+        - display_name
+        - age_band
+        - status
+        - version
+        - duration_days
+        - open_case_count
+      properties:
+        protocol_version_id: { type: string, format: uuid }
+        disease_key: { type: string }
+        display_name: { type: string }
+        age_band: { type: string, enum: [adult, kid] }
+        status: { type: string, enum: [draft, published, retired] }
+        version: { type: integer }
+        duration_days: { type: integer }
+        open_case_count: { type: integer }
+        row_version: { type: string, nullable: true }
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigStep"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigVersionSummary"
+    HealthConfigWriteResult:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome: { type: string }
+    CreateHealthConfigDiseaseRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name: { type: string, minLength: 1 }
+        duration_days: { type: integer }
+    OpenHealthConfigDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [disease_key, age_band]
+      properties:
+        disease_key: { type: string }
+        age_band: { type: string, enum: [adult, kid] }
+    SaveHealthConfigDraftRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - disease_key
+        - age_band
+        - display_name
+        - steps
+      properties:
+        disease_key: { type: string }
+        age_band: { type: string, enum: [adult, kid] }
+        display_name: { type: string, minLength: 1 }
+        duration_days: { type: integer }
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigStep"
     VerificationItemStatus:
       type: string
       enum:

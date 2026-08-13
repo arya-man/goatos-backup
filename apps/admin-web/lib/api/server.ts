@@ -19,75 +19,14 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
-export type WeightGainBucket = { label: string; median_gain_g_per_day: number };
-export type WeightDemographicBucket = { label: string; average_weight_kg: number };
-export type WeightDemographicsResponse = {
-  by_breed: WeightDemographicBucket[];
-  by_sex: WeightDemographicBucket[];
-  by_stage: WeightDemographicBucket[];
-  gain_by_breed: WeightGainBucket[];
-  gain_by_sex: WeightGainBucket[];
-  gain_by_stage: WeightGainBucket[];
-  unresolved_animals: number;
-};
-export type WeighingLosingAnimal = {
-  scanned_identifier: string;
-  shed_display_name: string;
-  previous_weight_kg: number;
-  latest_weight_kg: number;
-  days_between: number;
-  latest_weigh_date: string;
-};
-export type WeighingGrowthResponse = {
-  losing_animals: WeighingLosingAnimal[];
-  shed_leaderboard: Array<{
-    location_id: string;
-    display_name: string;
-    adg_pair_count: number;
-    median_adg_g_per_day: number;
-  }>;
-};
-export type ShedWeightsSummary = {
-  sheds_weighed: number;
-  sheds_in_scope: number;
-  animals_weighed: number;
-  total_weight_kg: number;
-  average_weight_kg: number | null;
-  at_or_above_30kg: number;
-  at_or_above_35kg: number;
-  threshold_basis_animals: number;
-};
-export type ShedWeightsRow = {
-  location_id: string;
-  park_id: string;
-  park_name: string;
-  shed_display_name: string;
-  partition_label?: string | null;
-  operational_location_display?: string | null;
-  weighing_category: string;
-  animals_weighed: number;
-  average_weight_kg: number;
-  total_weight_kg: number;
-  last_weighed_date?: string | null;
-  bucket_status: string;
-  shed_average_gain_g_per_day?: number | null;
-  gain_span_days?: number | null;
-};
-export type ShedWeightsResponse = {
-  rows: ShedWeightsRow[];
-  summary: ShedWeightsSummary;
-  parks: Array<{ park_id: string; name: string }>;
-  period_start: string;
-  period_end: string;
-  by_load: Array<{
-    load_ref: string;
-    owner_name?: string | null;
-    average_weight_kg: number;
-    gain_g_per_day?: number | null;
-    gain_span_days?: number | null;
-  }>;
-  load_unattributed_sheds: number;
-};
+export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
+export type WeightDemographicBucket = AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
+export type WeightDemographicsResponse = AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
+export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
+export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
+export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
+export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
+export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
@@ -463,16 +402,6 @@ export function apiClientOptions(config: ServerConfig) {
   };
 }
 
-type AppClient = ReturnType<typeof createAppApiClient>;
-
-function appRequest<T>(
-  client: AppClient,
-  path: string,
-  options?: Parameters<AppClient["request"]>[1],
-): Promise<T> {
-  return client.request<T>(path as keyof AppApiPaths & string, options);
-}
-
 export function isAuthRequiredError(error: ApiUiError): boolean {
   return error.kind === "unauthorized" || error.status === 401;
 }
@@ -664,7 +593,7 @@ export async function getMilkPreparation(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<MilkPreparationPage>(client, "/counts/milk-preparation", {
+    client.request<MilkPreparationPage>("/counts/milk-preparation", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -687,7 +616,7 @@ export async function getShedWeights(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<ShedWeightsResponse>(client, "/weighing/shed-weights", {
+    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -705,7 +634,7 @@ export async function getWeightDemographics(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<WeightDemographicsResponse>(client, "/weighing/weight-demographics", {
+    client.request<WeightDemographicsResponse>("/weighing/weight-demographics", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -724,7 +653,7 @@ export async function getWeighingGrowth(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<WeighingGrowthResponse>(client, "/weighing/leadership/growth", {
+    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -792,7 +721,7 @@ export async function getGrowthDirector(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<GrowthDirectorWeightsResponse>(client, "/growth-director/weights", {
+    client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -1167,7 +1096,7 @@ export async function setFeedConfigFeedItemStatus(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<FeedConfigWriteResult>(client, "/feed-config/feed-items/status", {
+    client.request<FeedConfigWriteResult>("/feed-config/feed-items/status", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1276,7 +1205,7 @@ export async function listFeedConfigPens(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<FeedConfigPenPage>(client, "/feed-config/pens", {
+    client.request<FeedConfigPenPage>("/feed-config/pens", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -1299,7 +1228,7 @@ export async function upsertFeedConfigExperimentBatch(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<FeedConfigWriteResult>(client, "/feed-config/experiment/batch", {
+    client.request<FeedConfigWriteResult>("/feed-config/experiment/batch", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1351,7 +1280,7 @@ export async function listHealthConfigProtocols(params: {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<HealthConfigProtocolPage>(client, "/health-config/protocols", {
+    client.request<HealthConfigProtocolPage>("/health-config/protocols", {
       cache: "no-store",
       query: compactQuery(params),
     }),
@@ -1385,7 +1314,7 @@ export async function createHealthConfigDisease(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<HealthConfigWriteResult>(client, "/health-config/diseases", {
+    client.request<HealthConfigWriteResult>("/health-config/diseases", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -1407,7 +1336,7 @@ export async function openHealthConfigDraft(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<HealthConfigProtocolDetail>(client, "/health-config/drafts", {
+    client.request<HealthConfigProtocolDetail>("/health-config/drafts", {
       method: "POST",
       cache: "no-store",
       body,
@@ -1424,7 +1353,7 @@ export async function saveHealthConfigDraft(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    appRequest<HealthConfigWriteResult>(client, "/health-config/drafts/save", {
+    client.request<HealthConfigWriteResult>("/health-config/drafts/save", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },
