@@ -261,7 +261,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
     ],
-    version = 42,
+    version = 43,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -336,6 +336,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v38 (see [MIGRATION_37_38]) adds shared proof-video processing state, metrics, and
     // append-only state events for support/debug breadcrumbs.
     // v39 (see [MIGRATION_38_39]) persists the actual capture location/address burned into proof media.
+    // v40 (see [MIGRATION_39_40]) adds rfidTag to proof_capture.
+    // v41 (see [MIGRATION_40_41]) adds obligationId to the scanned_goat_capture unique index constraint.
+    // v42 (see [MIGRATION_41_42]) persists gallerySavedUri on proof_capture.
+    // v43 (see [MIGRATION_42_43]) adds performance indexes on live-status observer columns: grainKey
+    // for feed direction/packing items and taskId for feed transport scoped items.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
