@@ -800,10 +800,14 @@ SELECT
   count(*) FILTER (WHERE vi.status = 'rejected' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int
 FROM verification_items vi
 CROSS JOIN day_window w
-WHERE vi.tenant_id = $1::uuid
-  AND (vi.module = 'vaccination' OR vi.source_module = 'vaccination')
-  AND ($3::text = '' OR vi.park_id::text = $3::text)
-  AND ($4::text = '' OR vi.shed_id::text = $4::text)`
+	WHERE vi.tenant_id = $1::uuid
+	  AND (vi.module = 'vaccination' OR vi.source_module = 'vaccination')
+	  AND ($3::text = '' OR vi.park_id::text = $3::text)
+	  AND ($4::text = '' OR vi.shed_id::text = $4::text)
+	  -- $5 is the AUTHORIZATION park set, separate from the caller's selected $3. A multi-park
+	  -- scoped actor can legitimately leave $3 empty to see both granted parks, but that must still
+	  -- never widen to tenant-wide verification counts.
+	  AND ($5::text[] IS NULL OR vi.park_id::text = ANY($5::text[]))`
 
 // liveTrackerCell is one park × shed × partition × vaccine × operator rollup row.
 type liveTrackerCell struct {
@@ -939,7 +943,7 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	if err != nil {
 		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker filter options: %w", err)
 	}
-	verification, err := r.liveTrackerVerification(ctx, q.TenantID, businessDate, parkFilter, shedFilter)
+	verification, err := r.liveTrackerVerification(ctx, q.TenantID, businessDate, parkFilter, shedFilter, liveTrackerAuthorizedParkScope(ctx, q.TenantID))
 	if err != nil {
 		return domain.LiveTrackerResponse{}, fmt.Errorf("live tracker verification: %w", err)
 	}
@@ -1302,9 +1306,9 @@ func liveTrackerDoseLabels(raw string) string {
 	return strings.Join(labels, " + ")
 }
 
-func (r *Repository) liveTrackerVerification(ctx context.Context, tenantID, businessDate, parkFilter, shedFilter string) (domain.LiveTrackerVerification, error) {
+func (r *Repository) liveTrackerVerification(ctx context.Context, tenantID, businessDate, parkFilter, shedFilter string, parkScope any) (domain.LiveTrackerVerification, error) {
 	var v domain.LiveTrackerVerification
-	err := r.pool.QueryRow(ctx, liveTrackerVerificationSQL, tenantID, businessDate, parkFilter, shedFilter).
+	err := r.pool.QueryRow(ctx, liveTrackerVerificationSQL, tenantID, businessDate, parkFilter, shedFilter, parkScope).
 		Scan(&v.AwaitingReviewItems, &v.AwaitingReviewSheds, &v.VerifiedTodayItems, &v.VerifiedTodaySheds, &v.ReworkRequested)
 	if err != nil && err != pgx.ErrNoRows {
 		return domain.LiveTrackerVerification{}, err
