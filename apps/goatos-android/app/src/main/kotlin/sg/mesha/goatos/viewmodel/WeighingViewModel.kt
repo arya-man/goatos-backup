@@ -418,11 +418,20 @@ class WeighingViewModel @Inject constructor(
      * operator simply navigating back in) renders read-only from a Room read, not from something
      * this VM instance remembered doing itself. A FAILED submit is intentionally NOT read-only: the
      * operator can still fix and retry it.
+     *
+     * Nullable to avoid race: initialized as null, set to true/false after first refreshScopeSubmitted()
+     * completes. The UI state only sets isReadOnly = true when this is non-null and true, preventing
+     * the transient "editable" state that occurred when the screen rendered before the async refresh
+     * completed. This also prevents the hole where outbox row pruning (if it occurs after SUCCEEDED)
+     * would revert scopeSubmitted to false even though the backend knows the scope is submitted.
      */
-    private val scopeSubmitted = MutableStateFlow(false)
+    private val scopeSubmitted = MutableStateFlow<Boolean?>(null)
 
     private suspend fun refreshScopeSubmitted() {
-        if (scopeKey == null) return
+        if (scopeKey == null) {
+            scopeSubmitted.value = false  // Not a scoped session; mark refreshed
+            return
+        }
         val result = repository.findPendingSubmit(campaignId, campaignShedId)
         val status = (result as? AppResult.Ok)?.value?.status
         scopeSubmitted.value = status == SyncItemStatus.SUCCEEDED ||
@@ -1068,9 +1077,15 @@ class WeighingViewModel @Inject constructor(
                 // durable, Room-observed signal (the outbox row behind the scope's own submit --
                 // see refreshScopeSubmitted()), not a transient VM flag, so a re-entered screen
                 // (fresh VM, fresh process) renders read-only from the FIRST emission rather than
-                // only after some later user action re-derives it.
+                // only after some later user action re-derives it. scopeSubmitted is nullable to
+                // avoid the race where the screen renders editable before refreshScopeSubmitted()
+                // completes: we only update isReadOnly once submitted is non-null (after first refresh).
                 combine(base, scopeSubmitted) { uiState, submitted ->
-                    uiState.copy(isReadOnly = submitted)
+                    if (submitted != null) {
+                        uiState.copy(isReadOnly = submitted)
+                    } else {
+                        uiState
+                    }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
@@ -1849,7 +1864,7 @@ class WeighingViewModel @Inject constructor(
     }
 
     fun submitIndividualScope(onSubmitted: () -> Unit) {
-        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value || scopeSubmitted.value) return
+        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value || scopeSubmitted.value == true) return
         val submittedIdentifiers = computeSubmittableIdentifiers()
         if (submittedIdentifiers == null) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
@@ -2000,7 +2015,7 @@ class WeighingViewModel @Inject constructor(
         // (WeighingScreen.kt): the durable read-only signal is checked here too, so a stray call
         // reaching this function some other way (e.g. a queued composable callback) cannot write
         // into an already-submitted scope.
-        if (scopeSubmitted.value) return
+        if (scopeSubmitted.value == true) return
         val weightKg = parsePositiveWeighingWeight(animalWeightInputs.value[row.animalId])
             ?: parsePositiveWeighingWeight(weightInput.value)
             ?: return

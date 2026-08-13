@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.feature.feed.FeedCompleteEvent
 import sg.mesha.goatos.feature.feed.FeedCompleteResultUi
@@ -203,6 +204,13 @@ class FeedCompleteViewModel @Inject constructor(
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
                     item ?: return@collect
+                    // Reset submitInFlight latch on terminal FAILED so the user can retry.
+                    // The latch was set true when the enqueue launched, but only reset on
+                    // synchronous enqueue Err — not when the outbox row later reaches FAILED.
+                    // Without this reset, button stays dead forever after terminal failure.
+                    if (item.status == SyncItemStatus.FAILED) {
+                        submitInFlight = false
+                    }
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
