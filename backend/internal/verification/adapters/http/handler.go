@@ -177,7 +177,8 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 	if media == nil {
 		media = []domain.MediaItem{}
 	}
-	// Compose operational_location_display from shed and partition labels
+	// Compose operational_location_display through oploc; partitionLabel is compatibility metadata
+	// and must not be appended to an exact shed label.
 	var operationalLocationDisplay *string
 	if row.Item.ShedLabel != nil {
 		partLabel := ""

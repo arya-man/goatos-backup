@@ -36,16 +36,14 @@ func (r *LocationReader) GoatLocation(ctx context.Context, tenantID, goatID stri
 	defer cancel()
 
 	var loc oploc.OperationalLocation
-	var parkID, parkName, shedID, shedName, partitionLabel *string // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=single-goat-lookup-keyed-by-goat_id-park-and-shed-joined-on-location_id-names-are-display-outputs-not-keys expiry=2027-08-06
+	var parkID, parkName, shedID, shedName *string // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=single-goat-lookup-keyed-by-goat_id-park-and-shed-joined-on-location_id-names-are-display-outputs-not-keys expiry=2027-08-06
 	err := r.pool.QueryRow(ctx, `
-SELECT g.park_id::text, park.name, g.shed_id::text, shed.name, gsp.partition_label -- operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=selects-both-ids-and-names-row-identified-by-goat_id-names-are-display-only expiry=2027-08-06
+SELECT g.park_id::text, park.name, g.shed_id::text, shed.name -- operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=selects-both-ids-and-names-row-identified-by-goat_id-names-are-display-only expiry=2027-08-06
 FROM goats g
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid`,
-		tenantID, goatID).Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel) // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=scan-destinations-for-the-single-goat-id-keyed-query-above-names-are-display-only expiry=2027-08-06
+		tenantID, goatID).Scan(&parkID, &parkName, &shedID, &shedName) // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=scan-destinations-for-the-single-goat-id-keyed-query-above-names-are-display-only expiry=2027-08-06
 	if errors.Is(err, pgx.ErrNoRows) {
 		return loc, false, nil
 	}
@@ -57,11 +55,10 @@ WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid`,
 		return loc, false, nil
 	}
 	loc = oploc.OperationalLocation{
-		ParkID:         valueOrEmpty(parkID),
-		ParkName:       valueOrEmpty(parkName),
-		ShedID:         valueOrEmpty(shedID),
-		ShedName:       valueOrEmpty(shedName),
-		PartitionLabel: valueOrEmpty(partitionLabel),
+		ParkID:   valueOrEmpty(parkID),
+		ParkName: valueOrEmpty(parkName),
+		ShedID:   valueOrEmpty(shedID),
+		ShedName: valueOrEmpty(shedName),
 	}
 	return loc, true, nil
 }

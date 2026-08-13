@@ -62,18 +62,16 @@ function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: 
 
 export async function ShedExecutionDetailPage({
   shedId,
-  partitionLabel,
   scope,
   asOf,
   pageContract,
 }: {
   shedId: string;
-  partitionLabel?: string;
   scope?: Scope;
   asOf?: string;
   pageContract: AdminUiPageContract;
 }) {
-  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf, partitionLabel });
+  const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf });
   const fallbackBackHref = scope ? `${scopeHref("/vaccination", scope)}#execution` : "/vaccination#execution";
   if (!result.ok) {
     return <NotFoundOrError shedId={shedId} message={result.error.message} backHref={fallbackBackHref} pageContract={pageContract} />;
@@ -85,7 +83,7 @@ export async function ShedExecutionDetailPage({
         `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
         scope,
         { mode: "park", park: shed.parkId },
-        { partition_label: partitionLabel },
+        {},
       ),
     );
   }

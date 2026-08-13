@@ -437,18 +437,18 @@ class SubmitViewModelFormTest {
         backgroundScope.launch { viewModel.state.collect {} }
         advanceUntilIdle()
 
-        assertEquals(1, viewModel.state.value.formRunner?.fields?.first()?.scannedCount)
+        assertEquals(2, viewModel.state.value.formRunner?.fields?.first()?.scannedCount)
         assertTrue(viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
         viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals(
-            JsonArray(listOf(JsonPrimitive("goat-part-1"))),
+            JsonArray(listOf(JsonPrimitive("goat-part-1"), JsonPrimitive("goat-part-2"))),
             sync.lastRequest?.answers?.get("goat_ids"),
         )
-        assertEquals(listOf("server-proof-part-1"), sync.lastRequest?.proofRefs?.map { it.proofId })
-        assertEquals("Part 1", sync.lastRequest?.partitionLabel)
+        assertEquals(listOf("server-proof-part-1", "server-proof-part-2"), sync.lastRequest?.proofRefs?.map { it.proofId })
+        assertNull(sync.lastRequest?.partitionLabel)
     }
 
     @Test
@@ -1426,8 +1426,8 @@ class SubmitViewModelFormTest {
         advanceUntilIdle()
 
         assertEquals("godel-2|whole", sync.lastGroupKey)
-        assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastIdempotencyKey)
-        assertEquals("shed-submit:task-shared-parent:scope:godel-2:partition:whole:rv:4", sync.lastRequest?.idempotencyKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastIdempotencyKey)
+        assertEquals("shed-submit:task-shared-parent:scope:godel-2:rv:4", sync.lastRequest?.idempotencyKey)
     }
 
     @Test

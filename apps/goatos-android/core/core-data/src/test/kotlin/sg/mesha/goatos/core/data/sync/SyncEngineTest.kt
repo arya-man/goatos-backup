@@ -420,15 +420,15 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `scan capture acknowledgement updates only its operational partition`() = runBlocking {
+    fun `scan capture acknowledgement updates the exact shed capture scope`() = runBlocking {
         val store = FakeOutboxStore()
         val scannedGoatDao = FakeScannedGoatDao()
-        val idempotencyKey = "scan:task-1:partition:1:__scan_roster__:901007000504392"
+        val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
         scannedGoatDao.insert(
             ScannedGoatEntity(
                 id = "scan-row-1",
                 taskId = "task-1",
-                partitionKey = "1",
+                partitionKey = "whole",
                 fieldKey = "__scan_roster__",
                 tag = "901007000504392",
                 goatId = "goat-1",
@@ -437,29 +437,16 @@ class SyncEngineTest {
                 syncStatus = CaptureSyncStatus.PENDING.name,
             ),
         )
-        scannedGoatDao.insert(
-            ScannedGoatEntity(
-                id = "scan-row-2",
-                taskId = "task-1",
-                partitionKey = "2",
-                fieldKey = "__scan_roster__",
-                tag = "901007000504392",
-                goatId = "goat-2",
-                obligationId = "obl-2",
-                capturedAtMs = 124L,
-                syncStatus = CaptureSyncStatus.PENDING.name,
-            ),
-        )
         store.insert(
             OutboxEntity(
                 id = "row-scan-1",
                 opType = OutboxOpType.SCAN_CAPTURE.name,
-                groupKey = "task-1|1",
+                groupKey = "task-1|whole",
                 idempotencyKey = idempotencyKey,
                 payloadJson = syncJson.encodeToString(
                     ScanCapturePayload(
                         taskId = "task-1",
-                        partitionKey = "1",
+                        partitionKey = "whole",
                         request = ScanCaptureRequestDto(
                             fieldKey = "__scan_roster__",
                             tag = "901007000504392",
@@ -515,11 +502,7 @@ class SyncEngineTest {
         assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
         assertEquals(
             CaptureSyncStatus.SYNCED.name,
-            scannedGoatDao.listForField("task-1", "1", "__scan_roster__").single().syncStatus,
-        )
-        assertEquals(
-            CaptureSyncStatus.PENDING.name,
-            scannedGoatDao.listForField("task-1", "2", "__scan_roster__").single().syncStatus,
+            scannedGoatDao.listForField("task-1", "whole", "__scan_roster__").single().syncStatus,
         )
     }
 

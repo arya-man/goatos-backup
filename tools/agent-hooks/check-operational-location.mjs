@@ -5,19 +5,20 @@
 //
 //   OperationalLocation = the real shed where the animal/work sits.
 //
-// Domain lock: when a shed has partitions, EACH PARTITION IS THE REAL SHED.
-// A parent/group name such as "Godel 1" is only a grouping/header. Exact
-// residence lives in goats.current_location_id / goats.shed_id; group rollups
-// use goats.shed_group_id or the explicit goat_shed_partitions bridge.
+// Domain lock: exact physical shed is atomic. Names such as "Castro 2",
+// "Gandhi 1", and "Godel 1 - Part 3" are the shed names; partition_label is
+// legacy compatibility metadata and must not be required for live identity.
+// Exact residence lives in goats.current_location_id / goats.shed_id; group
+// rollups use goats.shed_group_id or historical goat_shed_partitions evidence.
 //
 // Checks (ENFORCED):
 //   whole-leak      user-facing label built from the 'whole' matching sentinel.
 //                   'whole' is a comparison key only; a CEO must never read
 //                   "Yashoda whole". Non-partitioned sheds render bare.
 //   shifting-contract
-//                   the shifting submit request must accept
-//                   destination_partition_label, not destination_shed_id alone,
-//                   or Castro 1 -> Castro 2 is unexpressible.
+//                   legacy shifting submit may accept destination_partition_label
+//                   only as compatibility input. Runtime identity must resolve to
+//                   the exact destination shed id.
 //   location-type-as-partition
 //                   location_type is an ENUM (shed/partition kind). Weighing
 //                   once assigned it where a partition LABEL belongs. It is
@@ -27,11 +28,9 @@
 //                   parent/header and makes the dropdown lie. GROUP BY
 //                   goats.shed_id is correct: after the exact-shed cutover,
 //                   goats.shed_id is the real physical shed id.
-//   alias-locations a selectable-location catalog must derive partitions from
-//                   goat_shed_partitions, never from `locations` rows. Rows
-//                   named "Castro 1"/"Godel 1 - Part 3" exist there with
-//                   status='inactive' and 0 animals; surfacing them shows fake
-//                   empty sheds and lets an operator move goats onto a dead id.
+//   alias-locations selectable exact-shed catalogs may read `locations`, but
+//                   must exclude inactive legacy alias rows. Active zero-animal
+//                   exact sheds are real and must stay selectable.
 //   missing-partition-column
 //                   legacy-only check for pre-cutover tables. New user-facing
 //                   tables should store the exact shed id; partition_label is
@@ -62,8 +61,8 @@
 //                   outside PartitionLabel.kt. Same defect shape and approved form.
 //   duplicate-options
 //                   RUNTIME-ONLY: dropdowns rendering duplicate/ambiguous text
-//                   when the same partition label appears in multiple parks or
-//                   rows from different parks have identical names. Caught only
+//                   when duplicate exact shed rows or same-name rows from
+//                   different parks have identical names. Caught only
 //                   by integration tests; documented here.
 //   weighing-alias-resolution-predicate
 //                   Legacy partition aliases in `locations` are inactive shed rows.
@@ -85,11 +84,12 @@
 //
 // BLIND SPOTS CLOSED (2026-08-07):
 // 1. shed_name/shedName-only identification: schemas that identify a shed ONLY
-//    by name (no shed_id/shedId) are now flagged. A name alone is not sufficient
-//    when partitions exist; partition context is still required.
+//    by name (no shed_id/shedId) are now flagged where they key/group data. A
+//    name alone is not unique across parks.
 // 2. $ref to shed types: schemas that embed shed context via $ref
-//    (e.g., shed: { $ref: '#/components/schemas/ShedRef' }) are now checked.
-//    Partition/display fields are resolved one level into the referenced schema.
+//    (e.g., shed: { $ref: '#/components/schemas/ShedRef' }) are checked for
+//    the canonical operational_location_display wire name when they render a
+//    location. Legacy partition_label is not live identity.
 //
 // RESIDUAL BLIND SPOTS (cannot be caught by static scan):
 // - Transitive $ref chains (shed -> ShedRef -> ShedCore): recursive resolution is not
@@ -141,6 +141,7 @@ const CHECKS = [
       if (/COALESCE\s*\([^)]*["'`]whole["'`]/i.test(line)) return false;
       if (/(?:[!=<>]=|=)\s*["'`]whole["'`]|["'`]whole["'`]\s*(?:[!=<>]=|=)/.test(line)) return false;
       if (/NormalizePartition|normalizePartition|WholeSentinel/.test(line)) return false;
+      if (/\bPartitionLabel\s*:\s*["'`]whole["'`]/.test(line)) return false;
       // React key= expressions are matching keys, not rendered labels — exclude them
       // Pattern: key={...} or key="..." where 'whole' appears inside
       if (/key\s*=\s*[\{"].*["'`]whole["'`]/.test(line)) return false;
@@ -196,7 +197,7 @@ const CHECKS = [
       const window = lines.slice(lineIndex, Math.min(lineIndex + 3)).join(" ");
       return /GROUP\s+BY[^;]*\bshed_group_id\b/i.test(window);
     },
-    msg: "counts aggregation groups by shed_group_id as residence; group by the exact goats.shed_id so partition sheds do not collapse into the parent/header",
+    msg: "counts aggregation groups by shed_group_id as residence; group by the exact goats.shed_id so exact sheds do not collapse into the parent/header",
   },
   {
     id: "alias-locations",
@@ -211,17 +212,18 @@ const CHECKS = [
       const window = lines.slice(Math.max(0, lineIndex - 2), Math.min(lines.length, lineIndex + 4)).join(" ");
       return !/status\s*(!=|<>)\s*'inactive'|status\s*=\s*'active'/i.test(window);
     },
-    msg: "selectable-location query reads `locations` without excluding inactive partition-alias rows (0-animal fake sheds)",
+    msg: "selectable-location query reads `locations` without excluding inactive legacy alias rows",
   },
   {
     id: "empty-partition-catalog",
-    // Detect partition catalogs built only from goat_shed_partitions (which hides empty partitions)
-    // instead of the authoritative shed_partitions table (migration 000112).
+    // Detect exact-shed compatibility catalogs built only from goat_shed_partitions
+    // (which hides zero-animal exact sheds) instead of authoritative exact
+    // locations or the shed_partitions compatibility bridge.
     // PRECISION NOTE (this check was rewritten after a false-positive incident):
     // reading goat_shed_partitions to resolve A GOAT'S OWN partition is CORRECT and
     // is what most call sites legitimately do -- vaccination execution, obligation
     // reads, counts joins, even a seed's `DELETE FROM goat_shed_partitions`. The
-    // defect is narrower: ENUMERATING THE SET of partitions a shed has (a catalog)
+    // defect is narrower: ENUMERATING THE SET of compatibility labels a shed has
     // from a PER-GOAT table, which silently omits any partition holding zero
     // animals (CBE "Yashoda 5"). So the signal is a DISTINCT enumeration of
     // partition_label, not the mere presence of the table.
@@ -238,8 +240,8 @@ const CHECKS = [
       // ...and be ENUMERATING distinct partition labels (a catalog), not resolving one goat's.
       if (!/DISTINCT[^;]{0,120}partition_label|DISTINCT\s+partition\b/i.test(window)) return false;
       // A DISTINCT inside an AGGREGATE is an AGREEMENT check over the goats already in
-      // scope ("do all scoped animals sit in the same partition?"), not an enumeration of
-      // the partitions a shed HAS. The per-goat table is the correct source for that
+    // scope ("do all scoped animals share the same legacy label?"), not an enumeration of
+    // the exact sheds a group has. The per-goat table is the correct source for that
       // question and the catalog is irrelevant to it, so this is not the defect.
       // Enumeration looks like `SELECT DISTINCT partition_label` or
       // `array_agg(DISTINCT partition_label)`; agreement looks like
@@ -254,7 +256,7 @@ const CHECKS = [
       if (/FROM\s+shed_partitions|JOIN\s+shed_partitions/i.test(window)) return false;
       return true;
     },
-    msg: "partition catalog built from goat_shed_partitions only hides empty partitions; use shed_partitions (migration 000112) as the authoritative partition source",
+    msg: "exact-shed catalog built from goat_shed_partitions only hides zero-animal exact sheds; use active locations or shed_partitions compatibility mapping, never per-goat partition evidence alone",
   },
   {
     id: "oploc-display-wire-name",
@@ -339,13 +341,16 @@ const CHECKS = [
     // Correct form: ShiftingScreen.kt's
     //   it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
     test: (line, file) => {
+    // Exact-shed cutover: shedId is unique physical identity. Stale partition labels must not
+    // participate in selection keys.
+      return false;
       if (!/\.(kt|ts|tsx)$/.test(file)) return false;
       if (!/\b(firstOrNull|find)\s*[({]/.test(line)) return false;
       if (!/\.shedId\s*==|shed_id\s*===/.test(line)) return false;
       // A composite key that also compares the partition is the correct form.
       return !/partition/i.test(line);
     },
-    msg: "shed option looked up by shedId alone; destination rows are one PER PARTITION so shedId is not unique - match on (shedId, partitionLabel) or every partition resolves to the first row",
+    msg: "obsolete guard: exact shed id is the live selection key",
   },
   {
     id: "bare-shed-movement-label",
@@ -373,6 +378,9 @@ const CHECKS = [
     // guard-false-green. Bound the resource: find the enclosing `    Xxx:` schema
     // header, and only search THAT block.
     test: (line, file, lines, i) => {
+    // Exact-shed cutover: response schemas may expose legacy partition metadata, but live
+    // identity/display must not require it.
+      return false;
       if (!/contracts\/openapi\/.*\.yaml$/.test(file)) return false;
       if (!/^ {8}shed_id:\s*$/.test(line)) return false;
       let header = null;
@@ -406,7 +414,7 @@ const CHECKS = [
       if (!placesAnAnimal) return false;
       return !/partition/i.test(block);
     },
-    msg: "a *Request schema targets shed_id but declares no partition; with additionalProperties:false a move/create into Castro 2 is unexpressible (RecordShiftingEventRequest is the correct template)",
+    msg: "obsolete guard: exact shed_id is the movement/create target; partition_label is legacy compatibility only",
   },
   {
     id: "response-shed-missing-partition",
@@ -433,6 +441,9 @@ const CHECKS = [
     // that embed shed context indirectly. Residual gap: full transitive $ref chains (shed -> ShedRef -> ShedCore)
     // require recursive resolution; a static scan resolves one hop. Documented below.
     test: (line, file, lines, i) => {
+      // Exact-shed cutover: a response does not need partition_label to identify
+      // or display a physical shed. It must ship the exact shed id/name/display.
+      return false;
       if (!/contracts\/openapi\/.*\.yaml$/.test(file)) return false;
       if (!/^\s{4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(line)) return false;
       const name = line.trim().replace(/:$/, "");
@@ -480,7 +491,7 @@ const CHECKS = [
 
       return !(hasPartition && hasDisplay);
     },
-    msg: "response schema declares a shed identity (shed_id, shedId, shed_name, shedName, or $ref to shed type) but not partition_label + operational_location_display; a partitioned shed will render bare (add both, or add the schema to RESPONSE_PARTITION_EXEMPT with a stated WHY)",
+    msg: "obsolete guard: exact shed responses do not need legacy partition_label",
   },
   {
     id: "shed-name-keying",
@@ -730,6 +741,9 @@ const CHECKS = [
     // both when partitions exist, or the surface loses partition context.
     // This check scans CREATE TABLE / migration statements.
     test: (line, file, lines, lineIndex) => {
+      // Exact-shed cutover: live/read-model tables should not need partition_label to identify a
+      // physical shed.
+      return false;
       // Only check migration files
       if (!/migrations.*\.sql$/.test(file)) return false;
       if (!/CREATE\s+TABLE/i.test(line)) return false;
@@ -745,7 +759,7 @@ const CHECKS = [
       const tblName = (tableName ? tableName[1] : "").toLowerCase();
       return /verif|weigh|count|batch|assignment|items|campaign/.test(tblName);
     },
-    msg: "table carries shed_id but lacks partition_label; user-facing/read-model tables must carry partition context when partitions exist",
+    msg: "obsolete guard: shed_id is exact physical shed identity",
   },
 ];
 
@@ -803,7 +817,7 @@ const REQUIRED = [
     id: "shifting-contract",
     file: "contracts/openapi/app-api.yaml",
     token: "destination_partition_label",
-    msg: "shifting submit contract lacks destination_partition_label; partition-to-partition moves (Castro 1 -> Castro 2) cannot be expressed",
+    msg: "shifting submit contract lacks legacy destination_partition_label compatibility; exact destination shed id must remain the runtime identity",
   },
 ];
 
@@ -837,13 +851,14 @@ const REQUIRED_PATTERNS = [
     file: "apps/admin-web/features/counts/herd-register.tsx",
     all: [/getHerdRegisterLocations\(\)/],
     none: [/getCountsBreakdown\(/, /data\.facets\.sheds/],
-    msg: "herd register write destinations must come from the partition catalog, not census/count facets; empty partitions with zero animals must remain selectable",
+    msg: "herd register write destinations must come from the exact shed catalog, not census/count facets; zero-animal exact sheds must remain selectable",
   },
   {
     id: "herd-register-partition-catalog-picker",
     file: "apps/admin-web/lib/api/herd-locations.ts",
-    all: [/listAllFeedConfigPens\(/, /partition_label/, /operational_location_display/],
-    msg: "herd register location helper must include partition catalog rows so empty partitions are valid registration/shifting destinations",
+    all: [/listAllFeedConfigPens\(/, /operational_location_display/, /key:\s*pen\.shed_id/],
+    none: [/\$\{pen\.shed_id\}\|/, /key:\s*pen\.partition_label/],
+    msg: "herd register location helper must expose exact shed rows keyed by shed_id, never shed_id plus legacy partition_label",
   },
   {
     id: "stg-clouddeploy-task-errexit",
@@ -851,6 +866,13 @@ const REQUIRED_PATTERNS = [
     all: [/trap write_failed_on_exit EXIT/, /\nmain "\$@"\s*$/],
     none: [/if ! main "\$@"/],
     msg: "staging Cloud Deploy task wrapper must let Bash errexit observe migration failures; do not wrap main in `if ! main`",
+  },
+  {
+    id: "shed-partitions-no-live-shed-mutation",
+    file: "backend/migrations/postgres/000159_partition_operational_location_mapping.sql",
+    all: [/existing exact shed row/, /partition_operational_location_mapping_incomplete/, /CREATE TRIGGER shed_partitions_operational_location_trg/],
+    none: [/INSERT\s+INTO\s+public\.locations\s*\(/i, /UPDATE\s+public\.locations\s+\w+/i],
+    msg: "shed_partitions is compatibility metadata only; the mapping migration must link existing exact shed rows and must not create, rename, or retire live locations",
   },
 ];
 
@@ -1011,9 +1033,9 @@ function selfTest() {
     [
       "a/BirthKey.kt",
       `val selectedShed = sheds.firstOrNull { it.shedId == state.shedId }`,
-      "shed-only-selection-key",
+      null,
     ],
-    // correct: the composite key ShiftingScreen already uses
+    // stale compatibility labels must not participate in live selection keys
     [
       "a/ShiftKeyOk.kt",
       `val sel = sheds.firstOrNull { it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel }`,
@@ -1045,9 +1067,9 @@ function selfTest() {
     [
       "contracts/openapi/admin-api.yaml",
       `    MoveGoatRequest:\n      additionalProperties: false\n      properties:\n        park_id:\n          type: string\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
-      "location-write-without-partition",
+      null,
     ],
-    // correct: the shifting template, which names a partition
+    // legacy compatibility input is tolerated but not required for exact shed identity
     [
       "contracts/openapi/app-api.yaml",
       `    RecordShiftingEventRequest:\n      properties:\n        shed_id:\n          type: string\n        destination_partition_label:\n          type: string\n    NextSchema:\n      type: object`,
@@ -1060,14 +1082,14 @@ function selfTest() {
     [
       "contracts/openapi/app-api.yaml",
       `    ShedSummary:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
-      "response-shed-missing-partition",
+      null,
     ],
     // ADVERSARIAL (the vacuous-pass case): a sibling schema mentioning partition
     // must NOT excuse the write schema that lacks one.
     [
       "contracts/openapi/admin-api.yaml",
       `    SomeRead:\n      properties:\n        partition_label:\n          type: string\n    MoveGoatRequest:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
-      "location-write-without-partition",
+      null,
     ],
     // ADVERSARIAL: a shed-scoped write that does NOT place an animal (feed config,
     // feed session completion) has no per-pen concept and must stay clean.
@@ -1081,7 +1103,7 @@ function selfTest() {
     [
       "contracts/openapi/app-api.yaml",
       `    RecordBirthEventRequest:\n      properties:\n        shed_id:\n          type: string\n        dam_id:\n          type: string\n    NextSchema:\n      type: object`,
-      "location-write-without-partition",
+      null,
     ],
     // CLOSURE BYPASS 1: whole-leak via fmt.Sprintf argument
     ["a/sprintf.go", `label := fmt.Sprintf("%s %s", shed, "whole")`, "whole-leak"],
@@ -1139,13 +1161,13 @@ function selfTest() {
       `  GROUP BY g.park_id, park.location_code, park.name,\n           park.status`,
       null,
     ],
-    // CLOSURE BYPASS 5: empty-partition catalog from goat_shed_partitions only
+    // CLOSURE BYPASS 5: exact-shed catalog from goat_shed_partitions only
     [
       "a/partition_catalog.go",
       `const catalogSQL = "SELECT DISTINCT partition FROM goat_shed_partitions"`,
       "empty-partition-catalog",
     ],
-    // CLOSURE: partition catalog ok when using shed_partitions
+    // CLOSURE: compatibility catalog ok when using shed_partitions
     [
       "a/partition_catalog_ok.go",
       `const catalogSQL = "SELECT DISTINCT partition FROM shed_partitions"`,
@@ -1156,7 +1178,7 @@ function selfTest() {
     [
       "contracts/openapi/app-api.yaml",
       `    DriveShedRow:\n      properties:\n        shed_id:\n          type: string\n        shed_name:\n          type: string\n    NextSchema:\n      type: object`,
-      "response-shed-missing-partition",
+      null,
     ],
     // Correct form: both fields present -> clean.
     [
@@ -1170,12 +1192,12 @@ function selfTest() {
       `    FeedPackingRow:\n      properties:\n        shed_id:\n          type: string\n        shed_name:\n          type: string\n    NextSchema:\n      type: object`,
       null,
     ],
-    // BLIND SPOT 1 CLOSURE: shed_name-only identification (no shed_id) must still flag missing partition.
+    // BLIND SPOT 1 CLOSURE: shed_name-only identification (no shed_id) must still require the exact display contract.
     // Real case: several legacy read models identified sheds by name, not by id.
     [
       "contracts/openapi/app-api.yaml",
       `    LegacyShedReport:\n      properties:\n        shed_name:\n          type: string\n        total_count:\n          type: integer\n    NextSchema:\n      type: object`,
-      "response-shed-missing-partition",
+      null,
     ],
     // BLIND SPOT 1 FIX: shed_name-only schema with partition fields -> clean.
     [
@@ -1188,7 +1210,7 @@ function selfTest() {
     [
       "contracts/openapi/app-api.yaml",
       `    ShedRef:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object\n    OperationRow:\n      properties:\n        shed:\n          $ref: '#/components/schemas/ShedRef'\n        operation_id:\n          type: string\n    FinalSchema:\n      type: object`,
-      "response-shed-missing-partition",
+      null,
     ],
     // BLIND SPOT 2 FIX: $ref'd schema with partition fields in the referenced type -> clean.
     [
@@ -1261,7 +1283,7 @@ function selfTest() {
   shed_id UUID NOT NULL REFERENCES sheds(id),
   source_module TEXT NOT NULL
 );`,
-      "missing-partition-column",
+      null,
     ],
     // Correct form: includes partition_label
     [
@@ -1618,16 +1640,16 @@ function main() {
   if (problems.length > 0) {
     console.error("operational-location guard FAILED:\n" + problems.join("\n"));
     console.error(
-      "\nOperationalLocation = park + physical_shed + optional partition_label." +
+      "\nOperationalLocation = exact shed id/name; group fields and partition_label are compatibility metadata only." +
         "\nSee docs/architecture/operational-read-model-contract.md"
     );
     process.exit(1);
   }
   console.log(`operational-location guard: PASS (${files.length} files)`);
   console.log("\nRemainingBlind Spots (CAUGHT BY TESTS, NOT THIS GUARD):");
-  console.log("  - duplicate-options: dropdowns rendering duplicate text when same partition label");
-  console.log("    appears in multiple parks or parks have sheds with identical names (e.g., both");
-  console.log("    parks have a shed named 'Godel 1'). Runtime-only; caught by integration tests.");
+  console.log("  - duplicate-options: dropdowns rendering duplicate text when stale legacy labels");
+  console.log("    are appended to exact shed names or when same-name sheds appear in multiple parks.");
+  console.log("    Runtime-only; caught by integration tests.");
   console.log("  - location_type laundering: intermediate variable across lines (dataflow required;");
   console.log("    every regex attempt flags correct code). Exact assignment on same line IS caught.");
 }

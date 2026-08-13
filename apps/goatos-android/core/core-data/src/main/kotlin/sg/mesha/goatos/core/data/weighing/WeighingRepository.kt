@@ -1584,7 +1584,7 @@ class DefaultWeighingRepository(
                             WeighingPlannerShedRowEntity(
                                 queryKey = queryKey,
                                 locationId = shed.locationId,
-                                partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
+                                partitionKey = "",
                                 parkId = parkId,
                                 parkName = "",
                                 sortIndex = startIndex + offset,
@@ -1647,7 +1647,7 @@ class DefaultWeighingRepository(
                         WeighingPlannerShedRowEntity(
                             queryKey = queryKey,
                             locationId = shed.locationId,
-                            partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
+                            partitionKey = "",
                             parkId = parkId,
                             parkName = "",
                             sortIndex = startIndex + offset,
@@ -1706,7 +1706,7 @@ class DefaultWeighingRepository(
                         WeighingPlannerShedRowEntity(
                             queryKey = queryKey,
                             locationId = shed.locationId,
-                            partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
+                            partitionKey = "",
                             parkId = parkId,
                             parkName = "",
                             sortIndex = startIndex + offset,
@@ -1812,7 +1812,7 @@ class DefaultWeighingRepository(
         if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
         runCatching {
             val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:" +
-                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.partitionLabel.normalizedWeighingPartitionKey()}" })
+                weighingBucketSetDigest(draft.sheds.map { it.locationId })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1830,7 +1830,7 @@ class DefaultWeighingRepository(
             // The key names the WORK, not the attempt: the same date, park and bucket set is the
             // same task, so a retry after a dropped response cannot create a second one.
             val createIdem = "weighing:create:${draft.startBusinessDate}:${draft.parkId}:" +
-                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.partitionLabel.normalizedWeighingPartitionKey()}:${it.category}:${it.operatorUserId}" })
+                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.category}:${it.operatorUserId}" })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -2498,8 +2498,8 @@ private fun String.toEpochMillisOrNow(): Long =
 private fun WeighingPlannerShedDto.toPlannerShed(): WeighingPlannerShed =
     WeighingPlannerShed(
         locationId = locationId,
-        name = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(name, partitionLabel) },
-        partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
+        name = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(name, null) },
+        partitionLabel = null,
         kidCount = kidCount,
         scheduled = scheduled,
         scheduledStatus = scheduledStatus,
@@ -2582,8 +2582,8 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
     WeighingTaskShed(
         campaignShedId = campaignShedId,
         locationId = locationId,
-        displayName = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(displayName, partitionLabel) },
-        partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
+        displayName = operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(displayName, null) },
+        partitionLabel = null,
         category = weighingCategory,
         operatorUserId = operatorUserId,
         operatorDisplayName = operatorDisplayName,
@@ -2654,7 +2654,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
                 locationId = it.locationId,
                 locationType = "shed",
                 displayName = it.name,
-                partitionLabel = it.partitionLabel,
+                partitionLabel = null,
                 weighingCategory = it.category,
                 operatorUserId = it.operatorUserId.ifBlank { operatorUserId },
             )
@@ -2681,8 +2681,8 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                 WeighingTaskShed(
                     campaignShedId = shed.campaignShedId,
                     locationId = shed.locationId,
-                    displayName = shed.operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(shed.displayName, shed.partitionLabel) },
-                    partitionLabel = shed.partitionLabel?.takeIf { it.isNotBlank() },
+                    displayName = shed.operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(shed.displayName, null) },
+                    partitionLabel = null,
                     category = shed.weighingCategory,
                     operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
                     status = shed.status,
@@ -2778,9 +2778,6 @@ internal fun weighingBucketSetDigest(buckets: List<String>): String {
     return digest.joinToString("") { "%02x".format(it) }
 }
 
-private fun String?.normalizedWeighingPartitionKey(): String =
-    this?.trim()?.lowercase().orEmpty()
-
 fun individualIdempotencyKey(
     campaignId: String,
     workGroupId: String,
@@ -2855,7 +2852,7 @@ private fun WeighingLeadershipShedVideosDto.toLeadershipShed(periodLabel: String
         campaignId = campaignId,
         campaignShedId = campaignShedId,
         shedName = shedName,
-        partitionLabel = partitionLabel,
+        partitionLabel = null,
         operationalLocationDisplay = operationalLocationDisplay,
         parkName = parkName,
         weighDate = weighDate,

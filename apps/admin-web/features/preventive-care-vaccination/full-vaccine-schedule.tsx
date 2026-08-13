@@ -48,7 +48,6 @@ type OperatorDayScheduleRow = {
     id?: string;
     name: string;
     animals: number;
-    partitions: Array<{ label: string; animals: number }>;
   }>;
 };
 
@@ -82,7 +81,7 @@ function dateEyebrow(date: string): string {
 }
 
 function shedPartitionTitle(pageContract: AdminUiPageContract, shed: OperatorDayScheduleRow["sheds"][number]): string {
-  return shed.name || copy(pageContract, "schedule.partition.whole_shed");
+  return shed.name || copy(pageContract, "label.placeholder");
 }
 
 function capacityRank(status: string): number {
@@ -131,11 +130,6 @@ function scheduleMoveRedirect(returnTo: string, params: Record<string, string>):
   return `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`;
 }
 
-function executionPartitionLabel(shed: OperatorDayScheduleRow["sheds"][number]): string | undefined {
-  const realPartitions = Array.from(new Set(shed.partitions.map((partition) => partition.label.trim()).filter(hasOperationalPartition)));
-  return realPartitions.length === 1 ? realPartitions[0] : undefined;
-}
-
 function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope, closeHref: string): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
@@ -146,13 +140,12 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
     vaccines: row.vaccineNames,
     sheds: row.sheds.map((shed) => {
       const ret = scheduleDrawerHref(closeHref, row);
-      const partition = executionPartitionLabel(shed);
       const href = shed.id
         ? scopeHref(
             `/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`,
             scope,
             { mode: "park", park: row.parkId },
-            { partition_label: partition, ret },
+            { ret },
           )
         : undefined;
       return {
@@ -275,7 +268,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     const exactShedKey = row.shedId || `${row.parkId}|${exactShedName}`;
     let shed: OperatorDayScheduleRow["sheds"][number] | undefined = group.sheds.find((item) => (item.id || `${row.parkId}|${item.name}`) === exactShedKey);
     if (!shed) {
-      shed = { id: row.shedId || exactShedKey, name: exactShedName, animals: 0, partitions: [] };
+      shed = { id: row.shedId || exactShedKey, name: exactShedName, animals: 0 };
       group.sheds.push(shed);
     }
     shed.animals += row.animals;

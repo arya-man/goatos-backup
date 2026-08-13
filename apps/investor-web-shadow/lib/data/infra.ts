@@ -55,7 +55,7 @@ export function buildShedPartitions(records: CountingRecord[]): ShedPartition[] 
   });
 }
 
-// ── Group partitions by shed name (e.g. "Mandela 1 - Part 3" → "MANDELA") ──
+// ── Group by exact shed name ──
 
 export interface ShedGroup {
   shedName: string;
@@ -68,11 +68,8 @@ export function groupByShedName(partitions: ShedPartition[]): ShedGroup[] {
   const map = new Map<string, ShedPartition[]>();
 
   for (const p of partitions) {
-    // Extract base shed name from shed field
-    // "Gandhi 1 - Part 2" → "Gandhi"
-    // "Yashoda 10" → "Yashoda"
-    const base = p.shed.replace(/ \d.*$/, "").trim();
-    const key = base.toUpperCase();
+    const exactShed = p.shed.trim();
+    const key = exactShed.toUpperCase();
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(p);
   }

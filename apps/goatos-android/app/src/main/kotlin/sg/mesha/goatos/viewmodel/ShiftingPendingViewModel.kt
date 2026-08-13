@@ -136,7 +136,7 @@ class ShiftingPendingViewModel @Inject constructor(
     private fun CountsShiftingPendingExecutionItemDto.toRowUi() = ShiftingPendingRowUi(
         shiftingEventId = shiftingEventId,
         // Prefer the backend-composed operational-location label so a Castro 1 -> Castro 2 move
-        // reads as "Castro - 1" -> "Castro - 2" instead of "Castro" -> "Castro". Shed name remains
+        // reads as "Castro 1" -> "Castro 2" instead of "Castro" -> "Castro". Shed name remains
         // the fallback for an older server that does not send the composed field yet.
         sourceLabel = sourceOperationalLocationDisplay?.takeIf(String::isNotBlank)
             ?: (sourceShedName ?: sourceParkName)?.takeIf(String::isNotBlank) ?: UNKNOWN_LOCATION,

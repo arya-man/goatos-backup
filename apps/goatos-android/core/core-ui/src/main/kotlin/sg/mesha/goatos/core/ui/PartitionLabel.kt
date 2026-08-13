@@ -39,17 +39,17 @@ fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String
     val normalizedShed = shedName?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
     val normalizedPartition = partitionLabel?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
 
-    // No partition or literal "whole" means non-partitioned
-    if (normalizedPartition.isEmpty() || normalizedPartition.equals("whole", ignoreCase = true)) {
+    // Live identity is the exact shed name. `partitionLabel` is compatibility metadata only and
+    // must never be appended to produce labels like "Castro 2 2" or "Gandhi 1 - Part 1".
+    if (normalizedShed.isNotEmpty()) {
         return normalizedShed
     }
 
-    // No shed name: return partition label alone (fallback)
-    if (normalizedShed.isEmpty()) {
+    if (!normalizedPartition.equals("whole", ignoreCase = true)) {
         return normalizedPartition
     }
 
-    return normalizedShed
+    return ""
 }
 
 /**

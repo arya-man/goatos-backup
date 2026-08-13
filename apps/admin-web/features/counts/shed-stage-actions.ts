@@ -49,12 +49,10 @@ function validateReclassifyShedStageRequest(body: unknown): ReclassifyShedStageR
   if (!UUID_RE.test(shedId)) {
     throw new Error("shed_id must be a uuid");
   }
-  const partitionLabel = optionalTrimmedString(candidate.partition_label, "partition_label", 1, 80);
   const managementStage = trimmedString(candidate.management_stage, "management_stage", 1, 80);
   const reason = optionalTrimmedString(candidate.reason, "reason", 3, 500);
   return {
     shed_id: shedId,
-    ...(partitionLabel ? { partition_label: partitionLabel } : {}),
     management_stage: managementStage,
     ...(reason ? { reason } : {}),
   };

@@ -128,20 +128,18 @@ function EffectiveWindow({
  * One experiment PEN: its arm, its informational head count, its authored cells, and whether it is
  * currently on the experiment workflow.
  *
- * A pen, not a shed. A partitioned shed authors one cell per pen and each pen carries its own arm
- * and head count -- Mandela 1 holds ten. Grouping by shed collapsed all ten into one row whose arm
- * and count came from whichever pen happened to be first, and rendered the pens' cells as ten
- * indistinguishable "Dry Masoor Bhusa" lines differing only by a number.
+ * One exact shed. Old rows may still carry compatibility partition labels, but live authoring is
+ * keyed by the actual shed id: "Castro 1", "Mandela 2 Part 1", etc.
  */
 type ExperimentShedGroup = {
   shedId: string;
   parkId: string;
   /** Backend-supplied park name. Shown as its own column because the list may span both parks. */
-  parkName: string | null | undefined;
-  /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
+  parkName: string;
+  /** Legacy compatibility metadata. Live writes keep this blank because the shed id is exact. */
   partitionLabel: string;
-  /** Server-composed "Mandela 1 - Part 3". Shown verbatim -- never rejoined here. */
-  locationDisplay: string | null | undefined;
+  /** Exact shed display. Shown verbatim -- never rejoined here. */
+  locationDisplay: string;
   /** The experiment ARM. Taken from the pen's rows, which the writer keeps consistent. */
   category: string;
   /** INFORMATIONAL population. Null means not recorded — never rendered or sent as 0. */
@@ -165,12 +163,10 @@ type FeedConfigPenOption = {
 };
 
 /**
- * Regroups one bounded page of flat experiment cells into per-PEN groups, preserving the backend's
- * (shed, partition, feed item) order.
+ * Regroups one bounded page of flat experiment cells into exact-shed groups, preserving the
+ * backend's (shed, feed item) order.
  *
- * Keyed on shed_id + partition, never on shed_id alone and never on a NAME. Shed names repeat
- * across parks (two Castro, two Gandhi, two Yashoda), and one shed holds many pens -- keying on
- * either one merges rows that describe different ground locations.
+ * Keyed on shed_id, never on a NAME. Shed names repeat across parks, but IDs do not.
  *
  * This is NOT a read-time rollup presented as business truth: it re-shapes rows already fetched for
  * display and computes no total. Every number rendered is the backend's own authored value.
@@ -178,15 +174,14 @@ type FeedConfigPenOption = {
 function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShedGroup[] {
   const byPen = new Map<string, ExperimentShedGroup>();
   for (const row of rows) {
-    const partitionLabel = row.partition_label ?? "";
-    const key = `${row.shed_id}#${partitionLabel.trim().toLowerCase()}`;
+    const key = row.shed_id;
     const existing = byPen.get(key);
     if (!existing) {
       byPen.set(key, {
         shedId: row.shed_id,
         parkId: row.park_id,
         parkName: row.park_name,
-        partitionLabel,
+        partitionLabel: "",
         locationDisplay: row.operational_location_display,
         category: row.experiment_category,
         headCount: row.head_count ?? null,
@@ -286,16 +281,9 @@ export async function FeedConfigPage({
   // unlike a rate or a dispatch clock), so it is also the only one that needs a park control of its
   // own to cut a 150-row two-park list down.
   const experimentParkFilter = one(sp, "fc_exp_park") || "";
-  // ONE VALUE carrying both halves of a pen: "<shed_id>|<partition label>". Split on the FIRST
-  // separator only — a shed id is a UUID and contains none, so the remainder is the label verbatim
-  // however it is punctuated. Two URL params would let a reader hand-edit one half and filter by a
-  // pen that does not exist.
   const experimentPenFilter = one(sp, "fc_exp_shed") || "";
-  const penSeparator = experimentPenFilter.indexOf("|");
-  const experimentShedFilter =
-    penSeparator === -1 ? experimentPenFilter : experimentPenFilter.slice(0, penSeparator);
-  const experimentPartitionFilter =
-    penSeparator === -1 ? "" : experimentPenFilter.slice(penSeparator + 1);
+  const experimentShedFilter = experimentPenFilter;
+  const experimentPartitionFilter = "";
   const experimentItemFilter = all(sp, "fc_exp_item");
   const experimentArmFilter = one(sp, "fc_exp_arm") || "";
   const experimentStatusFilter = one(sp, "fc_exp_status") || "";
@@ -443,8 +431,8 @@ export async function FeedConfigPage({
     .map((pen) => ({
       parkId: pen.park_id,
       shedId: pen.shed_id,
-      partitionLabel: pen.partition_label ?? "",
-      // Backend-composed. Clients never rejoin a shed name and a partition themselves.
+      partitionLabel: "",
+      // Exact shed name from backend. Clients never rejoin a shed name and a partition themselves.
       display: pen.operational_location_display,
     }));
   // ACTIVE items only. A retired item is on no feed sheet, so offering it as something to author a
@@ -488,16 +476,9 @@ export async function FeedConfigPage({
   // pair, not a shed + partition operational location, so it composes here rather than through
   // oploc — that helper owns the shed/partition display and would be the wrong shape for this.
   const parkNameById = new Map(locations.parks.map((park) => [park.id, park.name]));
-  // PENS, not physical sheds, because that is what this section's rows are: Castro holds three pens
-  // with their own arms, head counts and quantities, so a shed-level option would name one thing and
-  // return three.
-  //
-  // The label is the BACKEND-COMPOSED operational location, rendered verbatim. It must not be
-  // rejoined here: the convention renders a pen as "Castro - 1" / "Godel 1 - Part 3", and the naive
-  // space-join that produces "Castro 1" is a recorded production defect (OL-3), not a shortcut. The
-  // catalog is the pen source rather than the cell rows, so an empty pen is still offered and a pen
-  // whose cells fall on another page is not missing from the list.
-  const experimentPenOptions = penItems
+  // Exact shed options. Old partition metadata may arrive on compatibility rows, but the live
+  // location identity and label are the shed id/name itself: "Castro 1", "Mandela 2 Part 1".
+  const experimentPenOptions = (pens?.items ?? [])
     .filter((pen) => (experimentParkId ? pen.park_id === experimentParkId : true))
     // ONLY pens that are actually on the experiment. The catalog holds every operational pen in the
     // park — 131 of them tenant-wide — and all but ~35 have no experiment cell at all, so offering
@@ -508,9 +489,7 @@ export async function FeedConfigPage({
     // what someone filters for to restore it.
     .filter((pen) => pen.has_experiment_config)
     .map((pen) => ({
-      // Keyed on shed_id + partition, NEVER on a name: Castro, Gandhi and Yashoda each exist in both
-      // parks, so a name-keyed value would merge two different buildings.
-      value: `${pen.shed_id}|${pen.partition_label ?? ""}`,
+      value: pen.shed_id,
       label: experimentParkId
         ? pen.operational_location_display
         : `${parkNameById.get(pen.park_id) ?? ""} · ${pen.operational_location_display}`.replace(/^ · /, ""),
@@ -1011,24 +990,16 @@ export async function FeedConfigPage({
                 </tr>
               ) : (
                 experimentSheds.map((shed) => {
-                  // The backend composes this ("Mandela 1 - Part 3"); it is rendered verbatim rather
-                  // than rejoined here, so this screen reads identically to the direction sheet and
-                  // the mobile app. shedNameById is only the degraded fallback for a row whose shed
-                  // could not be resolved -- it holds no partition and cannot tell pens apart.
+                  // Exact shed display. It is rendered verbatim and never rejoined with old
+                  // partition metadata.
 	                  const shedName =
 	                    shed.locationDisplay || shedNameById.get(shed.shedId) || shed.shedId;
-	                  const partition = shed.partitionLabel;
 	                  return (
-                    // Fragment.key, not a key on the first <tr>: a pen contributes SEVERAL sibling
+                    // Fragment.key, not a key on the first <tr>: a shed contributes SEVERAL sibling
                     // rows, so the fragment is the list item React reconciles and the key belongs on
                     // it. Keying only the inner rows leaves the fragment itself unkeyed.
-                    //
-                    // The key carries the PARTITION as well as the shed: a partitioned shed yields
-                    // one group per pen, so shed_id alone gave ten siblings the SAME key -- React
-                    // then reconciles them onto each other and an edit to one pen can paint another
-                    // pen's row.
-	                    <Fragment key={shed.shedId + "#partition:" + partition}>
-                      {/* One header row per PEN carrying its arm, head count and the workflow
+	                    <Fragment key={shed.shedId}>
+                      {/* One header row per shed carrying its arm, head count and the workflow
                           switch, then one row per authored feed item beneath it. */}
                       <tr>
                         {/* Park, as its own column. The section can now span BOTH parks, and the shed
@@ -1090,7 +1061,7 @@ export async function FeedConfigPage({
                               parkId={shed.parkId}
                               shedId={shed.shedId}
                               shedName={shedName}
-                              partitionLabel={shed.partitionLabel}
+                              partitionLabel=""
                               targetStatus={shed.active ? "retired" : "active"}
                             />
                             {/* Adding a feed item is a PEN-level act, so it sits on the pen's own
@@ -1101,7 +1072,7 @@ export async function FeedConfigPage({
                               action={saveExperimentCell}
                               parkId={shed.parkId}
                               shedId={shed.shedId}
-                              partitionLabel={shed.partitionLabel}
+                              partitionLabel=""
                               experimentCategory={shed.category}
                               headCount={shed.headCount}
                               availableItems={catalogItems.filter(
@@ -1150,7 +1121,7 @@ export async function FeedConfigPage({
                                 action={saveExperimentCell}
                                 parkId={row.park_id}
                                 shedId={row.shed_id}
-                                partitionLabel={row.partition_label ?? ""}
+                                partitionLabel=""
                                 feedItem={row.feed_item}
                                 experimentCategory={row.experiment_category}
                                 absoluteKg={row.absolute_kg}

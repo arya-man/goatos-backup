@@ -625,13 +625,9 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	} else if current.CompletionDestinationTag != nil { // legacy pre-selection row
 		destinationTag = *current.CompletionDestinationTag
 	}
-	// Operational location is park + physical shed + OPTIONAL partition, so the
-	// partition raised with the movement has to survive to the applying
-	// transaction. Shifting applies at whichever of park-head-approval /
-	// operator-completion arrives SECOND, and the raised
-	// destination_partition_label was previously validated at raise time and then
-	// dropped here -- which is exactly why "Yashoda 1 -> Yashoda 2" committed as a
-	// plain "Yashoda" move and the partition silently reverted.
+	// Operational location is the exact shed. Legacy movements may still carry a
+	// destination_partition_label, so apply-time validation resolves that bridge
+	// to the exact destination shed before the goat row is updated.
 	//
 	// Re-validate against the CURRENT shed_partitions catalog rather than trusting
 	// the raise-time check: the two gates are independent and may be hours apart,

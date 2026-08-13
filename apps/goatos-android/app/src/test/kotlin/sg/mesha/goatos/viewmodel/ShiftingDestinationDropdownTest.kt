@@ -9,7 +9,7 @@ import sg.mesha.goatos.feature.counts.ShiftingShedUi
 /**
  * Regression test for shed dropdown rendering bugs (2026-08-06).
  *
- * BUG 1: "Record shifting" destination shed dropdown showed "Godel 1 1" for partitions
+ * BUG 1: "Record shifting" destination shed dropdown showed "duplicate Godel suffix" for partitions
  * (concatenating parent name with partition number).
  * BUG 2: "Add birth" shed dropdown showed same shed name 6 times for all partitions.
  *
@@ -20,28 +20,27 @@ import sg.mesha.goatos.feature.counts.ShiftingShedUi
 class ShiftingDestinationDropdownTest {
 
     @Test
-    fun `shed with numeric partitions renders distinct, readable labels`() {
+    fun `exact numbered sheds render distinct readable labels`() {
         val park = CountsDestinationParkDto(
             parkId = "park-1",
             name = "Coimbatore",
             sheds = listOf(
-                // Godel 1 with 3 numeric partitions
                 CountsDestinationShedDto(
-                    shedId = "godel-1-shed",
-                    name = "Godel 1",
-                    partitionLabel = "1",
+                    shedId = "godel-1-part-1",
+                    name = "Godel 1 - Part 1",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Godel 1 - Part 1",
                 ),
                 CountsDestinationShedDto(
-                    shedId = "godel-1-shed",
-                    name = "Godel 1",
-                    partitionLabel = "2",
+                    shedId = "godel-1-part-2",
+                    name = "Godel 1 - Part 2",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Godel 1 - Part 2",
                 ),
                 CountsDestinationShedDto(
-                    shedId = "godel-1-shed",
-                    name = "Godel 1",
-                    partitionLabel = "10",
+                    shedId = "godel-1-part-10",
+                    name = "Godel 1 - Part 10",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Godel 1 - Part 10",
                 ),
             ),
@@ -57,21 +56,21 @@ class ShiftingDestinationDropdownTest {
         val labels = options.map { it.name }
         assertEquals(listOf("Godel 1 - Part 1", "Godel 1 - Part 2", "Godel 1 - Part 10"), labels)
 
-        // All options have the SAME shed_id but DIFFERENT partition_labels for identity
-        assertEquals("godel-1-shed", options[0].shedId)
-        assertEquals("godel-1-shed", options[1].shedId)
-        assertEquals("godel-1-shed", options[2].shedId)
+        // Every physical shed has its own shed_id. There is no live parent+partition identity.
+        assertEquals("godel-1-part-1", options[0].shedId)
+        assertEquals("godel-1-part-2", options[1].shedId)
+        assertEquals("godel-1-part-10", options[2].shedId)
 
-        assertEquals("1", options[0].partitionLabel)
-        assertEquals("2", options[1].partitionLabel)
-        assertEquals("10", options[2].partitionLabel)
+        assertNull(options[0].partitionLabel)
+        assertNull(options[1].partitionLabel)
+        assertNull(options[2].partitionLabel)
 
         // Option keys are stable and unique (used as dropdown selection identifiers)
         val keys = options.map { it.optionKey }
         assertEquals(3, keys.toSet().size)  // All unique
-        assertEquals("godel-1-shed|1", keys[0])
-        assertEquals("godel-1-shed|2", keys[1])
-        assertEquals("godel-1-shed|10", keys[2])
+        assertEquals("godel-1-part-1", keys[0])
+        assertEquals("godel-1-part-2", keys[1])
+        assertEquals("godel-1-part-10", keys[2])
     }
 
     @Test
@@ -120,21 +119,21 @@ class ShiftingDestinationDropdownTest {
     }
 
     @Test
-    fun `shed with worded partitions (Part 1, Part 2) renders correctly`() {
+    fun `worded exact sheds render correctly`() {
         val park = CountsDestinationParkDto(
             parkId = "park-1",
             name = "Channapatna",
             sheds = listOf(
                 CountsDestinationShedDto(
-                    shedId = "gandhi-1-shed",
-                    name = "Gandhi 1",
-                    partitionLabel = "Part 1",
+                    shedId = "gandhi-1-part-1",
+                    name = "Gandhi 1 - Part 1",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Gandhi 1 - Part 1",
                 ),
                 CountsDestinationShedDto(
-                    shedId = "gandhi-1-shed",
-                    name = "Gandhi 1",
-                    partitionLabel = "Part 2",
+                    shedId = "gandhi-1-part-2",
+                    name = "Gandhi 1 - Part 2",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Gandhi 1 - Part 2",
                 ),
             ),
@@ -159,9 +158,9 @@ class ShiftingDestinationDropdownTest {
             name = "Coimbatore",
             sheds = listOf(
                 CountsDestinationShedDto(
-                    shedId = "cbe-godel-1",
+                    shedId = "cbe-godel-1-part-1",
                     name = "Godel 1",
-                    partitionLabel = "1",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Godel 1 - Part 1",
                 ),
             ),
@@ -171,9 +170,9 @@ class ShiftingDestinationDropdownTest {
             name = "Channapatna",
             sheds = listOf(
                 CountsDestinationShedDto(
-                    shedId = "cpt-godel-1",
+                    shedId = "cpt-godel-1-part-1",
                     name = "Godel 1",
-                    partitionLabel = "1",
+                    partitionLabel = null,
                     operationalLocationDisplay = "Godel 1 - Part 1",
                 ),
             ),
@@ -187,8 +186,8 @@ class ShiftingDestinationDropdownTest {
         assertEquals("Godel 1 - Part 1", cptOption.name)
 
         // But they have different shed_ids (correct identity)
-        assertEquals("cbe-godel-1", cbeOption.shedId)
-        assertEquals("cpt-godel-1", cptOption.shedId)
+        assertEquals("cbe-godel-1-part-1", cbeOption.shedId)
+        assertEquals("cpt-godel-1-part-1", cptOption.shedId)
 
         // And their option keys are distinct
         assertNotEquals(cbeOption.optionKey, cptOption.optionKey)

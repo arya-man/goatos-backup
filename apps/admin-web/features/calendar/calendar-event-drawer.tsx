@@ -25,7 +25,6 @@ import {
   contractStateLabel,
   driveExecutionPath,
   driveShedId,
-  eventPartitionLabel,
   eventTypeMeta,
   hasWorkflowLink,
   ownerColor,
@@ -496,11 +495,9 @@ function CalendarEventDrawerPanel({
                 <div style={{ marginTop: 12 }}>
                   <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.shed_coverage")}</div>
                   <div className="chipset">
-                    {event.shed_labels.map((label, i) => {
-                      const partitionLabel = event.shed_partition_labels?.[i] || null
-                      const displayLabel = operationalLocationLabel({ shedName: label, partitionLabel })
-                      return <Tag key={`${label}-${partitionLabel || 'whole'}`} tone="mut">{displayLabel}</Tag>
-                    })}
+                    {event.shed_labels.map((label, i) => (
+                      <Tag key={`${label}-${i}`} tone="mut">{label}</Tag>
+                    ))}
                   </div>
                 </div>
               ) : null}
@@ -557,7 +554,7 @@ function CalendarEventDrawerPanel({
                     ? event.operational_location_display ||
                       operationalLocationLabel({
                         shedName: event.shed_name,
-                        partitionLabel: event.partition_label,
+                        sourceShedName: event.source_shed_name,
                       })
                     : copy(pageContract, "label.all_sheds")
                 }`}
@@ -646,7 +643,6 @@ function CalendarEventDrawerPanel({
                               ? row.operational_location_display ||
                                 operationalLocationLabel({
                                   shedName: row.shed_name,
-                                  partitionLabel: row.partition_label,
                                   sourceShedName: row.source_shed_name,
                                 })
                               : copy(pageContract, "label.placeholder")}

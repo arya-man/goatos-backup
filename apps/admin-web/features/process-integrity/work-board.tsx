@@ -99,7 +99,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
   const progress = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} ${copy(pageContract, "label.done_suffix")}` : null;
   const showBlocker = blocker && !operatorMissing;
   const fallbackEvent = copy(pageContract, "label.vaccination");
-  const shedDisplay = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label });
+  const shedDisplay = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name });
   const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${shedDisplay || copy(pageContract, "label.shed_fallback")}`;
   const parkDisplay = optionalOption(pageContract, "park_display_chips", row.park_id);
   const parkLabel = parkDisplay?.label || row.park_name || row.park_id;

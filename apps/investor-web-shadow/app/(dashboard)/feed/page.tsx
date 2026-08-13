@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LineChart,
@@ -67,31 +67,15 @@ function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
-/** Sheds that should be split into numbered sub-entries (e.g. "Mandela 1", "Mandela 2") */
-const SPLIT_SHEDS = ["Mandela", "Godel", "Sumathi"];
-
-/** Extract shed toggle labels from raw shed names, sorted numerically */
+/** Extract exact shed toggle labels from raw shed names, sorted numerically. */
 function deriveShedTabs(rawSheds: string[]): string[] {
-  const prefixes = new Set<string>();
+  const sheds = new Set<string>();
   for (const s of rawSheds) {
-    // For split sheds, extract "Mandela 1" from "Mandela 1 - Part 3"
-    const splitMatch = SPLIT_SHEDS.find((p) => s.startsWith(p));
-    if (splitMatch) {
-      const m = s.match(new RegExp("^(" + splitMatch + "\\s+\\d+)"));
-      if (m) prefixes.add(m[1]);
-    } else {
-      // For others like "Gandhi 1 - Part 2" → "Gandhi", "Castro 2" → "Castro", "Q1" → "Quarantine"
-      const baseMatch = s.match(/^(Q)\d/);
-      if (baseMatch) {
-        prefixes.add("Quarantine");
-      } else {
-        const base = s.match(/^([A-Za-z][A-Za-z ]*[A-Za-z])/);
-        if (base) prefixes.add(base[1].replace(/\s+$/, ""));
-      }
-    }
+    const exact = s.trim();
+    if (exact) sheds.add(exact);
   }
   // Sort: extract all numbers for numeric comparison
-  return Array.from(prefixes).sort((a, b) => {
+  return Array.from(sheds).sort((a, b) => {
     const numsA = a.match(/\d+/g)?.map(Number) ?? [];
     const numsB = b.match(/\d+/g)?.map(Number) ?? [];
     for (let i = 0; i < Math.max(numsA.length, numsB.length); i++) {
@@ -108,7 +92,7 @@ export default function FeedPage() {
   const [nutritionView, setNutritionView] = useState<NutritionView>("housingwise");
   const [nutritionFarm, setNutritionFarm] = useState<Farm>("CBE");
   const [selectedBreed, setSelectedBreed] = useState("Beetal");
-  const [selectedShed, setSelectedShed] = useState("Gandhi");
+  const [selectedShed, setSelectedShed] = useState("");
 
   // ── Available breeds & sheds for current farm ──
   const { data: availableBreedTabs } = useQuery<string[]>({
@@ -134,6 +118,11 @@ export default function FeedPage() {
     staleTime: 15 * 60 * 1000,
   });
   const shedTabs = availableShedTabs ?? [];
+
+  useEffect(() => {
+    if (nutritionView !== "housingwise" || shedTabs.length === 0) return;
+    if (!shedTabs.includes(selectedShed)) setSelectedShed(shedTabs[0]);
+  }, [nutritionView, selectedShed, shedTabs]);
 
   // ── Consumption data (live from BigQuery APIs) ──
   const { data: spendData } = useQuery<any[]>({
@@ -340,7 +329,7 @@ export default function FeedPage() {
   function buildNutritionUrl(feedType?: string) {
     const p = new URLSearchParams({ farm: nutritionFarm });
     if (nutritionView === "breedwise") p.set("breed", selectedBreed);
-    if (nutritionView === "housingwise") p.set("shed", selectedShed === "Quarantine" ? "Q" : selectedShed);
+    if (nutritionView === "housingwise" && selectedShed) p.set("shed", selectedShed);
     if (feedType) p.set("feed_type", feedType);
     return `/api/feed/${nutritionEndpoint}?${p}`;
   }

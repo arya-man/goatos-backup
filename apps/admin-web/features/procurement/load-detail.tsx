@@ -90,10 +90,7 @@ async function getProcurementLocations(): Promise<ProcurementLocations> {
   const parks = parksResult.ok ? parksResult.data.items.map(toLocationOption) : [];
   const usableSheds = shedsResult.ok ? shedsResult.data.items.filter(shedUsable).map(toLocationOption) : [];
   const usableShedIds = new Set(usableSheds.map((shed) => shed.id));
-  const partitionedShedIds = new Set(
-    pensResult.ok ? pensResult.data.items.filter((pen) => pen.partition_label).map((pen) => pen.shed_id) : [],
-  );
-  const penSheds = pensResult.ok
+  const penShedsRaw = pensResult.ok
     ? pensResult.data.items
         .filter((pen) => usableShedIds.has(pen.shed_id))
         .map((pen) => ({
@@ -105,8 +102,9 @@ async function getProcurementLocations(): Promise<ProcurementLocations> {
           operationalLocationDisplay: pen.operational_location_display,
         }))
     : [];
+  const penSheds = [...new Map(penShedsRaw.map((shed) => [shed.id, shed])).values()];
   const sheds = [
-    ...usableSheds.filter((shed) => !partitionedShedIds.has(shed.id)),
+    ...usableSheds.filter((shed) => !penSheds.some((pen) => pen.id === shed.id)),
     ...penSheds,
   ];
   const farms = farmsResult.ok ? farmsResult.data.items.map(toLocationOption) : [];

@@ -126,7 +126,7 @@ class FeedTransportViewModel @Inject constructor(
                     it.taskId,
                     it.parkId,
                     it.shedId,
-                    it.operationalLocationDisplay.ifBlank { operationalLocationLabel(it.shedLabel, it.partitionLabel) },
+                    it.operationalLocationDisplay.ifBlank { operationalLocationLabel(it.shedLabel, null) },
                     it.parkLabel,
                     it.status,
                     it.reworkReason,

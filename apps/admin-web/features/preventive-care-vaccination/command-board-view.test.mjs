@@ -1,5 +1,8 @@
 import { test, describe } from 'node:test';
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
+
+const source = readFileSync(new URL('./command-board-view.tsx', import.meta.url), 'utf8');
 
 describe('command-board-view exact shed handling', () => {
   test('exact shed ids keep physical sheds distinct without partition labels', () => {
@@ -78,5 +81,13 @@ describe('command-board-view exact shed handling', () => {
     assert.ok(cptGroup, 'CPT Castro is distinct');
     assert.equal(cbeGroup[0].animalCount, 200);
     assert.equal(cptGroup[0].animalCount, 180);
+  });
+
+  test('shed-vaccine drawer uses exact operational-location display', () => {
+    assert.match(
+      source,
+      /selectedShedVaccine\.operational_location_display \|\| selectedShedVaccine\.shedName/,
+    );
+    assert.doesNotMatch(source, /\{selectedShedVaccine\.shedName\} ·/);
   });
 });

@@ -4,7 +4,7 @@ import { operationalLocationLabel } // Relative WITH an explicit .ts extension, 
 // the tsconfig path alias nor an extensionless relative path -- so before
 // allowImportingTsExtensions was enabled in tsconfig.json there was NO import form that
 // satisfied both the typechecker and the test runner, and this file hand-rolled its own
-// shed+partition composition instead. That copy reproduced the "Godel 1 1" defect the
+// shed+partition composition instead. That copy reproduced the "duplicate Godel suffix" defect the
 // shared helper exists to prevent. Do not "tidy" this back to the alias without checking
 // the test still loads.
 from "../../lib/operational-location.ts";
@@ -64,15 +64,23 @@ export function buildShedFilterOptions(
 
   const shedIdOf = (row: CountsBreakdownShedFacetLike): string =>
     (row.shed_id ?? "").trim() || ((row.key ?? "").split("#")[0] ?? "");
-  const byExactShed = new Map<string, CountsBreakdownShedFacetLike>();
+  const byExactDisplay = new Map<string, CountsBreakdownShedFacetLike>();
   for (const shed of filtered) {
     const shedId = shedIdOf(shed);
     if (!shedId) continue;
-    const key = `${shed.park_id}|${shedId}`;
     const label = (shed.operational_location_display || shed.label || "").trim();
-    const existing = byExactShed.get(key);
-    if (!existing || (!existing.operational_location_display && label)) {
-      byExactShed.set(key, shed);
+    if (!label) continue;
+    // STG has carried alias rows such as a legacy parent+partition projection and the real exact
+    // shed row with the same visible name. The visible/physical identity is park + shed name, not
+    // the stale alias UUID, so collapse those here before they reach the dropdown.
+    const key = `${shed.park_id}|${label.toLocaleLowerCase("en")}`;
+    const existing = byExactDisplay.get(key);
+    if (
+      !existing ||
+      (!existing.operational_location_display && !!shed.operational_location_display) ||
+      (shed.count ?? 0) > (existing.count ?? 0)
+    ) {
+      byExactDisplay.set(key, shed);
     }
   }
 
@@ -92,11 +100,12 @@ export function buildShedFilterOptions(
     }
   }
   // Detect if a shed label appears in multiple parks (for display disambiguation).
-  // Key by park + shed_id to avoid silent merging, then check dynamically.
+  // Key by park + visible exact shed label to avoid treating alias UUIDs as separate farm sheds.
   const needsParkSuffix = (shedLabel: string): boolean => {
     const parksWithLabel = new Set<string>();
-    for (const shed of filtered) {
-      if ((shed.label ?? "").trim() === shedLabel) {
+    for (const shed of byExactDisplay.values()) {
+      const label = (shed.operational_location_display || shed.label || "").trim();
+      if (label === shedLabel) {
         parksWithLabel.add(shed.park_id);
       }
     }
@@ -114,19 +123,20 @@ export function buildShedFilterOptions(
 
   // Sheds in name order, with a park tiebreak so two same-named sheds land next to each other in a
   // stable order instead of wherever their UUIDs happened to fall.
-  const groupsInOrder = [...byExactShed.entries()].sort(([leftKey, left], [rightKey, right]) => {
+  const groupsInOrder = [...byExactDisplay.entries()].sort(([leftKey, left], [rightKey, right]) => {
     const byName = collator.compare(left.operational_location_display || left.label || "", right.operational_location_display || right.label || "");
     return byName !== 0 ? byName : collator.compare(leftKey, rightKey);
   });
 
   for (const [groupKey, row] of groupsInOrder) {
-    const [parkId, shedId] = groupKey.split("|");
+    const [parkId] = groupKey.split("|");
+    const shedId = shedIdOf(row);
     const label = row.operational_location_display || operationalLocationLabel({
       shedName: row.label,
       partitionLabel: row.partition_label,
     });
     options.push({
-      key: groupKey,
+      key: `${parkId}|${shedId}`,
       value: shedId,
       label: withPark(label, row.label, parkId),
     });

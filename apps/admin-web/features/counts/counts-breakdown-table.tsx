@@ -90,10 +90,10 @@ export function CountsBreakdownTable({
       ariaLabel={ariaLabel}
       columns={columns}
       data={rows}
-      // The full grain key. Dropping any part of it collapses two genuinely different census rows
-      // into one React identity — and shed_id alone is not the ground location when a pen exists.
+      // The full grain key. The location portion is the exact shed id; partition_label is legacy
+      // compatibility metadata and must not split or duplicate rows.
       getRowId={(row) =>
-        `${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.partition_label ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`
+        `${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`
       }
       empty={empty}
       footer={footer}

@@ -498,7 +498,7 @@ class BirthDeathViewModel @Inject constructor(
             // Placement ids come from the destinations catalog, not free text — never a typed UUID.
             parkId = current.parkId.ifBlank { null },
             shedId = current.shedId.ifBlank { null },
-            partitionLabel = current.partitionLabel?.takeIf { it.isNotBlank() },
+            partitionLabel = null,
             // Breed is the selected facet key from the herd's own vocabulary, never typed.
             breed = current.breed.trim(),
             sex = current.sex,

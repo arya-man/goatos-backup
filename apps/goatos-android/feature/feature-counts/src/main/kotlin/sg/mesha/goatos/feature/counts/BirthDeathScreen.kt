@@ -601,9 +601,9 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
         }
         // Park and shed as separate labelled facts when the backend supplies them, else its own
         // composed location string — the app never assembles a location label of its own. The shed
-        // fact carries the partition (operationalLocationLabel: "Castro 2", never bare "Castro") —
-        // a death record is terminal, so an operator confirming the wrong-looking shed here cannot
-        // be corrected later (AGENTS.md: OperationalLocation = park + shed + partition).
+        // fact carries the exact shed name (operationalLocationLabel: "Castro 2", never
+        // "Castro 2 2"). A death record is terminal, so the display must not derive a
+        // parent+partition label locally.
         // Check shedId (uuid) rather than shedName to determine if location information exists.
         val hasLocationInfo = animal.parkId.isNotBlank() || animal.shedId.isNotBlank()
         if (hasLocationInfo) {
@@ -613,7 +613,7 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
             )
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_shed),
-                value = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                value = operationalLocationLabel(animal.shedName, null)
                     .ifBlank { stringResource(R.string.counts_location_unknown) },
             )
         } else if (animal.locationLabel.isNotBlank()) {

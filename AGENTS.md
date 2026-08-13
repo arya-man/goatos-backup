@@ -1757,40 +1757,33 @@ the parent/group id in `goats.shed_id`. If code needs the group/header, read
 
 **The convention is LOCKED by evidence from THREE independent sources (master registry, live BigQuery, legacy production code), with FOUR worked wrong-examples from production bugs. This section tightens the rule with those examples and a guard.**
 
-### Rule 1: Normalize Partition Labels at Seed/Import
+### Rule 1: The Physical Shed Name Is Atomic
 
-Subdivided sheds (historically named `Godel 1`, `Mandela 2`, etc.) normalize to `shed_name + partition_label`:
-  - `Castro 1`, `Castro 2`, `Castro 3` → ONE shed `Castro` with partitions `1`, `2`, `3`
-  - `Godel 1 - Part 3` → ONE shed `Godel 1` with partition `Part 3`
+Do not split a real shed name into `shed + partition` for live identity or
+display. If the farm says the place is `Castro 1`, the shed name is exactly
+`Castro 1`. If the farm says the place is `Mandela 2 Part 1` or
+`Godel 1 - Part 3`, that full string is the shed name.
 
-Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh 1`, `Yashoda`) → stored with NULL / '' / 'whole' partition. The `1` in the shed name is NOT a partition.
+The old parent/header rows (`Castro`, `Godel 1`, `Mandela 2`) are grouping
+metadata only. They are not animal residence and must not be used to compose a
+live label.
 
-**NEVER lose the partition residence.** Storage may normalize a group plus
-partition for compatibility, but product/data truth is still the partition as
-the real shed. The `locations`/`shed_partitions` catalog is the source of truth
-for which partition residences exist.
+### Rule 2: No Live Display Concatenation
 
-### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
-
-Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
-  sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` +
-  partition `1` and therefore has a partitioned display, `Castro - 1` shown WITH
-  its partition, not an unpartitioned example)
-- Has partition → `Castro - 2` (numeric) or `Godel 1 - Part 3` (prefixed)
+Product display must render the exact shed name from the operational location.
+Never append a stale compatibility `partition_label` to that name.
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key, never user copy
-- `Godel 1 1` — the worked wrong-example (naive space-numeric join, truncated)
-- Shed name alone when a partition exists (`Godel 1` without the partition) — both halves must always render together
+- `Castro - 1` when the physical shed is `Castro 1`
+- `Castro 1 1` or `Gandhi 1 1`
+- `Gandhi 1 - Part 1` when the exact shed is already `Gandhi 1`
 
-**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule.
+### Rule 3: Carry Exact Shed Identity in Location-Bearing Responses
 
-### Rule 3: Carry Partition in All Location-Bearing Responses
-
-`shed_id` alone is NOT the ground location when a partition exists. Every location-bearing response struct MUST include:
-- `shed_id` (exact real shed/partition UUID)
-- `shed_group_id` (parent/group UUID for partitioned animals; NULL otherwise)
+`shed_id` is the exact physical shed UUID after the cutover. If a caller needs a
+rollup/header, it may also read `shed_group_id`, but it must not treat that group
+as the goat's residence or task location.
 - `shed_name` (display name of the physical shed)
 - `partition_label` (text or NULL)
 - `operational_location_display` (backend-composed: `DisplayName(shed_name, partition_label)`)

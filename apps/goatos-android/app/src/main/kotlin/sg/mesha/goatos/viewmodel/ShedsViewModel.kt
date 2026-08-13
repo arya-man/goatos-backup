@@ -449,18 +449,15 @@ class ShedsViewModel @Inject constructor(
             val effectiveDone = effectiveCardDoneCount(group)
             ShedRow(
                 id = cardId,
-                // The shed CARD TITLE. It must carry the backend-composed operational location,
-                // or a partitioned shed shows its bare name and every partition of that shed
-                // reads identically on the operator's list ("Mandela 2" three times instead of
-                // "Mandela 2 - Part 3"). Falls back to shedName for older API responses.
-                name = first.operationalLocationDisplay.ifBlank { operationalLocationLabel(first.shedName, first.partitionLabel ?: first.partition) },
+                // The shed card title is the exact shed name from the backend. Partition fields are
+                // old compatibility metadata and must not be appended to names like "Castro 2".
+                name = first.operationalLocationDisplay.ifBlank { operationalLocationLabel(first.shedName, null) },
                 parkId = first.parkId,
                 parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),
                 physicalShed = first.physicalShed.ifBlank { first.shedName },
                 partition = first.partition,
-                partitionLabel = first.partitionLabel
-                    ?: first.partition.takeIf { executionPartitionKey(it) != "whole" },
+                partitionLabel = null,
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
@@ -504,7 +501,7 @@ class ShedsViewModel @Inject constructor(
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
         val operationalLocationCount = rowsForSelectedDay
-            .map { it.shedId to executionPartitionKey(it.partitionLabel ?: it.partition) }
+            .map { it.shedId }
             .distinct()
             .size
         val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
@@ -767,11 +764,7 @@ internal fun VaccinationExecutionRowDto.executionCardId(): String =
         partitionLabel = null,
     )
 
-private fun executionPartitionKey(raw: String?): String {
-    val normalized = raw.orEmpty().trim().lowercase()
-        .replace(Regex("^part[\\s]+"), "")
-    return normalized.ifBlank { "whole" }
-}
+private fun executionPartitionKey(raw: String?): String = "whole"
 
 private fun List<ExecutionParkOptionDto>.toShedParkFilters(selectedParkId: String?): List<ShedParkFilter> =
     mapNotNull { option ->

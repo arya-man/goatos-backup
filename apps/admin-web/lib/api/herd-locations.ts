@@ -106,27 +106,21 @@ export async function getHerdRegisterLocations(): Promise<HerdRegisterLocations>
   ]);
 
   const usableSheds = sheds.ok ? sheds.data.items.filter(shedUsable).map(toOption) : [];
-  const partitionedShedIds = new Set(
-    pens.ok
-      ? pens.data.items
-        .filter((pen) => pen.partition_label)
-        .map((pen) => pen.shed_id)
-      : [],
-  );
-  const penLocations = pens.ok
+  const penLocationsRaw = pens.ok
     ? pens.data.items
       .filter((pen) => usableSheds.some((shed) => shed.id === pen.shed_id))
       .map((pen) => ({
-        key: pen.partition_label ? `${pen.shed_id}|${pen.partition_label}` : pen.shed_id,
+        key: pen.shed_id,
         shedId: pen.shed_id,
         parkId: pen.park_id ?? null,
-        partitionLabel: pen.partition_label ?? null,
+        partitionLabel: null,
         label: pen.operational_location_display || pen.shed_name,
       }))
     : [];
+  const penLocations = [...new Map(penLocationsRaw.map((location) => [location.shedId, location])).values()];
   const penKeys = new Set(penLocations.map((location) => location.key));
   const wholeShedLocations = usableSheds
-    .filter((shed) => !partitionedShedIds.has(shed.id))
+    .filter((shed) => !penKeys.has(shed.id))
     .map((shed) => ({
       key: shed.id,
       shedId: shed.id,

@@ -312,7 +312,7 @@ export async function FeedDirectionPage({
                   // Keyed on the descriptive columns instead (`ration_group|breed`), two partitions of
                   // one shed holding the same mix produced the SAME React key, and those columns are
                   // now backend-joined summaries of a pen rather than the thing that separates rows.
-                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.workflow}|${row.session_no}`;
+                  const rowKey = `${row.shed_id}|${row.workflow}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (

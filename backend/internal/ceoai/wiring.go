@@ -31,6 +31,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/ceoai/safety"
 	"github.com/vgoats/goatos/backend/internal/ceoai/sqlguard"
 	"github.com/vgoats/goatos/backend/internal/ceoai/toolboxclient"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // ---------------------------------------------------------------------------
@@ -322,8 +323,8 @@ func cubeRowScope(row map[string]any, view string, dims []string) string {
 		if d == shedMember {
 			shed := scalarString(row[shedMember])
 			partition := scalarString(row[partitionMember])
-			if shed != "" && partition != "" && !strings.EqualFold(partition, "whole") {
-				parts = append(parts, shed+" - "+partition)
+			if shed != "" {
+				parts = append(parts, oploc.OperationalLocation{ShedName: shed, PartitionLabel: partition}.Display())
 				continue
 			}
 		}

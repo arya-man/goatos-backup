@@ -142,7 +142,6 @@ class SubmitViewModel @Inject constructor(
     private var currentShedCompletionSummary: ShedCompletionSummaryDto? = null
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val routeShedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
-    private val routePartitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
     private val routeSopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val selectedShedId = MutableStateFlow(routeShedId)
     private var statusJob: Job? = null
@@ -260,7 +259,7 @@ class SubmitViewModel @Inject constructor(
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
                     selectedShedId
-                        .flatMapLatest { shedId -> repo.observeShedCompletionSummary(taskId, shedId, activePartitionLabel()) }
+                        .flatMapLatest { shedId -> repo.observeShedCompletionSummary(taskId, shedId, null) }
                         .collect { summary ->
                             currentShedCompletionSummary = summary
                             renderDraft()
@@ -271,7 +270,7 @@ class SubmitViewModel @Inject constructor(
         val refreshResult = repo.refreshTaskDetail(taskId)
         // Background refresh of the shed-completion summary; the observe() stream above re-emits
         // once Room is upserted. A failure leaves any cached summary on screen (offline-first).
-        repo.refreshShedCompletionSummary(taskId, selectedShedId.value, activePartitionLabel())
+        repo.refreshShedCompletionSummary(taskId, selectedShedId.value, null)
         if (refreshResult.isFailure && currentTask == null) {
             // Never synced, ever: no cache to fall back to. A stale cache (if any) stays on
             // screen instead — applyTaskResource already rendered it before this refresh ran.
@@ -293,7 +292,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    scanCaptureRepository.observeAllForTask(taskId, activePartitionLabel()).collect { rows ->
+                    scanCaptureRepository.observeAllForTask(taskId, null).collect { rows ->
                         currentScans = rows
                         renderDraft()
                     }
@@ -303,7 +302,7 @@ class SubmitViewModel @Inject constructor(
         viewModelScope.launch {
             uiSubscribed.collectLatest { subscribed ->
                 if (subscribed) {
-                    proofCaptureRepository.observeProofs(taskId, activePartitionLabel()).collect { rows ->
+                    proofCaptureRepository.observeProofs(taskId, null).collect { rows ->
                         currentProofs = rows
                         renderDraft()
                     }
@@ -403,7 +402,7 @@ class SubmitViewModel @Inject constructor(
         if (selectedShedId.value == scopedShedId) return
         selectedShedId.value = scopedShedId
         viewModelScope.launch {
-            repo.refreshShedCompletionSummary(task.taskId, scopedShedId, activePartitionLabel())
+            repo.refreshShedCompletionSummary(task.taskId, scopedShedId, null)
         }
     }
 
@@ -457,7 +456,7 @@ class SubmitViewModel @Inject constructor(
                     taskId = task.taskId,
                     fieldKey = key,
                     tag = tag,
-                    partitionLabel = activePartitionLabel(),
+                    partitionLabel = null,
                 )
             }
         }
@@ -524,7 +523,7 @@ class SubmitViewModel @Inject constructor(
                         capturedEndMs = captured.endedAtMs,
                         capturedByPrincipalId = currentPrincipalId,
                         proofPolicy = currentProofPolicy.copy(captureSource = captured.captureSource),
-                        partitionLabel = activePartitionLabel(),
+                        partitionLabel = null,
                     )
                 }
             } finally {
@@ -546,7 +545,7 @@ class SubmitViewModel @Inject constructor(
             when (val result = proofCaptureRepository.remove(task.taskId, proofId)) {
                 is AppResult.Ok -> {
                     _state.update { it.copy(lastError = null) }
-                    repo.refreshShedCompletionSummary(task.taskId, selectedShedId.value, activePartitionLabel())
+                    repo.refreshShedCompletionSummary(task.taskId, selectedShedId.value, null)
                 }
                 is AppResult.Err -> {
                     // Answers: did a proof-removal request actually fail (vs. the operator just
@@ -668,7 +667,7 @@ class SubmitViewModel @Inject constructor(
         _state.value = _state.value.copy(showSubmitConfirmation = false)
         submitInFlight = true
         val activeShedId = activeShedScopeId(current)
-        val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId, activePartitionLabel()).also { idempotencyKey = it }
+        val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId, null).also { idempotencyKey = it }
         // Answers: did the operator actually attempt the final submit (vs. leaving the shed
         // with a fully-scanned roster but never confirming) — the funnel's last-mile event.
         AnalyticsFunnels.trackSubmitAttempted(analytics, current.taskId)
@@ -692,14 +691,11 @@ class SubmitViewModel @Inject constructor(
             }
             // groupKey = the shed/scope this submission belongs to, so the outbox drains all
             // of a shed's writes in order (TRD: outbox is "ordered per shed").
-            val groupKey = listOf(
-                activeShedId ?: current.scopeId.ifBlank { current.taskId },
-                activePartitionLabel()?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole",
-            ).joinToString("|")
+            val groupKey = activeShedId ?: current.scopeId.ifBlank { current.taskId }
             val request = SubmitTaskRequestDto(
                 sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,
-                partitionLabel = activePartitionLabel(),
+                partitionLabel = null,
                 answers = answersForSubmission(currentForm, formAnswers, currentScans),
                 proofRefs = proofRefsForSubmission(currentProofs),
             )
@@ -812,11 +808,11 @@ class SubmitViewModel @Inject constructor(
     }
 
     private fun bindSubmissionKey(task: TaskSummaryDto) {
-        val submissionScope = submissionScope(task, activeShedScopeId(task), activePartitionLabel())
+        val submissionScope = submissionScope(task, activeShedScopeId(task), null)
         val previousScope = savedStateHandle.get<String>(KEY_SUBMISSION_SCOPE)
         if (previousScope != submissionScope) {
             savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
-            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), activePartitionLabel())
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), null)
             // A new scope/round has NO submission evidence yet, whatever the old round did.
             scopeSubmissionAcked = false
             outboxItemId = null
@@ -825,7 +821,7 @@ class SubmitViewModel @Inject constructor(
             return
         }
         if (idempotencyKey == null) {
-            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), activePartitionLabel())
+            idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task), null)
         }
     }
 
@@ -833,9 +829,6 @@ class SubmitViewModel @Inject constructor(
         selectedShedId.value
             ?.takeIf { it.isNotBlank() }
             ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
-
-    private fun activePartitionLabel(): String? =
-        routePartitionLabel?.trim()?.takeIf { it.isNotBlank() }
 
     private fun clearSavedSubmission() {
         savedStateHandle.remove<String>(KEY_SUBMISSION_SCOPE)
@@ -1256,7 +1249,6 @@ class SubmitViewModel @Inject constructor(
             ?: task.contextString("shed_label")
             ?: task.contextString("shedName")
             ?: task.contextString("shed_name")
-            ?: activePartitionLabel()
             ?: selectedShedId.value
             ?: ""
 
@@ -1603,6 +1595,7 @@ class SubmitViewModel @Inject constructor(
         fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?): String =
             "shed-submit:${submissionScope(task, activeShedId)}"
 
+        @Suppress("UNUSED_PARAMETER")
         fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String =
             "shed-submit:${submissionScope(task, activeShedId, partitionLabel)}"
 
@@ -1614,6 +1607,7 @@ class SubmitViewModel @Inject constructor(
             return "${task.taskId}:scope:$scopeId:rv:${task.rowVersion}"
         }
 
+        @Suppress("UNUSED_PARAMETER")
         fun submissionScope(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String {
             val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
             return "${task.taskId}:scope:$scopeId:rv:${task.rowVersion}"

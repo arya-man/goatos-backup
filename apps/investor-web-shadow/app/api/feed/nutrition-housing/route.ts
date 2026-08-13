@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       const { searchParams } = new URL(request.url);
       const farm = searchParams.get("farm");
 
-      // Return distinct shed prefixes for the given farm
+      // Return exact shed names for the given farm.
       if (searchParams.get("list") === "sheds") {
         const farmFilter = farm ? "WHERE farm = @farm" : "";
         const rows = await queryBigQuery(
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
         params.farm = farm;
       }
       if (shed) {
-        conditions.push("STARTS_WITH(LOWER(shed), LOWER(@shed))");
+        conditions.push("LOWER(shed) = LOWER(@shed)");
         params.shed = shed;
       }
 

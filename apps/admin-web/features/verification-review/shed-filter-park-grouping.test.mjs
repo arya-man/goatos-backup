@@ -3,7 +3,7 @@
 // A shed NAME is not unique across the farm: Castro, Gandhi, Godel 1, Godel 2, Mandela 1,
 // Mandela 2 and Yashoda each exist in BOTH parks. On STG, 2026-08-12, that made nine of the
 // sixty-seven shed options exact duplicate labels, sitting adjacent under the backend's
-// ORDER BY — two "Castro - 1" rows with nothing to separate them. The option VALUE was always
+// ORDER BY — two "Castro 1" rows with nothing to separate them. The option VALUE was always
 // the right shed (the id is a UUID, never a name), so filtering worked; what a reader could not
 // do was tell which one she was picking, and the park holding more pens read as the only park
 // with any work at all.
@@ -22,7 +22,7 @@ test("the shed picker groups options by park", () => {
 });
 
 test("the park is never concatenated into the shed's operational-location display", () => {
-  // The one thing that would silently undo Rule 5: building "Coimbatore · Castro - 1" here
+  // The one thing that would silently undo Rule 5: building "Coimbatore · Castro 1" here
   // instead of grouping. The option's text must remain exactly what the backend composed.
   const optionText = pageSource.match(/<option key=\{option\.id\} value=\{option\.id\}>[\s\S]{0,160}?<\/option>/g) ?? [];
   assert.ok(optionText.length >= 2, "expected the grouped and ungrouped option renderers");

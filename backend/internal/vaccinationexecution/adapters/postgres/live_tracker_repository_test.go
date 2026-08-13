@@ -244,24 +244,23 @@ func TestLiveTrackerParkScopeIsAppliedInsideTheMembership(t *testing.T) {
 	}
 }
 
-// TestLiveTrackerScopeHierarchyNormalisesPartitionsOnBothSides pins the partition-identity trap:
-// goat_shed_partitions spells a partition "3" while vaccination_drive_assignments spells the same
-// one "Part 3". Joining the raw labels does not error — it drops a whole park's partitions into
-// "unassigned", so its operator appears to have been given no work at all.
-func TestLiveTrackerScopeHierarchyNormalisesPartitionsOnBothSides(t *testing.T) {
-	if domain.NormalizePartitionLabel("Part 3") != domain.NormalizePartitionLabel("3") {
-		t.Error("\"Part 3\" and \"3\" are the same partition and must normalise identically")
+// TestLiveTrackerScopeUsesExactShedIdentity pins the exact-shed contract: Gandhi 1 and
+// Godel 2 - Part 3 are already complete physical shed names. The live tracker must not join
+// goat_shed_partitions or use partition labels to split, filter, or assign the board.
+func TestLiveTrackerScopeUsesExactShedIdentity(t *testing.T) {
+	forbidden := []string{
+		"goat_shed_partitions",
+		"gsp.partition_label",
+		"asg.part_norm = s.part_norm",
+		"s.part_norm = $5::text",
 	}
-	if domain.NormalizePartitionLabel("  PART  4 ") != "4" {
-		t.Errorf("normalisation must be case- and whitespace-insensitive, got %q", domain.NormalizePartitionLabel("  PART  4 "))
+	for _, needle := range forbidden {
+		if strings.Contains(liveTrackerScopedCTE, needle) {
+			t.Fatalf("live tracker scoped CTE still depends on legacy partition identity %q", needle)
+		}
 	}
-	if domain.NormalizePartitionLabel("") != "whole" {
-		t.Error("an unpartitioned shed must normalise to the whole-shed key, not to an empty join key")
-	}
-	goatSide := liveTrackerPartitionNormExpr("gsp.partition_label")
-	assignmentSide := liveTrackerPartitionNormExpr("a.partition_label")
-	if !strings.Contains(liveTrackerScopedCTE, goatSide) || !strings.Contains(liveTrackerScopedCTE, assignmentSide) {
-		t.Error("both sides of the partition join must go through the same normalizer")
+	if !strings.Contains(liveTrackerScopedCTE, "a.shed_id") || !strings.Contains(liveTrackerScopedCTE, "asg.shed_id = s.shed_id") {
+		t.Fatal("live tracker assignments must bind by exact shed id")
 	}
 }
 

@@ -923,7 +923,6 @@ WHERE NOT EXISTS (
   FROM obligation_instances oi
   JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   LEFT JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN LATERAL (
     SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
     FROM vaccination_drive_assignments assignment
@@ -931,16 +930,10 @@ WHERE NOT EXISTS (
       AND assignment.batch_id = oi.batch_id
       AND assignment.shed_id = g.shed_id
       AND (
-        assignment.partition_label = 'whole'
-        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
-         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-      )
-      AND (
         cardinality(assignment.vaccine_rule_ids) = 0
         OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
       )
     ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
              assignment.operator_id ASC NULLS LAST,
              assignment.assignment_id ASC
     LIMIT 1
@@ -1130,7 +1123,6 @@ eligible AS (
   JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   JOIN batch b ON b.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
   LEFT JOIN LATERAL (
     SELECT (assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS assignment_planned_at
     FROM vaccination_drive_assignments assignment
@@ -1138,16 +1130,10 @@ eligible AS (
       AND assignment.batch_id = oi.batch_id
       AND assignment.shed_id = g.shed_id
       AND (
-        assignment.partition_label = 'whole'
-        OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
-         = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-      )
-      AND (
         cardinality(assignment.vaccine_rule_ids) = 0
         OR assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]
       )
     ORDER BY assignment.planned_date ASC,
-             assignment.partition_label ASC,
              assignment.operator_id ASC NULLS LAST,
              assignment.assignment_id ASC
     LIMIT 1
@@ -1156,11 +1142,6 @@ eligible AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
-    AND (
-      NULLIF(BTRIM($5), '') IS NULL
-      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
-    )
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (

@@ -623,9 +623,8 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                     )
                 }
                 if (showScheduleContext && item.shedLabels.isNotEmpty()) {
-                    val displayLabels = item.shedLabels.mapIndexed { i, label ->
-                        val partitionLabel = if (i < item.shedPartitionLabels.size) item.shedPartitionLabels[i] else null
-                        operationalLocationLabel(label, partitionLabel)
+                    val displayLabels = item.shedLabels.map { label ->
+                        operationalLocationLabel(label, null)
                     }
                     Text(
                         text = displayLabels.joinToString(" · "),

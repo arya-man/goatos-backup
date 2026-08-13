@@ -169,7 +169,7 @@ class VerifyDetailPerAnimalGroupingTest {
                     subjectLabel = "Goat $goat",
                     shedId = "shed-castro",
                     partitionLabel = partition,
-                    operationalLocationDisplay = "Castro - $partition",
+                    operationalLocationDisplay = "Castro $partition",
                     evidenceAvailable = true,
                     source = VerificationSourceRef(
                         refType = "vaccination_goat",

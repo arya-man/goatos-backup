@@ -9,14 +9,8 @@ import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
- * A feed row's grain is the OPERATIONAL LOCATION, not the shed: Castro 1 and Castro 2 are two rows
- * sharing one shed_id, and one shed can run an authored experiment on some partitions while the
- * rest stay on the per-head ration grid.
- *
- * The backend generated those rows correctly, but this client dropped the partition on the floor --
- * the DTO had no field for it -- so the phone received shed_label "Castro" for both and printed two
- * identical lines. The bug was invisible from the API response alone, which is why this pins the
- * WIRE field and the composed label together rather than trusting either half.
+ * A feed row's grain is the exact physical shed. `partition_label` may still appear on older
+ * payloads, but the client must not compose it into labels or keys.
  */
 class FeedRowPartitionLabelTest {
 
@@ -51,10 +45,7 @@ class FeedRowPartitionLabelTest {
     }
 
     @Test
-    fun `two partitions of one shed render as distinct lines`() {
-        // THE REGRESSION. Same shed_id, same shed_label, different partitions: if the rendered label
-        // is the bare shed name these are two identical rows and the operator cannot tell which pen
-        // a bag belongs to.
+    fun `legacy partition labels are not composed into display lines`() {
         val one = json.decodeFromString<FeedDirectionRowDto>(
             """{"shed_id":"s1","shed_label":"Castro","partition_label":"1"}""",
         )
@@ -64,64 +55,96 @@ class FeedRowPartitionLabelTest {
         val labelOne = operationalLocationLabel(one.shedLabel, one.partitionLabel)
         val labelTwo = operationalLocationLabel(two.shedLabel, two.partitionLabel)
 
-        assertEquals("Castro - 1", labelOne)
-        assertEquals("Castro - 2", labelTwo)
-        if (labelOne == labelTwo) {
-            throw AssertionError("two partitions of one shed rendered identically as $labelOne")
-        }
+        assertEquals("Castro", labelOne)
+        assertEquals("Castro", labelTwo)
     }
 
     @Test
-    fun `a worded partition keeps its own convention`() {
+    fun `a worded partition is ignored by client-composed fallback labels`() {
         val dto = json.decodeFromString<FeedDirectionRowDto>(
             """{"shed_id":"s2","shed_label":"Godel 2","partition_label":"Part 3"}""",
         )
-        assertEquals("Godel 2 - Part 3", operationalLocationLabel(dto.shedLabel, dto.partitionLabel))
+        assertEquals("Godel 2", operationalLocationLabel(dto.shedLabel, dto.partitionLabel))
     }
 }
 
 /**
  * grainKey is the Room PRIMARY KEY and the LazyColumn item key, so it is IDENTITY, not decoration.
- *
- * The shipped defect: it omitted the partition. Castro 1 and Castro 2 share a shed_id and agree on
- * workflow, ration group, arm, tag and session, so they produced the SAME key -- and one silently
- * overwrote the other in the cache. The sheet rendered "Castro - 2" with no Castro 1 anywhere: a
- * DROPPED PEN, which reads as a shed that simply has no feed rather than as an error.
- *
- * Packing was worse: its key was only shedId|workflow|sessionNo, so every partition of a shed
- * collapsed into one bag line.
+ * Exact shed id is the physical shed identity. During rollout, stale/pre-cutover payloads can still
+ * carry parent shed_id plus partition_label; those must stay distinct until the backend sends exact
+ * shed ids everywhere.
  */
 class FeedRowGrainKeyTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun direction(partition: String?) = json.decodeFromString<FeedDirectionRowDto>(
-        """{"shed_id":"s1","shed_label":"Castro","workflow":"experiment","ration_group":"Kid",
+    private fun direction(partition: String?, shedLabel: String = "Castro", display: String = "") = json.decodeFromString<FeedDirectionRowDto>(
+        """{"shed_id":"s1","shed_label":"$shedLabel","workflow":"experiment","ration_group":"Kid",
             "experiment_arm":"Sheep M NEW","shed_tag":"K1","session_no":1
+            ${if (display.isBlank()) "" else ""","operational_location_display":"$display""""}
             ${if (partition == null) "" else ""","partition_label":"$partition""""}}""",
     )
 
-    private fun packing(partition: String?) = json.decodeFromString<FeedPackingRowDto>(
-        """{"shed_id":"s1","shed_label":"Castro","workflow":"normal","session_no":1
+    private fun packing(partition: String?, shedLabel: String = "Castro", display: String = "") = json.decodeFromString<FeedPackingRowDto>(
+        """{"shed_id":"s1","shed_label":"$shedLabel","workflow":"normal","session_no":1
+            ${if (display.isBlank()) "" else ""","operational_location_display":"$display""""}
             ${if (partition == null) "" else ""","partition_label":"$partition""""}}""",
     )
 
     @Test
-    fun `two partitions of one shed are two distinct direction rows`() {
+    fun `legacy parent shed direction rows keep partition identity during rollout`() {
         val one = direction("1").grainKey
         val two = direction("2").grainKey
-        if (one == two) {
-            throw AssertionError("Castro 1 and Castro 2 share grainKey $one — one will overwrite the other")
-        }
+        org.junit.Assert.assertNotEquals(one, two)
     }
 
     @Test
-    fun `two partitions of one shed are two distinct packing bags`() {
+    fun `legacy parent shed packing rows keep partition identity during rollout`() {
         val one = packing("1").grainKey
         val two = packing("2").grainKey
-        if (one == two) {
-            throw AssertionError("Castro 1 and Castro 2 share packing grainKey $one — one bag will be lost")
-        }
+        org.junit.Assert.assertNotEquals(one, two)
+    }
+
+    @Test
+    fun `exact numbered shed ids do not split on stale partition metadata`() {
+        assertEquals(direction("1", shedLabel = "Castro 1").grainKey, direction("Part 1", shedLabel = "Castro 1").grainKey)
+        assertEquals(packing("2", shedLabel = "Gandhi 2").grainKey, packing("Part 2", shedLabel = "Gandhi 2").grainKey)
+    }
+
+    @Test
+    fun `exact part-named shed ids do not split on stale partition metadata`() {
+        assertEquals(
+            direction("1", shedLabel = "Godel 1 - Part 1").grainKey,
+            direction("Part 1", shedLabel = "Godel 1 - Part 1").grainKey,
+        )
+        assertEquals(
+            packing("Part 3", shedLabel = "Mandela 2 Part 3").grainKey,
+            packing("3", shedLabel = "Mandela 2 Part 3").grainKey,
+        )
+    }
+
+    @Test
+    fun `legacy numbered group sheds still keep partition identity`() {
+        org.junit.Assert.assertNotEquals(
+            direction("1", shedLabel = "Godel 1").grainKey,
+            direction("2", shedLabel = "Godel 1").grainKey,
+        )
+        org.junit.Assert.assertNotEquals(
+            packing("1", shedLabel = "Mandela 2").grainKey,
+            packing("2", shedLabel = "Mandela 2").grainKey,
+        )
+    }
+
+    @Test
+    fun `legacy parent shed rows with backend exact display survive as separate rows`() {
+        assertEquals(
+            direction("1", display = "Castro 1").grainKey,
+            direction("Part 1", display = "Castro 1").grainKey,
+        )
+        org.junit.Assert.assertNotEquals(
+            direction("1", display = "Castro 1").grainKey,
+            direction("2", display = "Castro 2").grainKey,
+        )
     }
 
     @Test
@@ -140,8 +163,7 @@ class FeedRowGrainKeyTest {
 }
 
 /**
- * The packing row at the WIRE boundary: one row is ONE PEN-SESSION (maintainer decision 2026-08-11,
- * reverting the 2026-08-10 pen-day row).
+ * The packing row at the wire boundary: one row is one exact shed-session.
  *
  * These parse real response JSON rather than constructing the DTO, because the defect class this
  * guards is a field that exists on the Kotlin type and is never populated from the wire — a
@@ -153,7 +175,7 @@ class FeedPackingSessionRowTest {
 
     private val morning = """
         {"shed_id":"s1","shed_label":"Castro","partition_label":"2",
-         "operational_location_display":"Castro - 2","session_no":1,"session_label":"Morning",
+         "operational_location_display":"Castro 2","session_no":1,"session_label":"Morning",
          "workflow":"normal","head_count":40,
          "total_kg":"3.700","status":"ready","lifecycle_status":"pending",
          "items":[{"feed_item":"Maize","quantity_kg":"2.500","status":"resolved"},
@@ -169,7 +191,7 @@ class FeedPackingSessionRowTest {
         assertEquals("Morning", dto.sessionLabel)
         assertEquals("3.700", dto.totalKg)
         assertEquals("2.500", dto.items.first { it.feedItem == "Maize" }.quantityKg)
-        // A denominator, the same on the pen's sibling session. Never summed across them.
+        // A denominator, the same on the shed's sibling session. Never summed across them.
         assertEquals(40L, dto.headCount)
     }
 
@@ -178,13 +200,13 @@ class FeedPackingSessionRowTest {
         val dto = json.decodeFromString<FeedPackingRowDto>(morning)
 
         // Required by the contract and once absent from the Go struct entirely, which is how
-        // admin-web fell through to a bare "Castro" against all three of Castro's pens.
-        assertEquals("Castro - 2", dto.operationalLocationDisplay)
+        // admin-web fell through to a bare "Castro" against exact Castro shed names.
+        assertEquals("Castro 2", dto.operationalLocationDisplay)
     }
 
     @Test
-    fun `a pen's morning and evening are two distinct rows`() {
-        // THE REVERT. Between 2026-08-10 and 2026-08-11 grainKey omitted the session, so a pen's two
+    fun `a shed's morning and evening are two distinct rows`() {
+        // THE REVERT. Between 2026-08-10 and 2026-08-11 grainKey omitted the session, so a shed's two
         // bags collapsed into one card and one video was asked to prove both. They must be two rows.
         val one = json.decodeFromString<FeedPackingRowDto>(morning)
         val two = json.decodeFromString<FeedPackingRowDto>(
@@ -195,23 +217,19 @@ class FeedPackingSessionRowTest {
 
         if (one.grainKey == two.grainKey) {
             throw AssertionError(
-                "Castro - 2 morning and evening share packing grainKey ${one.grainKey} — one bag will be lost",
+                "Castro 2 morning and evening share packing grainKey ${one.grainKey} — one bag will be lost",
             )
         }
     }
 
     @Test
-    fun `two pens of one shed are still two separate bags`() {
-        // Castro 1 and Castro 2 hold different animals on different rations (migration 000137). This
-        // has been lost once already and is pinned alongside the session so neither can go again.
+    fun `legacy partition labels do not split one packing shed-session`() {
         val two = json.decodeFromString<FeedPackingRowDto>(morning)
         val three = json.decodeFromString<FeedPackingRowDto>(
             morning.replace(""""partition_label":"2"""", """"partition_label":"3""""),
         )
 
-        if (two.grainKey == three.grainKey) {
-            throw AssertionError("Castro 2 and Castro 3 share packing grainKey ${two.grainKey} — one bag will be lost")
-        }
+        assertEquals(two.grainKey, three.grainKey)
     }
 
     @Test
@@ -222,7 +240,7 @@ class FeedPackingSessionRowTest {
         val blockedEvening = json.decodeFromString<FeedPackingRowDto>(
             """
             {"shed_id":"s1","shed_label":"Castro","partition_label":"2",
-             "operational_location_display":"Castro - 2","session_no":2,"session_label":"Evening",
+             "operational_location_display":"Castro 2","session_no":2,"session_label":"Evening",
              "workflow":"normal","head_count":40,
              "total_kg":"0.000","status":"blocked","lifecycle_status":"pending",
              "items":[{"feed_item":"Hybrid","status":"blocked",

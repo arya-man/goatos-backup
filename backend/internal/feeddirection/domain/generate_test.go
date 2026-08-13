@@ -1418,69 +1418,76 @@ func TestBuildPackingRowsPanicsOnBlockedItemWithNilReason(t *testing.T) {
 func TestMixedShedRunsExperimentAndGridPartitionsSideBySide(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	// Parts 3 and 4 are authored experiments. Part 1 is not, and must stay on the grid.
-	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 3")] = []ExperimentCell{
+	godelPart1ID := testShedID
+	godelPart3ID := "00000000-0000-4000-8000-000000004003"
+	godelPart4ID := "00000000-0000-4000-8000-000000004004"
+	// Exact sheds 3 and 4 are authored experiments. Exact shed 1 is not, and must stay on the grid.
+	cfg.ExperimentByLocation[ExperimentLocationKey(godelPart3ID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
 	}
-	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 4")] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(godelPart4ID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "8.000", Category: "Trial B"},
 	}
 	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
 
-	grains := []ShedGrain{
-		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 46, PartitionLabel: "Part 3"},
-		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 44, PartitionLabel: "Part 4"},
-		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 56, PartitionLabel: "Part 1"},
-	}
-
 	var rows []DirectionRow
-	for _, part := range SplitGrainsByPartition(grains) {
-		in := ShedInput{ShedID: testShedID, ShedLabel: "Godel 2", PartitionLabel: part.PartitionLabel, Grains: part.Grains}
+	for _, shed := range []struct {
+		id, label string
+		head      int64
+	}{
+		{godelPart3ID, "Godel 2 - Part 3", 46},
+		{godelPart4ID, "Godel 2 - Part 4", 44},
+		{godelPart1ID, "Godel 2 - Part 1", 56},
+	} {
+		in := ShedInput{
+			ShedID:    shed.id,
+			ShedLabel: shed.label,
+			Grains: []ShedGrain{{
+				ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: shed.head,
+			}},
+		}
 		rows = append(rows, generate(cfg, in, 1)...)
 	}
 
-	byPartition := map[string]DirectionRow{}
+	byShed := map[string]DirectionRow{}
 	for _, row := range rows {
-		if row.ShedID != testShedID {
-			t.Fatalf("row escaped its shed: shed_id=%q", row.ShedID)
-		}
-		byPartition[row.PartitionLabel] = row
+		byShed[row.ShedID] = row
 	}
-	for _, want := range []string{"Part 1", "Part 3", "Part 4"} {
-		if _, ok := byPartition[want]; !ok {
-			t.Fatalf("no row for %q; partitions present: %v", want, byPartition)
+	for _, want := range []string{godelPart1ID, godelPart3ID, godelPart4ID} {
+		if _, ok := byShed[want]; !ok {
+			t.Fatalf("no row for shed %q; sheds present: %v", want, byShed)
 		}
 	}
 
-	// The two authored partitions are experiments, on ABSOLUTE kg, independent of head count.
-	for _, tc := range []struct{ partition, wantKg, wantArm string }{
-		{"Part 3", "6.000", "Trial A"}, // 12 kg x 0.5 session split
-		{"Part 4", "4.000", "Trial B"}, // 8 kg x 0.5
+	// The two authored sheds are experiments, on ABSOLUTE kg, independent of head count.
+	for _, tc := range []struct{ shedID, wantKg, wantArm string }{
+		{godelPart3ID, "6.000", "Trial A"}, // 12 kg x 0.5 session split
+		{godelPart4ID, "4.000", "Trial B"}, // 8 kg x 0.5
 	} {
-		row := byPartition[tc.partition]
+		row := byShed[tc.shedID]
 		if row.Workflow != WorkflowExperiment {
-			t.Fatalf("%s workflow = %q, want %q", tc.partition, row.Workflow, WorkflowExperiment)
+			t.Fatalf("%s workflow = %q, want %q", tc.shedID, row.Workflow, WorkflowExperiment)
 		}
 		if got := *itemOf(t, row, "Concentrate").QuantityKg; got != tc.wantKg {
-			t.Fatalf("%s quantity = %q, want %q (absolute kg, never scaled by head)", tc.partition, got, tc.wantKg)
+			t.Fatalf("%s quantity = %q, want %q (absolute kg, never scaled by head)", tc.shedID, got, tc.wantKg)
 		}
 		if !row.HeadCountInformational {
-			t.Fatalf("%s head count is not marked informational", tc.partition)
+			t.Fatalf("%s head count is not marked informational", tc.shedID)
 		}
 	}
 
-	// Part 1 was never authored, so it must stay on the grid: 56 head x 1000 g x 0.5 = 28.000 kg.
+	// Part 1 shed was never authored, so it must stay on the grid: 56 head x 1000 g x 0.5 = 28.000 kg.
 	// If the experiment leaked across the whole shed this row would carry an absolute total instead.
-	grid := byPartition["Part 1"]
+	grid := byShed[godelPart1ID]
 	if grid.Workflow != WorkflowNormal {
-		t.Fatalf("Part 1 workflow = %q, want %q -- an unauthored partition must stay on the ration grid",
+		t.Fatalf("Part 1 workflow = %q, want %q -- an unauthored exact shed must stay on the ration grid",
 			grid.Workflow, WorkflowNormal)
 	}
 	if got := *itemOf(t, grid, "Concentrate").QuantityKg; got != "28.000" {
 		t.Fatalf("Part 1 quantity = %q, want \"28.000\" (56 head x 1000 g x 0.5)", got)
 	}
 	if grid.HeadCountInformational {
-		t.Fatal("Part 1 head count marked informational; a grid row's head count is what scales it")
+		t.Fatal("Part 1 shed head count marked informational; a grid row's head count is what scales it")
 	}
 }
 
@@ -1530,11 +1537,11 @@ func TestPartitionMatchKeyNormalizesLabelVariantsAndBlank(t *testing.T) {
 
 // TestPackingLinesAreOnePerPartitionNotPerShed is the regression for what a packer actually holds.
 //
-// Reported from the phone (2026-08-08): Feed Packing showed "Castro - 1" and nothing for Castro 2,
-// and only "Gandhi - 1" for a shed with three pens. The line key was (shedID, sessionNo), so every
-// partition of a shed merged into ONE bag whose quantities were the SUM of all pens, stamped with
-// whichever partition's row arrived first. The missing pens do not read as an error -- they read as
-// sheds that need no feed -- and the surviving bag is over-weight.
+// Reported from the phone (2026-08-08): Feed Packing showed synthetic names such as "Castro - 1"
+// and nothing for Castro 2, and only one Gandhi row for three physical sheds. The line key was too
+// coarse, so multiple exact sheds could merge into ONE bag whose quantities were the SUM of all
+// sheds, stamped with whichever row arrived first. The missing sheds do not read as an error -- they
+// read as sheds that need no feed -- and the surviving bag is over-weight.
 //
 // One bag per operational location, per session. This is the packing twin of the direction grain,
 // and it matters more: direction is a document, a bag is a physical thing somebody carries.
@@ -1543,19 +1550,18 @@ func TestPackingLinesAreOnePerPartitionNotPerShed(t *testing.T) {
 	cfg := testConfig()
 	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
 
-	// Same shed, same session, same grain -- two different pens with different head counts.
+	// Same session, same grain -- two different exact sheds with different head counts.
 	var rows []DirectionRow
-	for _, part := range []struct {
-		label string
-		head  int64
-	}{{"1", 10}, {"2", 4}} {
+	for _, shed := range []struct {
+		id, label string
+		head      int64
+	}{{"shed-castro-1", "Castro 1", 10}, {"shed-castro-2", "Castro 2", 4}} {
 		in := ShedInput{
-			ShedID:         testShedID,
-			ShedLabel:      "Castro",
-			PartitionLabel: part.label,
+			ShedID:    shed.id,
+			ShedLabel: shed.label,
 			Grains: []ShedGrain{{
 				ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep",
-				HeadCount: part.head, PartitionLabel: part.label,
+				HeadCount: shed.head,
 			}},
 		}
 		rows = append(rows, generate(cfg, in, 1)...)
@@ -1563,29 +1569,32 @@ func TestPackingLinesAreOnePerPartitionNotPerShed(t *testing.T) {
 
 	lines := BuildPackingRows(rows, cfg.FeedItems)
 
-	byPartition := map[string]PackingRow{}
+	byShed := map[string]PackingRow{}
 	for _, l := range lines {
-		if _, clash := byPartition[l.PartitionLabel]; clash {
-			t.Fatalf("two bags for partition %q in one session", l.PartitionLabel)
+		if _, clash := byShed[l.ShedID]; clash {
+			t.Fatalf("two bags for shed %q in one session", l.ShedID)
 		}
-		byPartition[l.PartitionLabel] = l
+		byShed[l.ShedID] = l
 	}
 	if len(lines) != 2 {
-		t.Fatalf("packing lines = %d, want 2 (one bag per pen); got %v", len(lines), byPartition)
+		t.Fatalf("packing lines = %d, want 2 (one bag per exact shed); got %v", len(lines), byShed)
 	}
-	for _, want := range []string{"1", "2"} {
-		if _, ok := byPartition[want]; !ok {
-			t.Fatalf("no bag for Castro %s -- the pen vanished from the worklist; got %v", want, byPartition)
+	for _, want := range []string{"shed-castro-1", "shed-castro-2"} {
+		if _, ok := byShed[want]; !ok {
+			t.Fatalf("no bag for shed %s -- it vanished from the worklist; got %v", want, byShed)
 		}
 	}
 
-	// And the quantities must be the PEN's, not the shed's sum. 10 head x 1000 g x 0.5 = 5.000 kg;
+	// And the quantities must be the exact shed's, not a group sum. 10 head x 1000 g x 0.5 = 5.000 kg;
 	// 4 head x 1000 g x 0.5 = 2.000 kg. A merged bag would read 7.000 on one line and lose the other.
-	for _, tc := range []struct{ partition, wantKg string }{{"1", "5.000"}, {"2", "2.000"}} {
-		got := packingItemKg(t, byPartition[tc.partition], "Concentrate")
+	for _, tc := range []struct{ shedID, shedName, wantKg string }{
+		{"shed-castro-1", "Castro 1", "5.000"},
+		{"shed-castro-2", "Castro 2", "2.000"},
+	} {
+		got := packingItemKg(t, byShed[tc.shedID], "Concentrate")
 		if got != tc.wantKg {
-			t.Errorf("Castro %s pack quantity = %q, want %q (this pen only, never the shed total)",
-				tc.partition, got, tc.wantKg)
+			t.Errorf("%s pack quantity = %q, want %q (this shed only, never the group total)",
+				tc.shedName, got, tc.wantKg)
 		}
 	}
 }
@@ -1666,17 +1675,16 @@ func TestPackingLinesKeepPartitionsAndSessionsApart(t *testing.T) {
 	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
 
 	var rows []DirectionRow
-	for _, pen := range []struct {
-		label string
-		head  int64
-	}{{"1", 10}, {"2", 4}} {
+	for _, shed := range []struct {
+		id, label string
+		head      int64
+	}{{"shed-castro-1", "Castro 1", 10}, {"shed-castro-2", "Castro 2", 4}} {
 		in := ShedInput{
-			ShedID:         testShedID,
-			ShedLabel:      "Castro",
-			PartitionLabel: pen.label,
+			ShedID:    shed.id,
+			ShedLabel: shed.label,
 			Grains: []ShedGrain{{
 				ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep",
-				HeadCount: pen.head, PartitionLabel: pen.label,
+				HeadCount: shed.head,
 			}},
 		}
 		rows = append(rows, generate(cfg, in, 1)...)
@@ -1689,14 +1697,14 @@ func TestPackingLinesKeepPartitionsAndSessionsApart(t *testing.T) {
 	}
 
 	type penSession struct {
-		pen       string
+		shedID    string
 		sessionNo int32
 	}
 	byKey := map[penSession]PackingRow{}
 	for _, l := range lines {
-		key := penSession{l.PartitionLabel, l.SessionNo}
+		key := penSession{l.ShedID, l.SessionNo}
 		if _, clash := byKey[key]; clash {
-			t.Fatalf("two bags for pen %q session %d", key.pen, key.sessionNo)
+			t.Fatalf("two bags for shed %q session %d", key.shedID, key.sessionNo)
 		}
 		byKey[key] = l
 	}
@@ -1705,24 +1713,25 @@ func TestPackingLinesKeepPartitionsAndSessionsApart(t *testing.T) {
 	// swallowed the other pen would read 7.000 and the second pen would have vanished entirely; one
 	// that had swallowed the other session would read double.
 	for _, tc := range []struct {
-		pen        string
+		shedID     string
+		shedName   string
 		perSession string
-	}{{"1", "5.000"}, {"2", "2.000"}} {
+	}{{"shed-castro-1", "Castro 1", "5.000"}, {"shed-castro-2", "Castro 2", "2.000"}} {
 		for _, sessionNo := range []int32{1, 2} {
-			line, ok := byKey[penSession{tc.pen, sessionNo}]
+			line, ok := byKey[penSession{tc.shedID, sessionNo}]
 			if !ok {
-				t.Fatalf("no bag for Castro %s session %d -- it vanished from the worklist", tc.pen, sessionNo)
+				t.Fatalf("no bag for %s session %d -- it vanished from the worklist", tc.shedName, sessionNo)
 			}
 			if got := packingItemKg(t, line, "Concentrate"); got != tc.perSession {
-				t.Errorf("Castro %s session %d = %q, want %q (this pen and this session only)",
-					tc.pen, sessionNo, got, tc.perSession)
+				t.Errorf("%s session %d = %q, want %q (this shed and this session only)",
+					tc.shedName, sessionNo, got, tc.perSession)
 			}
 			if line.TotalKg != tc.perSession {
-				t.Errorf("Castro %s session %d total = %q, want %q", tc.pen, sessionNo, line.TotalKg, tc.perSession)
+				t.Errorf("%s session %d total = %q, want %q", tc.shedName, sessionNo, line.TotalKg, tc.perSession)
 			}
-			if line.OperationalLocationDisplay != "Castro - "+tc.pen {
-				t.Errorf("Castro %s display = %q, want %q -- shed and pen must always render together",
-					tc.pen, line.OperationalLocationDisplay, "Castro - "+tc.pen)
+			if line.OperationalLocationDisplay != tc.shedName {
+				t.Errorf("%s display = %q, want exact shed name %q",
+					tc.shedName, line.OperationalLocationDisplay, tc.shedName)
 			}
 		}
 	}

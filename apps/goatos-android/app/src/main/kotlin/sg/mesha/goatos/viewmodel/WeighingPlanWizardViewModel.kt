@@ -524,7 +524,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
                     WeighingPlannerShed(
                         locationId = shed.locationId,
                         name = shed.name,
-                        partitionLabel = shed.partitionLabel,
+                        partitionLabel = null,
                         kidCount = shed.kidCount,
                         category = selection.category,
                         operatorUserId = selection.operatorUserId,
@@ -1166,12 +1166,10 @@ private fun WizardRaw.contextLine(dateLabel: String, addedCount: Int): String = 
 private fun bucketWord(count: Int): String = if (count == 1) "shed bucket" else "shed buckets"
 
 private fun WeighingPlannerShed.operationalKey(): String =
-    listOfNotNull(locationId.takeIf { it.isNotBlank() }, partitionLabel?.takeIf { it.isNotBlank() })
-        .joinToString("|")
+    locationId
 
 private fun WeighingRepeatBucket.operationalKey(): String =
-    listOfNotNull(locationId.takeIf { it.isNotBlank() }, partitionLabel?.takeIf { it.isNotBlank() })
-        .joinToString("|")
+    locationId
 
 private fun categoryLabel(category: String): String = when (category.trim().lowercase()) {
     INDIVIDUAL_ANIMAL_CATEGORY -> "Individual"

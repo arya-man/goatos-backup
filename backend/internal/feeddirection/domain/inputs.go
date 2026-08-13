@@ -107,10 +107,12 @@ type ConfigSnapshot struct {
 	ExperimentByLocation map[string][]ExperimentCell
 }
 
-// ExperimentLocationKey is the lookup key for ExperimentByLocation: one operational location.
-// The separator is a unit separator so a shed id or partition label can never forge another key.
+// ExperimentLocationKey is the lookup key for ExperimentByLocation: one exact physical shed.
+// partitionLabel is accepted for legacy callers but ignored; appending it would split "Castro 2"
+// from a stale "2" compatibility label into a second experiment bucket.
 func ExperimentLocationKey(shedID, partitionLabel string) string {
-	return shedID + "\x1f" + PartitionMatchKey(partitionLabel)
+	_ = partitionLabel
+	return shedID
 }
 
 // PartitionGrains is one operational location's grains, carrying the RAW label for display.

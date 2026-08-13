@@ -944,7 +944,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       const shedKey = row.shedId;
                       const shedLabel = row.operational_location_display || operationalLocationLabel({
                         shedName: row.shedName,
-                        partitionLabel: row.partitionLabel,
                       });
                       return (
                         <tr key={shedKey}>
@@ -1269,7 +1268,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="dh">
               <div style={{ flex: 1 }}>
                 <h3>
-                  {selectedShedVaccine.shedName} ·{" "}
+                  {selectedShedVaccine.operational_location_display || selectedShedVaccine.shedName} ·{" "}
                   {view.shedVaccineColumns.find((c) => c.code === selectedShedVaccine.vaccineCode)?.label
                     || selectedShedVaccine.vaccineCode}
                 </h3>
@@ -1338,15 +1337,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             row and the only thing that tells a person which pen to walk into. The
                             state is identical on every row of a verifying cell and the header
                             already says it, so it is not repeated here. */}
-                        {/* The PEN and the date, nothing else. Park and shed are constant for every
-                            row in this cell and already sit in the drawer header, so rendering the
-                            full location display on each line repeated the partition twice over and
-                            the shed once per animal. The pen is the only part that varies row to row
-                            and the only part that sends a person to a physical place. */}
+                        {/* Date only; the drawer header already carries the exact shed. */}
                         <div className="cbm-verify-meta">
-                          {animal.partitionLabel ? (
-                            <span className="cbm-verify-pen">{animal.partitionLabel}</span>
-                          ) : null}
                           <span>
                             {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
                             {animal.dueAt ? new Date(animal.dueAt).toLocaleDateString("en-GB") : "—"}
@@ -1419,8 +1411,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                           <b>{animal.displayId}</b>
                         )}
                       </td>
-                      {/* Ground location, partition included -- the parent shed name alone would
-                          send a park head to the wrong side of a partitioned shed. */}
+                      {/* Ground location uses the backend exact operational-location display. */}
                       <td>
                         {animal.operational_location_display}
                         <span className="cbm-closed-park">{animal.parkName}</span>

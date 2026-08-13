@@ -283,7 +283,7 @@ export async function FeedPackingPage({
                   const span = itemLineCount(visibleItems);
                   // Full line identity: the pen AND its session. Keying on the pen alone would give
                   // a pen's morning and evening the same React key.
-                  const rowKey = `${row.shed_id}|${row.partition_label ?? ""}|${row.session_no}`;
+                  const rowKey = `${row.shed_id}|${row.session_no}`;
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (

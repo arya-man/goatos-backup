@@ -45,6 +45,23 @@ type AdminUiConfigFamilyRevision struct {
 	Metadata    []byte
 }
 
+type AnalyticsAppEvent struct {
+	EventID         pgtype.UUID
+	TenantID        pgtype.UUID
+	ActorID         pgtype.UUID
+	DeviceID        string
+	EventName       string
+	Properties      []byte
+	ClientEventTime pgtype.Timestamptz
+	ReceivedAt      pgtype.Timestamptz
+	Flavor          string
+	AppVersionName  string
+	AppVersionCode  pgtype.Int4
+	RequestID       string
+	TraceID         string
+	ClientInfo      []byte
+}
+
 type AnalyticsCrashDaily struct {
 	TenantID             pgtype.UUID
 	EventDate            pgtype.Date
@@ -2448,6 +2465,50 @@ type ProcurementSourceHealthCheck struct {
 	SopTaskID      pgtype.UUID
 	IdempotencyKey string
 	CreatedAt      pgtype.Timestamptz
+}
+
+type ProcurementVendor struct {
+	VendorID          pgtype.UUID
+	TenantID          pgtype.UUID
+	RecordType        string
+	BusinessName      string
+	ContactPersonName pgtype.Text
+	PhoneNumber       pgtype.Text
+	Breed             pgtype.Text
+	Feed              pgtype.Text
+	Status            string
+	FilteredStock     pgtype.Int4
+	PricePerGoat      pgtype.Numeric
+	ReadyToFiltered   pgtype.Text
+	EtaAfterOrderDays pgtype.Int4
+	Details           pgtype.Text
+	State             string
+	City              pgtype.Text
+	BankName          pgtype.Text
+	AccountNo         pgtype.Text
+	IfscCode          pgtype.Text
+	UpiID             pgtype.Text
+	PanNumber         pgtype.Text
+	Comments          pgtype.Text
+	PartyID           pgtype.UUID
+	SourceRow         pgtype.Int4
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	CreatedBy         pgtype.UUID
+	UpdatedBy         pgtype.UUID
+	RowVersion        int64
+	SearchText        pgtype.Text
+}
+
+type ProcurementVendorCatalog struct {
+	TenantID  pgtype.UUID
+	Kind      string
+	Value     string
+	Label     string
+	SortOrder int32
+	IsActive  bool
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }
 
 type ProofArtifact struct {

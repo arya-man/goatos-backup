@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-// Guards the "partition is the operational shed" rule documented in
+// Guards the "exact physical shed is the operational shed" rule documented in
 // docs/decisions/partition-is-operational-shed.md. It is intentionally narrow:
 // it blocks the common regressions that caused operator cards/dropdowns to
-// club actual sheds like Godel 1 - Part 1 under the plain base/common name.
+// either club exact sheds under a base/common name or reintroduce
+// shed-id-plus-partition-label as a live identity model.
 
 import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -71,24 +72,14 @@ function sourceFindings(source, rel) {
     /Vaccination|vaccination|Weighing|weighing|ShedRow|ShedsViewModel|campaign_shed|dropdown|ShedOption|ExecutionIdentity/.test(source);
   if (!operationalSurface) return findings;
 
-  const identityNoPartition = /data\s+class\s+\w*Identity\s*\([^)]*\bshedId\s*:\s*String(?![^)]*\bpartition\b)[^)]*\)/gs;
-  for (const match of source.matchAll(identityNoPartition)) {
-    add(match.index, "identity-missing-partition", "Operator work identity must resolve to the actual shed; legacy shedId alone is not enough.");
+  const groupWithPartition = /\.groupBy\s*\{[^}]*\b(?:shedId|taskId|batchId|driveId|campaignShedId)\b[^}]*\bpartition\b[^}]*\}/gs;
+  for (const match of source.matchAll(groupWithPartition)) {
+    add(match.index, "grouping-uses-legacy-partition", "Operator card/dropdown grouping must use the exact physical shed id; partition labels are compatibility metadata and must not be part of live identity.");
   }
 
-  const groupNoPartition = /\.groupBy\s*\{[^}]*\b(?:shedId|taskId|batchId|driveId|campaignShedId)\b(?![^}]*\bpartition\b)[^}]*\}/gs;
-  for (const match of source.matchAll(groupNoPartition)) {
-    add(match.index, "grouping-missing-partition", "Operator card/dropdown grouping without the actual shed can club separate sheds.");
-  }
-
-  const labelPlainShed = /\b(?:name|label|displayName|shedLabel)\s*=\s*(?:first\.|row\.|it\.)?(?:shedName|physicalShed)\b/g;
-  for (const match of source.matchAll(labelPlainShed)) {
-    add(match.index, "label-missing-partition", "Visible operator shed label must render the actual shed label.");
-  }
-
-  const keyPlainShed = /\bkey\s*=\s*\{[^}]*\b(?:shedId|taskId|batchId|campaignShedId)\b(?![^}]*\bpartition\b)[^}]*\}/gs;
-  for (const match of source.matchAll(keyPlainShed)) {
-    add(match.index, "key-missing-partition", "Repeated operator UI keys must include partition when shed partitions exist.");
+  const keyWithPartition = /\bkey\s*=\s*\{[^}]*\b(?:shedId|taskId|batchId|campaignShedId)\b[^}]*\bpartition\b[^}]*\}/gs;
+  for (const match of source.matchAll(keyWithPartition)) {
+    add(match.index, "key-uses-legacy-partition", "Repeated operator UI keys must use the exact physical shed id and stable row id, not append legacy partition labels.");
   }
 
   return findings;
@@ -107,19 +98,18 @@ function checkFiles(files) {
 function selfTest() {
   const bad = `
 data class ExecutionIdentity(val shedId: String, val taskId: String?)
-val cards = rows.groupBy { it.shedId }
-ShedRow(name = first.shedName)
-items(rows, key = { it.campaignShedId }) { row -> Text(row.shedName) }
+val cards = rows.groupBy { it.shedId to it.partition }
+items(rows, key = { it.campaignShedId to it.partition }) { row -> Text(row.shedName) }
 `;
   const good = `
-data class ExecutionIdentity(val shedId: String, val partition: String?, val taskId: String?)
-val cards = rows.groupBy { it.shedId to it.partition }
-ShedRow(name = operationalPartitionLabel(first.physicalShed, first.partition))
+data class ExecutionIdentity(val shedId: String, val taskId: String?)
+val cards = rows.groupBy { it.shedId }
+ShedRow(name = first.shedName)
 items(rows, key = { it.uiKey }) { row -> Text(row.label) }
 `;
   const badFindings = sourceFindings(bad, "fixture.kt");
   const goodFindings = sourceFindings(good, "fixture.kt");
-  if (badFindings.length < 4) {
+  if (badFindings.length < 2) {
     console.error("self-test failed: bad fixture was not rejected enough");
     process.exit(1);
   }

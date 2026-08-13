@@ -76,7 +76,7 @@ data class ScannedGoatRow(
      * completion or breaks offline scanning.
      */
     val syncStatus: CaptureSyncStatus = CaptureSyncStatus.PENDING,
-    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    /** Legacy compatibility key. Always `whole` for exact-shed capture identity. */
     val partitionKey: String = "whole",
 )
 
@@ -147,7 +147,7 @@ data class ProofCaptureRow(
     val serverProofId: String?,
     val outboxItemId: String? = null,
     val lastError: String?,
-    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    /** Legacy compatibility key. Always `whole` for exact-shed proof identity. */
     val partitionKey: String = "whole",
     val featureSurface: String? = null,
     val proofMode: String? = null,

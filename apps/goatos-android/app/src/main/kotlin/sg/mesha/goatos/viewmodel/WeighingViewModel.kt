@@ -918,7 +918,7 @@ class WeighingViewModel @Inject constructor(
             .map {
                 WeighingRepeatBucket(
                     locationId = it.locationId,
-                    partitionLabel = it.partitionLabel,
+                    partitionLabel = null,
                     category = it.category,
                     operatorUserId = it.operatorUserId,
                 )
@@ -967,7 +967,7 @@ class WeighingViewModel @Inject constructor(
             .map {
                 WeighingRepeatBucket(
                     locationId = it.locationId,
-                    partitionLabel = it.partitionLabel,
+                    partitionLabel = null,
                     category = it.category,
                     operatorUserId = it.operatorUserId,
                 )

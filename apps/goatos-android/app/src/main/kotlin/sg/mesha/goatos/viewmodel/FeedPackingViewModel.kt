@@ -270,12 +270,10 @@ class FeedPackingViewModel @Inject constructor(
         parkLabel = parkLabel,
         shedId = shedId,
         sessionNo = sessionNo,
-        // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
-        // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
-        // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
-        // display and falls back to composing it only when an older server omits the field.
-        shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
-        partitionLabel = partitionLabel.orEmpty(),
+        // Prefers the backend-composed exact shed display and falls back to the shed label only
+        // when an older server omits the field. The client never appends partitionLabel.
+        shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, null) },
+        partitionLabel = "",
         sessionLabel = sessionLabel,
         workflow = workflow,
         experimentArm = experimentArm,

@@ -32,10 +32,10 @@ Goat OS divides physical barns into partitions to track animals at finer granula
 
 ## Convention: Unified Definition
 
-The ground location of any goat is a three-part identity:
+The ground location of any goat is a two-part identity:
 
 ```
-OperationalLocation = park + physical_shed + optional partition_label
+OperationalLocation = park + exact_shed
 ```
 
 **Three rules form the complete convention:**

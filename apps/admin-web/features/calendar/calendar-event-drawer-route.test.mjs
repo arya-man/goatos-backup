@@ -28,10 +28,23 @@ test("calendar drive detail roster opens the goat passport drawer with vaccinati
   assert.doesNotMatch(driveDetailSource, /<td>\{item\.display_id \|\| "—"\}<\/td>/);
 });
 
-test("calendar drive links preserve operational partition identity", () => {
+test("calendar drive links use exact shed identity without partition query", () => {
   assert.match(contractSource, /driveExecutionPath\(event\.shed_id\)/);
-  assert.match(contractSource, /partition_label:\s*partition/);
+  assert.doesNotMatch(contractSource, /partition_label:\s*partition/);
+  assert.doesNotMatch(contractSource, /function eventPartitionLabel/);
   assert.match(drawerSource, /driveExecutionPath\(shedId\)/);
-  assert.match(drawerSource, /partition \? \{ partition_label: partition \} : \{\}/);
+  assert.doesNotMatch(drawerSource, /partition \? \{ partition_label: partition \} : \{\}/);
   assert.match(drawerSource, /scopeHref\(l\.appPath,\s*scope,\s*\{\},\s*l\.query \?\? \{\}\)/);
+});
+
+test("calendar aggregate shed coverage treats exact shed labels as atomic", () => {
+  const start = drawerSource.indexOf("event.shed_labels.map");
+  const coverageBlock = drawerSource.slice(start, drawerSource.indexOf("</div>", start));
+  assert.ok(start > 0, "expected aggregate shed coverage renderer");
+  assert.match(coverageBlock, /event\.shed_labels\.map\(\(label, i\)/);
+  assert.match(coverageBlock, /<Tag key=\{`\$\{label\}-\$\{i\}`\} tone="mut">\{label\}<\/Tag>/);
+  assert.doesNotMatch(coverageBlock, /shed_partition_labels/);
+  assert.doesNotMatch(coverageBlock, /partitionLabel/);
+  assert.doesNotMatch(coverageBlock, /operationalLocationLabel/);
+  assert.doesNotMatch(coverageBlock, /shed_ids/);
 });

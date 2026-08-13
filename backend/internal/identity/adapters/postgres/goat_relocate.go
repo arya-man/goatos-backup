@@ -161,11 +161,9 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	}
 	sort.Strings(moved)
 
-	// OperationalLocation = park + physical shed + optional partition (backend/internal/platform/
-	// oploc). goats.shed_id/park_id above always carries the PARENT physical shed; the partition half
-	// lives here, in goat_shed_partitions, and must move atomically with the shed/park write -- in the
-	// SAME transaction -- or a reader combining the two tables would observe an animal whose shed says
-	// "moved" but whose partition still names its old location.
+	// OperationalLocation = exact shed (backend/internal/platform/oploc). Legacy partition evidence
+	// is kept in goat_shed_partitions for compatibility/history, but the goat row above carries the
+	// real destination shed id and both writes must remain atomic.
 	if err := r.upsertGoatShedPartitionsInTx(ctx, tx, cmd, toLocationID, moved); err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}

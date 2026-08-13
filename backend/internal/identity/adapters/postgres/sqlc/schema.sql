@@ -38,6 +38,13 @@ CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
 
 
 --
+-- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+
+
+--
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -870,30 +877,14 @@ CREATE FUNCTION public.ensure_shed_partition_operational_location() RETURNS trig
     AS $$
 DECLARE
   parent_row public.locations%ROWTYPE;
-  candidate_id uuid;
-  candidate_count integer;
-  mapped_valid boolean;
-  display_partition_label text;
-  source_shed_name text;
+  exact_row public.locations%ROWTYPE;
+  check_bare_residents boolean := false;
+  mapping_changed boolean := false;
+  mapping_in_use boolean := false;
 BEGIN
   IF NEW.status NOT IN ('active', 'retired') THEN
     RETURN NEW;
   END IF;
-
-  display_partition_label := NULLIF(NEW.partition_label, '');
-  IF display_partition_label IS NULL THEN
-    display_partition_label := NEW.normalized_label;
-  END IF;
-
-  SELECT CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
-    THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
-    ELSE NULL
-  END
-  INTO source_shed_name
-  FROM public.goat_shed_partitions gsp
-  WHERE gsp.tenant_id = NEW.tenant_id
-    AND gsp.shed_id = NEW.shed_id
-    AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label;
 
   SELECT *
   INTO parent_row
@@ -908,98 +899,20 @@ BEGIN
     RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed %', NEW.tenant_id, NEW.shed_id;
   END IF;
 
-  IF NEW.status = 'retired' THEN
-    IF NEW.operational_location_id IS NULL THEN
-      RETURN NEW;
-    END IF;
-
-    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
-    PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
-
-    IF TG_OP = 'UPDATE'
-      AND OLD.status = 'active'
-      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id THEN
-      IF EXISTS (
-        SELECT 1
-        FROM public.goats g
-        WHERE g.tenant_id = NEW.tenant_id
-          AND g.current_location_id = NEW.operational_location_id
-          AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-          AND g.merged_into_goat_id IS NULL
-      ) THEN
-        RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
-          NEW.tenant_id, NEW.shed_id, NEW.partition_label;
-      END IF;
-
-      UPDATE public.locations pen
-      SET status = 'inactive',
-          updated_at = now()
-      WHERE pen.tenant_id = NEW.tenant_id
-        AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = parent_row.parent_location_id
-        AND pen.location_type = 'shed'
-        AND pen.location_id <> NEW.shed_id
-        AND pen.status = 'active';
-    END IF;
-
-    SELECT EXISTS (
-      SELECT 1
-      FROM public.locations pen
-      WHERE pen.tenant_id = NEW.tenant_id
-        AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = parent_row.parent_location_id
-        AND pen.location_type = 'shed'
-        AND pen.location_id <> NEW.shed_id
-        AND pen.status = 'inactive'
-    )
-    INTO mapped_valid;
-
-    IF mapped_valid THEN
-      INSERT INTO public.location_operational_attributes (
-        tenant_id,
-        location_id,
-        usable_for_counts,
-        usable_for_feed,
-        usable_for_vaccination,
-        usable_for_sop,
-        is_holding,
-        is_quarantine,
-        is_icu,
-        display_order,
-        notes,
-        updated_at
-      )
-      SELECT
-        parent_loa.tenant_id,
-        NEW.operational_location_id,
-        parent_loa.usable_for_counts,
-        parent_loa.usable_for_feed,
-        parent_loa.usable_for_vaccination,
-        parent_loa.usable_for_sop,
-        parent_loa.is_holding,
-        parent_loa.is_quarantine,
-        parent_loa.is_icu,
-        parent_loa.display_order,
-        parent_loa.notes,
-        now()
-      FROM public.location_operational_attributes parent_loa
-      WHERE parent_loa.tenant_id = NEW.tenant_id
-        AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO NOTHING;
-
-      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
-
-      RETURN NEW;
-    END IF;
-
-    RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
-      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
+  IF NEW.status = 'active' AND parent_row.status <> 'active' THEN
+    RAISE EXCEPTION 'shed_partition_parent_shed_missing: tenant %, shed % is not active',
+      NEW.tenant_id, NEW.shed_id;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, 'whole'), 150));
-  PERFORM pg_advisory_xact_lock(hashtextextended(shed_partition_lock_key(NEW.tenant_id, NEW.shed_id, NEW.normalized_label), 150));
+  IF NEW.status = 'active' THEN
+    IF TG_OP = 'INSERT' THEN
+      check_bare_residents := true;
+    ELSIF OLD.status <> 'active' OR NEW.shed_id IS DISTINCT FROM OLD.shed_id THEN
+      check_bare_residents := true;
+    END IF;
+  END IF;
 
-  IF TG_OP = 'INSERT' OR OLD.status <> 'active' THEN
+  IF check_bare_residents THEN
     IF EXISTS (
       SELECT 1
       FROM public.goats g
@@ -1014,191 +927,50 @@ BEGIN
     END IF;
   END IF;
 
-  IF NEW.operational_location_id IS NOT NULL THEN
-    IF TG_OP = 'UPDATE'
-      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
-      AND (
-        NEW.shed_id IS DISTINCT FROM OLD.shed_id
-        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
-        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
-      )
-      AND EXISTS (
+  IF TG_OP = 'UPDATE' THEN
+    mapping_changed :=
+      NEW.shed_id IS DISTINCT FROM OLD.shed_id
+      OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
+      OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
+      OR NEW.status IS DISTINCT FROM OLD.status
+      OR NEW.operational_location_id IS DISTINCT FROM OLD.operational_location_id;
+
+    IF mapping_changed AND OLD.operational_location_id IS NOT NULL THEN
+      SELECT EXISTS (
         SELECT 1
         FROM public.goats g
-        WHERE g.tenant_id = NEW.tenant_id
-          AND g.current_location_id = OLD.operational_location_id
+        WHERE g.tenant_id = OLD.tenant_id
+          AND (
+            g.current_location_id = OLD.operational_location_id
+            OR g.shed_id = OLD.operational_location_id
+          )
           AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
           AND g.merged_into_goat_id IS NULL
-      ) THEN
-      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
-        NEW.tenant_id, OLD.shed_id, OLD.partition_label;
-    END IF;
+      )
+      INTO mapping_in_use;
 
-    IF TG_OP = 'UPDATE'
-      AND NEW.operational_location_id IS NOT DISTINCT FROM OLD.operational_location_id
-      AND (
-        NEW.shed_id IS DISTINCT FROM OLD.shed_id
-        OR NEW.normalized_label IS DISTINCT FROM OLD.normalized_label
-        OR NEW.partition_label IS DISTINCT FROM OLD.partition_label
-      ) THEN
-      NEW.operational_location_id := NULL;
+      IF mapping_in_use THEN
+        RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+          OLD.tenant_id, OLD.shed_id, OLD.partition_label;
+      END IF;
     END IF;
   END IF;
 
   IF NEW.operational_location_id IS NOT NULL THEN
-    SELECT EXISTS (
-      SELECT 1
-      FROM public.locations pen
-      WHERE pen.tenant_id = NEW.tenant_id
-        AND pen.location_id = NEW.operational_location_id
-        AND pen.parent_location_id = parent_row.parent_location_id
-        AND pen.location_type = 'shed'
-        AND pen.location_id <> NEW.shed_id
-        AND pen.status = 'active'
-    )
-    INTO mapped_valid;
+    SELECT *
+    INTO exact_row
+    FROM public.locations
+    WHERE tenant_id = NEW.tenant_id
+      AND location_id = NEW.operational_location_id
+      AND location_type = 'shed'
+    FOR SHARE;
 
-    IF mapped_valid THEN
-      INSERT INTO public.location_operational_attributes (
-        tenant_id,
-        location_id,
-        usable_for_counts,
-        usable_for_feed,
-        usable_for_vaccination,
-        usable_for_sop,
-        is_holding,
-        is_quarantine,
-        is_icu,
-        display_order,
-        notes,
-        updated_at
-      )
-      SELECT
-        parent_loa.tenant_id,
-        NEW.operational_location_id,
-        parent_loa.usable_for_counts,
-        parent_loa.usable_for_feed,
-        parent_loa.usable_for_vaccination,
-        parent_loa.usable_for_sop,
-        parent_loa.is_holding,
-        parent_loa.is_quarantine,
-        parent_loa.is_icu,
-        parent_loa.display_order,
-        parent_loa.notes,
-        now()
-      FROM public.location_operational_attributes parent_loa
-      WHERE parent_loa.tenant_id = NEW.tenant_id
-        AND parent_loa.location_id = NEW.shed_id
-      ON CONFLICT (location_id) DO NOTHING;
-
-      PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
-
-      RETURN NEW;
-    END IF;
-
-    RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
-      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
-  END IF;
-
-  SELECT count(*), (array_agg(pen.location_id ORDER BY pen.location_id))[1]
-  INTO candidate_count, candidate_id
-  FROM public.locations pen
-  WHERE pen.tenant_id = NEW.tenant_id
-    AND pen.parent_location_id = parent_row.parent_location_id
-    AND pen.location_type = 'shed'
-    AND pen.location_id <> NEW.shed_id
-    AND pen.status = 'active'
-    AND (
-      lower(pen.name) = lower(operational_location_display(parent_row.name, NEW.partition_label))
-      OR lower(pen.name) = lower(operational_location_display(parent_row.name, display_partition_label))
-      OR (source_shed_name IS NOT NULL AND lower(pen.name) = lower(source_shed_name))
-    );
-
-  IF candidate_count > 1 THEN
-    RAISE EXCEPTION 'shed_partition_operational_location_ambiguous: tenant %, shed %, partition %',
-      NEW.tenant_id, NEW.shed_id, NEW.partition_label;
-  END IF;
-
-  IF candidate_id IS NULL THEN
-    INSERT INTO public.locations (
-      tenant_id,
-      location_type,
-      location_code,
-      name,
-      parent_location_id,
-      country,
-      timezone,
-      status,
-      display_order,
-      operational_notes
-    ) VALUES (
-      NEW.tenant_id,
-      'shed',
-      NULL,
-      COALESCE(source_shed_name, operational_location_display(parent_row.name, display_partition_label)),
-      parent_row.parent_location_id,
-      parent_row.country,
-      parent_row.timezone,
-      'active',
-      COALESCE(NEW.display_order, 0),
-      'Created from active shed_partitions row'
-    )
-    RETURNING location_id INTO candidate_id;
-  END IF;
-
-  NEW.operational_location_id := candidate_id;
-
-  INSERT INTO public.location_operational_attributes (
-    tenant_id,
-    location_id,
-    usable_for_counts,
-    usable_for_feed,
-    usable_for_vaccination,
-    usable_for_sop,
-    is_holding,
-    is_quarantine,
-    is_icu,
-    display_order,
-    notes,
-    updated_at
-  )
-  SELECT
-    parent_loa.tenant_id,
-    candidate_id,
-    parent_loa.usable_for_counts,
-    parent_loa.usable_for_feed,
-    parent_loa.usable_for_vaccination,
-    parent_loa.usable_for_sop,
-    parent_loa.is_holding,
-    parent_loa.is_quarantine,
-    parent_loa.is_icu,
-    parent_loa.display_order,
-    parent_loa.notes,
-    now()
-  FROM public.location_operational_attributes parent_loa
-  WHERE parent_loa.tenant_id = NEW.tenant_id
-    AND parent_loa.location_id = NEW.shed_id
-  ON CONFLICT (location_id) DO NOTHING;
-
-  PERFORM public.copy_shed_partition_profile(NEW.tenant_id, NEW.shed_id, NEW.operational_location_id);
-
-  IF TG_OP = 'UPDATE'
-    AND OLD.operational_location_id IS NOT NULL
-    AND OLD.operational_location_id IS DISTINCT FROM NEW.operational_location_id THEN
-    IF EXISTS (
-      SELECT 1
-      FROM public.goats g
-      JOIN public.goat_shed_partitions gsp
-        ON gsp.tenant_id = g.tenant_id
-       AND gsp.goat_id = g.goat_id
-      WHERE g.tenant_id = NEW.tenant_id
-        AND g.current_location_id = OLD.operational_location_id
-        AND g.lifecycle_status NOT IN ('dead','sold','culled','transferred','lost','merged','inactive')
-        AND g.merged_into_goat_id IS NULL
-        AND gsp.shed_id = NEW.shed_id
-        AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') = NEW.normalized_label
-    ) THEN
-      RAISE EXCEPTION 'shed_partition_operational_location_in_use: tenant %, shed %, partition %',
+    IF NOT FOUND
+      OR exact_row.location_id = NEW.shed_id
+      OR exact_row.parent_location_id IS DISTINCT FROM parent_row.parent_location_id
+      OR (NEW.status = 'active' AND exact_row.status <> 'active')
+      OR (NEW.status = 'retired' AND exact_row.status = 'active') THEN
+      RAISE EXCEPTION 'shed_partition_operational_location_invalid: tenant %, shed %, partition %',
         NEW.tenant_id, NEW.shed_id, NEW.partition_label;
     END IF;
   END IF;
@@ -1827,28 +1599,6 @@ $$;
 
 
 --
--- Name: operational_location_display(text, text); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.operational_location_display(p_shed_name text, p_partition_label text) RETURNS text
-    LANGUAGE sql
-    AS $_$
-  SELECT NULLIF(BTRIM(
-    CASE
-      WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
-        OR lower(BTRIM(p_partition_label)) = 'whole'
-        THEN BTRIM(COALESCE(p_shed_name, ''))
-      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
-        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
-        THEN format('%s - Part %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-    END
-  ), '');
-$_$;
-
-
---
 -- Name: prevent_goat_hard_delete(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1977,6 +1727,28 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: shed_partition_exact_shed_candidate(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.shed_partition_exact_shed_candidate(p_shed_name text, p_partition_label text) RETURNS text
+    LANGUAGE sql
+    AS $_$
+  SELECT NULLIF(BTRIM(
+    CASE
+      WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
+        OR lower(BTRIM(p_partition_label)) = 'whole'
+        THEN BTRIM(COALESCE(p_shed_name, ''))
+      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
+        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
+        THEN format('%s %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+    END
+  ), '');
+$_$;
 
 
 --
@@ -2517,6 +2289,29 @@ $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: app_events; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.app_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid,
+    actor_id uuid,
+    device_id text DEFAULT ''::text NOT NULL,
+    event_name text NOT NULL,
+    properties jsonb DEFAULT '{}'::jsonb NOT NULL,
+    client_event_time timestamp with time zone,
+    received_at timestamp with time zone DEFAULT now() NOT NULL,
+    flavor text DEFAULT ''::text NOT NULL,
+    app_version_name text DEFAULT ''::text NOT NULL,
+    app_version_code integer,
+    request_id text DEFAULT ''::text NOT NULL,
+    trace_id text DEFAULT ''::text NOT NULL,
+    client_info jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT app_events_event_name_present CHECK ((btrim(event_name) <> ''::text))
+);
+
 
 --
 -- Name: crash_daily; Type: TABLE; Schema: analytics; Owner: -
@@ -7673,6 +7468,70 @@ CREATE TABLE public.procurement_pc_handoffs (
 
 
 --
+-- Name: procurement_vendor_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_vendor_catalog (
+    tenant_id uuid NOT NULL,
+    kind text NOT NULL,
+    value text NOT NULL,
+    label text NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT procurement_vendor_catalog_kind_check CHECK ((kind = ANY (ARRAY['record_type'::text, 'breed'::text, 'state'::text, 'city'::text, 'status'::text, 'feed'::text]))),
+    CONSTRAINT procurement_vendor_catalog_label_not_blank CHECK ((btrim(label) <> ''::text)),
+    CONSTRAINT procurement_vendor_catalog_value_not_blank CHECK ((btrim(value) <> ''::text))
+);
+
+
+--
+-- Name: procurement_vendors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.procurement_vendors (
+    vendor_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    record_type text NOT NULL,
+    business_name text NOT NULL,
+    contact_person_name text,
+    phone_number text,
+    breed text,
+    feed text,
+    status text NOT NULL,
+    filtered_stock integer,
+    price_per_goat numeric(12,2),
+    ready_to_filtered text,
+    eta_after_order_days integer,
+    details text,
+    state text NOT NULL,
+    city text,
+    bank_name text,
+    account_no text,
+    ifsc_code text,
+    upi_id text,
+    pan_number text,
+    comments text,
+    party_id uuid,
+    source_row integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    updated_by uuid,
+    row_version bigint DEFAULT 1 NOT NULL,
+    search_text text GENERATED ALWAYS AS (lower(((((((((COALESCE(business_name, ''::text) || ' '::text) || COALESCE(contact_person_name, ''::text)) || ' '::text) || COALESCE(phone_number, ''::text)) || ' '::text) || COALESCE(city, ''::text)) || ' '::text) || COALESCE(record_type, ''::text)))) STORED,
+    CONSTRAINT procurement_vendors_business_name_not_blank CHECK ((btrim(business_name) <> ''::text)),
+    CONSTRAINT procurement_vendors_eta_nonneg CHECK (((eta_after_order_days IS NULL) OR (eta_after_order_days >= 0))),
+    CONSTRAINT procurement_vendors_filtered_stock_nonneg CHECK (((filtered_stock IS NULL) OR (filtered_stock >= 0))),
+    CONSTRAINT procurement_vendors_price_nonneg CHECK (((price_per_goat IS NULL) OR (price_per_goat >= (0)::numeric))),
+    CONSTRAINT procurement_vendors_record_type_not_blank CHECK ((btrim(record_type) <> ''::text)),
+    CONSTRAINT procurement_vendors_state_not_blank CHECK ((btrim(state) <> ''::text)),
+    CONSTRAINT procurement_vendors_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'negotiating'::text, 'banned'::text])))
+);
+
+
+--
 -- Name: proof_artifacts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -8831,6 +8690,14 @@ CREATE TABLE public.workforce_roster_assignments (
     CONSTRAINT workforce_roster_assignments_shift_window_check CHECK ((shift_end_at > shift_start_at)),
     CONSTRAINT workforce_roster_assignments_status_check CHECK ((status = ANY (ARRAY['scheduled'::text, 'active'::text, 'completed'::text, 'missed'::text, 'canceled'::text])))
 );
+
+
+--
+-- Name: app_events app_events_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.app_events
+    ADD CONSTRAINT app_events_pkey PRIMARY KEY (event_id);
 
 
 --
@@ -10394,6 +10261,22 @@ ALTER TABLE ONLY public.procurement_source_health_checks
 
 
 --
+-- Name: procurement_vendor_catalog procurement_vendor_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_vendor_catalog
+    ADD CONSTRAINT procurement_vendor_catalog_pkey PRIMARY KEY (tenant_id, kind, value);
+
+
+--
+-- Name: procurement_vendors procurement_vendors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_vendors
+    ADD CONSTRAINT procurement_vendors_pkey PRIMARY KEY (vendor_id);
+
+
+--
 -- Name: proof_artifacts proof_artifacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11183,6 +11066,27 @@ ALTER TABLE ONLY public.workforce_positions
 
 ALTER TABLE ONLY public.workforce_roster_assignments
     ADD CONSTRAINT workforce_roster_assignments_pkey PRIMARY KEY (roster_assignment_id);
+
+
+--
+-- Name: app_events_device_received_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX app_events_device_received_idx ON analytics.app_events USING btree (device_id, received_at DESC);
+
+
+--
+-- Name: app_events_received_at_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX app_events_received_at_idx ON analytics.app_events USING btree (received_at DESC);
+
+
+--
+-- Name: app_events_tenant_event_received_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX app_events_tenant_event_received_idx ON analytics.app_events USING btree (tenant_id, event_name, received_at DESC);
 
 
 --
@@ -13139,6 +13043,13 @@ CREATE INDEX obligation_instances_unbatched_due_version_idx ON public.obligation
 
 
 --
+-- Name: obligation_instances_vaccination_drive_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_instances_vaccination_drive_day_idx ON public.obligation_instances USING btree (tenant_id, due_at) WHERE ((target_type = 'goat'::text) AND (status <> ALL (ARRAY['canceled'::text, 'superseded'::text, 'waived'::text])));
+
+
+--
 -- Name: obligation_operator_config_replan_watermarks_park_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13150,6 +13061,13 @@ CREATE INDEX obligation_operator_config_replan_watermarks_park_idx ON public.obl
 --
 
 CREATE INDEX obligation_operator_config_replan_watermarks_status_idx ON public.obligation_operator_config_replan_watermarks USING btree (tenant_id, status) WHERE (status = 'pending'::text);
+
+
+--
+-- Name: obligation_status_events_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_status_events_day_idx ON public.obligation_status_events USING btree (tenant_id, event_type, occurred_at);
 
 
 --
@@ -13517,6 +13435,55 @@ CREATE INDEX procurement_source_health_checks_goat_idx ON public.procurement_sou
 
 
 --
+-- Name: procurement_vendor_catalog_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendor_catalog_kind_idx ON public.procurement_vendor_catalog USING btree (tenant_id, kind, is_active, sort_order, value);
+
+
+--
+-- Name: procurement_vendors_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendors_keyset_idx ON public.procurement_vendors USING btree (tenant_id, business_name, vendor_id);
+
+
+--
+-- Name: procurement_vendors_natural_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX procurement_vendors_natural_uq ON public.procurement_vendors USING btree (tenant_id, lower(btrim(business_name)), record_type, state, COALESCE(regexp_replace(phone_number, '\D'::text, ''::text, 'g'::text), ''::text));
+
+
+--
+-- Name: procurement_vendors_record_type_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendors_record_type_idx ON public.procurement_vendors USING btree (tenant_id, record_type, business_name, vendor_id);
+
+
+--
+-- Name: procurement_vendors_search_trgm_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendors_search_trgm_idx ON public.procurement_vendors USING gin (search_text public.gin_trgm_ops);
+
+
+--
+-- Name: procurement_vendors_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendors_state_idx ON public.procurement_vendors USING btree (tenant_id, state, business_name, vendor_id);
+
+
+--
+-- Name: procurement_vendors_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX procurement_vendors_status_idx ON public.procurement_vendors USING btree (tenant_id, status, business_name, vendor_id);
+
+
+--
 -- Name: proof_artifacts_abandoned_upload_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13563,6 +13530,20 @@ CREATE UNIQUE INDEX proof_artifacts_tenant_object_key_unique_idx ON public.proof
 --
 
 CREATE INDEX proof_artifacts_tenant_state_idx ON public.proof_artifacts USING btree (tenant_id, upload_state, created_at DESC, proof_id DESC);
+
+
+--
+-- Name: proof_artifacts_vaccination_created_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_vaccination_created_day_idx ON public.proof_artifacts USING btree (tenant_id, created_at) WHERE ((subject_type = 'goat'::text) AND (proof_type = 'video'::text) AND (uploaded_at IS NULL));
+
+
+--
+-- Name: proof_artifacts_vaccination_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX proof_artifacts_vaccination_day_idx ON public.proof_artifacts USING btree (tenant_id, uploaded_at) INCLUDE (scope_id, subject_id, uploaded_by, upload_state) WHERE ((subject_type = 'goat'::text) AND (proof_type = 'video'::text));
 
 
 --
@@ -13797,6 +13778,13 @@ CREATE INDEX sop_task_review_fanouts_retry_idx ON public.sop_task_review_fanouts
 
 
 --
+-- Name: sop_task_scan_attempts_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_attempts_day_idx ON public.sop_task_scan_attempts USING btree (tenant_id, captured_at);
+
+
+--
 -- Name: sop_task_scan_attempts_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13818,6 +13806,13 @@ CREATE INDEX sop_task_scan_attempts_task_idx ON public.sop_task_scan_attempts US
 
 
 --
+-- Name: sop_task_scan_captures_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_captures_day_idx ON public.sop_task_scan_captures USING btree (tenant_id, captured_at);
+
+
+--
 -- Name: sop_task_scan_captures_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13825,10 +13820,10 @@ CREATE UNIQUE INDEX sop_task_scan_captures_idempotency_unique_idx ON public.sop_
 
 
 --
--- Name: sop_task_scan_captures_task_field_tag_unique_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sop_task_scan_captures_task_field_tag_obligation_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX sop_task_scan_captures_task_field_tag_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, field_key, normalized_tag);
+CREATE UNIQUE INDEX sop_task_scan_captures_task_field_tag_obligation_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, field_key, normalized_tag, COALESCE(obligation_id, '00000000-0000-0000-0000-000000000000'::uuid));
 
 
 --
@@ -14021,6 +14016,13 @@ CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions
 
 
 --
+-- Name: vaccination_completions_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_day_idx ON public.vaccination_completions USING btree (tenant_id, administered_at);
+
+
+--
 -- Name: vaccination_completions_goat_history_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -14074,6 +14076,13 @@ CREATE INDEX vaccination_drive_assignment_members_tenant_goat_idx ON public.vacc
 --
 
 CREATE UNIQUE INDEX vaccination_drive_assignments_batch_shed_part_operator_uq ON public.vaccination_drive_assignments USING btree (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid));
+
+
+--
+-- Name: vaccination_drive_assignments_day_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_drive_assignments_day_shed_idx ON public.vaccination_drive_assignments USING btree (tenant_id, planned_date, shed_id);
 
 
 --
@@ -14203,6 +14212,13 @@ CREATE INDEX verification_items_leadership_queue_idx ON public.verification_item
 
 
 --
+-- Name: verification_items_pending_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_pending_scope_idx ON public.verification_items USING btree (tenant_id, park_id, shed_id) WHERE (status = 'pending'::text);
+
+
+--
 -- Name: verification_items_queue_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -14235,6 +14251,13 @@ CREATE INDEX verification_items_source_submission_idx ON public.verification_ite
 --
 
 CREATE INDEX verification_items_verified_by_review_idx ON public.verification_items USING btree (tenant_id, verified_by, park_id, category, verified_at) WHERE (verified_by IS NOT NULL);
+
+
+--
+-- Name: verification_items_verified_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_verified_day_idx ON public.verification_items USING btree (tenant_id, verified_at) WHERE (verified_at IS NOT NULL);
 
 
 --
@@ -17677,6 +17700,14 @@ ALTER TABLE ONLY public.procurement_source_health_checks
 
 ALTER TABLE ONLY public.procurement_source_health_checks
     ADD CONSTRAINT procurement_source_health_checks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: procurement_vendors procurement_vendors_party_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.procurement_vendors
+    ADD CONSTRAINT procurement_vendors_party_fk FOREIGN KEY (party_id) REFERENCES public.parties(party_id);
 
 
 --

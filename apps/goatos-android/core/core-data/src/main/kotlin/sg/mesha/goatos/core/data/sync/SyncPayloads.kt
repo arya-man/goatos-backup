@@ -250,8 +250,7 @@ data class FeedDirectionCompletePayload(
 data class FeedDistributionCompletePayload(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
-    /** The PEN worked; null for an undivided shed. Defaulted so an outbox row written by an older
-     *  build still decodes — it simply predates per-pen completions. */
+    /** Legacy compatibility only. Defaulted so older outbox rows still decode; dispatch ignores it. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
@@ -332,14 +331,13 @@ data class HealthCaseOpenPayload(
 data class FeedPackingCompletePayload(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
-    /** The PEN worked; null for an undivided shed. Defaulted so an outbox row written by an older
-     *  build still decodes — it simply predates per-pen completions. */
+    /** Legacy compatibility only. Defaulted so older outbox rows still decode; dispatch ignores it. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     /**
      * The feeding session this bag was packed for, and part of the completion's identity again
      * (maintainer decision 2026-08-11).
      *
-     * DEFAULTED TO 0 ON PURPOSE, and 0 means "queued by the pen-day build". The outbox is durable, so
+     * DEFAULTED TO 0 ON PURPOSE, and 0 means "queued by the day-level build". The outbox is durable, so
      * a phone upgrading across this change can still hold a recorded-but-unsynced packing row whose
      * JSON carries no session at all. A non-defaulted property would fail to decode it and kill an
      * operator's video terminally. [SyncEngine] maps a 0 to session 1 on dispatch, the same choice

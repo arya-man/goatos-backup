@@ -205,8 +205,7 @@ type ExecutionQuery struct {
 	TenantID string
 	ParkID   *string
 	ShedID   *string
-	// PartitionLabel narrows a shed drilldown to one operational partition. Nil keeps
-	// the physical-shed aggregate for callers that intentionally request it.
+	// PartitionLabel is accepted for legacy callers; active reads are keyed by exact ShedID.
 	PartitionLabel *string
 	// OperatorScopeActorID is set only for app/mobile execution reads. It is the
 	// authenticated actor id and the repository resolves it to the matching

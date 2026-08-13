@@ -97,7 +97,7 @@ class VerifyQueueShedGroupingTest {
     }
 
     @Test
-    fun `sibling partitions of one task and physical shed render as separate cards`() = runTest(dispatcher) {
+    fun `sibling physical sheds of one task render as separate cards`() = runTest(dispatcher) {
         val items = listOf("1", "2").flatMap { partition ->
             (1..2).map { goat ->
                 VerificationQueueItem(
@@ -105,10 +105,10 @@ class VerifyQueueShedGroupingTest {
                     category = "vaccination_proof",
                     status = VerificationStatus.PENDING,
                     subjectLabel = "Goat $goat",
-                    shedId = "shed-castro",
-                    shedLabel = "Castro",
+                    shedId = "shed-castro-$partition",
+                    shedLabel = "Castro $partition",
                     partitionLabel = partition,
-                    operationalLocationDisplay = "Castro - $partition",
+                    operationalLocationDisplay = "Castro $partition",
                     source = VerificationSourceRef(
                         refType = "vaccination_goat",
                         taskId = "task-1",
@@ -127,19 +127,19 @@ class VerifyQueueShedGroupingTest {
         advanceUntilIdle()
 
         assertEquals(2, vm.state.value.rows.size)
-        assertEquals(setOf("1", "2"), vm.state.value.rows.map { it.partitionLabel }.toSet())
-        assertEquals(setOf("Castro - 1", "Castro - 2"), vm.state.value.rows.map { it.shedLabel }.toSet())
+        assertEquals(setOf(null), vm.state.value.rows.map { it.partitionLabel }.toSet())
+        assertEquals(setOf("Castro 1", "Castro 2"), vm.state.value.rows.map { it.shedLabel }.toSet())
         assertEquals(
             setOf(
-                "task:task-1|shed:shed-castro|partition:1",
-                "task:task-1|shed:shed-castro|partition:2",
+                "task:task-1|shed:shed-castro-1",
+                "task:task-1|shed:shed-castro-2",
             ),
             vm.state.value.rows.map { it.id }.toSet(),
         )
     }
 
     @Test
-    fun `submission fallback still separates sibling partitions`() {
+    fun `submission fallback ignores legacy partition labels`() {
         fun item(partition: String) = VerificationQueueItem(
             itemId = "item-$partition",
             shedId = "shed-castro",
@@ -150,7 +150,7 @@ class VerifyQueueShedGroupingTest {
             ),
         )
 
-        assertTrue(item("1").verificationGroupKey() != item("2").verificationGroupKey())
+        assertEquals(item("1").verificationGroupKey(), item("2").verificationGroupKey())
     }
 }
 

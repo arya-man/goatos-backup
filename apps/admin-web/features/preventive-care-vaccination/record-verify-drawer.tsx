@@ -167,8 +167,8 @@ function VaccinationRecordVerifyDrawer({
             <div>
               <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
               <div className="v">
-                {/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
-                {cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })}
+                {/* Render the exact shed name; partition fields are compatibility metadata only. */}
+                {cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName })}
               </div>
             </div>
             <div>
@@ -219,7 +219,7 @@ function VaccinationRecordVerifyDrawer({
             ) : null}
           </div>
 
-          <VaccinationRecordFormFields cohortShed={cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })} vaccineName={vaccineName} pageContract={pageContract} />
+          <VaccinationRecordFormFields cohortShed={cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName })} vaccineName={vaccineName} pageContract={pageContract} />
         </div>
 
         <div className="df">

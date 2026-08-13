@@ -329,7 +329,7 @@ inperiod AS (
 ),
 period_weights AS (
   SELECT wcs.location_id, wcs.display_name AS shed_name,
-         COALESCE(wcs.partition_label, '') AS partition_label,
+         ''::text AS partition_label,
          wo.weight_kg::float8 AS weight_kg,
          lower(btrim(wo.scanned_identifier)) AS animal_key
   FROM weighing_observations wo
@@ -344,24 +344,24 @@ period_weights AS (
     AND wo.accepted_at < $4::timestamptz
 ),
 shed_weight AS (
-  SELECT location_id, partition_label, MAX(shed_name) AS shed_name,
+  SELECT location_id, MAX(shed_name) AS shed_name,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY weight_kg) AS median_weight_kg,
          COUNT(DISTINCT animal_key) AS n
   FROM period_weights
-  GROUP BY location_id, partition_label
+  GROUP BY location_id
 ),
 shed_adg AS (
-  SELECT location_id, partition_label,
+  SELECT location_id,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS median_adg,
          COUNT(*) AS pair_count
   FROM inperiod
-  GROUP BY location_id, partition_label
+  GROUP BY location_id
 )
-SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.n, sw.median_weight_kg,
+SELECT sw.location_id, sw.shed_name, ''::text AS partition_label, sw.n, sw.median_weight_kg,
        COALESCE(sa.median_adg, 0), COALESCE(sa.pair_count, 0)
 FROM shed_weight sw
-LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
-ORDER BY sw.shed_name, sw.partition_label`
+LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id
+ORDER BY sw.shed_name`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart)
 	if err != nil {
 		return nil, err
@@ -492,7 +492,7 @@ func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, pa
 	// be derived from the delta between two shed-level averages.
 	// projection-review: membership=weighing_shed_observations; group_key=location_id_week; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	rows, err := r.pool.Query(ctx, `
-SELECT wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''),
+SELECT wcs.location_id, wcs.display_name, ''::text,
        (date_trunc('week', wso.accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start,
        AVG(wso.average_weight_kg::float8) AS avg_weight_kg,
        SUM(wso.animal_count) AS head_count
@@ -507,8 +507,8 @@ WHERE wso.tenant_id = $1::uuid
   AND wso.withdrawn_at IS NULL
   AND wso.accepted_at >= $3::timestamptz
   AND wso.accepted_at < $4::timestamptz
-GROUP BY wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''), week_start
-ORDER BY wcs.display_name, COALESCE(wcs.partition_label, ''), week_start`, tenantID, parkIDs, periodStart, periodEnd)
+GROUP BY wcs.location_id, wcs.display_name, week_start
+ORDER BY wcs.display_name, week_start`, tenantID, parkIDs, periodStart, periodEnd)
 	if err != nil {
 		return domain.GrowthLumpSum{}, err
 	}

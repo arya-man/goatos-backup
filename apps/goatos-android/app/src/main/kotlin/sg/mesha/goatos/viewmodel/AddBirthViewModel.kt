@@ -293,7 +293,7 @@ class AddBirthViewModel @Inject constructor(
                     species = current.species,
                     parkId = current.parkId.ifBlank { null },
                     shedId = current.shedId.ifBlank { null },
-                    partitionLabel = current.partitionLabel?.takeIf { it.isNotBlank() },
+                    partitionLabel = null,
                     breed = current.breed.trim(),
                     sex = current.sex,
                     // DOB is locked to today (births are recorded as they happen) and the entry

@@ -37,7 +37,7 @@ type CapacityConfig struct {
 	MaxShotsPerAnimalPerDrive *int `json:"maxShotsPerAnimalPerDrive"`
 }
 
-// Valid capacity-config vocabularies (mirror the DB CHECK constraints in migration 000155). Exposed so
+// Valid capacity-config vocabularies (mirror the DB CHECK constraints in migration 000161). Exposed so
 // the admin-ui contract + validation share one source. Only 'tenant' scope is honored by the planner
 // today (the SQL uses a single tenant-wide cap); center/shed are accepted by the schema for later use.
 var (
@@ -77,7 +77,7 @@ func contains(set []string, v string) bool {
 	return false
 }
 
-// DefaultCapacityConfig is the code fallback for a tenant with no config row yet (migration 000155 seeds
+// DefaultCapacityConfig is the code fallback for a tenant with no config row yet (migration 000161 seeds
 // existing tenants; this covers tenants created afterward). Matches the maintainer-set seed.
 func DefaultCapacityConfig() CapacityConfig {
 	return CapacityConfig{

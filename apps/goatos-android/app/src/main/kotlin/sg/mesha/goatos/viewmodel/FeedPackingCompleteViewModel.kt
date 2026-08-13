@@ -78,7 +78,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
-    private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
+    private val partitionLabel: String = ""
 
     // The row's backend-owned lifecycle bucket. The ONLY signal this screen has that the session is
     // already with the verifier: the capture draft is local and a reinstall wipes it, which is how
@@ -86,12 +86,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val alreadySubmitted: Boolean =
         !feedSessionCanCapture(savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty(), isToday = true)
 
-    // The day-shed-PEN-session partitions ordering for BOTH the proof AND the completion, so the
-    // proof drains strictly before the gated completion that references it. The PEN, the SESSION and
-    // the DAY are all part of this key: see feedCaptureGroupKey for what dropping any of them did to
-    // the field.
+    // The day-shed-session partitions ordering for BOTH the proof AND the completion, so the proof
+    // drains strictly before the gated completion that references it.
     private val groupKey =
-        feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
+        feedCaptureGroupKey("feed-pack", shedId, "", sessionNo, workflow, targetDate)
 
     private val videoKey = DraftIdempotencyKey(savedStateHandle, KEY_VIDEO_IDEMPOTENCY, "feed-packing-video")
     private var videoProofRowId: String? = null
@@ -351,7 +349,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     idempotencyKey = completeIdempotencyKey,
                     parkId = parkId,
                     shedId = shedId,
-                    partitionLabel = partitionLabel,
+                    partitionLabel = null,
                     sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
@@ -452,9 +450,6 @@ class FeedPackingCompleteViewModel @Inject constructor(
         const val ARG_SESSION_LABEL = "session_label"
         const val ARG_PARK_LABEL = "park_label"
 
-        /** The PEN worked. Part of the completion's identity: without it one pen's video closed
-         *  out every pen of the shed (STG 2026-08-08). */
-        const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
 
         /** Draft step name in the shared capture-draft store. */
