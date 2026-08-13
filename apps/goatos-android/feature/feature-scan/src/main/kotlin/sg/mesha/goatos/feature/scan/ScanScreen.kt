@@ -265,6 +265,7 @@ data class ScanUiState(
     val sopVersionId: String? = null,
     val taskRowVersion: Int? = null,
     val evidenceError: String? = null,
+    val lastProofCaptureError: String? = null,
     val shedOptions: List<ShedSwitchOption> = emptyList(),
     val canSwitchShed: Boolean = false,
     val shedSwitcherOpen: Boolean = false,
@@ -386,6 +387,9 @@ fun ScanScreen(
                     item { NotDueBanner(state.error) }
                 } else {
                     state.duplicateNotice?.takeIf { it.isNotBlank() }?.let { message ->
+                        item { OperatorNoticeBanner(message) }
+                    }
+                    state.lastProofCaptureError?.takeIf { it.isNotBlank() }?.let { message ->
                         item { OperatorNoticeBanner(message) }
                     }
                     state.evidenceError?.takeIf { it.isNotBlank() }?.let { message ->
