@@ -882,6 +882,60 @@ func TestRecordBirthEventForcesOriginTypeBirth(t *testing.T) {
 	}
 }
 
+// TestRecordBirthEventPinsNewbornStageToK0 pins the maintainer decision of 2026-08-13: a newborn is
+// K0 and goes to whatever shed the raising request names.
+//
+// The stage must be pinned in BOTH bodies for the same reason origin_type is. The validated body is
+// what identity checks now; the STORED payload is what identity replays at approval, days later. If
+// the stage were absent from the stored payload, the create would fall back to reading the
+// destination shed's shed_profiles row and fail closed on an unprofiled shed -- which is exactly the
+// 500 that blocked every birth into the mixed-cohort kid sheds (Yashoda, Mandela 1).
+func TestRecordBirthEventPinsNewbornStageToK0(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	rec := post(t, mux, appBirthEventRoute, "birth-key-k0-01", birthBody("KID-K0"))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+
+	var validated map[string]any
+	if err := json.Unmarshal(validator.lastCreate.RawBody, &validated); err != nil {
+		t.Fatalf("validated body is not JSON: %v", err)
+	}
+	if validated["management_stage"] != newbornManagementStage {
+		t.Fatalf("validated management_stage=%v, want %s", validated["management_stage"], newbornManagementStage)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(approvals.lastSubmission.Payload, &stored); err != nil {
+		t.Fatalf("stored payload is not JSON: %v", err)
+	}
+	if stored["management_stage"] != newbornManagementStage {
+		t.Fatalf("stored management_stage=%v, want %s (the approval replay must not fall back to the shed profile)",
+			stored["management_stage"], newbornManagementStage)
+	}
+}
+
+// A stage the client did supply, disagreeing with the pin, is REJECTED rather than silently
+// rewritten -- the validate-or-reject rule, same shape as the origin_type test below.
+func TestRecordBirthEventRejectsConflictingManagementStage(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	body := birthBody("KID-K0-BAD")
+	body["management_stage"] = "Non-Pregnant"
+	rec := post(t, mux, appBirthEventRoute, "birth-key-k0-02", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if validator.prepareCreates != 0 || approvals.submits != 0 {
+		t.Fatalf("prepareCreates=%d submits=%d, want 0/0 (a rejected stage must not reach the queue)",
+			validator.prepareCreates, approvals.submits)
+	}
+}
+
 func TestRecordBirthEventRejectsConflictingOriginType(t *testing.T) {
 	validator := newFakeGoatValidator()
 	approvals := newFakeApprovalWorkflow()
