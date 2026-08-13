@@ -88,7 +88,7 @@ data class ProofIdentity(
     /** Submit scope key: the identity of ONE shed submission task with optional partition and row version.
      *  Used for submit idempotency and completion tracking. */
     fun submissionScopeKey(includePartition: Boolean = false): String {
-        val partitionSegment = if (includePartition && partitionKey != "whole") {
+        val partitionSegment = if (includePartition) {
             ":partition:$partitionKey"
         } else {
             ""
