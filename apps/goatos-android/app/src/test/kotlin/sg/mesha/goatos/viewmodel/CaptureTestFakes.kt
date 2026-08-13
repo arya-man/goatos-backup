@@ -9,6 +9,7 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.forms.FormSpec
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
@@ -341,6 +342,16 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
         flow.value = emptyList()
+    }
+
+    override suspend fun activeCount(slot: EvidenceSlot): Int {
+        val partitionKey = testPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" })
+        return rows.count {
+            it.partitionKey == partitionKey &&
+                it.fieldKey == slot.fieldKey &&
+                it.syncStatus != CaptureSyncStatus.FAILED &&
+                it.serverProofId == null
+        }
     }
 }
 

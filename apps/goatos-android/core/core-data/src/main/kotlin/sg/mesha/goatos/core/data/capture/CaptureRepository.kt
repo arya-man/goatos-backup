@@ -535,6 +535,80 @@ interface ProofCaptureRepository {
     suspend fun retryUpload(taskId: String, id: String): AppResult<Unit>
 
     suspend fun clearForTask(taskId: String)
+
+    /** Latest active (non-FAILED) row held by [slot], or null if the slot is empty. Built on
+     *  [observeProofs] so every implementer (Room-backed and fakes) shares one selection rule:
+     *  most-recent [ProofCaptureRow.capturedAtMs] wins, matching [captureReplacingLatest]'s
+     *  "replace the newest occupant" semantics. Default method — no per-implementer duplication
+     *  of the slot-selection rule. */
+    fun observeLatest(slot: EvidenceSlot): Flow<ProofCaptureRow?> =
+        observeProofs(slot.identity.taskId, slot.identity.partitionKey.takeUnless { it == "whole" })
+            .map { rows ->
+                rows.filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
+                    .maxByOrNull { it.capturedAtMs }
+            }
+
+    /** Count of active (non-FAILED, not-yet-delivered) rows held by [slot]. Mirrors
+     *  [ProofCaptureDao.activeCountForField]'s "ACTIVE means in flight" rule so a delivered
+     *  (serverProofId set) row does not hold the slot — see that query's kdoc for why a delivered
+     *  proof must stay re-shootable across a reopened pen. */
+    suspend fun activeCount(slot: EvidenceSlot): Int
+
+    /**
+     * Captures a new proof for [slot], then discards the slot's previous active occupant —
+     * ordering per Manohar's rule: **capture the new evidence first, only discard the old one
+     * after the new capture succeeds.** A failed new capture must never destroy evidence that was
+     * already proving the slot; the old row is only removed once [capture] returns
+     * [AppResult.Ok].
+     *
+     * Implemented over the existing primitives ([capture], [remove], [observeLatest]) so it needs
+     * no new Room query and cannot diverge from the byte-identical id/key formats those primitives
+     * already produce.
+     */
+    suspend fun captureReplacingLatest(
+        slot: EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String? = null,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String? = null,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy = ProofPolicy.Default,
+        awaitUploadEnqueue: Boolean = false,
+        uploadGroupKey: String? = null,
+    ): AppResult<ProofCaptureRow> {
+        val taskId = slot.identity.taskId
+        val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+        val previous = observeLatest(slot).first()
+        val result = capture(
+            taskId = taskId,
+            fieldKey = slot.fieldKey,
+            subject = subject,
+            subjectId = subjectId,
+            localUri = localUri,
+            mimeType = mimeType,
+            caption = caption,
+            rfidTag = rfidTag,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            capturedStartMs = capturedStartMs,
+            capturedEndMs = capturedEndMs,
+            capturedByPrincipalId = capturedByPrincipalId,
+            proofPolicy = proofPolicy,
+            partitionLabel = partitionLabel,
+            awaitUploadEnqueue = awaitUploadEnqueue,
+            uploadGroupKey = uploadGroupKey,
+        )
+        if (result is AppResult.Ok && previous != null && previous.id != result.value.id) {
+            remove(taskId, previous.id)
+        }
+        return result
+    }
 }
 
 class DefaultProofCaptureRepository(
@@ -798,6 +872,10 @@ class DefaultProofCaptureRepository(
             if (page.size < ProofCaptureDao.TASK_CLEANUP_PAGE_SIZE) break
         }
         dao.clearForTask(taskId)
+    }
+
+    override suspend fun activeCount(slot: EvidenceSlot): Int = withContext(dispatchers.io) {
+        dao.activeCountForField(slot.identity.taskId, executionPartitionKey(slot.identity.partitionKey.takeUnless { it == "whole" }), slot.fieldKey)
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:

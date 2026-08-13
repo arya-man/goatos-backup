@@ -239,6 +239,8 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun clearForTask(taskId: String) = Unit
+
+    override suspend fun activeCount(slot: sg.mesha.goatos.core.data.capture.EvidenceSlot): Int = 0
 }
 
 private class WhileSubNoopSyncRepository : SyncRepository {
