@@ -143,8 +143,6 @@ private class CountingFeedCompleteSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var pendingGate: CompletableDeferred<Unit>? = null
 
-    /** The NEXT [enqueueFeedDirectionComplete] call suspends until [gate] completes — models the
-     *  real gap between a tap and the async write landing, so a fast second tap can race it. */
     fun holdNextEnqueueUntil(gate: CompletableDeferred<Unit>) {
         pendingGate = gate
     }

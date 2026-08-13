@@ -12,36 +12,34 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import android.content.Context
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.boot.RecordingAnalytics
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.CaptureDraft
-import sg.mesha.goatos.core.data.CaptureDraftRepository
-import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
-import sg.mesha.goatos.feature.feed.FeedPackingCompleteEvent
+import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 
 /**
- * Issue 1 (submit hardening): FeedPackingCompleteViewModel.markDone() had NO in-flight/double-tap
- * latch — it relied only on UI canComplete check, so a fast double-tap could call
- * [SyncRepository.enqueueFeedPackingComplete] twice before the first enqueue's state update
- * landed. RED before the fix: two enqueue calls for two rapid MarkDone events.
+ * Issue 1 (submit hardening): FeedDistributionCompleteViewModel.markDone() had NO red/green test
+ * for its in-flight/double-tap latch (completeEnqueueInFlight). The latch exists but was untested.
+ * RED before the fix: two enqueue calls for two rapid MarkDone events.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 @OptIn(ExperimentalCoroutinesApi::class)
-class FeedPackingCompleteSubmitGuardTest {
+class FeedDistributionCompleteSubmitGuardTest {
     private val dispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -52,14 +50,8 @@ class FeedPackingCompleteSubmitGuardTest {
 
     @Test
     fun `double-tap markDone enqueues exactly once`() = runTest(dispatcher) {
-        val sync = CountingFeedPackingCompleteSyncRepository()
-        val drafts = InMemoryCaptureDraftRepository()
-
-        // Set up a proof as if it's already captured (simulates successful RecordPackingVideo)
-        val proofOutboxId = "packing-proof-1"
-        val groupKey = "feed-pack:shed-1:A:1:feed:2026-08-13"
-        drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
-
+        val sync = CountingFeedDistributionCompleteSyncRepository()
+        val context = RuntimeEnvironment.getApplication()
         val saved = SavedStateHandle(
             mapOf(
                 "shed_id" to "shed-1",
@@ -73,34 +65,44 @@ class FeedPackingCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val viewModel = FeedPackingCompleteViewModel(
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDist.feedWeightPhotoProofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDist.videoProofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDist.waterVideoProofItemId")
+
+        // Pre-set all three proof IDs so canComplete can derive as true
+        feedWeightPhotoProofItemId.value = "proof-photo-1"
+        videoProofItemId.value = "proof-video-1"
+        waterVideoProofItemId.value = "proof-water-1"
+
+        val viewModel = FeedDistributionCompleteViewModel(
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
+            photoCaptureSource = FakePhotoCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
-            drafts = drafts,
+            appContext = context,
             savedStateHandle = saved,
         )
         advanceUntilIdle()
 
-        // Mark the proof as ready so canComplete can derive as true
-        sync.markProofReady(proofOutboxId)
+        // Mark all three proofs as ready
+        sync.markProofReady("proof-photo-1")
+        sync.markProofReady("proof-video-1")
+        sync.markProofReady("proof-water-1")
         advanceUntilIdle()
 
         // The enqueue call suspends until released, modelling the real gap between a tap landing
-        // and the async write actually updating `result`/`canComplete` — the exact window a fast
-        // double-tap lands in. A guard keyed only on _state.value (read before the launch) would
-        // let BOTH taps observe the still-open gate and enqueue twice.
+        // and the async write actually updating state — the exact window a fast double-tap lands in.
         val gate = CompletableDeferred<Unit>()
         sync.holdNextEnqueueUntil(gate)
-        viewModel.onEvent(FeedPackingCompleteEvent.MarkDone)
-        viewModel.onEvent(FeedPackingCompleteEvent.MarkDone)
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
         gate.complete(Unit)
         advanceUntilIdle()
 
         assertEquals(
-            "a double-tap on MarkDone must enqueue exactly one feed-packing-complete write",
+            "a double-tap on MarkDone must enqueue exactly one feed-distribution-complete write",
             1,
             sync.markDoneEnqueueCalls,
         )
@@ -108,15 +110,9 @@ class FeedPackingCompleteSubmitGuardTest {
 
     @Test
     fun `failed markDone resets latch so retry can proceed`() = runTest(dispatcher) {
-        val sync = CountingFeedPackingCompleteSyncRepository()
+        val sync = CountingFeedDistributionCompleteSyncRepository()
         sync.failNext = true
-        val drafts = InMemoryCaptureDraftRepository()
-
-        // Set up a proof as if it's already captured
-        val proofOutboxId = "packing-proof-1"
-        val groupKey = "feed-pack:shed-1:A:1:feed:2026-08-13"
-        drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, "video", proofOutboxId)
-
+        val context = RuntimeEnvironment.getApplication()
         val saved = SavedStateHandle(
             mapOf(
                 "shed_id" to "shed-1",
@@ -130,37 +126,49 @@ class FeedPackingCompleteSubmitGuardTest {
                 "lifecycle_status" to "open",
             ),
         )
-        val viewModel = FeedPackingCompleteViewModel(
+        val feedWeightPhotoProofItemId = DraftOutboxItemId(saved, "feedDist.feedWeightPhotoProofItemId")
+        val videoProofItemId = DraftOutboxItemId(saved, "feedDist.videoProofItemId")
+        val waterVideoProofItemId = DraftOutboxItemId(saved, "feedDist.waterVideoProofItemId")
+
+        // Pre-set all three proof IDs
+        feedWeightPhotoProofItemId.value = "proof-photo-1"
+        videoProofItemId.value = "proof-video-1"
+        waterVideoProofItemId.value = "proof-water-1"
+
+        val viewModel = FeedDistributionCompleteViewModel(
             syncRepository = sync,
             proofCaptureSource = FakeProofCaptureSource(),
+            photoCaptureSource = FakePhotoCaptureSource(),
             proofCaptureRepository = FakeProofCaptureRepository(),
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
-            drafts = drafts,
+            appContext = context,
             savedStateHandle = saved,
         )
         advanceUntilIdle()
 
-        // Mark the proof as ready
-        sync.markProofReady(proofOutboxId)
+        // Mark all three proofs as ready
+        sync.markProofReady("proof-photo-1")
+        sync.markProofReady("proof-video-1")
+        sync.markProofReady("proof-water-1")
         advanceUntilIdle()
 
         // First attempt fails
-        viewModel.onEvent(FeedPackingCompleteEvent.MarkDone)
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
         advanceUntilIdle()
         assertEquals("first attempt should fail", 1, sync.markDoneEnqueueCalls)
 
         // Reset for retry
         sync.failNext = false
         // Retry should succeed (latch was reset on the first failure)
-        viewModel.onEvent(FeedPackingCompleteEvent.MarkDone)
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
         advanceUntilIdle()
         assertEquals("retry after failure should succeed", 2, sync.markDoneEnqueueCalls)
     }
 }
 
-/** Counts [SyncRepository.enqueueFeedPackingComplete] calls; everything else is unused/no-op. */
-private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
+/** Counts [SyncRepository.enqueueFeedDistributionComplete] calls. */
+private class CountingFeedDistributionCompleteSyncRepository : SyncRepository {
     var markDoneEnqueueCalls: Int = 0
         private set
     var failNext: Boolean = false
@@ -197,7 +205,7 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
         }
     }
 
-    override suspend fun enqueueFeedPackingComplete(
+    override suspend fun enqueueFeedDistributionComplete(
         groupKey: String,
         idempotencyKey: String,
         parkId: String?,
@@ -206,7 +214,9 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        packingProofOutboxItemId: String,
+        distributionProofOutboxItemId: String,
+        feedWeightProofOutboxItemId: String,
+        waterProofOutboxItemId: String,
     ): AppResult<String> {
         pendingGate?.let { gate -> pendingGate = null; gate.await() }
         markDoneEnqueueCalls += 1
@@ -226,7 +236,7 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     ): AppResult<String> = AppResult.Ok("proof-outbox-1")
 
     override suspend fun enqueueFeedTransportSubmit(groupKey: String, idempotencyKey: String, taskId: String, proofOutboxItemId: String): AppResult<String> = error("unused")
-    override suspend fun enqueueFeedDistributionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, distributionProofOutboxItemId: String, feedWeightProofOutboxItemId: String, waterProofOutboxItemId: String): AppResult<String> = error("unused")
+    override suspend fun enqueueFeedPackingComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, partitionLabel: String?, sessionNo: Int, targetDate: String, workflow: String, packingProofOutboxItemId: String): AppResult<String> = error("unused")
     override suspend fun enqueueFeedDirectionComplete(groupKey: String, idempotencyKey: String, parkId: String?, shedId: String, sessionNo: Int, targetDate: String, workflow: String): AppResult<String> = error("unused")
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto): AppResult<String> = error("unused")
@@ -236,4 +246,11 @@ private class CountingFeedPackingCompleteSyncRepository : SyncRepository {
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
+}
+
+/** Simple fake photo capture source. */
+private class FakePhotoCaptureSource : sg.mesha.goatos.capture.PhotoCaptureSource {
+    override suspend fun capturePhoto(context: sg.mesha.goatos.capture.PhotoCaptureContext): sg.mesha.goatos.capture.CapturedPhoto {
+        return sg.mesha.goatos.capture.CapturedPhoto(localUri = "file:///photo.jpg", capturedAtMs = System.currentTimeMillis())
+    }
 }
