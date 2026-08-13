@@ -18,6 +18,7 @@ class FeedDirectionRowLifecycleTest {
     private fun feedRow(lifecycleStatus: String): FeedDirectionRowUi = FeedDirectionRowUi(
         grainKey = "row-1",
         parkId = "park-1",
+        parkLabel = "CPT",
         shedId = "shed-1",
         sessionNo = 1,
         shedLabel = "Godel 1",

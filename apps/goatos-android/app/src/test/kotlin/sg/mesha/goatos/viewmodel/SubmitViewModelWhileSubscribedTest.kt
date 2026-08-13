@@ -220,6 +220,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,

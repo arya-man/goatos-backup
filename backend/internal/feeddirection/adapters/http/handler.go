@@ -406,6 +406,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 type completePackingRequest struct {
 	ParkID          string `json:"park_id"`
 	ShedID          string `json:"shed_id"`
+	PartitionLabel  string `json:"partition_label"`
 	SessionNo       int32  `json:"session_no"`
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
@@ -471,6 +472,7 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		TenantID:        tenantID,
 		ParkID:          strings.TrimSpace(body.ParkID),
 		ShedID:          strings.TrimSpace(body.ShedID),
+		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		SessionNo:       body.SessionNo,
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),
@@ -657,9 +659,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, ports.ErrInvalidSession),
 		errors.Is(err, ports.ErrWorkflowRequired),
 		errors.Is(err, ports.ErrIdempotencyRequired),
+		errors.Is(err, ports.ErrInvalidPartition),
 		errors.Is(err, ports.ErrInvalidProof):
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-	case errors.Is(err, ports.ErrIdempotencyConflict):
+	case errors.Is(err, ports.ErrIdempotencyConflict),
+		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
+		errors.Is(err, ports.ErrPackingAlreadyRecorded):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
 	case errors.Is(err, ports.ErrDistributionProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,

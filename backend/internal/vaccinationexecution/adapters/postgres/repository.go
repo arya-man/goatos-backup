@@ -2483,12 +2483,13 @@ LEFT JOIN LATERAL (
     AND proof.scope_type = 'task'
     AND proof.scope_id = st.task_id
     AND proof.subject_type = 'goat'
-    AND proof.subject_id = g.goat_id
-    AND proof.upload_state = 'completed'
-    AND proof.proof_type = 'video'
-  ORDER BY proof.created_at DESC, proof.proof_id DESC
-  LIMIT 1
-) goat_proof ON st.task_id IS NOT NULL
+	    AND proof.subject_id = g.goat_id
+	    AND proof.upload_state = 'completed'
+	    AND proof.proof_type = 'video'
+	    AND proof.created_at >= COALESCE(sc.captured_at, '-infinity'::timestamptz)
+	  ORDER BY proof.created_at DESC, proof.proof_id DESC
+	  LIMIT 1
+	) goat_proof ON st.task_id IS NOT NULL
 -- This animal's own latest verdict, keyed on its obligation so one goat's rejection can never
 -- be read onto another's row. Collapsed through LIMIT 1 exactly like the scan-capture lateral
 -- above, so a re-capture cannot duplicate the roster row.
@@ -2538,6 +2539,7 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND ($9::text = '' OR vda.assignment_planned_at IS NOT NULL)
   AND vda.assignment_planned_at IS NOT NULL
+  AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
   AND (
     $10::text = ''
     OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')

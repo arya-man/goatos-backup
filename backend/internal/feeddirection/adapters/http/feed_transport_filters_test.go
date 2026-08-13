@@ -96,10 +96,13 @@ func TestGetTransportTasksAppliesFarmShedAndStatusBeforePaging(t *testing.T) {
 
 type transportScopeSpyService struct {
 	transportFilterService
-	listCalls   int
-	listInput   app.ListTransportTasksInput
-	submitCalls int
-	submitInput app.SubmitTransportInput
+	listCalls            int
+	listInput            app.ListTransportTasksInput
+	submitCalls          int
+	submitInput          app.SubmitTransportInput
+	completePackingCalls int
+	completePackingInput app.CompletePackingInput
+	completePackingErr   error
 }
 
 func (s *transportScopeSpyService) ListTransportTasks(_ context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
@@ -112,6 +115,15 @@ func (s *transportScopeSpyService) SubmitTransport(_ context.Context, in app.Sub
 	s.submitCalls++
 	s.submitInput = in
 	return ports.SubmitTransportResult{AttemptID: "attempt-1", Status: "verification_due", AttemptNo: 1, NewlyPending: true}, nil
+}
+
+func (s *transportScopeSpyService) CompletePacking(_ context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error) {
+	s.completePackingCalls++
+	s.completePackingInput = in
+	if s.completePackingErr != nil {
+		return ports.CompletePackingResult{}, s.completePackingErr
+	}
+	return ports.CompletePackingResult{CompletionID: "50000000-0000-4000-8000-000000000001", Status: "pending_verification", NewlyPending: true}, nil
 }
 
 func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {
@@ -204,5 +216,65 @@ func TestPostTransportSubmitPassesAuthorizedParkScope(t *testing.T) {
 	}
 	if got := service.submitInput.AuthorizedParkIDs; len(got) != 1 || got[0] != parkA {
 		t.Fatalf("authorized parks=%v, want [%s]", got, parkA)
+	}
+}
+
+func TestPostCompletePackingPassesPartitionLabel(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	service := &transportScopeSpyService{}
+	req := httptest.NewRequest(http.MethodPost, "/feed-direction/packing/complete", strings.NewReader(`{
+		"park_id":"20000000-0000-4000-8000-000000000001",
+		"shed_id":"30000000-0000-4000-8000-000000000001",
+		"partition_label":" Castro 1 ",
+		"session_no":1,
+		"target_date":"2026-08-13",
+		"workflow":"normal",
+		"packing_proof_ref":"proof-feed-packing-video-1"
+	}`))
+	req.Header.Set("Idempotency-Key", "feed-packing-complete-test-0001")
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	recorder := httptest.NewRecorder()
+
+	NewHandler(service, slog.Default()).PostCompletePacking(recorder, req.WithContext(ctx))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.completePackingCalls != 1 {
+		t.Fatalf("complete packing calls=%d, want 1", service.completePackingCalls)
+	}
+	if got := service.completePackingInput.PartitionLabel; got != "Castro 1" {
+		t.Fatalf("partition_label=%q, want Castro 1", got)
+	}
+}
+
+func TestPostCompletePackingInvalidPartitionIsBadRequest(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	service := &transportScopeSpyService{completePackingErr: ports.ErrInvalidPartition}
+	req := httptest.NewRequest(http.MethodPost, "/feed-direction/packing/complete", strings.NewReader(`{
+		"park_id":"20000000-0000-4000-8000-000000000001",
+		"shed_id":"30000000-0000-4000-8000-000000000001",
+		"session_no":1,
+		"target_date":"2026-08-13",
+		"workflow":"normal",
+		"packing_proof_ref":"proof-feed-packing-video-1"
+	}`))
+	req.Header.Set("Idempotency-Key", "feed-packing-complete-test-0002")
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	recorder := httptest.NewRecorder()
+
+	NewHandler(service, slog.Default()).PostCompletePacking(recorder, req.WithContext(ctx))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "partition_label") {
+		t.Fatalf("body=%s, want partition_label explanation", recorder.Body.String())
 	}
 }

@@ -49,6 +49,7 @@ import java.time.LocalDate
 data class FeedPackingRowUi(
     val grainKey: String,
     val parkId: String,
+    val parkLabel: String,
     val shedId: String,
     val sessionNo: Int,
     val shedLabel: String,
@@ -137,6 +138,7 @@ sealed interface FeedPackingEvent {
     /** Tap a packing line to open its shed-session completion detail. */
     data class OpenRow(
         val parkId: String,
+        val parkLabel: String,
         /** The row's backend-owned lifecycle bucket, so the capture screen knows the session is
          *  already submitted without re-reading it. */
         val lifecycleStatus: String,
@@ -226,6 +228,7 @@ fun FeedPackingScreen(
                         onEvent(
                             FeedPackingEvent.OpenRow(
                                 parkId = row.parkId,
+                                parkLabel = row.parkLabel,
                                 lifecycleStatus = row.lifecycleStatus,
                                 shedId = row.shedId,
                                 sessionNo = row.sessionNo,

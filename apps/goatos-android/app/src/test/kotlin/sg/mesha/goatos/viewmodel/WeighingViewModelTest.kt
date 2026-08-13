@@ -558,7 +558,10 @@ class WeighingViewModelTest {
         vm.captureShedVideo()
         advanceUntilIdle()
 
-        assertEquals(1, proofs.captureCalls.size)
+        val capture = proofs.captureCalls.single()
+        assertEquals("weighing_shed_partition_video", capture.fieldKey)
+        assertTrue(capture.caption.orEmpty().contains("Weighing"))
+        assertNull("lump-sum shed proof must never carry an RFID", capture.rfidTag)
         assertTrue(analytics.events.any { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_PROOF_CAPTURE_ATTEMPT })
     }
 
@@ -643,7 +646,7 @@ class WeighingViewModelTest {
             fieldKey = "weighing_shed_partition_video",
             proofSubject = ProofSubject.SHED,
             subjectId = "shed-1",
-            caption = "Lump-sum group video 1",
+            caption = "Weighing lump-sum · Gandhi 1 · video 1",
             syncStatus = CaptureSyncStatus.PENDING,
             serverProofId = null,
         )
@@ -736,7 +739,10 @@ class WeighingViewModelTest {
         gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
         assertEquals(1, proofs.captureCalls.size)
-        assertEquals(TEST_TAG, proofs.captureCalls[0].caption)
+        assertTrue(proofs.captureCalls[0].caption.orEmpty().contains("Weighing"))
+        assertFalse("RFID is rendered by the dedicated rfidTag overlay line, not duplicated in caption", proofs.captureCalls[0].caption.orEmpty().contains(TEST_TAG))
+        assertNull("free-flow weighing must not send raw RFID as backend proof subject_id", proofs.captureCalls[0].subjectId)
+        assertEquals(TEST_TAG, proofs.captureCalls[0].rfidTag)
         assertEquals("file://animal-a.mp4", proofs.captureCalls[0].localUri)
 
         // The queued animal B's camera opens automatically the instant A's camera frees up.
@@ -788,7 +794,10 @@ class WeighingViewModelTest {
         )
         advanceUntilIdle()
         assertEquals(1, proofs.captureCalls.size)
-        assertEquals(TEST_TAG, proofs.captureCalls.single().caption)
+        assertTrue(proofs.captureCalls.single().caption.orEmpty().contains("Weighing"))
+        assertFalse("RFID is rendered by the dedicated rfidTag overlay line, not duplicated in caption", proofs.captureCalls.single().caption.orEmpty().contains(TEST_TAG))
+        assertNull("free-flow weighing must not send raw RFID as backend proof subject_id", proofs.captureCalls.single().subjectId)
+        assertEquals(TEST_TAG, proofs.captureCalls.single().rfidTag)
         assertEquals("file://animal-a.mp4", proofs.captureCalls.single().localUri)
 
         // B's camera now opens automatically (queued animal), and its own recording lands under
@@ -800,7 +809,10 @@ class WeighingViewModelTest {
         )
         advanceUntilIdle()
         assertEquals(2, proofs.captureCalls.size)
-        assertEquals(SECOND_TAG, proofs.captureCalls[1].caption)
+        assertTrue(proofs.captureCalls[1].caption.orEmpty().contains("Weighing"))
+        assertFalse("RFID is rendered by the dedicated rfidTag overlay line, not duplicated in caption", proofs.captureCalls[1].caption.orEmpty().contains(SECOND_TAG))
+        assertNull("free-flow weighing must not send raw RFID as backend proof subject_id", proofs.captureCalls[1].subjectId)
+        assertEquals(SECOND_TAG, proofs.captureCalls[1].rfidTag)
         assertEquals("file://animal-b.mp4", proofs.captureCalls[1].localUri)
         val scans = analytics.events.filter { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.WEIGHING_SCAN }
         assertEquals(listOf(TEST_TAG, SECOND_TAG), scans.map { it.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.RFID] })

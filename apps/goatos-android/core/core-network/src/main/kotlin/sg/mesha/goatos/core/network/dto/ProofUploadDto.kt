@@ -39,6 +39,11 @@ data class ProofUploadResponseDto(
     @SerialName("trace_id") val traceId: String = "",
 )
 
+@Serializable
+data class UploadedProofListResponseDto(
+    @SerialName("proofs") val proofs: List<ProofArtifactDto> = emptyList(),
+)
+
 /** Request body for `POST /app/proofs/{proof_id}/complete` — the completion step of the
  *  signed-upload flow, called once the video bytes have actually been PUT to [ProofUploadResponseDto.uploadUrl]
  *  (see [sg.mesha.goatos.core.network.ProofBlobUploader]). [contentHash]/[sizeBytes] are the
@@ -72,6 +77,8 @@ data class ProofArtifactDto(
     @SerialName("size_bytes") val sizeBytes: Long = 0,
     @SerialName("duration_ms") val durationMs: Long? = null,
     @SerialName("content_hash") val contentHash: String = "",
+    @SerialName("metadata") val metadata: Map<String, JsonElement> = emptyMap(),
+    @SerialName("download_url") val downloadUrl: String = "",
 )
 
 fun ProofUploadRequestDto.forCreateUpload(): ProofUploadRequestDto {

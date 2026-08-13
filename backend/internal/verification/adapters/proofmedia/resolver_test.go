@@ -271,6 +271,10 @@ func (r *memoryProofRepo) BackfillSubmissionRetention(_ context.Context, _ time.
 	return 0, nil
 }
 
+func (r *memoryProofRepo) ListUploadedProofs(context.Context, proofdomain.ListUploadedProofsQuery) ([]proofdomain.Artifact, error) {
+	return nil, nil
+}
+
 func (r *memoryProofRepo) PurgeExpired(_ context.Context, _ time.Time, _ int) (int, error) {
 	return 0, nil
 }

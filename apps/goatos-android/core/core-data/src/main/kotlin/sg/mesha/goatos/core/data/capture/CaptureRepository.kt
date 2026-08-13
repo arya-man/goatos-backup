@@ -4,6 +4,7 @@ import android.database.SQLException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonPrimitive
@@ -40,6 +43,7 @@ import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import java.io.File
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStatus
 
 /**
@@ -184,11 +188,19 @@ class DefaultScanCaptureRepository(
         if (normalized.isBlank()) return false
         val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
         return withContext(dispatchers.io) {
+            val partitionKey = executionPartitionKey(partitionLabel)
+            val existing = dao.findByTaskFieldTag(
+                taskId = taskId,
+                partitionKey = partitionKey,
+                fieldKey = fieldKey,
+                tag = normalized,
+            )
+            if (existing != null) return@withContext false
             dao.insert(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
-                    partitionKey = executionPartitionKey(partitionLabel),
+                    partitionKey = partitionKey,
                     fieldKey = fieldKey,
                     tag = normalized,
                     goatId = null,
@@ -225,6 +237,7 @@ class DefaultScanCaptureRepository(
             partitionKey = executionPartitionKey(partitionLabel),
             fieldKey = fieldKey,
             tag = tag.filter { it.isLetterOrDigit() }.lowercase(),
+            obligationId = null,
             status = EntitySyncStatus.SYNCED.name,
         )
     }
@@ -239,7 +252,7 @@ class DefaultScanCaptureRepository(
         capturedAtMs: Long,
         partitionKey: String,
     ) {
-        val syncKey = scanCaptureIdempotencyKey(taskId, partitionKey, fieldKey, tag, obligationRowVersion)
+        val syncKey = scanCaptureIdempotencyKey(taskId, partitionKey, fieldKey, tag, obligationId, obligationRowVersion)
         when (val result = syncRepository?.enqueueScanCapture(
             taskId = taskId,
             groupKey = "$taskId|$partitionKey",
@@ -270,7 +283,7 @@ class DefaultScanCaptureRepository(
     }
 
     override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> = withContext(dispatchers.io) {
-        dao.listForTask(taskId, executionPartitionKey(partitionLabel)).map { it.tag }
+        dao.listForTask(taskId, executionPartitionKey(partitionLabel)).map { it.tag }.distinct()
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
@@ -314,10 +327,12 @@ private fun scanCaptureIdempotencyKey(
     partitionKey: String,
     fieldKey: String,
     tag: String,
+    obligationId: String?,
     obligationRowVersion: Int = 0,
 ): String {
     val partitionSegment = if (partitionKey == "whole") "" else ":partition:$partitionKey"
-    return "scan:$taskId$partitionSegment:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}:ov$obligationRowVersion"
+    val obligationSegment = obligationId?.takeIf { it.isNotBlank() }?.let { ":obligation:$it" }.orEmpty()
+    return "scan:$taskId$partitionSegment:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}$obligationSegment:ov$obligationRowVersion"
 }
 
 interface ScanAttemptRepository {
@@ -497,6 +512,7 @@ interface ProofCaptureRepository {
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String? = null,
         scopeType: String,
         scopeId: String,
         /** Device-clock record start/stop (Camera-only capture freshness metadata — see
@@ -531,21 +547,14 @@ class DefaultProofCaptureRepository(
     private val telemetry: ProofCaptureTelemetry = ProofCaptureTelemetry.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+    private val locationProvider: ProofLocationProvider = ProofLocationProvider.Unavailable,
     // Production always reconciles orphan uploads on construction. Tests set this false to drive
     // reconcileRecoverableUploadsNow() explicitly (awaited) instead of racing the fire-and-forget
     // init launch — Room's suspend @Query runs on Room's own executor, so a virtual-clock
     // advanceUntilIdle() cannot deterministically await the init launch.
     reconcileOnStartup: Boolean = true,
 ) : ProofCaptureRepository {
-
-    // R50-029: reconciliation is keyset-based (monotonic row-value cursor), never wall-clock.
-    // A device clock rollback cannot skip recovery of orphan rows. On each startup,
-    // reconcileRecoverableUploadsNow() walks from a stored last-processed rowId/capturedAtMs,
-    // applying idempotency at the outbox layer so re-enqueue is safe on replay.
-    // No cutoff timestamp is stored or checked — every recoverable row is reached regardless
-    // of absolute clock values.
-    private var lastRecoveredAfterCapturedAtMs = 0L
-    private var lastRecoveredAfterId = ""
+    private val gallerySaveLocks = ConcurrentHashMap<String, Mutex>()
 
     init {
         // R50-028: never block DI construction on a Room read — launch on the app-lifetime scope
@@ -575,6 +584,7 @@ class DefaultProofCaptureRepository(
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
@@ -626,6 +636,8 @@ class DefaultProofCaptureRepository(
         }
         val id = idGenerator()
         val idempotencyKey = "proof-upload:$taskId:$id"
+        val location = runCatching { locationProvider.snapshot() }
+            .getOrElse { ProofLocationSnapshot(locationStatus = "failed", geocoderStatus = "failed") }
         val entity = ProofCaptureEntity(
             id = id,
             taskId = taskId,
@@ -636,6 +648,7 @@ class DefaultProofCaptureRepository(
             localUri = localUri,
             mimeType = mimeType,
             caption = caption,
+            rfidTag = rfidTag?.takeIf { it.isNotBlank() },
             capturedAtMs = clock(),
             capturedStartMs = capturedStartMs,
             capturedEndMs = capturedEndMs,
@@ -647,6 +660,12 @@ class DefaultProofCaptureRepository(
             captureSource = proofPolicy.captureSource,
             originalUri = localUri,
             durationMs = (capturedEndMs - capturedStartMs).coerceAtLeast(0),
+            locationStatus = location.locationStatus,
+            latitude = location.latitude,
+            longitude = location.longitude,
+            gpsAccuracyM = location.gpsAccuracyM,
+            geocoderStatus = location.geocoderStatus,
+            geocodedAddress = location.address,
             updatedAtMs = clock(),
         )
         // Room FIRST — the capture is durable before any network call is even attempted.
@@ -709,7 +728,7 @@ class DefaultProofCaptureRepository(
 
         // Row + file are removed only after the outbox item is cancelled or proven terminal.
         dao.delete(id, taskId)
-        deleteLocalFile(entity.localUri)
+        deleteLocalFiles(entity)
         AppResult.Ok(Unit)
     }
 
@@ -720,8 +739,10 @@ class DefaultProofCaptureRepository(
         val outboxItemId = entity.outboxItemId
         if (outboxItemId.isNullOrBlank()) {
             dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
-            val (scopeType, scopeId) = recoveryScope(entity)
-            enqueueRegistration(entity, scopeType, scopeId)
+            val recovered = dao.findById(entity.id)
+                ?: entity.copy(syncStatus = EntitySyncStatus.PENDING.name, outboxItemId = null, lastError = null)
+            val (scopeType, scopeId) = recoveryScope(recovered)
+            enqueueRegistrationNow(recovered, scopeType, scopeId)
             return@withContext AppResult.Ok(Unit)
         }
         when (val retry = syncRepository.retry(outboxItemId)) {
@@ -750,7 +771,7 @@ class DefaultProofCaptureRepository(
             )
             if (page.isEmpty()) break
             page.forEach { entity ->
-                deleteLocalFile(entity.localUri)
+                deleteLocalFiles(entity)
             }
             val last = page.last()
             afterCapturedAtMs = last.capturedAtMs
@@ -773,8 +794,8 @@ class DefaultProofCaptureRepository(
      * Device clock rollback cannot skip recovery. Runs on the caller's dispatcher (the `init`
      * block launches it on [appScope] so it never blocks repository construction). */
     internal suspend fun reconcileRecoverableUploadsNow() {
-        var afterCapturedAtMs = lastRecoveredAfterCapturedAtMs
-        var afterId = lastRecoveredAfterId
+        var afterCapturedAtMs = 0L
+        var afterId = ""
         while (true) {
             val page = dao.listRecoverableUploadsPage(
                 capturedBeforeMs = Long.MAX_VALUE, // R50-029: no cutoff, read ALL from cursor
@@ -788,13 +809,22 @@ class DefaultProofCaptureRepository(
                     val (scopeType, scopeId) = recoveryScope(entity)
                     enqueueRegistrationNow(entity, scopeType, scopeId)
                 } else {
-                    followOutboxItem(entity.id, outboxItemId)
-                    syncRepository.triggerDrain()
+                    when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
+                        is AppResult.Err -> Unit
+                        is AppResult.Ok -> {
+                            if (recovered.value == null) {
+                                recoverMissingProofUploadDriver(entity)
+                            } else {
+                                followOutboxItem(entity.id, outboxItemId)
+                                syncRepository.triggerDrain()
+                            }
+                        }
+                    }
                 }
             }
             val last = page.last()
-            lastRecoveredAfterCapturedAtMs = last.capturedAtMs
-            lastRecoveredAfterId = last.id
+            afterCapturedAtMs = last.capturedAtMs
+            afterId = last.id
             if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
         }
     }
@@ -829,6 +859,7 @@ class DefaultProofCaptureRepository(
             subjectId = uploadEntity.subjectId,
             metadata = buildMap {
                 put("field_key", JsonPrimitive(uploadEntity.fieldKey))
+                put("client_task_key", JsonPrimitive(uploadGroupKey?.takeIf { it.isNotBlank() } ?: uploadEntity.taskId))
                 // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
                 // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
                 // Default fallback that would silently rewrite a non-camera source.
@@ -841,7 +872,16 @@ class DefaultProofCaptureRepository(
                 put("captured_start_ms", JsonPrimitive(uploadEntity.capturedStartMs))
                 put("captured_end_ms", JsonPrimitive(uploadEntity.capturedEndMs))
                 put("duration_ms", JsonPrimitive((uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0)))
-                proofOverlayRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
+                uploadEntity.locationStatus?.takeIf { it.isNotBlank() }
+                    ?.let { put("location_status", JsonPrimitive(it)) }
+                uploadEntity.latitude?.let { put("latitude", JsonPrimitive(it)) }
+                uploadEntity.longitude?.let { put("longitude", JsonPrimitive(it)) }
+                uploadEntity.gpsAccuracyM?.let { put("gps_accuracy_m", JsonPrimitive(it)) }
+                uploadEntity.geocoderStatus?.takeIf { it.isNotBlank() }
+                    ?.let { put("geocoder_status", JsonPrimitive(it)) }
+                uploadEntity.geocodedAddress?.takeIf { it.isNotBlank() }
+                    ?.let { put("geocoded_address", JsonPrimitive(it)) }
+                humanRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
                 uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },
@@ -879,7 +919,9 @@ class DefaultProofCaptureRepository(
     }
 
     private suspend fun prepareFinalArtifact(entity: ProofCaptureEntity): ProofCaptureEntity {
-        if (entity.processingAttempted) return entity
+        if (entity.processingAttempted) {
+            return awaitFinalArtifact(entity)
+        }
         val startedAtMs = clock()
         val attempt = entity.stateAttempt + 1
         dao.updateProcessingState(
@@ -905,15 +947,20 @@ class DefaultProofCaptureRepository(
                     fieldKey = entity.fieldKey,
                     subjectType = entity.proofSubject,
                     subjectId = entity.subjectId,
-                    rfidTag = proofOverlayRfidTag(entity),
+                    rfidTag = humanRfidTag(entity),
                     originalUri = entity.originalUri ?: entity.localUri,
                     mimeType = entity.mimeType,
                     capturedStartMs = entity.capturedStartMs,
                     capturedEndMs = entity.capturedEndMs,
                     capturedByPrincipalId = entity.capturedByPrincipalId,
+                    locationAddress = entity.geocodedAddress,
+                    latitude = entity.latitude,
+                    longitude = entity.longitude,
+                    gpsAccuracyM = entity.gpsAccuracyM,
                     caption = entity.caption,
                 ),
             )
+            validateProcessedArtifact(entity, processed)
             dao.updateProcessingArtifact(
                 id = entity.id,
                 localUri = processed.outputUri,
@@ -1004,32 +1051,77 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    private fun validateProcessedArtifact(
+        entity: ProofCaptureEntity,
+        processed: ProofMediaProcessingResult,
+    ) {
+        val originalUri = entity.originalUri ?: entity.localUri
+        require(processed.outputUri.isNotBlank()) { "processed artifact path is blank" }
+        require(processed.outputUri != originalUri) { "processed artifact reused original source" }
+        processed.processedBytes?.let { bytes ->
+            require(bytes > 0L) { "processed artifact is empty" }
+        }
+    }
+
+    private suspend fun awaitFinalArtifact(entity: ProofCaptureEntity): ProofCaptureEntity {
+        repeat(PROOF_PROCESSING_WAIT_POLLS) {
+            val current = dao.findById(entity.id) ?: entity
+            if (current.syncStatus == "SYNCED" && !current.serverProofId.isNullOrBlank()) {
+                return current
+            }
+            when (current.processingState) {
+                ProofProcessingState.PROCESSED.name,
+                ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+                ProofProcessingState.REGISTERING_UPLOAD.name,
+                ProofProcessingState.UPLOADING.name,
+                ProofProcessingState.UPLOAD_CONFIRMED.name -> return current
+            }
+            delay(PROOF_PROCESSING_WAIT_MS)
+        }
+        error("proof processing did not reach a final artifact before upload")
+    }
+
     private suspend fun saveFinalArtifactToGallery(entity: ProofCaptureEntity, request: ProofUploadRequestDto) {
-        val startedAtMs = clock()
-        telemetry.track(proofGallerySaveStartedEvent, proofAnalyticsProps(entity))
-        try {
-            galleryProofSaver.saveProofCopy(entity.localUri, request, entity.idempotencyKey)
-            recordProofEvent(
-                entity,
-                "gallery_save_completed",
-                entity.processingState,
-                entity.stateAttempt,
-                durationMs = clock() - startedAtMs,
-                bytesIn = entity.processedBytes ?: entity.originalBytes ?: localFileBytes(entity.localUri),
-            )
-            telemetry.track(proofGallerySaveCompletedEvent, proofAnalyticsProps(entity) + ("duration_ms" to (clock() - startedAtMs).toString()))
-        } catch (error: Throwable) {
-            val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
-            recordProofEvent(
-                entity,
-                "gallery_save_failed_upload_continues",
-                entity.processingState,
-                entity.stateAttempt,
-                durationMs = clock() - startedAtMs,
-                errorClass = errorClass,
-                retryable = false,
-            )
-            telemetry.track(proofGallerySaveFailedEvent, proofAnalyticsProps(entity) + ("error_class" to errorClass))
+        gallerySaveLocks.getOrPut(entity.id) { Mutex() }.withLock {
+            val current = dao.findById(entity.id) ?: entity
+            if (!current.gallerySavedUri.isNullOrBlank()) return
+            if (dao.countStateEvents(current.id, gallerySaveCompletedStage) > 0) {
+                dao.markGallerySaved(current.id, current.localUri, clock())
+                return
+            }
+            check(
+                current.processingState == ProofProcessingState.PROCESSED.name ||
+                    current.processingState == ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name,
+            ) {
+                "refusing to save non-final proof artifact to Gallery: ${current.processingState}"
+            }
+            val startedAtMs = clock()
+            telemetry.track(proofGallerySaveStartedEvent, proofAnalyticsProps(current))
+            try {
+                galleryProofSaver.saveProofCopy(current.localUri, request, current.idempotencyKey)
+                dao.markGallerySaved(current.id, current.localUri, clock())
+                recordProofEvent(
+                    current,
+                    gallerySaveCompletedStage,
+                    current.processingState,
+                    current.stateAttempt,
+                    durationMs = clock() - startedAtMs,
+                    bytesIn = current.processedBytes ?: current.originalBytes ?: localFileBytes(current.localUri),
+                )
+                telemetry.track(proofGallerySaveCompletedEvent, proofAnalyticsProps(current) + ("duration_ms" to (clock() - startedAtMs).toString()))
+            } catch (error: Throwable) {
+                val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
+                recordProofEvent(
+                    current,
+                    "gallery_save_failed_upload_continues",
+                    current.processingState,
+                    current.stateAttempt,
+                    durationMs = clock() - startedAtMs,
+                    errorClass = errorClass,
+                    retryable = false,
+                )
+                telemetry.track(proofGallerySaveFailedEvent, proofAnalyticsProps(current) + ("error_class" to errorClass))
+            }
         }
     }
 
@@ -1095,10 +1187,11 @@ class DefaultProofCaptureRepository(
                                 if (proofId.isNullOrBlank()) {
                                     dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
                                 } else {
+                                    // Keep the app-private proof files while the Room row lives so
+                                    // open tasks can still render previews after the backend upload
+                                    // succeeds. Explicit remove()/clearForTask() reclaim them; the
+                                    // separate Android Gallery artifact is never touched here.
                                     dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
-                                    // R50-028: the video is durably server-side now — reclaim the
-                                    // device-local copy so a long shift's captures cannot fill storage.
-                                    dao.findById(rowId)?.let { deleteLocalFile(it.localUri) }
                                 }
                             }
                             item.isDeadLetter || item.conflict ->
@@ -1112,6 +1205,21 @@ class DefaultProofCaptureRepository(
                 if (!error.message.orEmpty().contains("connection is closed", ignoreCase = true)) throw error
             }
         }
+    }
+
+    private suspend fun recoverMissingProofUploadDriver(entity: ProofCaptureEntity) {
+        if (!entity.serverProofId.isNullOrBlank()) {
+            if (entity.syncStatus != EntitySyncStatus.SYNCED.name || entity.lastError != null) {
+                dao.updateStatus(entity.id, EntitySyncStatus.SYNCED.name, entity.serverProofId, null)
+            }
+            return
+        }
+        if (!entity.isRecoverableUploadState()) return
+        dao.setOutboxItemId(entity.id, null)
+        dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
+        val recovered = (dao.findById(entity.id) ?: entity.copy(outboxItemId = null, syncStatus = EntitySyncStatus.PENDING.name))
+        val (scopeType, scopeId) = recoveryScope(recovered)
+        enqueueRegistrationNow(recovered, scopeType, scopeId)
     }
 
     /** F1a: Derives the scope (scope_type and scope_id) from the persisted proof entity,
@@ -1134,12 +1242,20 @@ class DefaultProofCaptureRepository(
     private suspend fun reconcileOutboxTerminalState(rows: List<ProofCaptureEntity>) {
         rows.asSequence()
             .filter { it.syncStatus != EntitySyncStatus.SYNCED.name }
-            .mapNotNull { row -> row.outboxItemId?.takeIf(String::isNotBlank)?.let { row to it } }
-            .forEach { (row, outboxItemId) ->
+            .forEach { row ->
+                val outboxItemId = row.outboxItemId?.takeIf(String::isNotBlank)
+                if (outboxItemId == null) {
+                    if (row.isRecoverableUploadState()) recoverMissingProofUploadDriver(row)
+                    return@forEach
+                }
                 when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {
                     is AppResult.Err -> Unit
                     is AppResult.Ok -> {
-                        val item = recovered.value ?: return@forEach
+                        val item = recovered.value
+                        if (item == null) {
+                            recoverMissingProofUploadDriver(row)
+                            return@forEach
+                        }
                         when {
                             item.status == SyncItemStatus.SUCCEEDED -> {
                                 val proofId = decodeServerProofId(item.resultJson)
@@ -1174,7 +1290,12 @@ class DefaultProofCaptureRepository(
     }
 }
 
-/** R50-028: best-effort local-file cleanup for a synced/removed/cleared proof. Deliberately
+private fun ProofCaptureEntity.isRecoverableUploadState(): Boolean =
+    syncStatus == EntitySyncStatus.PENDING.name || syncStatus == EntitySyncStatus.IN_FLIGHT.name
+
+/** R50-028: best-effort local-file cleanup for a removed/cleared proof. Synced rows retain
+ *  app-private files until the proof row is explicitly removed or the task is cleared, so open
+ *  screens can preview the exact uploaded artifact. Deliberately
  *  silent on failure (a stale on-disk clip the OS will eventually reclaim under storage pressure
  *  is not a correctness issue, unlike a swallowed business-logic error) — accepts both the
  *  `file:` URI form [InAppVideoRecorder] writes and a plain path, mirroring
@@ -1189,6 +1310,13 @@ private fun deleteLocalFile(localUri: String) {
         }
         if (file.exists()) file.delete()
     }
+}
+
+private fun deleteLocalFiles(entity: ProofCaptureEntity) {
+    listOf(entity.localUri, entity.originalUri, entity.processedUri)
+        .filterNotNull()
+        .distinct()
+        .forEach(::deleteLocalFile)
 }
 
 private fun decodeServerProofId(resultJson: String?): String? {
@@ -1207,6 +1335,9 @@ private const val proofProcessingFailedEvent = "proof_processing_failed"
 private const val proofGallerySaveStartedEvent = "proof_gallery_save_started"
 private const val proofGallerySaveCompletedEvent = "proof_gallery_save_completed"
 private const val proofGallerySaveFailedEvent = "proof_gallery_save_failed"
+private const val gallerySaveCompletedStage = "gallery_save_completed"
+private const val PROOF_PROCESSING_WAIT_POLLS = 240
+private const val PROOF_PROCESSING_WAIT_MS = 500L
 private const val proofUploadRegisteredEvent = "proof_upload_registered"
 
 private fun proofAnalyticsProps(
@@ -1220,7 +1351,7 @@ private fun proofAnalyticsProps(
     put("field_key", entity.fieldKey)
     put("proof_subject", entity.proofSubject)
     entity.subjectId?.takeIf { it.isNotBlank() }?.let { put("subject_id", it) }
-    proofOverlayRfidTag(entity)?.let { put("rfid_tag", it) }
+    humanRfidTag(entity)?.let { put("rfid_tag", it) }
     entity.featureSurface?.takeIf { it.isNotBlank() }?.let { put("feature_surface", it) }
     entity.proofMode?.takeIf { it.isNotBlank() }?.let { put("proof_mode", it) }
     entity.slotIndex?.let { put("slot_index", it.toString()) }
@@ -1239,11 +1370,15 @@ private fun proofAnalyticsProps(
     entity.targetVideoBitrate?.let { put("target_video_bitrate", it.toString()) }
     entity.targetAudioBitrate?.let { put("target_audio_bitrate", it.toString()) }
     entity.locationStatus?.takeIf { it.isNotBlank() }?.let { put("location_status", it) }
+    entity.latitude?.let { put("latitude", it.toString()) }
+    entity.longitude?.let { put("longitude", it.toString()) }
+    entity.gpsAccuracyM?.let { put("gps_accuracy_m", it.toString()) }
     entity.geocoderStatus?.takeIf { it.isNotBlank() }?.let { put("geocoder_status", it) }
+    entity.geocodedAddress?.takeIf { it.isNotBlank() }?.let { put("geocoded_address", it) }
 }
 
-private fun proofOverlayRfidTag(entity: ProofCaptureEntity): String? =
-    entity.caption
+private fun humanRfidTag(entity: ProofCaptureEntity): String? =
+    entity.rfidTag
         ?.takeIf { entity.fieldKey in rfidBurnOverlayFieldKeys }
         ?.takeIf { it.isNotBlank() }
 
@@ -1284,8 +1419,10 @@ private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     proofSubject = ProofSubject.from(proofSubject),
     subjectId = subjectId,
     localUri = localUri,
+    processedUri = processedUri,
     mimeType = mimeType,
     caption = caption,
+    rfidTag = rfidTag,
     capturedAtMs = capturedAtMs,
     capturedStartMs = capturedStartMs,
     capturedEndMs = capturedEndMs,

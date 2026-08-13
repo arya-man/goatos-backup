@@ -119,6 +119,42 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 	}
 }
 
+func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
+	svc := &fakeHTTPProofService{
+		proofs: []domain.Artifact{{
+			ProofID:     httpTestProof,
+			TenantID:    httpTestTenant,
+			ProofType:   "video",
+			SubjectType: "shed",
+			UploadState: "completed",
+			MimeType:    "video/mp4",
+			Metadata:    map[string]any{"client_task_key": "feed-dist:shed:whole:1:morning:2026-08-13", "field_key": "feed_distribution_video"},
+			CreatedAt:   time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		}},
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/uploads?scope_type=shed&scope_id=30000000-0000-4000-8000-000000000001&client_task_key=feed-dist:shed:whole:1:morning:2026-08-13&field_key=feed_distribution_video", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.listQuery.ClientTaskKey == "" || svc.listQuery.FieldKey != "feed_distribution_video" {
+		t.Fatalf("list query = %#v", svc.listQuery)
+	}
+	var got listUploadedProofsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Proofs) != 1 || got.Proofs[0].ProofID != httpTestProof {
+		t.Fatalf("proofs = %#v", got.Proofs)
+	}
+}
+
 // A stored object that has gone missing/unreadable is a KNOWN terminal failure class, not an
 // unexpected server fault: the client must be told to stop retrying and render "evidence
 // unavailable" instead of hammering the route (the 2026-08-02 incident produced ~5 retries per
@@ -191,6 +227,8 @@ type fakeHTTPProofService struct {
 	proof       domain.Artifact
 	target      domain.UploadTarget
 	reader      ports.ReadSeekCloser
+	proofs      []domain.Artifact
+	listQuery   domain.ListUploadedProofsQuery
 	openErr     error
 	openTenant  string
 	storeTenant string
@@ -213,6 +251,11 @@ func (s *fakeHTTPProofService) StoreUpload(_ context.Context, tenantID, _ string
 		UploadState: "completed",
 		UpdatedAt:   time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC),
 	}, nil
+}
+
+func (s *fakeHTTPProofService) ListUploadedProofs(_ context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	s.listQuery = query
+	return s.proofs, nil
 }
 
 func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (string, error) {

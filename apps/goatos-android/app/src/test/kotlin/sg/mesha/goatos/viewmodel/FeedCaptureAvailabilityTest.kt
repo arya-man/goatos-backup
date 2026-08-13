@@ -89,12 +89,24 @@ class FeedCaptureAvailabilityTest {
     fun `an open session still offers capture and submit`() {
         val open = FeedPackingCompleteUiState(
             videoCaptured = true,
-            videoStatus = FeedDistributionProofStatus.SYNCED,
+            videoStatus = FeedDistributionProofStatus.QUEUED,
             canComplete = true,
             alreadySubmitted = false,
         )
 
         assertTrue(open.captureEnabled)
         assertTrue(open.submitEnabled)
+    }
+
+    @Test
+    fun `a failed packing proof does not submit`() {
+        val failed = FeedPackingCompleteUiState(
+            videoCaptured = true,
+            videoStatus = FeedDistributionProofStatus.FAILED,
+            canComplete = true,
+            alreadySubmitted = false,
+        )
+
+        assertFalse(failed.submitEnabled)
     }
 }

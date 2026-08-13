@@ -34,6 +34,10 @@ var (
 	// ErrDistributionStoreUnavailable is returned when a distribution completion is attempted but no
 	// DistributionCompletionStore is wired -- a deployment/wiring error, surfaced as a 500.
 	ErrDistributionStoreUnavailable = errors.New("feeddirection: distribution completion store is not configured")
+	// ErrDistributionAlreadyRecorded is returned when the shed-session already holds a DIFFERENT
+	// proof set while pending/completed. A same-proof replay is idempotent; a different proof set
+	// would silently strand the operator's new media if accepted as a no-op.
+	ErrDistributionAlreadyRecorded = errors.New("feeddirection: this feed-distribution session already has different proofs recorded")
 )
 
 // CompleteDistributionParams is the persisted gated-completion write, at the shed-session grain

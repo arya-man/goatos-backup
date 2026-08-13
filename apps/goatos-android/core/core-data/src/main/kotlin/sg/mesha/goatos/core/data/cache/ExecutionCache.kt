@@ -157,14 +157,14 @@ interface ScanRosterRowDao {
     /** Distinct goat ids of every DONE/completed animal in the FULL roster (backend-persisted status).
      *  The submit proof gate unions this with the session's local-done overlay to require a synced
      *  proof for every vaccinated animal, page-independent. Bounded by one shed's animal count. */
-    // An OUTSTANDING server status (rejected/due/pending) vetoes the timestamp. A sent-back animal
+    // An OUTSTANDING server status (rejected/due/pending/in_progress) vetoes the timestamp. A sent-back animal
     // keeps its scannedAtMs forever -- it really was scanned -- so OR-ing the timestamp in without
     // that veto kept a rejected animal in the done set, feeding the per-goat proof gate and letting
     // a reopened animal count as already proven.
     @Query(
-        "SELECT DISTINCT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' AND " +
-            "LOWER(TRIM(status)) NOT IN ('rejected', 'due', 'pending') AND " +
-            "(scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
+        "SELECT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' GROUP BY goatId HAVING " +
+            "SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) = 0 AND " +
+            "SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0"
     )
     fun observeDoneGoatIds(scopeKey: String): Flow<List<String>>
 
@@ -189,7 +189,7 @@ interface ScanRosterRowDao {
         "WITH per_goat AS (" +
             "SELECT goatId, " +
             "CASE " +
-            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
             "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
             "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
             "ELSE 'due' END AS effectiveStatus " +
@@ -205,7 +205,7 @@ interface ScanRosterRowDao {
         "WITH per_goat AS (" +
             "SELECT goatId, " +
             "CASE " +
-            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
             "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
             "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
             "ELSE 'due' END AS effectiveStatus " +
@@ -221,7 +221,7 @@ interface ScanRosterRowDao {
         "WITH per_goat AS (" +
             "SELECT goatId, " +
             "CASE " +
-            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
+            "WHEN SUM(CASE WHEN LOWER(TRIM(status)) IN ('rejected', 'due', 'pending', 'in_progress') THEN 1 ELSE 0 END) > 0 THEN 'due' " +
             "WHEN SUM(CASE WHEN LOWER(status) LIKE '%skip%' THEN 1 ELSE 0 END) > 0 THEN 'skipped' " +
             "WHEN SUM(CASE WHEN scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%' THEN 1 ELSE 0 END) > 0 THEN 'done' " +
             "ELSE 'due' END AS effectiveStatus " +

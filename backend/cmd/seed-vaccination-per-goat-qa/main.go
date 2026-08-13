@@ -135,6 +135,8 @@ func getenvInt(key string, fallback int) int {
 const perGoatProofPolicy = `{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":25,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`
 
 const seedSQL = `
+SET session_replication_role = replica;
+
 INSERT INTO parties (party_id, party_type, display_name, status)
 VALUES ('` + qaPartyID + `', 'org', 'Per Goat Proof QA', 'active')
 ON CONFLICT (party_id) DO UPDATE SET display_name = EXCLUDED.display_name, status = 'active', updated_at = now();
@@ -290,8 +292,18 @@ INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, p
 VALUES
   ('` + qaAssign1ID + `', $1::uuid, '` + qaBatchID + `', (now() AT TIME ZONE 'Asia/Kolkata')::date, '` + qaOperatorID + `', '` + qaParkID + `', '` + qaShed1ID + `', 'Shed 1', 'whole', 3, 'within_cap', '[]'::jsonb, ARRAY['` + qaRuleID + `']::uuid[], 3),
   ('` + qaAssign2ID + `', $1::uuid, '` + qaBatchID + `', (now() AT TIME ZONE 'Asia/Kolkata')::date, '` + qaOperatorID + `', '` + qaParkID + `', '` + qaShed2ID + `', 'Shed 2', 'whole', 2, 'within_cap', '[]'::jsonb, ARRAY['` + qaRuleID + `']::uuid[], 2)
-ON CONFLICT (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
-SET animal_count = EXCLUDED.animal_count, vaccine_rule_ids = EXCLUDED.vaccine_rule_ids, total_doses = EXCLUDED.total_doses, updated_at = now();
+ON CONFLICT (assignment_id) DO UPDATE
+SET batch_id = EXCLUDED.batch_id,
+    planned_date = EXCLUDED.planned_date,
+    operator_id = EXCLUDED.operator_id,
+    park_id = EXCLUDED.park_id,
+    shed_id = EXCLUDED.shed_id,
+    physical_shed = EXCLUDED.physical_shed,
+    partition_label = EXCLUDED.partition_label,
+    animal_count = EXCLUDED.animal_count,
+    vaccine_rule_ids = EXCLUDED.vaccine_rule_ids,
+    total_doses = EXCLUDED.total_doses,
+    updated_at = now();
 
 WITH obligations AS (
   INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, window_start, window_end, status, sop_task_id, idempotency_key, sequence)
@@ -313,4 +325,6 @@ SELECT $1::uuid,
 FROM obligations o
 JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = o.target_id
 ON CONFLICT (tenant_id, obligation_id) DO UPDATE SET assignment_id = EXCLUDED.assignment_id;
+
+SET session_replication_role = DEFAULT;
 `

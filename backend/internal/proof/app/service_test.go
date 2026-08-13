@@ -237,6 +237,17 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	}
 }
 
+func TestListUploadedProofsRequiresSessionIdentity(t *testing.T) {
+	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
+	if _, err := service.ListUploadedProofs(context.Background(), domain.ListUploadedProofsQuery{
+		TenantID:  proofTestTenant,
+		ScopeType: "shed",
+		ScopeID:   proofTestShed,
+	}); err == nil {
+		t.Fatal("ListUploadedProofs() without client_task_key or field_key succeeded")
+	}
+}
+
 func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
 	repo := &fakeProofRepo{proof: baseProof()}
 	service := NewService(repo, &fakeProofStorage{})
@@ -376,6 +387,17 @@ func (r *fakeProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs []s
 		if r.proof.ProofID == proofID {
 			out[proofID] = r.proof
 		}
+	}
+	return out, nil
+}
+
+func (r *fakeProofRepo) ListUploadedProofs(context.Context, domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	if len(r.proofs) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.Artifact, 0, len(r.proofs))
+	for _, proof := range r.proofs {
+		out = append(out, proof)
 	}
 	return out, nil
 }

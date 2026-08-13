@@ -23,6 +23,7 @@ import "testing"
 func TestWeighingExecutorCanUploadProof(t *testing.T) {
 	proofWriteOperations := []string{
 		"createProofUpload",
+		"listUploadedProofs",
 		"uploadProofLocal",
 		"completeProofUpload",
 		"deleteUnattachedProofUpload",
@@ -59,6 +60,7 @@ func TestWeighingExecutorCanUploadProof(t *testing.T) {
 func TestFeedExecutorCanUploadProof(t *testing.T) {
 	proofWriteOperations := []string{
 		"createProofUpload",
+		"listUploadedProofs",
 		"uploadProofLocal",
 		"completeProofUpload",
 		"deleteUnattachedProofUpload",

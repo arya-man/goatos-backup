@@ -1,9 +1,11 @@
 package sg.mesha.goatos.feature.auth
 
 import android.app.Activity
+import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.LocalActivityResultRegistryOwner
@@ -38,8 +40,6 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.permissions.AppPermission
 import sg.mesha.goatos.core.permissions.PermissionGrantResolver
 import sg.mesha.goatos.core.permissions.PermissionGrantState
-import sg.mesha.goatos.core.permissions.isPermissionGranted
-import sg.mesha.goatos.core.permissions.shouldShowRationale
 import androidx.compose.ui.window.DialogProperties
 
 // telemetry:exempt this composable owns no analytics client by design — it reports every prompt and every grant/deny through the onPermissionPrompted / onPermissionAnswered callbacks, which GoatOsShell wires to ShellModuleViewModel analytics. Adding a second tracker here would double-count.
@@ -97,7 +97,7 @@ fun RoleBasedPermissionGate(
     var requestRounds by rememberSaveable { mutableStateOf(0) }
 
     fun readGranted(): Set<String> = requiredPermissions.filter { perm ->
-        isPermissionGranted(context, AppPermission.entries.first { it.manifestPermission == perm })
+        context.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
     }.toSet()
 
     // Re-check permissions on resume (returning from settings)
@@ -134,7 +134,7 @@ fun RoleBasedPermissionGate(
     // Initial permission check
     val initialGrants = remember {
         requiredPermissions.filter { perm ->
-            isPermissionGranted(context, AppPermission.entries.first { it.manifestPermission == perm })
+            context.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
         }.toSet()
     }
     remember { grantedPermissions = initialGrants }
@@ -154,11 +154,10 @@ fun RoleBasedPermissionGate(
     // classify a denial as blocked when we can actually ask.
     val host = activity
     val canPrompt = host == null || missingPermissions.none { perm ->
-        val appPermission = AppPermission.entries.first { it.manifestPermission == perm }
         PermissionGrantResolver.resolve(
             isGranted = false,
             requestCount = requestRounds,
-            shouldShowRationale = shouldShowRationale(host, appPermission),
+            shouldShowRationale = host.shouldShowRequestPermissionRationale(perm),
         ) == PermissionGrantState.PERMANENTLY_DENIED
     }
 
@@ -234,7 +233,8 @@ fun RoleBasedPermissionGate(
 /**
  * Derive required permissions from the NavState and modules.
  *
- * Operator: location, camera, BLE/Nearby Devices (BLUETOOTH_CONNECT + BLUETOOTH_SCAN on API 31+), notifications
+ * Operator: the full proof/scan bundle up front: camera, microphone, precise
+ * location, coarse location, BLE/Nearby Devices, notifications.
  * Verifier/Director/CEO: notifications only (for now)
  *
  * Uses module availability as the source, not hardcoded role strings.
@@ -252,14 +252,12 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
     }
 
     if (isOperator) {
-        // Login-time location follows the role-neutral catalog. Capture entry still blocks on
-        // precise location on every supported Android version before camera opens.
-        if (AppPermission.LOCATION in AppPermission.requiredForSdkInt()) {
-            required.add(AppPermission.LOCATION.manifestPermission)
-        }
-
-        // Operator requires camera for proof capture
-        required.add(AppPermission.CAMERA.manifestPermission)
+        // Operators record proof from the field. Ask for the same mandatory bundle the
+        // capture gate enforces, before the operator enters Feed/Vaccination/Weighing.
+        required.add(Manifest.permission.CAMERA)
+        required.add(Manifest.permission.RECORD_AUDIO)
+        required.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        required.add(Manifest.permission.ACCESS_FINE_LOCATION)
 
         // Operator requires Android 12+ Nearby Devices permissions for RFID reader readiness and
         // future scan/pairing affordances.

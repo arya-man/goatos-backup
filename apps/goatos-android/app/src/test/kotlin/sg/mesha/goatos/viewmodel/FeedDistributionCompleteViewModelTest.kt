@@ -92,7 +92,7 @@ class FeedDistributionCompleteViewModelTest {
         viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
         advanceUntilIdle()
         assertEquals(0, syncRepository.completionEnqueueCount)
-        assertEquals(false, viewModel.state.value.submitEnabled)
+        assertEquals(true, viewModel.state.value.submitEnabled)
 
         syncRepository.setItemStatus("proof-outbox-1", SyncItemStatus.SUCCEEDED)
         syncRepository.setItemStatus("proof-outbox-2", SyncItemStatus.SUCCEEDED)
