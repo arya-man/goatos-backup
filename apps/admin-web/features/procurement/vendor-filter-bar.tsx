@@ -82,6 +82,7 @@ export function VendorFilterBar({
   // Is there anything to apply? Compared with the shared helper so "the same question asked in a
   // different order" is not mistaken for a change, and so being on page 3 never counts as one.
   const staged = worklistFilterIsStaged(`?${draftSearchString(draft)}`, `?${params.toString()}`, PAGE_PARAM);
+  const effectiveSelection = draft;
 
   function apply(next: Record<string, string>): void {
     const qs = draftSearchString(next);
@@ -97,7 +98,7 @@ export function VendorFilterBar({
       <Search className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
       <input
         type="search"
-        value={draft.search ?? ""}
+        value={effectiveSelection.search ?? ""}
         onChange={(event) => setDraft({ ...draft, search: event.target.value })}
         onKeyDown={(event) => {
           // Enter applies the WHOLE staged bar, not just the search term -- otherwise typing a term
@@ -116,7 +117,7 @@ export function VendorFilterBar({
       {FILTERS.map((filter) => (
         <select
           key={filter.key}
-          value={draft[filter.key] ?? ""}
+          value={effectiveSelection[filter.key] ?? ""}
           onChange={(event) => setDraft({ ...draft, [filter.key]: event.target.value })}
           aria-label={copy(pageContract, filter.copyKey)}
           className="input"
