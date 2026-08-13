@@ -256,10 +256,21 @@ class FeedCompleteViewModel @Inject constructor(
     }
 }
 
+/**
+ * The proof policy every feed capture uses.
+ *
+ * [ProofPolicy.maximumCountPerField] = 1 because a feed slot holds exactly ONE proof: the weight
+ * photo, the feed video and the water video are distinct required steps, not repeat takes, and
+ * replacing one goes through re-capture (discard, then capture). Without it all three counted
+ * against the SHED's shared cap of five, so a pen that had been re-captured a few times refused
+ * every further capture and wrote no row — the proof appeared to vanish (2026-08-13, Castro - 1
+ * session 2, found holding three weight photos and two videos).
+ */
 internal fun feedShedProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = "shed_level_video",
         subjectScope = ProofSubject.SHED.wireValue,
         expectedSubjects = listOf(ProofSubject.SHED.wireValue),
         captureSource = captureSource,
+        maximumCountPerField = 1,
     )

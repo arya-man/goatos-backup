@@ -84,6 +84,15 @@ const (
 	// would 403 every field operator.
 	appBirthBreedsRoute = "/app/counts/breeds"
 
+	// newbornManagementStage is the cohort EVERY newborn carries (maintainer decision 2026-08-13).
+	// A kid is born K0 and is placed in whatever shed the raising request names; the destination
+	// shed's configured profile has no say. This SUPERSEDES the inherit-the-shed-profile behaviour
+	// for births: identity's create path used to read shed_profiles when no stage was supplied and
+	// FAILED CLOSED without one, which rejected every birth into Yashoda or Mandela 1 -- the mixed
+	// K1/K2/K3 kid sheds that seed-shed-profiles deliberately leaves unprofiled. Pinning the stage
+	// here means the create path never reaches that lookup for a birth.
+	newbornManagementStage = "K0"
+
 	appShiftingEventCommand = "counts.app.shifting_event"
 	appBirthEventCommand    = "counts.app.birth_event"
 	appDeathEventCommand    = "counts.app.death_event"
@@ -841,6 +850,19 @@ func (h *AppWriteHandler) RecordBirthEvent(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	fields["origin_type"] = json.RawMessage(`"birth"`)
+	// management_stage is pinned the same way and for the same reason: a PRESENT value that
+	// disagrees is rejected rather than quietly overwritten (validate-or-reject), while an absent
+	// one becomes K0. The form does not offer a stage, so absent is the normal case.
+	if raw, present := fields["management_stage"]; present {
+		var declared string
+		if err := json.Unmarshal(raw, &declared); err != nil ||
+			!strings.EqualFold(strings.TrimSpace(declared), newbornManagementStage) {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_management_stage",
+				"management_stage must be "+newbornManagementStage+" on "+appBirthEventRoute, nil)
+			return
+		}
+	}
+	fields["management_stage"] = json.RawMessage(`"` + newbornManagementStage + `"`)
 
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {

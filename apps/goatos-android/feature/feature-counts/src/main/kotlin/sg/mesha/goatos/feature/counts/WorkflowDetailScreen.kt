@@ -146,6 +146,13 @@ data class WorkflowDetailUiState(
     val subjectGoatRowVersion: Int = 0,
     val subjectTemporaryIdentifier: String = "",
     val subjectLocationDisplay: String = "",
+    /**
+     * Death only: both videos reached the backend, so the operator has nothing left to do here. The
+     * host pops back to the Death list and shows [submissionNotice] there rather than leaving them
+     * on a finished screen reading a banner.
+     */
+    val returnToList: Boolean = false,
+    val submissionNotice: String? = null,
 ) {
     val showDeathSubmissionButton: Boolean get() = isDeath
     val deathSubmissionLabel: WorkflowDeathSubmissionLabel
@@ -168,6 +175,9 @@ sealed interface WorkflowDetailEvent {
     data class Complete(val actionId: String) : WorkflowDetailEvent
     data class RecordVideo(val actionId: String) : WorkflowDetailEvent
     data object SubmitDeath : WorkflowDetailEvent
+
+    /** The host consumed [WorkflowDetailUiState.returnToList]; clear it so it fires once. */
+    data object NavigationHandled : WorkflowDetailEvent
 
     /** `tag_the_kid` — open the Birth-owned permanent RFID assignment for this canonical kid. */
     data class OpenPromote(
@@ -418,11 +428,14 @@ private fun WorkflowActionRow(
                     color = MeshaColors.Ink,
                     style = MeshaType.listTitle,
                 )
+                // The video tag sits on its OWN line under the title. Beside the type tag it shared a
+                // row whose width is what the status chip ("Available 14 Aug · 07:00") leaves over,
+                // and on a narrow screen that squeezed it until "Video" wrapped one letter per line.
+                if (action.requiresVideo) {
+                    WorkflowTag(stringResource(R.string.counts_workflow_tag_video), MeshaColors.WarnX, MeshaColors.Warn)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     WorkflowTag(action.typeLabel, MeshaColors.Surf3, MeshaColors.Muted)
-                    if (action.requiresVideo) {
-                        WorkflowTag(stringResource(R.string.counts_workflow_tag_video), MeshaColors.WarnX, MeshaColors.Warn)
-                    }
                     action.answerValue?.takeIf { it.isNotBlank() }?.let { answer ->
                         val displayedAnswer = answer + action.numericAnswerUnit?.let { " $it" }.orEmpty()
                         WorkflowTag(
