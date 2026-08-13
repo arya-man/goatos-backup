@@ -1,17 +1,16 @@
 import Link from "@/components/no-prefetch-link";
+import { redirect } from "next/navigation";
 import { ArrowLeft, ArrowRight, Ban, Check, ChevronRight, Workflow } from "lucide-react";
-import { getVaccinationActionCenter } from "@/lib/api/server";
+import { getVaccinationActionCenter, getVaccinationActionCenterCounts } from "@/lib/api/server";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
-import {
-  TONE_SWATCH,
-  type Tone,
-} from "./process-integrity";
+import { TONE_SWATCH, type Tone } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
+import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
-import { VaccinationFilterButton, VisibleTableSearch, paginateRows, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { VaccinationFilterButton, VisibleTableSearch, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
 // Top-level Workflows screen — vaccination-only, ported from the mock orchestration layout: KPI tiles,
 // module pill row, a left workflow catalog, and a right chain-reaction map. Each catalog row drills into
@@ -67,6 +66,15 @@ const accentVar: Record<Tone4, string> = {
   mut: "var(--line)",
 };
 
+function hrefPreservingWorkflowPage(
+  pathname: string,
+  params: RouteSearchParams,
+  workflowId?: string,
+  overrides: Record<string, string | string[] | null | undefined> = {},
+): string {
+  return hrefWithParams(pathname, params, workflowId ? { ...overrides, workflow: workflowId } : overrides, ["workflow"]);
+}
+
 function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.ReactNode; sub?: string; tone: Tone4; icon?: React.ReactNode }) {
   return (
     <div className="kpi">
@@ -83,6 +91,7 @@ function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.Re
 
 const ACTIVE_STATES: WorkState[] = ["in_progress", "scheduled"];
 const BLOCKED_STATES: WorkState[] = ["blocked", "proof_pending", "rejected"];
+const PATH = "/workflows";
 
 export async function VaccinationWorkflowsPage({
   searchParams,
@@ -95,27 +104,48 @@ export async function VaccinationWorkflowsPage({
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
   const selectedWorkflowId = one(sp, "workflow");
+  const workflowCursor = one(sp, "wf_cursor");
+  const hasWorkflowCursorStack = Boolean(sp.wf_cursor_stack);
+  const workflowCursorStackValues = Array.isArray(sp.wf_cursor_stack) ? sp.wf_cursor_stack.filter(Boolean) : sp.wf_cursor_stack ? [sp.wf_cursor_stack] : undefined;
 
-  const result = await getVaccinationActionCenter({ parkId, asOf, limit: 200 });
-  const rows: ActionCenterObligation[] = result.ok ? result.data.items : [];
   const pageSizeOptions = tablePageSizes(pageContract, "workflow-catalog");
-  const paged = paginateRows(rows, sp, "wf", 10, pageSizeOptions);
+  const requestedPageSize = pageSizeOptions.find((size) => size === boundedInt(one(sp, "wf_limit"), 10, 1, 100)) ?? 10;
+  const requestedPage = boundedInt(one(sp, "wf_page"), 1, 1, 1000000);
+  const [countsResult, result] = await Promise.all([
+    getVaccinationActionCenterCounts({ parkId, asOf }),
+    getVaccinationActionCenter({ parkId, asOf, cursor: workflowCursor, limit: requestedPageSize }),
+  ]);
+  const totalFromBackend = countsResult.ok ? countsResult.data.total_count : 0;
+  const rows: ActionCenterObligation[] = result.ok ? result.data.items : [];
   const nextCursor = result.ok ? result.data.next_cursor : undefined;
+  if (requestedPage > 1 && !workflowCursor && !hasWorkflowCursorStack) {
+    redirect(hrefWithPagedCursor(PATH, sp, "wf_cursor", null, "wf_page", "wf_cursor_stack") || scopeHref(PATH, scope, {}, { wf_page: "1", wf_cursor: undefined, wf_cursor_stack: undefined }));
+  }
+  const start = totalFromBackend === 0 ? 0 : (requestedPage - 1) * requestedPageSize + 1;
+  const end = totalFromBackend === 0 ? 0 : Math.min(totalFromBackend, start + rows.length - 1);
+  const paged = {
+    page: requestedPage,
+    pageSize: requestedPageSize,
+    total: totalFromBackend,
+    start,
+    end,
+  };
   const selectedWorkflow = selectedWorkflowId ? rows.find((row) => row.row_id === selectedWorkflowId) : undefined;
-  const activeWorkflow = selectedWorkflow ?? paged.items[0] ?? rows[0];
+  const selectedWorkflowMissing = Boolean(selectedWorkflowId && !selectedWorkflow);
+  const activeWorkflow = selectedWorkflowId ? selectedWorkflow : rows[0];
   const steps = chainSteps(pageContract);
   const catalogLabels = tableLabels(pageContract, "workflow-catalog");
   const chainNodeStates = chainStates(activeWorkflow, steps.length);
-  const listHref = scopeHref("/workflows", scope, {}, { wf_page: String(paged.page), wf_limit: String(paged.pageSize) });
+  const listHref = hrefPreservingWorkflowPage(PATH, sp);
   const actionCenterHref = activeWorkflow
     ? scopeHref("/action-center", scope, {}, { ac_row: activeWorkflow.row_id })
     : scopeHref("/action-center", scope);
 
   // Server-authoritative counts for the KPI tiles (not the capped page).
   const counts = new Map<WorkState, number>();
-  if (result.ok) for (const c of result.data.counts_by_work_state) counts.set(c.work_state, c.count);
+  if (countsResult.ok) for (const c of countsResult.data.counts_by_work_state) counts.set(c.work_state, c.count);
   const sum = (states: WorkState[]) => states.reduce((n, s) => n + (counts.get(s) ?? 0), 0);
-  const totalWorkflows = Array.from(counts.values()).reduce((a, b) => a + b, 0);
+  const totalWorkflows = totalFromBackend;
   const activeRuns = sum(ACTIVE_STATES);
   const blocked = sum(BLOCKED_STATES);
   const withExpected = rows.filter((r) => r.expected_count > 0);
@@ -123,10 +153,21 @@ export async function VaccinationWorkflowsPage({
     ? Math.round(withExpected.reduce((a, r) => a + (r.completed_count / r.expected_count) * 100, 0) / withExpected.length)
     : 0;
   function pagerHref(page: number): string {
-    return scopeHref("/workflows", scope, {}, { wf_page: String(page), wf_limit: String(paged.pageSize) });
+    if (page > paged.page && nextCursor) {
+      return hrefWithPagedCursor(PATH, sp, "wf_cursor", nextCursor, "wf_page", "wf_cursor_stack") ?? scopeHref(PATH, scope);
+    }
+    if (page < paged.page) {
+      return hrefPreviousPagedCursor(PATH, sp, "wf_cursor", "wf_page", "wf_cursor_stack") ?? scopeHref(PATH, scope);
+    }
+    return hrefPreservingWorkflowPage(PATH, sp, selectedWorkflowId, {
+      wf_page: String(page),
+      wf_limit: String(paged.pageSize),
+      wf_cursor: workflowCursor,
+      wf_cursor_stack: workflowCursorStackValues,
+    });
   }
   function pageSizeHref(pageSize: VaccinationPageSize): string {
-    return scopeHref("/workflows", scope, {}, { wf_page: "1", wf_limit: String(pageSize) });
+    return scopeHref(PATH, scope, {}, { wf_page: "1", wf_limit: String(pageSize), wf_cursor: undefined, wf_cursor_stack: undefined });
   }
 
   return (
@@ -138,9 +179,12 @@ export async function VaccinationWorkflowsPage({
 	        </div>
 	      </div>
 
-      {!result.ok ? (
+      {!countsResult.ok || !result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
+          {(() => {
+            const error = !countsResult.ok ? countsResult.error : !result.ok ? result.error : undefined;
+            return error ? <><b>{error.code ?? error.kind}</b>&nbsp;{error.message}</> : null;
+          })()}
         </div>
       ) : null}
 
@@ -155,7 +199,7 @@ export async function VaccinationWorkflowsPage({
       {/* Toolbar — module pill. Only the active vaccination module is visible in this slice. */}
       <div className="wftoolbar">
 	        <div className="subtabs" id="wfPills" style={{ margin: 0 }} aria-label={copy(pageContract, "filter.domains.aria")}>
-	          <Link href="/workflows" className="on">
+	          <Link href={scopeHref(PATH, scope)} className="on">
 	            {copy(pageContract, "label.all_domains")} <span className="cbq">{totalWorkflows}</span>
 	          </Link>
 	        </div>
@@ -165,7 +209,7 @@ export async function VaccinationWorkflowsPage({
       <div className="wfwrap">
         <div className="wfcat" id="wfcat" data-filter-scope>
 	          <div className="wfgrp">
-	            {copy(pageContract, "section.catalog.title")}<span className="muted">{rows.length}</span>
+	            {copy(pageContract, "section.catalog.title")}<span className="muted">{totalWorkflows}</span>
 	          </div>
 	          <div className="tbar" style={{ margin: "8px 6px 10px" }}>
 	            <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
@@ -174,7 +218,7 @@ export async function VaccinationWorkflowsPage({
 	              title={copy(pageContract, "filter.drawer.title")}
 	              searchReason={copy(pageContract, "filter.search_reason")}
 	              filterReason={copy(pageContract, "filter.reason")}
-	              rowsLabel={`${paged.start}-${paged.end} of ${rows.length} rows · ${copy(pageContract, "filter.rows_suffix")}`}
+	              rowsLabel={`${paged.start}-${paged.end} of ${totalWorkflows} rows · ${copy(pageContract, "filter.rows_suffix")}`}
 	              actionHref={scopeHref("/action-center", scope)}
 	              actionLabel={copy(pageContract, "action.open_action_center")}
 	              facets={catalogLabels}
@@ -187,25 +231,25 @@ export async function VaccinationWorkflowsPage({
 	                : copy(pageContract, "empty.unavailable")}
 	            </div>
 	          ) : (
-	            paged.items.map((row) => {
+	            rows.map((row) => {
 	              const title = actionWorkTitle(pageContract, row);
 	              const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
 	              const isActive = activeWorkflow?.row_id === row.row_id;
               return (
                 <Link
                   key={row.row_id}
-                  href={scopeHref("/workflows", scope, {}, { workflow: row.row_id, wf_page: String(paged.page), wf_limit: String(paged.pageSize) })}
+                  href={hrefPreservingWorkflowPage(PATH, sp, row.row_id)}
                   scroll={false}
                   className={`wfrow${isActive ? " on" : ""}`}
                   aria-current={isActive ? "true" : undefined}
 	                  aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
-	                  title={`${title} · ${row.park_name} · ${row.shed_name} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
+	                  title={`${title} · ${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
 	                >
 	                  <span className="wfdot" style={{ background: TONE_SWATCH[optionTone(pageContract, "severity_chips", row.severity) as Tone] }} />
 	                  <div className="wftx">
 	                    <b title={title}>{title}</b>
-	                    <div className="wfsub" title={`${row.park_name} · ${row.shed_name} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}>
-	                      {row.park_name} · {row.shed_name} · {optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
+	                    <div className="wfsub" title={`${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}>
+	                      {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · {optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
 	                    </div>
                     <div className="wfbar">
                       <i style={{ width: `${pct}%` }} />
@@ -247,10 +291,14 @@ export async function VaccinationWorkflowsPage({
 	              )}
             </div>
             <div className="bd">
-              {activeWorkflow ? (
+              {selectedWorkflowMissing ? (
+                <div className="note" style={{ marginBottom: 14 }}>
+                  {copy(pageContract, "empty.unavailable")}
+                </div>
+              ) : activeWorkflow ? (
                 <div className="fchipsbar" style={{ marginBottom: 14 }}>
-	                  <Tag tone={optionTone(pageContract, "work_state_filter_chips", activeWorkflow.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", activeWorkflow.work_state)}</Tag>
-	                  <Tag tone={optionTone(pageContract, "severity_chips", activeWorkflow.severity) as Tone}>{optionLabel(pageContract, "severity_chips", activeWorkflow.severity)}</Tag>
+		                  <Tag tone={optionTone(pageContract, "work_state_filter_chips", activeWorkflow.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", activeWorkflow.work_state)}</Tag>
+		                  <Tag tone={optionTone(pageContract, "severity_chips", activeWorkflow.severity) as Tone}>{optionLabel(pageContract, "severity_chips", activeWorkflow.severity)}</Tag>
 	                  <Tag tone={optionTone(pageContract, "sop_state_chips", activeWorkflow.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", activeWorkflow.sop_task_state)}</Tag>
 	                  <Tag tone={optionTone(pageContract, "proof_state_chips", activeWorkflow.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", activeWorkflow.proof_state)}</Tag>
 	                  <Tag tone={optionTone(pageContract, "verification_state_chips", activeWorkflow.verification_state) as Tone}>
@@ -333,7 +381,7 @@ export async function VaccinationWorkflowsPage({
                   <>
                     <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
 	                    <span>
-	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.shed_name}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
+	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
 	                    </span>
                   </>
                 ) : rows.length ? (
@@ -371,12 +419,6 @@ export async function VaccinationWorkflowsPage({
           </div>
         </div>
       </div>
-
-      {nextCursor ? (
-        <div className="muted small" style={{ marginTop: 12 }}>
-	          {copy(pageContract, "note.paging")}
-        </div>
-      ) : null}
     </div>
   );
 }

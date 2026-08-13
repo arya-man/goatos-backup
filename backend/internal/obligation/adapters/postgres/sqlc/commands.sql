@@ -92,6 +92,18 @@ WHERE tenant_id = @tenant_id
   AND obligation_id = @obligation_id
   AND status IN ('scheduled', 'due', 'in_progress', 'missed');
 
+-- name: ReopenObligation :execrows
+-- Verification rejection reopens a completion's obligation back to outstanding work (maintainer
+-- state-model: the obligation axis reopens on rejection, mirroring MarkObligationCompleted's close
+-- on record). Only a genuinely-completed row is reopened -- an obligation waived/canceled/superseded
+-- by an unrelated process is never resurrected by a stale reject replay. completed_at is cleared so
+-- IsCompleted/read models agree the obligation is open again.
+UPDATE obligation_instances
+SET status = 'due', completed_at = NULL, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = @tenant_id
+  AND obligation_id = @obligation_id
+  AND status = 'completed';
+
 -- name: ReScopeOpenObligationsForGoat :many
 -- SM-2: on a goat shift, move the goat's still-open, unbatched obligations to the new scope. 'deferred'
 -- (held sick/ICU/quarantine) work is re-scoped too — symmetric with SM-3 CancelOpenObligationsForGoat —

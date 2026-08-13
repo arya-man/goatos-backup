@@ -97,10 +97,14 @@ type IssueHeader struct {
 // blocked; a resolved authored zero is a non-nil "0.000". BlockedReasonCode is set if and only if
 // QuantityKg is nil. Nothing here can turn a blocked cell into a numeric zero.
 type StoredCell struct {
-	ParkID                 string
-	ParkLabel              string
-	ShedID                 string
-	ShedLabel              string
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the pen inside ShedLabel ("2", "Part 3"), empty for an undivided shed. A
+	// partitioned shed emits one cell PER PEN for the same (shed, session, item), so this is part of
+	// the cell's identity, not decoration -- see CellKey.
+	PartitionLabel         string
 	ShedTag                string
 	Breed                  string
 	RationGroup            string
@@ -129,21 +133,27 @@ type StoredCell struct {
 // shed_tag and breed are normalized because that is the grain group key the generator uses, so two
 // grains of a multi-grain shed never collapse and a cosmetic spelling variant never splits one.
 type CellKey struct {
-	ShedID      string
-	SessionNo   int32
-	ShedTagKey  string
-	BreedKey    string
-	FeedItemKey string
+	ShedID string
+	// PartitionKey is the normalized pen ('whole' for an undivided shed). WITHOUT it, Castro 1 /
+	// Castro 2 / Castro 3 collapse to one identity: they share shed_id, session, tag, breed and
+	// item, and differ ONLY by pen. That collision is what violated
+	// feed_direction_issue_rows_natural_key_uidx and 500'd every feed read on 2026-08-08.
+	PartitionKey string
+	SessionNo    int32
+	ShedTagKey   string
+	BreedKey     string
+	FeedItemKey  string
 }
 
 // Key returns the cell's natural identity.
 func (c StoredCell) Key() CellKey {
 	return CellKey{
-		ShedID:      c.ShedID,
-		SessionNo:   c.SessionNo,
-		ShedTagKey:  NormalizeConfigKey(c.ShedTag),
-		BreedKey:    NormalizeConfigKey(c.Breed),
-		FeedItemKey: c.FeedItemKey,
+		ShedID:       c.ShedID,
+		PartitionKey: PartitionMatchKey(c.PartitionLabel),
+		SessionNo:    c.SessionNo,
+		ShedTagKey:   NormalizeConfigKey(c.ShedTag),
+		BreedKey:     NormalizeConfigKey(c.Breed),
+		FeedItemKey:  c.FeedItemKey,
 	}
 }
 
@@ -191,6 +201,7 @@ func FlattenRows(rows []DirectionRow) []StoredCell {
 				ParkLabel:              row.ParkLabel,
 				ShedID:                 row.ShedID,
 				ShedLabel:              row.ShedLabel,
+				PartitionLabel:         row.PartitionLabel,
 				ShedTag:                row.ShedTag,
 				Breed:                  row.Breed,
 				RationGroup:            row.RationGroup,
@@ -247,6 +258,7 @@ func ReconstructRows(cells []StoredCell) []DirectionRow {
 				ParkLabel:              cell.ParkLabel,
 				ShedID:                 cell.ShedID,
 				ShedLabel:              cell.ShedLabel,
+				PartitionLabel:         cell.PartitionLabel,
 				ShedTag:                cell.ShedTag,
 				Breed:                  cell.Breed,
 				RationGroup:            cell.RationGroup,
@@ -317,6 +329,19 @@ func DistinctFeedItems(rows []DirectionRow) []FeedItem {
 	return out
 }
 
+// PenKey identifies one OPERATIONAL LOCATION -- the physical shed plus its normalized pen. It is the
+// grain a packer packs and films, and therefore the grain a packing completion is keyed on.
+//
+// It is deliberately NOT a shed id. Castro 1 / Castro 2 / Castro 3 hold different animals on
+// different rations, so a change confined to one pen must reopen that pen and leave its siblings
+// alone -- the same distinction migration 000137 exists for.
+type PenKey struct {
+	ShedID string
+	// PartitionKey is normalized ('whole' for an undivided shed), so it matches
+	// feed_packing_completions.partition_key directly. It is a MATCHING KEY and is never displayed.
+	PartitionKey string
+}
+
 // CellDiff is the result of comparing a freshly generated sheet against the stored one.
 type CellDiff struct {
 	// Changed carries every new-or-different cell, ready to upsert-and-mark-amended.
@@ -327,6 +352,16 @@ type CellDiff struct {
 	// AffectedShedIDs is the distinct set of sheds any change touched -- the "affected sheds only"
 	// an amendment records.
 	AffectedShedIDs []string
+	// HeadCountChangedPens is the subset of pens whose ANIMAL COUNT moved: a grain's head count
+	// differs, a grain appeared (animals arrived), or a grain vanished (animals left).
+	//
+	// It is a STRICTLY NARROWER signal than AffectedShedIDs and exists because the two answer
+	// different questions. AffectedShedIDs answers "which sheds does the amended sheet reprint",
+	// which a purely cosmetic change (a relabelled ration group, a re-authored gram rate) also
+	// triggers. This answers "where did the number of mouths change", which is the ONLY thing that
+	// justifies throwing away an operator's packing video and making them shoot it again
+	// (maintainer decision 2026-08-10).
+	HeadCountChangedPens []PenKey
 }
 
 // HasChanges reports whether the amend actually moved anything.
@@ -347,6 +382,8 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 
 	diff := CellDiff{}
 	affected := map[string]struct{}{}
+	// Pens whose ANIMAL COUNT moved, tracked separately from affected sheds -- see the field's doc.
+	headCountMoved := map[PenKey]struct{}{}
 	for _, cell := range generated {
 		key := cell.Key()
 		generatedByKey[key] = struct{}{}
@@ -356,11 +393,20 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 		}
 		diff.Changed = append(diff.Changed, cell)
 		affected[cell.ShedID] = struct{}{}
+		// A grain the stored sheet did not have at all means animals ARRIVED in a cohort this pen
+		// was not feeding before -- a head-count change even though there is no previous number to
+		// compare against.
+		if !ok || prev.HeadCount != cell.HeadCount {
+			headCountMoved[PenKey{ShedID: cell.ShedID, PartitionKey: PartitionMatchKey(cell.PartitionLabel)}] = struct{}{}
+		}
 	}
 	for key, cell := range storedByKey {
 		if _, ok := generatedByKey[key]; !ok {
 			diff.RemovedKeys = append(diff.RemovedKeys, key)
 			affected[cell.ShedID] = struct{}{}
+			// A grain that vanished means animals LEFT. The pen is packing for fewer mouths than the
+			// video was shot for, so it reopens on the same terms as one that gained animals.
+			headCountMoved[PenKey{ShedID: cell.ShedID, PartitionKey: PartitionMatchKey(cell.PartitionLabel)}] = struct{}{}
 		}
 	}
 
@@ -369,6 +415,18 @@ func DiffCells(stored, generated []StoredCell) CellDiff {
 		diff.AffectedShedIDs = append(diff.AffectedShedIDs, shed)
 	}
 	sort.Strings(diff.AffectedShedIDs)
+
+	diff.HeadCountChangedPens = make([]PenKey, 0, len(headCountMoved))
+	for pen := range headCountMoved {
+		diff.HeadCountChangedPens = append(diff.HeadCountChangedPens, pen)
+	}
+	// Deterministic order so a worker log, a test and a re-run all agree.
+	sort.Slice(diff.HeadCountChangedPens, func(i, j int) bool {
+		if diff.HeadCountChangedPens[i].ShedID != diff.HeadCountChangedPens[j].ShedID {
+			return diff.HeadCountChangedPens[i].ShedID < diff.HeadCountChangedPens[j].ShedID
+		}
+		return diff.HeadCountChangedPens[i].PartitionKey < diff.HeadCountChangedPens[j].PartitionKey
+	})
 	return diff
 }
 
@@ -450,6 +508,26 @@ type WorkflowClock struct {
 // instant is one business day before its feed day.
 func (c WorkflowClock) ExpectedIssueInstant(feedDay string) (time.Time, error) {
 	return combineLocalTime(feedDay, -1, c.DirectionTime)
+}
+
+// ExpectedCorrectionInstant returns the D-1 correction cutoff for feedDay in
+// the India business calendar.
+func (c WorkflowClock) ExpectedCorrectionInstant(feedDay string) (time.Time, error) {
+	return combineLocalTime(feedDay, -1, c.CorrectionTime)
+}
+
+// ExpectedTransportInstant returns the D-1 transport cutoff for feedDay. A nil
+// result means the park has not authored a transport cutoff; it never means an
+// implicit zero-time deadline.
+func (c WorkflowClock) ExpectedTransportInstant(feedDay string) (*time.Time, error) {
+	if c.TransportTime == nil {
+		return nil, nil
+	}
+	instant, err := combineLocalTime(feedDay, -1, *c.TransportTime)
+	if err != nil {
+		return nil, err
+	}
+	return &instant, nil
 }
 
 // combineLocalTime parses a YYYY-MM-DD business date, shifts it by dayOffset days, and attaches an

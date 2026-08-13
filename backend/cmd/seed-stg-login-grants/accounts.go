@@ -55,6 +55,9 @@ type Account struct {
 	FirebaseUID string
 	// Role is a permissions.RoleXxx constant.
 	Role string
+	// ParkCode is required for operator mobile execution accounts. Directors may
+	// stay tenant-scoped for both-park leadership visibility.
+	ParkCode string
 	// DepartmentCode is the HR department code (departments.code) this
 	// person's existing workforce_members roster row should be bound to.
 	// Empty for the 5 ceo_internal leadership accounts, which have no
@@ -89,6 +92,7 @@ var stgLoginAccounts = []Account{
 		Email:                  "amit797069@gmail.com",
 		FirebaseUID:            "kjVehMX54kddXdGkG4lyF7cslG13",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Amit Kumar",
 	},
@@ -97,6 +101,7 @@ var stgLoginAccounts = []Account{
 		Email:                  "darshantalawar033@gmail.com",
 		FirebaseUID:            "0HTcWFuGMJSB5KqxsrPzDf9LOeH3",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Darshan Talwar",
 	},
@@ -105,8 +110,84 @@ var stgLoginAccounts = []Account{
 		Email:                  "sagarmahoor143@gmail.com",
 		FirebaseUID:            "P4rMyrwkLuV1vTUwq2ORqHAaX843",
 		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Sagar Mahoor",
+	},
+	// The FIRST operator scoped to CBE; the three above are all CPT. ParkCode is what keeps that
+	// distinction real -- an operator is park-scoped, never tenant (see stg-operator-scope-guard), so
+	// this account sees Coimbatore's execution work and nothing of Channapatna's.
+	{
+		DisplayName:            "Subrata Sardar",
+		Email:                  "subratasardar111986@gmail.com",
+		FirebaseUID:            "4c2zjoSGzjbHdUcOxKBagPmNBG02",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Subrata Sardar",
+	},
+	{
+		DisplayName:            "Manikanth Yadav",
+		Email:                  "yaadavmanikant@gmail.com",
+		FirebaseUID:            "tNxEgTh51qNyqPQb5F610NzLtWv1",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Manikanth Yadav",
+	},
+	{
+		DisplayName:            "Dilkush Kumar",
+		Email:                  "kumard61146@gmail.com",
+		FirebaseUID:            "CLc94lYPuBNbSs8qqZvN44Xc1uI2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Dilkush Kumar",
+	},
+	{
+		DisplayName:            "Chandan Kumar",
+		Email:                  "vogetfom121314@gmail.com",
+		FirebaseUID:            "HJj866kAjIT5kQKUGV6v4LYZqNv2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CPT",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Chandan Kumar",
+	},
+	{
+		DisplayName:            "Mithun",
+		Email:                  "mithun35979@gmail.com",
+		FirebaseUID:            "cobrDnoBHvMZtwdkjb2aBWPS9Xz2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Mithun",
+	},
+	{
+		DisplayName:            "Munna Kumar",
+		Email:                  "munnayar08899@gmail.com",
+		FirebaseUID:            "ofdLKZNbZBVnMFqwJiPcj0UCUPj2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Munna Kumar",
+	},
+	{
+		DisplayName:            "Arun Kumar",
+		Email:                  "arunk657179@gmail.com",
+		FirebaseUID:            "xaJhLzRakKbRDbmIKY6DHrGjfgE2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Arun Kumar",
+	},
+	{
+		DisplayName:            "Sahid Gazi",
+		Email:                  "gazi76746@gmail.com",
+		FirebaseUID:            "FYr0zWlkEkcqETRLHsGJTNzInuU2",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Sahid Gazi",
 	},
 
 	// --- 1 director: Firebase email/password, pc_director role, preventive_care dept ---

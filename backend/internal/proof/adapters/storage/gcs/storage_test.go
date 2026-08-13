@@ -6,11 +6,16 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
+	"io"
+	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
+	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
 func TestSignedUploadUsesGenerationMatchPrecondition(t *testing.T) {
@@ -99,6 +104,29 @@ func TestSignedDownloadPinsGeneration(t *testing.T) {
 	}
 }
 
+func TestSignedDownloadRequestsInlinePlayback(t *testing.T) {
+	storage := newTestStorage(t)
+	storage.now = func() time.Time { return time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC) }
+
+	signed, err := storage.PrepareDownload(context.Background(), domain.Artifact{
+		ObjectKey: "tenant/proofs/proof-1.mp4",
+		MimeType:  "video/mp4",
+	}, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("PrepareDownload() error = %v", err)
+	}
+	u, err := url.Parse(signed)
+	if err != nil {
+		t.Fatalf("parse signed URL: %v", err)
+	}
+	if got := u.Query().Get("response-content-disposition"); got != "inline" {
+		t.Fatalf("response-content-disposition = %q, want inline", got)
+	}
+	if got := u.Query().Get("response-content-type"); got != "video/mp4" {
+		t.Fatalf("response-content-type = %q, want video/mp4", got)
+	}
+}
+
 func newTestStorage(t *testing.T) *Storage {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -115,3 +143,53 @@ func newTestStorage(t *testing.T) *Storage {
 	}
 	return storage
 }
+
+// stubRoundTripper answers the signed HEAD without touching the network.
+type stubRoundTripper struct {
+	status int
+	method string
+}
+
+func (s *stubRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.method = req.Method
+	return &http.Response{
+		StatusCode: s.status,
+		Body:       io.NopCloser(strings.NewReader("")),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+// StatObject must issue ONE signed HEAD (never a GET of the bytes) and map a 404/410 to the
+// terminal ErrObjectMissing class used by the verdict-time evidence gate.
+func TestStatObjectMapsMissingObjectToTerminalClass(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		wantErr error
+	}{
+		{"present", http.StatusOK, nil},
+		{"not found", http.StatusNotFound, ports.ErrObjectMissing},
+		{"gone", http.StatusGone, ports.ErrObjectMissing},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := newTestStorage(t)
+			rt := &stubRoundTripper{status: tc.status}
+			storage.client = &http.Client{Transport: rt}
+
+			err := storage.StatObject(context.Background(), domain.Artifact{ObjectKey: "tenant/2026/08/02/proof.mp4"})
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("StatObject = %v, want nil", err)
+				}
+			} else if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("StatObject = %v, want %v", err, tc.wantErr)
+			}
+			if rt.method != http.MethodHead {
+				t.Fatalf("method = %q, want HEAD (never download the bytes to check existence)", rt.method)
+			}
+		})
+	}
+}
+
+var _ ports.ObjectStatter = (*Storage)(nil)

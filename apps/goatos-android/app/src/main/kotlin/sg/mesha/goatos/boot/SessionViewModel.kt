@@ -1,6 +1,7 @@
 package sg.mesha.goatos.boot
 
 import android.content.Context
+import android.util.Log
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.ViewModel
@@ -21,6 +22,7 @@ import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
@@ -55,6 +57,12 @@ internal fun authModeForFlavor(flavor: String): AuthMode =
 internal fun devSessionNeedsRefresh(mode: AuthMode, persisted: String?, baked: String): Boolean =
     mode == AuthMode.DEV_BEARER && persisted != baked.takeIf { it.isNotBlank() }
 
+internal fun sessionIsAuthedForMode(mode: AuthMode, persisted: String?): Boolean =
+    when (mode) {
+        AuthMode.DEV_BEARER -> !persisted.isNullOrBlank()
+        AuthMode.FIREBASE -> persisted == FIREBASE_SESSION_MARKER
+    }
+
 internal data class LoginUiState(
     val isLoading: Boolean = false,
     val errorReason: LoginError? = null,
@@ -71,8 +79,8 @@ internal data class LoginUiState(
  *   real auth landed.
  * - stg / prod flavor ([AuthMode.FIREBASE]): real Firebase Auth: email/password, Google
  *   SSO (Credential Manager -> GoogleIdTokenCredential -> Firebase), and password reset.
- *   On success the Firebase ID token is stored as the session bearer, while the network
- *   layer re-fetches a fresh token per request so expiry never stales a live session.
+ *   On success only a Firebase-session marker is stored; the network layer re-fetches a
+ *   fresh ID token per request so expiry never stales a live session.
  */
 @HiltViewModel
 class SessionViewModel @Inject constructor(
@@ -84,14 +92,26 @@ class SessionViewModel @Inject constructor(
     private val appApi: AppApi,
     private val relauncher: SessionRelauncher,
 ) : ViewModel() {
+    private companion object {
+        const val TAG = "GoatOSSession"
+    }
 
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
     private val devSessionReady = MutableStateFlow(authMode != AuthMode.DEV_BEARER)
 
-    val isAuthed: StateFlow<Boolean> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
-        ready && !token.isNullOrBlank()
+    /**
+     * null until the stored session has actually been READ. Seeding this false meant the login
+     * card was drawn for the first frames of every cold start, then replaced the moment the token
+     * arrived -- a sign-in screen flashed at an already-signed-in operator. Callers must treat
+     * null as "not known yet" and render neither the app nor the login gate.
+     */
+    val isAuthed: StateFlow<Boolean?> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
+        // Not-ready is UNKNOWN, not "signed out". Returning false here published a confident
+        // "show the login card" before the dev session had been read, so a dev build flashed a
+        // sign-in screen at an already-signed-in operator -- the same defect one layer down.
+        if (!ready) null else sessionIsAuthedForMode(authMode, token)
     }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _uiState = MutableStateFlow(LoginUiState())
     internal val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
@@ -99,6 +119,10 @@ class SessionViewModel @Inject constructor(
     init {
         if (authMode == AuthMode.DEV_BEARER) {
             viewModelScope.launch {
+                // The whole dev-session bring-up is wrapped so devSessionReady ALWAYS resolves.
+                // A throw in here (logout, token store, scheduler) would otherwise leave isAuthed
+                // null forever: a permanent loading screen with no way to reach the login gate.
+                try {
                 val baked = BuildConfig.DEV_BEARER_TOKEN
                 val persisted = sessionStore.currentToken()
                 if (devSessionNeedsRefresh(authMode, persisted, baked)) {
@@ -116,6 +140,49 @@ class SessionViewModel @Inject constructor(
                 // Do not let bootstrap/network requests race ahead with the previous APK's
                 // persisted principal. A blank baked token deliberately leaves the login gate.
                 devSessionReady.value = true
+                // A non-blank token surviving this process's cold start (whether it was already
+                // there or just replaced above) opened the session WITHOUT a fresh sign-in
+                // attempt this run — the token-restore path, distinct from LOGIN_SUCCESS which
+                // only ever follows an explicit signIn* call.
+                if (!sessionStore.currentToken().isNullOrBlank()) {
+                    analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
+                }
+                } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                    // FAIL CLOSED. The wipe above revokes the previous principal's device and
+                    // clears its state; if it threw partway, the OLD bearer may still be on disk.
+                    // Simply opening the gate here would let bootstrap reopen that principal --
+                    // a cross-principal session, which is worse than the locked-loading screen
+                    // this catch was added to prevent. Drop the token first, so the gate opens on
+                    // a signed-OUT app the operator can sign into.
+                    runCatching { sessionStore.setBearerToken(null) }
+                    // Do NOT rethrow. This runs in viewModelScope.launch, so an uncaught throw
+                    // here takes the app down on cold start instead of showing the signed-out
+                    // gate this catch exists to reach. Record it and let the finally publish the
+                    // resolved (signed-out) state.
+                    // exception:exempt startup-path diagnostic; the signed-out state IS the handling
+                    android.util.Log.e(TAG, "dev session bring-up failed; signing out", t)
+                } finally {
+                    // Resolve either way: unknown-forever is a locked-out app. By here the token
+                    // is either the new principal's or gone.
+                    devSessionReady.value = true
+                }
+            }
+        } else {
+            viewModelScope.launch {
+                val persisted = sessionStore.currentToken()
+                if (!persisted.isNullOrBlank() && persisted != FIREBASE_SESSION_MARKER) {
+                    logWarning("Clearing stale non-Firebase session marker for flavor=${BuildConfig.FLAVOR}")
+                    logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                } else if (persisted == FIREBASE_SESSION_MARKER) {
+                    // A still-valid Firebase-session marker from a previous run: the session
+                    // gate opens on this cached marker, not a fresh sign-in this process.
+                    analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
+                }
             }
         }
     }
@@ -195,6 +262,7 @@ class SessionViewModel @Inject constructor(
         val token = authRepository.currentIdToken()
         if (token.isNullOrBlank()) {
             analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "no_token_issued"))
+            logWarning("Firebase sign-in returned no ID token email=${authRepository.currentEmail().orEmpty()} uid=${authRepository.currentFirebaseUid().orEmpty()}")
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -204,6 +272,15 @@ class SessionViewModel @Inject constructor(
             }
             return
         }
+        val email = authRepository.currentEmail()?.ifBlank { null }
+        val firebaseUid = authRepository.currentFirebaseUid()?.ifBlank { null }
+        val identityProps = buildMap {
+            email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+            firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+        }
+        analytics.track(AnalyticsEvents.LOGIN_SESSION_READY, identityProps)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, email)
+        logInfo("Firebase session ready email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         runCatching {
             appApi.recordAuthSessionEvent(
                 AuthSessionEventRequestDto(
@@ -212,7 +289,11 @@ class SessionViewModel @Inject constructor(
                 ),
             )
         }.onFailure { t ->
-            analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"))
+            analytics.track(
+                AnalyticsEvents.LOGIN_FAILURE,
+                identityProps + mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"),
+            )
+            logWarning("Goat OS session event failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", t)
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -228,7 +309,8 @@ class SessionViewModel @Inject constructor(
         // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
         // WorkManager's enqueue does disk I/O on the calling thread, so hop off Main.
         withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
-        analytics.track(AnalyticsEvents.LOGIN_SUCCESS)
+        analytics.track(AnalyticsEvents.LOGIN_SUCCESS, identityProps)
+        logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
     }
 
@@ -247,7 +329,32 @@ class SessionViewModel @Inject constructor(
 
     private fun reportAuthFailure(error: Throwable) {
         val (reason, detail) = classifyAuthError(error)
+        val email = authRepository.currentEmail()?.ifBlank { null }
+        val firebaseUid = authRepository.currentFirebaseUid()?.ifBlank { null }
+        analytics.track(
+            AnalyticsEvents.LOGIN_FAILURE,
+            buildMap {
+                put(AnalyticsEvents.Params.REASON, reason.name.lowercase())
+                email?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+                firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
+            },
+        )
+        logWarning("Firebase login failed reason=${reason.name} email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", error)
         _uiState.update { it.copy(isLoading = false, errorReason = reason, errorDetail = detail) }
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
+
+    private fun logWarning(message: String, throwable: Throwable? = null) {
+        runCatching {
+            if (throwable == null) {
+                Log.w(TAG, message)
+            } else {
+                Log.w(TAG, message, throwable)
+            }
+        }
     }
 }
 

@@ -35,9 +35,18 @@
     <string name="counts_mode_death">ಮರಣ</string>
     <string name="counts_submit_birth">ಜನನ ದಾಖಲಿಸಿ</string>
     <string name="counts_submit_death">ಮರಣ ದಾಖಲಿಸಿ</string>
+    <string name="counts_record_another_birth">ಇನ್ನೊಂದು ಜನನ ದಾಖಲಿಸಿ</string>
+    <string name="counts_record_another_death">ಇನ್ನೊಂದು ಮರಣ ದಾಖಲಿಸಿ</string>
     <string name="counts_death_guardrail_note">ಮರಣವನ್ನು ಸಂರಕ್ಷಿತ ಮರಣ ಮಾರ್ಗದ ಮೂಲಕ ದಾಖಲಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಪ್ರಾಣಿಯ ತೆರೆದ ಲಸಿಕೆ ಕೆಲಸವನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ರದ್ದುಗೊಳಿಸುತ್ತದೆ.</string>
 
     <!-- Shifting screen -->
+    <string name="counts_shifting_actions_title">ಸ್ಥಳಾಂತರ</string>
+    <string name="counts_shifting_actions_subtitle">ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_open">ಹಿಂದಿನ ದಿನಗಳ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳನ್ನು ತೋರಿಸಿ</string>
+    <string name="counts_shifting_previous_actions_title">ಹಿಂದಿನ ದಿನಗಳ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_count">%1$d ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳು</string>
+    <string name="counts_shifting_previous_actions_empty">ಹಿಂದಿನ ದಿನಗಳ ಯಾವುದೇ ಸ್ಥಳಾಂತರ ಕ್ರಮಗಳಿಲ್ಲ.</string>
+    <string name="counts_shifting_raise">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_title">ಸ್ಥಳಾಂತರ ದಾಖಲಿಸಿ</string>
     <string name="counts_shifting_subtitle">ಒಂದು ಪ್ರಾಣಿಯನ್ನು ಇನ್ನೊಂದು ಶೆಡ್‌ಗೆ ಸ್ಥಳಾಂತರಿಸಿ</string>
     <string name="counts_submit_shifting">ಸ್ಥಳಾಂತರ ರಚಿಸಿ</string>
@@ -80,28 +89,49 @@
     <string name="counts_group_current_location">ಪ್ರಸ್ತುತ ಸ್ಥಳ</string>
     <string name="counts_group_priority">ಆದ್ಯತೆ</string>
     <string name="counts_group_category">ವರ್ಗ</string>
+    <string name="counts_group_comment">ಟಿಪ್ಪಣಿ</string>
+    <string name="counts_field_comment">ಈ ಪ್ರಾಣಿಯನ್ನು ಏಕೆ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತಿದೆ?</string>
+    <string name="counts_hint_comment">ಐಚ್ಛಿಕ. ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸುವ ಫಾರ್ಮ್ ಮುಖ್ಯಸ್ಥರು ಮತ್ತು ನಿಮ್ಮ ವೀಡಿಯೊ ಪರಿಶೀಲಿಸುವವರು ಇದನ್ನು ಓದುತ್ತಾರೆ.</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 1</string>
-    <string name="counts_field_tag2">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 2</string>
+    <string name="counts_field_tag2">ಪ್ರಾಣಿ ಗುರುತಿಸುವಿಕೆ 2 (ಐಚ್ಛಿಕ)</string>
+    <string name="counts_hint_tag2">ಎರಡನೇ ಶಾಶ್ವತ RFID. ನವಜಾತಕ್ಕೆ ಒಂದೇ ಟ್ಯಾಗ್ ಇದ್ದರೆ ಖಾಲಿ ಬಿಡಿ.</string>
+    <string name="counts_field_temp_tag">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">ಬ್ಲೂಟೂತ್ ರೀಡರ್‌ನಿಂದ ಈ RFID ಸ್ಕ್ಯಾನ್ ಮಾಡಿ</string>
+    <string name="counts_rfid_scan_stop">ಸ್ಕ್ಯಾನ್ ನಿಲ್ಲಿಸಿ</string>
+    <string name="counts_rfid_scan_listening">ಸ್ಕ್ಯಾನ್ ಆಗುತ್ತಿದೆ… ರೀಡರ್ ಅನ್ನು ಟ್ಯಾಗ್ ಬಳಿ ಹಿಡಿಯಿರಿ, ಅಥವಾ ನಿಲ್ಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ</string>
+    <string name="counts_rfid_promote_scan_hint">ಬ್ಲೂಟೂತ್ ರೀಡರ್‌ನಿಂದ ಶಾಶ್ವತ ಕಿವಿ ಟ್ಯಾಗ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ, ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.</string>
+    <string name="counts_id_kind_permanent">ಶಾಶ್ವತ RFID</string>
+    <string name="counts_id_kind_temporary">ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್</string>
     <string name="counts_field_breed">ತಳಿ</string>
+    <string name="counts_field_breed_required">ತಳಿ *</string>
     <string name="counts_field_dob">ಜನ್ಮ ದಿನಾಂಕ (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">ಪ್ರವೇಶ ದಿನಾಂಕ (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">ನಮೂದು ದಿನಾಂಕ (YYYY-MM-DD)</string>
     <string name="counts_field_park">ಪಾರ್ಕ್</string>
     <string name="counts_field_farm">ಫಾರ್ಮ್</string>
     <string name="counts_field_current_location">ಪ್ರಸ್ತುತ ಸ್ಥಳ</string>
     <string name="counts_field_shed">ಶೆಡ್</string>
     <string name="counts_field_dam">ತಾಯಿ</string>
     <string name="counts_field_dam_optional">ತಾಯಿ (ಐಚ್ಛಿಕ)</string>
+    <string name="counts_field_mother_rfid">ತಾಯಿಯ RFID</string>
+    <string name="counts_mother_rfid_hint">ತಾಯಿಯ ಶಾಶ್ವತ RFID ಅನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.</string>
+    <string name="counts_field_litter_size">ಎಷ್ಟು ಮರಿಗಳು ಹುಟ್ಟಿವೆ? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">ಅವಳಿ</string>
+    <string name="counts_litter_triplets">ತ್ರಿವಳಿ</string>
     <string name="counts_field_sex">ಲಿಂಗ</string>
     <string name="counts_field_status">ಸ್ಥಿತಿ</string>
     <string name="counts_field_goat">ಮೇಕೆ</string>
-    <string name="counts_field_row_version">ದಾಖಲೆ ಆವೃತ್ತಿ</string>
     <string name="counts_field_reason">ಕಾರಣ</string>
     <string name="counts_field_animal_lookup">RFID ಮೂಲಕ ಹುಡುಕಿ</string>
     <string name="counts_select_farm">ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_select_farm_first">ಮೊದಲು ಒಂದು ಫಾರ್ಮ್ ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_select_animal_first">ಮೊದಲು ಒಂದು ಪ್ರಾಣಿಯನ್ನು ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_shifting_farm_locked">ಪ್ರಾಣಿಯ ಪ್ರಸ್ತುತ ಸ್ಥಳದಿಂದ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ</string>
     <string name="counts_select_shed">ಒಂದು ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ</string>
+    <string name="counts_select_breed">ಒಂದು ತಳಿ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="counts_location_unknown">ದಾಖಲಿಸಿಲ್ಲ</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +146,7 @@
     <string name="counts_sex_male">ಗಂಡು</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">ಪ್ರವೇಶ ದಿನಾಂಕದ ನಂತರ ಇರಬಾರದು.</string>
-    <string name="counts_hint_row_version">ಪ್ರಾಣಿಯ ಪ್ರಸ್ತುತ ದಾಖಲೆ ಆವೃತ್ತಿ.</string>
+    <string name="counts_hint_dob">ಭವಿಷ್ಯದ ದಿನಾಂಕವಾಗಿರಬಾರದು.</string>
     <string name="counts_hint_reason">3 ಮತ್ತು 500 ಅಕ್ಷರಗಳ ನಡುವೆ.</string>
     <string name="counts_hint_animal_lookup">ಈ ಸ್ಥಳಾಂತರವನ್ನು ಅನುಮೋದಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ಸ್ಥಳಾಂತರಿಸಲಾಗುತ್ತದೆ.</string>
     <string name="counts_hint_death_lookup">ಮರಣವನ್ನು ದಾಖಲಿಸಿದರೆ ನೀವು ಇಲ್ಲಿ ಆಯ್ಕೆಮಾಡಿದ ನಿಖರ ಪ್ರಾಣಿಯನ್ನೇ ನಿರ್ಗಮಿಸಲಾಗುತ್ತದೆ.</string>
@@ -137,4 +166,60 @@
     <string name="counts_shifting_from">ಇಂದ</string>
     <string name="counts_shifting_to">ಗೆ</string>
     <string name="counts_more_fields">ಹೆಚ್ಚಿನ ವಿವರಗಳು</string>
+
+    <!-- Birth / Death workflow module -->
+    <string name="counts_workflow_birth_title">ಜನನ</string>
+    <string name="counts_workflow_death_title">ಮರಣ</string>
+    <string name="counts_workflow_colostrum_title">ಗಿಣ್ಣು ಹಾಲು</string>
+    <string name="counts_workflow_open_fmt">%1$d ತೆರೆದಿವೆ</string>
+    <string name="counts_workflow_add_birth">ಜನನ ಸೇರಿಸಿ</string>
+    <string name="counts_workflow_add_death">ಮರಣ ಸೇರಿಸಿ</string>
+    <string name="counts_workflow_today">ಇಂದು</string>
+    <string name="counts_workflow_past_note">ಹಿಂದಿನ ದಿನ ತೋರಿಸಲಾಗುತ್ತಿದೆ. ಮುಗಿದ ಕೆಲಸ ಓದಲು ಮಾತ್ರ.</string>
+    <string name="counts_workflow_group_overdue">ತಡವಾಗಿದೆ</string>
+    <string name="counts_workflow_group_due">ಇಂದು ಬಾಕಿ</string>
+    <string name="counts_workflow_group_in_review">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="counts_workflow_group_completed">ಪೂರ್ಣಗೊಂಡಿದೆ</string>
+    <string name="counts_workflow_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="counts_birth_pending_header">ಅನುಮೋದನೆ ಬಾಕಿ ಇದೆ</string>
+    <string name="counts_workflow_chip_all">ಎಲ್ಲಾ</string>
+    <string name="counts_workflow_chip_overdue">ತಡವಾಗಿದೆ</string>
+    <string name="counts_workflow_previous_overdue_open">ಹಿಂದಿನ ದಿನಗಳ ಬಾಕಿ ಕೆಲಸವನ್ನು ತೋರಿಸಿ</string>
+    <string name="counts_workflow_previous_overdue_title">ಹಿಂದಿನ ದಿನಗಳಿಂದ ಬಾಕಿ</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d ಬಾಕಿ ಕೆಲಸಗಳು</string>
+    <string name="counts_workflow_previous_overdue_empty">ಹಿಂದಿನ ದಿನಗಳ ಯಾವುದೇ ಬಾಕಿ ಕೆಲಸ ಇಲ್ಲ.</string>
+    <string name="counts_workflow_chip_due">ಬಾಕಿ</string>
+    <string name="counts_workflow_chip_completed">ಪೂರ್ಣ</string>
+    <string name="counts_workflow_chip_awaiting_video">ವೀಡಿಯೊ ಬಾಕಿ</string>
+    <string name="counts_workflow_empty">ಈ ದಿನಕ್ಕೆ ಯಾವುದೇ ಫಾಲೋ-ಅಪ್ ಇಲ್ಲ.</string>
+    <string name="counts_workflow_empty_offline">ಕೆಲಸದ ಪಟ್ಟಿ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಆನ್\u200cಲೈನ್ ಆದ ಮೇಲೆ ಕಾಣಿಸುತ್ತದೆ.</string>
+    <string name="counts_workflow_detail_title">ಕ್ರಮಗಳು</string>
+    <string name="counts_workflow_not_found">ಈ ದಾಖಲೆ ಲಭ್ಯವಿಲ್ಲ. ಹಿಂದೆ ಹೋಗಿ ಪಟ್ಟಿಯನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
+    <string name="counts_workflow_progress_fmt">%1$d / %2$d ಮುಗಿದಿದೆ</string>
+    <string name="counts_workflow_sect_overdue">ತಡವಾಗಿದೆ</string>
+    <string name="counts_workflow_sect_scheduled">ನಿಗದಿತ</string>
+    <string name="counts_workflow_sect_completed">ಪೂರ್ಣಗೊಂಡಿದೆ</string>
+    <string name="counts_workflow_sect_verification">ಪರಿಶೀಲನೆ</string>
+    <string name="counts_workflow_sect_sessions">ಕೊಲೊಸ್ಟ್ರಮ್ ಅವಧಿಗಳು</string>
+    <string name="counts_workflow_tag_video">ವೀಡಿಯೊ</string>
+    <string name="counts_workflow_answered_fmt">ಉತ್ತರ %1$s</string>
+    <string name="counts_workflow_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="counts_workflow_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="counts_workflow_pick_video">ಅಪ್\u200cಲೋಡ್</string>
+    <string name="counts_workflow_mark_done">ಮುಗಿಯಿತು ಎಂದು ಗುರುತಿಸಿ</string>
+    <string name="counts_workflow_submit">ಸಲ್ಲಿಸಿ</string>
+    <string name="counts_add_birth_subtitle">ನವಜಾತ ದಾಖಲಿಸಿ</string>
+    <string name="counts_group_born">ಜನನ</string>
+    <string name="counts_add_birth_tag_note">ಮರಿಗೆ ತಾತ್ಕಾಲಿಕ ಟ್ಯಾಗ್ ತಾನಾಗಿಯೇ ಸಿಗುತ್ತದೆ. ಶಾಶ್ವತ RFID ಅನ್ನು ನಂತರ \"ಮರಿಗೆ ಟ್ಯಾಗ್ ಹಾಕಿ\" ಹಂತದಿಂದ ಹಾಕಿ.</string>
+    <string name="counts_add_birth_more">＋ ವಿವರ ಸೇರಿಸಿ (ತಳಿ)</string>
+    <string name="counts_field_time_of_birth">ಜನನ ಸಮಯ (HH:MM)</string>
+    <string name="counts_add_birth_dob_hint">ಜನನ ದಿನಾಂಕ — ಇಂದು. ಜನನಗಳನ್ನು ಆದಂತೆ ದಾಖಲಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="counts_add_birth_time_hint">ಈಗಿನ ಸಮಯ ತುಂಬಲಾಗಿದೆ — ಬದಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+    <string name="counts_add_birth_workflow_note">ಸಲ್ಲಿಸಿದ ತಕ್ಷಣ ಪ್ರತಿಯೊಂದು ಮರಿಯೂ ತನ್ನದೇ ಜನನ ಕಾರ್ಯಗಳೊಂದಿಗೆ ಸೃಷ್ಟಿಯಾಗುತ್ತದೆ. ವೆಬ್ ಅನುಮೋದನೆ ಮರಿಗಳನ್ನು ಹಿಂಡಿನ ಎಣಿಕೆಗೆ ಮಾತ್ರ ಸೇರಿಸುತ್ತದೆ.</string>
+    <string name="counts_add_death_subtitle">ಸತ್ತ ಪ್ರಾಣಿಯನ್ನು ಹುಡುಕಿ</string>
+    <string name="counts_workflow_recorded">ರೆಕಾರ್ಡ್ ಮಾಡಲಾಗಿದೆ</string>
+    <string name="counts_workflow_rerecord_video">ವೀಡಿಯೊವನ್ನು ಮರು-ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="counts_workflow_weight_kg">ತೂಕ (ಕೆಜಿ)</string>
+    <string name="counts_workflow_weight_continue">ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮುಂದುವರಿಯಿರಿ</string>
+    <string name="counts_shifting_videos_label">ರೆಕಾರ್ಡ್ ಮಾಡಿದ ವೀಡಿಯೊಗಳು</string>
 </resources>

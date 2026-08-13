@@ -93,6 +93,42 @@ Capture is abstracted behind a `ProofCaptureSource` port. Each captured/picked
 video is written to Room first (§3) as a proof row with its SOP subject, then
 queued for upload.
 
+## 2b. Shared video processing before upload
+
+All operator camera video uploads must use the shared pipeline in
+[`proof-video-processing-pipeline.md`](./proof-video-processing-pipeline.md).
+Screens such as weighing, vaccination, feed, shifting, and future proof modules
+must not build their own compression/upload queues.
+
+This pipeline is for operator execution flows only. Leadership, verifier,
+admin, and read-only surfaces may inspect proofs through server-authorized
+review/read flows, but they must not create phone-camera proof videos.
+
+The pipeline:
+
+- stores the original capture in Room/app-owned storage first
+- captures timestamp, logged-in operator, mandatory precise GPS, and
+  best-effort Android `Geocoder` address at recording start
+- burns a compact bottom-right audit overlay into the final video/photo file
+  itself
+- applies adaptive WhatsApp-style H.264/AAC compression based on input
+  resolution, original bitrate, proof module, and proof readability needs
+- runs only one compression job at a time; uploads may run in parallel with the
+  next compression job
+- records Firebase Analytics/Performance/Crashlytics signals at every stage
+- saves the final selected artifact to Gallery and uploads that same artifact:
+  processed video/photo on success, original only after a recorded processing
+  failure
+
+A pass-through processor is not acceptable. Successful processing must create a
+new compressed MP4 with burned overlay for video proof, or a new overlaid image
+for photo proof. Upload success alone is not proof that processing succeeded if
+the uploaded artifact is still the original capture.
+
+Operator UI may show business status such as `Compressing proof...` and
+`Uploading proof...`, but must not expose codec, Room, outbox, GCS, idempotency,
+or other implementation terms.
+
 ## 3. Room-first, single source of truth, background sync
 
 The on-device database is the single source of truth for both scans and proof
@@ -102,6 +138,15 @@ videos. Nothing is "submitted" straight to the network.
   call, each with an explicit sync status (`PENDING`, `IN_FLIGHT`, `SYNCED`,
   `FAILED`). The UI renders that status per row — identical mental model to the
   Android Photos / Google Drive "uploading / synced" indicators.
+- Video rows include processing state before upload: original captured,
+  location/address resolving, compressing/overlaying, processed, upload queued,
+  uploading, uploaded, failed/retrying, or dead-letter. Processing failure does
+  not lose proof; it flips the row to upload the original file and records the
+  exception through the telemetry ports.
+- The row's final local upload URI is the single artifact handed to both Gallery
+  save and proof upload. On healthy processing this URI is the processed file;
+  on fallback it is the original file with `upload_original=true` and an
+  attached processing-failure event.
 - Every scan and clip creates its own draft outbox record immediately. Shed and
   drive submit buttons only validate/finalize already-synced records; they are
   not bulk-upload triggers.
@@ -119,16 +164,48 @@ videos. Nothing is "submitted" straight to the network.
   key persisted with the row, so retries never double-post (see AGENTS.md write-path
   idempotency rule).
 
+### 3a. Proof idempotency guardrail
+
+Do not rework proof upload grouping or replacement without preserving the past
+shed-proof hardening fixes.
+
+- A proof upload's **idempotency key belongs to one captured clip**, not to a
+  shed, task, goat, or "latest proof" slot. Retrying that upload must reuse the
+  same key and the same payload. Re-recording/replacing proof must create a new
+  proof row with a new proof-upload idempotency key.
+- The outbox `groupKey` is only an ordering/concurrency partition. Changing it
+  must not change the idempotency key, payload fingerprint, subject, scope, or
+  server proof identity of an existing row.
+- Same idempotency key with different subject/scope/payload is a bug. Android's
+  outbox rejects it via request fingerprint; backend proof creation also rejects
+  it via proof request fingerprint.
+- Never delete a local proof row/file just because the UI wants to replace it.
+  If the upload is queued or failed, cancel/retry through the outbox. If it is
+  in flight, refuse deletion until it settles. If it is already synced, delete
+  the server proof artifact first, and keep the local row if server deletion
+  fails or the proof is already attached to a submission.
+- Shed-level proof and per-animal proof may use different `groupKey`s for field
+  throughput, but both must keep one stable idempotency key per captured video.
+  Do not "fix" ordering by reusing a shed/task-level proof key across multiple
+  clips; that recreates the shed-submit idempotency loop.
+
 ## 4. Mandatory permissions gate
 
-Capture needs camera, Bluetooth (HID + connect/scan), location (BT dependency on
-older Android), storage, and notifications. These are **mandatory**:
+Capture needs camera, Bluetooth (HID + connect/scan), precise location, storage,
+and notifications. These are **mandatory**:
 
 - The app requests all required permissions at startup.
-- If any required permission (camera / Bluetooth / location / notifications /
-  storage) is denied, the app **blocks and does not proceed** past the gate until
-  every one is granted. There is no degraded path — a vaccination drive cannot be
-  captured or proven without them.
+- If any required permission (camera / Bluetooth / precise location /
+  notifications / storage) is denied, the app **blocks and does not proceed**
+  past the gate until every one is granted. There is no degraded path — a
+  vaccination drive cannot be captured or proven without them.
+- If Android still allows a runtime permission prompt, the blocked gate asks
+  again from the same screen. If the operator selected "Don't ask again" or the
+  OS will not show the prompt, the gate opens the app's Android Settings page
+  and tells the operator to enable the missing permission there before returning.
+- Video proof recording also blocks until the app has a fresh precise location
+  fix within policy accuracy/age. Android `Geocoder` failure may fall back to
+  lat/lng text, but missing precise location may not.
 
 ## 5. Role gating
 
@@ -159,16 +236,20 @@ in the emulator with **no physical reader and no real camera**:
   KeyEvent → buffer → tag → Room path. Unit/Robolectric tests use `FakeScanSource`.
 - **Video path:** the emulator's virtual camera can record, or the test injects a
   fixture file through `ProofCaptureSource` — proving the Room-first persist +
-  upload-queue + status transitions without a real lens.
+  processing state + Gallery-save selection + upload-queue + status transitions
+  without a real lens. Tests must fail pass-through/no-op processors that mark
+  the original file as successfully processed.
 - **Sync path:** a `MockEngine`/fake backend drives the outbox → upload → response
   round-trip and the Room status transitions (PENDING → IN_FLIGHT → SYNCED /
   FAILED), plus process-death restore (kill + relaunch, drive still present and
   resumable).
 - **What still needs a physical device (final QA only):** real Bluetooth pairing
-  with the actual reader, and real camera capture quality. Everything else —
-  scan→Room, SOP proof min/max, mandatory-permission gate, background
-  upload, role gating, and submit→verify→leadership close is covered by
-  emulator and isolated-backend E2E.
+  with the actual reader, real camera capture quality, and visual inspection
+  that the Gallery/uploaded success artifact is compressed with a burned overlay.
+  Everything else — scan→Room, SOP proof min/max, mandatory-permission gate,
+  background upload, fallback-original upload on processing failure, role
+  gating, and submit→verify→leadership close is covered by emulator and
+  isolated-backend E2E.
 
 ## STG GCS Verification
 
@@ -191,3 +272,6 @@ For staging, verify bucket/env/IAM/signed URL/upload/DB linkage using:
   queues, alerts, or drawers.
 - Server-driven form: field set, labels, descriptions, required/optional, and the
   video cap come from `form_dsl` / `proof_policy`, not hardcoded on the client.
+- Android proof media guard: feature code cannot own compression/upload/Firebase
+  plumbing, and the shared app processor cannot accept pass-through/no-op
+  processing as success.

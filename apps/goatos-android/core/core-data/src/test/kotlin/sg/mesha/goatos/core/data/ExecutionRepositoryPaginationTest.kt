@@ -20,6 +20,10 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
+import retrofit2.HttpException
 
 /**
  * Scan roster is a per-row SSOT ([ScanRosterRowDao]), never a whole-collection JSON blob
@@ -33,7 +37,7 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
-    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?)
+    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?, val partitionLabel: String?)
 
     @Test
     fun `execution continuation merges unique rows and advances cursor`() {
@@ -75,6 +79,87 @@ class ExecutionRepositoryPaginationTest {
 
         assertEquals(listOf("park-a"), merged.filterOptions?.parks?.map { it.parkId })
         assertEquals(listOf("shed-a", "shed-b"), merged.rows.map { it.shedId })
+    }
+
+    @Test
+    fun `execution continuation keeps sibling partitions under one shed`() {
+        val first = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a").copy(partitionLabel = "Part 1")),
+        )
+        val second = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a").copy(partitionLabel = "2")),
+        )
+
+        val merged = mergeExecutionRowsPage(first, second)
+
+        assertEquals(listOf("Part 1", "2"), merged.rows.map { it.partitionLabel })
+    }
+
+    @Test
+    fun `stale execution continuation is ignored as an expected filter race`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.executionResponse = { cursor ->
+                when (cursor) {
+                    null -> VaccinationExecutionResponseDto(
+                        rows = listOf(executionRow("shed-a", "task-a")),
+                        totalCount = 2,
+                        nextCursor = "fresh-cursor",
+                    )
+                    else -> error("stale cursor must not call backend")
+                }
+            }
+
+            repository.refreshRows(limit = PAGE_SIZE).getOrThrow()
+            val result = repository.appendRows(cursor = "stale-cursor", limit = PAGE_SIZE)
+
+            assertTrue(result.isSuccess)
+            assertEquals(listOf(null), requests.map { it.cursor })
+            val cached = repository.observeRows(limit = PAGE_SIZE).first().data
+            assertEquals(listOf("shed-a"), cached?.rows?.map { it.shedId })
+        }
+    }
+
+    @Test
+    fun `partition scoped roster requests and caches stay separate`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = { cursor ->
+                check(cursor == null)
+                ScanRosterResponseDto(
+                    source = "api",
+                    rows = listOf(ScanRosterRowDto(goatId = "goat-part", primaryTag = "tag-part", status = "due", obligationId = "obl-part")),
+                )
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "2").getOrThrow()
+
+            assertEquals(listOf("Part 1", "2"), requests.map { it.partitionLabel })
+            assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 1").first())
+            assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "2").first())
+            assertTrue(repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 3").first() == 0)
+        }
+    }
+
+    @Test
+    fun `partition scoped shed drilldowns use separate requests and cache entries`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.shedResponse = { partitionLabel ->
+                VaccinationExecutionShedDrilldownDto(
+                    shedId = SHED_ID,
+                    shedName = "Castro",
+                    partitionLabel = partitionLabel,
+                    operationalLocationDisplay = partitionLabel?.let { "Castro - $it" } ?: "Castro",
+                )
+            }
+
+            repository.refreshShed(SHED_ID, partitionLabel = "Part 1").getOrThrow()
+            repository.refreshShed(SHED_ID, partitionLabel = "2").getOrThrow()
+
+            assertEquals(listOf("Part 1", "2"), backend.shedPartitions)
+            assertEquals("Part 1", repository.observeShed(SHED_ID, partitionLabel = "Part 1").first().data?.partitionLabel)
+            assertEquals("2", repository.observeShed(SHED_ID, partitionLabel = "2").first().data?.partitionLabel)
+            assertNull(repository.observeShed(SHED_ID, partitionLabel = "Part 3").first().data)
+        }
     }
 
     @Test
@@ -177,6 +262,144 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `refresh prunes synced local scan overlay when backend no longer reports completion`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-pending",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-2",
+                    goatId = "goat-2",
+                    obligationId = "obl-2",
+                    capturedAtMs = 2L,
+                    syncStatus = CaptureSyncStatus.PENDING.name,
+                ),
+            )
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "due", obligationId = "obl-1"),
+                            ScanRosterRowDto(goatId = "goat-2", primaryTag = "tag-2", vaccineLabel = "FMD", status = "due", obligationId = "obl-2"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
+            assertEquals(listOf("scan-pending"), scans.map { it.id })
+        }
+    }
+
+    @Test
+    fun `partition roster refresh never prunes a sibling partition capture`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-part-1",
+                    taskId = TASK_ID,
+                    partitionKey = "1",
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-part-2",
+                    taskId = TASK_ID,
+                    partitionKey = "2",
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-2",
+                    goatId = "goat-2",
+                    obligationId = "obl-2",
+                    capturedAtMs = 2L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.response = { cursor ->
+                check(cursor == null)
+                ScanRosterResponseDto(
+                    source = "api",
+                    rows = listOf(
+                        ScanRosterRowDto(
+                            goatId = "goat-1",
+                            primaryTag = "tag-1",
+                            vaccineLabel = "FMD",
+                            status = "due",
+                            obligationId = "obl-1",
+                        ),
+                    ),
+                )
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
+
+            assertTrue(database.scannedGoatDao().listForField(TASK_ID, "1", "__scan_roster__").isEmpty())
+            assertEquals(
+                listOf("scan-part-2"),
+                database.scannedGoatDao().listForField(TASK_ID, "2", "__scan_roster__").map { it.id },
+            )
+        }
+    }
+
+    @Test
+    fun `refresh keeps synced local scan overlay that backend still reports done`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "done", obligationId = "obl-1"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
+            assertEquals(listOf("scan-synced"), scans.map { it.id })
+        }
+    }
+
+    @Test
     fun `shed-wide and task-scoped rosters keep separate SSOT scopes`() = runTest {
         withRepository { repository, backend, _ ->
             backend.response = ::numberedPage
@@ -188,6 +411,73 @@ class ExecutionRepositoryPaginationTest {
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
             assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
             assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+        }
+    }
+
+    @Test
+    fun `task-scoped roster falls back to shed roster but publishes into task scope`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 404
+            backend.response = ::numberedPage
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+            assertEquals(
+                listOf(TASK_ID, null, null, null),
+                requests.map { it.taskId },
+            )
+        }
+    }
+
+    @Test
+    fun `task-scoped roster fallback does not prune synced local scan evidence`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.taskScopedFailureStatus = 404
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "due", obligationId = "obl-1"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__")
+            assertEquals(listOf("scan-synced"), scans.map { it.id })
+        }
+    }
+
+    @Test
+    fun `task-scoped roster non-404 failure does not fall back to shed roster`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 500
+            backend.response = ::numberedPage
+
+            val result = repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE)
+
+            assertTrue(result.exceptionOrNull() is HttpException)
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(listOf(TASK_ID), requests.map { it.taskId })
         }
     }
 
@@ -209,6 +499,12 @@ class ExecutionRepositoryPaginationTest {
 
     private suspend fun withRepository(
         block: suspend (DefaultExecutionRepository, Backend, MutableList<Request>) -> Unit,
+    ) = withRepositoryAndDatabase { repository, backend, requests, _ ->
+        block(repository, backend, requests)
+    }
+
+    private suspend fun withRepositoryAndDatabase(
+        block: suspend (DefaultExecutionRepository, Backend, MutableList<Request>, GoatDatabase) -> Unit,
     ) {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val database = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
@@ -225,12 +521,34 @@ class ExecutionRepositoryPaginationTest {
                             taskId = args[1] as String?,
                             cursor = args[2] as String?,
                             limit = args[3] as Int?,
+                            partitionLabel = args[4] as String?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
                             throw IOException("offline")
                         }
+                        backend.taskScopedFailureStatus?.let { status ->
+                            if (request.taskId != null) {
+                                throw HttpException(status)
+                            }
+                        }
                         backend.response(request.cursor)
+                    }
+                    "listVaccinationExecution" -> {
+                        val request = Request(
+                            shedId = args?.get(0) as String? ?: "execution",
+                            taskId = args?.get(1) as String?,
+                            cursor = args?.get(6) as String?,
+                            limit = args?.get(5) as Int?,
+                            partitionLabel = null,
+                        )
+                        requests += request
+                        backend.executionResponse(request.cursor)
+                    }
+                    "getVaccinationExecutionShed" -> {
+                        val partitionLabel = args?.get(4) as String?
+                        backend.shedPartitions += partitionLabel
+                        backend.shedResponse(partitionLabel)
                     }
                     "toString" -> "ScanRosterAppApiTestProxy"
                     "hashCode" -> System.identityHashCode(proxy)
@@ -249,6 +567,7 @@ class ExecutionRepositoryPaginationTest {
                 ),
                 backend,
                 requests,
+                database,
             )
         } finally {
             database.close()
@@ -257,7 +576,11 @@ class ExecutionRepositoryPaginationTest {
 
     private class Backend {
         var offlineCursor: String? = null
+        var taskScopedFailureStatus: Int? = null
         var response: (String?) -> ScanRosterResponseDto = { error("response not configured") }
+        var executionResponse: (String?) -> VaccinationExecutionResponseDto = { error("execution response not configured") }
+        val shedPartitions = mutableListOf<String?>()
+        var shedResponse: (String?) -> VaccinationExecutionShedDrilldownDto = { error("shed response not configured") }
     }
 
     private fun numberedPage(cursor: String?): ScanRosterResponseDto {

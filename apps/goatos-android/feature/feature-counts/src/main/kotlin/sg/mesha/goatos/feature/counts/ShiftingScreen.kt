@@ -31,9 +31,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
- * Record a shifting — the movement of ONE animal to a new shed (`/counts/shifting`), a hosted
+ * Record a shifting — the movement of ONE animal to a new shed (`/counts/shifting/add`), a hosted
  * destination with Up/Back.
  *
  * The event is REPORTED, not authorized: the backend records it `authorization_state=pending` /
@@ -47,10 +48,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  *     silently relocate an animal nobody looked at.
  *  2. **Current location** — the selected animal's park + shed, READ-ONLY, straight from the
  *     lookup. The operator confirms it; they never type it, and the client never asserts it.
- *  3. **Destination** — two CASCADING dropdowns from the backend catalog: farm (park) first, then
- *     that park's sheds. Changing the park RESETS the shed, because a shed id from another park is
- *     never a valid pairing (and shed NAMES repeat across parks, so the entries are keyed by
- *     `shed_id`, never by name).
+ *  3. **Destination** — the animal's current farm is selected automatically and read-only; the
+ *     operator chooses only a destination shed inside that farm. Goats never shift between farms.
  *  4. **Priority** — High or Low (default).
  *  5. **Category** — Growth / Health / Breeding / Delivery.
  *  6. **Create shifting**.
@@ -73,9 +72,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  * shown read-only so the operator can confirm they picked the right animal before it is relocated;
  * [locationLabel] is the backend's own composed fallback string for when the parts are absent.
  *
- * [rowVersion]/[sex]/[lifecycleStatus] come straight off the search result. Shifting does not use
- * them, but the SAME picker backs the Birth/Death screen's death target, where the operator must
- * confirm the animal's sex + status before recording a death and the write carries the animal's own
+ * [rowVersion]/[sex]/[lifecycleStatus] come straight off the search result. Shifting uses lifecycle
+ * status to reject terminal animals; the SAME picker also backs the Birth/Death screen's death
+ * target, where the operator confirms sex + status and the write carries the animal's own
  * [rowVersion] — never a hand-typed record version.
  */
 @Immutable
@@ -83,20 +82,50 @@ data class ShiftingAnimalUi(
     val goatId: String,
     val displayId: String,
     val tag: String,
+    val parkId: String = "",
+    val shedId: String = "",
     val parkName: String = "",
     val shedName: String = "",
+    /**
+     * The shed PARTITION the animal currently sits in, when its shed is partitioned. Null/blank/
+     * "whole" (see [sg.mesha.goatos.core.ui.operationalLocationLabel]) means the shed is not
+     * partitioned or the animal occupies the whole shed.
+     */
+    val partitionLabel: String? = null,
     val locationLabel: String = "",
     val rowVersion: Int = 0,
     val sex: String = "",
     val lifecycleStatus: String = "",
 )
 
-/** One shed a movement may target. Identity is [shedId] — names repeat across parks. */
+/**
+ * One OPERATIONAL LOCATION a movement may target — either a whole shed or one of its partitions.
+ * Identity is [shedId] + [partitionLabel] together: a partitioned shed offers one entry per
+ * partition (never a bare whole-shed entry alongside them), and an unpartitioned shed offers
+ * exactly one entry with a null [partitionLabel].
+ */
 @Immutable
 data class ShiftingShedUi(
     val shedId: String,
     val name: String,
-)
+    val partitionLabel: String? = null,
+    /**
+     * The backend-composed operational-location label ("Yashoda", "Castro - 2",
+     * "Godel 1 - Part 3"). Render this verbatim: the backend owns visible labels, and composing
+     * shed + partition on the client duplicates that rule into a second language where it drifts.
+     * Falls back to the local composer only when the server sends nothing, so an older backend
+     * still renders something sensible instead of a blank row.
+     */
+    val operationalLocationDisplay: String = "",
+) {
+    /** What the operator should read for this option. */
+    val displayLabel: String
+        get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
+
+    /** Stable dropdown-option key: shed alone is not unique once a shed has partitions. */
+    val optionKey: String
+        get() = listOfNotNull(shedId, partitionLabel).joinToString("|")
+}
 
 /** One park a movement may target, with the sheds that belong to it. */
 @Immutable
@@ -122,6 +151,8 @@ data class ShiftingUiState(
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val destinationParkId: String = "",
     val destinationShedId: String = "",
+    /** The chosen destination's partition, when the destination shed has partitions. */
+    val destinationPartitionLabel: String? = null,
     /** Set when the catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
 
@@ -129,13 +160,38 @@ data class ShiftingUiState(
     val priority: String = SHIFTING_PRIORITY_LOW,
     val category: String = SHIFTING_CATEGORY_GROWTH,
 
+    // --- 6. optional note --------------------------------------------------------------------
+    /**
+     * The raiser's optional note on why the animals are moving. Never gates [canSubmit] — it is
+     * context for the park head approving and the verifier reviewing, not a required field.
+     */
+    val comment: String = "",
+
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
+    /**
+     * Transient success confirmation shown after a synced movement auto-clears the form, so the
+     * operator sees the movement was raised on a fresh form. Cleared when they start the next entry.
+     */
+    val lastRecordedMessage: String? = null,
+    /** One-shot navigation result consumed by AppNavHost after server-confirmed sync. */
+    val returnToActions: Boolean = false,
+    val submissionNotice: String? = null,
 ) {
-    /** The sheds of the currently chosen park — the second dropdown's whole option set. */
+    /**
+     * The destination options for the currently chosen park — one entry per WHOLE shed or per
+     * PARTITION of a partitioned shed, never both for the same shed. This is the second
+     * dropdown's whole option set.
+     */
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == destinationParkId }?.sheds.orEmpty()
+
+    /** The currently-selected destination option, if any. */
+    val selectedDestination: ShiftingShedUi?
+        get() = shedsForSelectedPark.firstOrNull {
+            it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
+        }
 }
 
 /**
@@ -146,10 +202,9 @@ const val SHIFTING_PRIORITY_HIGH = "high"
 const val SHIFTING_PRIORITY_LOW = "low"
 
 /**
- * The four movement categories. `health` is the reason the animal picker must NOT filter by
- * health/lifecycle status: that category exists precisely to move sick, treated, quarantined, or
- * ICU animals, and a picker that hid them would make the movements they describe impossible to
- * record.
+ * The four movement categories. `health` is why the picker must not filter by health status: live
+ * sick, treated, quarantined, or ICU animals remain shiftable. Lifecycle status is independent;
+ * dead/transferred/sold animals are terminal and are rejected.
  */
 const val SHIFTING_CATEGORY_GROWTH = "growth"
 const val SHIFTING_CATEGORY_HEALTH = "health"
@@ -163,14 +218,17 @@ sealed interface ShiftingEvent {
     /** Selects THE animal. Selecting another one replaces this; it never appends. */
     data class SelectAnimal(val goatId: String) : ShiftingEvent
 
-    /** Choosing a park RESETS the shed — a shed from another park is never a valid pairing. */
+    /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
-    data class SelectDestinationShed(val shedId: String) : ShiftingEvent
+    data class SelectDestinationShed(val shedId: String, val partitionLabel: String? = null) : ShiftingEvent
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
 
+    data class EditComment(val value: String) : ShiftingEvent
+
     data object Submit : ShiftingEvent
+    data object NavigationHandled : ShiftingEvent
     data object Back : ShiftingEvent
 }
 
@@ -192,7 +250,9 @@ fun ShiftingScreen(
         )
         // The dropdowns below are the pickers; this is only what they currently mean, mirrored.
         val selectedParkName = state.destinationParks.firstOrNull { it.parkId == state.destinationParkId }?.name
-        val selectedShedName = state.shedsForSelectedPark.firstOrNull { it.shedId == state.destinationShedId }?.name
+        val selectedDestination = state.selectedDestination
+        // The name is already formatted by the backend (operational_location_display); don't re-format
+        val selectedShedLabel = selectedDestination?.name
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 16.dp),
@@ -200,6 +260,12 @@ fun ShiftingScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { CountsResultBanner(state.result) }
+            // A synced movement clears the form and leaves this confirmation above the fresh entry.
+            state.lastRecordedMessage?.let { message ->
+                item(key = "recorded") {
+                    CountsResultBanner(CountsWriteResultUi(CountsWriteStatus.SYNCED, message))
+                }
+            }
 
             // --- 1. Find the animal -----------------------------------------------------------
             item(key = "animal-title") {
@@ -243,42 +309,51 @@ fun ShiftingScreen(
                     ShiftingAnimalHero(
                         animal = animal,
                         toParkLabel = selectedParkName,
-                        toShedLabel = selectedShedName,
+                        toShedLabel = selectedShedLabel,
                     )
                 }
             }
 
-            // --- 3. Destination: two cascading dropdowns -------------------------------------
+            // --- 3. Destination: current farm is locked; only its sheds are selectable --------
             item(key = "destination-title") {
                 CountsFieldGroupTitle(text = stringResource(R.string.counts_group_to))
             }
             item(key = "destination-park") {
-                CountsDropdownField(
+                CountsTextField(
+                    value = selectedParkName.orEmpty(),
+                    onValueChange = {},
                     label = stringResource(R.string.counts_field_farm),
-                    selectedLabel = selectedParkName,
-                    placeholder = stringResource(R.string.counts_select_farm),
-                    // Keyed by park_id, and disabled until the catalog is in hand so an operator
-                    // cannot open an empty menu and conclude the farm has no parks.
-                    options = state.destinationParks.map { CountsDropdownOption(it.parkId, it.name) },
-                    onSelect = { onEvent(ShiftingEvent.SelectDestinationPark(it)) },
-                    enabled = state.destinationParks.isNotEmpty(),
+                    supporting = stringResource(R.string.counts_shifting_farm_locked),
+                    readOnly = true,
                 )
             }
             item(key = "destination-shed") {
-                val sheds = state.shedsForSelectedPark
+                // Entries are one per WHOLE shed or one per PARTITION of a partitioned shed —
+                // never both. Keyed by shed_id + partition_label: shed NAMES repeat across
+                // parks and a shed's own partitions share its shed_id, so either alone would
+                // collapse distinct destinations into one entry.
+                //
+                // The name is already formatted by the backend (operational_location_display):
+                // "Yashoda" (non-partitioned), "Castro 2" (numeric), or "Godel 1 - Part 3"
+                // (worded). Do NOT re-format it — the ShiftingViewModel.toShiftingParkUi()
+                // already applied the proper formatting when importing from the backend.
+                val destinations = state.shedsForSelectedPark
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
-                    selectedLabel = selectedShedName,
-                    placeholder = if (state.destinationParkId.isBlank()) {
-                        stringResource(R.string.counts_select_farm_first)
+                    selectedLabel = selectedShedLabel,
+                    placeholder = if (state.selectedAnimal == null) {
+                        stringResource(R.string.counts_select_animal_first)
                     } else {
                         stringResource(R.string.counts_select_shed)
                     },
-                    // Entries are keyed by shed_id: shed NAMES repeat across parks, so a
-                    // name-keyed menu would collapse two real sheds into one entry.
-                    options = sheds.map { CountsDropdownOption(it.shedId, it.name) },
-                    onSelect = { onEvent(ShiftingEvent.SelectDestinationShed(it)) },
-                    enabled = sheds.isNotEmpty(),
+                    options = destinations.map {
+                        CountsDropdownOption(it.optionKey, it.name)
+                    },
+                    onSelect = { key ->
+                        val chosen = destinations.firstOrNull { it.optionKey == key }
+                        onEvent(ShiftingEvent.SelectDestinationShed(chosen?.shedId.orEmpty(), chosen?.partitionLabel))
+                    },
+                    enabled = destinations.isNotEmpty(),
                 )
             }
             state.destinationsMessage?.let { message ->
@@ -315,6 +390,22 @@ fun ShiftingScreen(
                         ),
                         selectedKey = state.category,
                         onSelect = { onEvent(ShiftingEvent.SelectCategory(it)) },
+                    )
+                }
+            }
+
+            // --- 6. Comment ------------------------------------------------------------------
+            // Optional by design: it never gates Submit. It is read by the park head approving the
+            // movement and by the verifier reviewing the evidence afterwards.
+            item(key = "comment") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountsFieldGroupTitle(text = stringResource(R.string.counts_group_comment))
+                    CountsTextField(
+                        value = state.comment,
+                        onValueChange = { onEvent(ShiftingEvent.EditComment(it)) },
+                        label = stringResource(R.string.counts_field_comment),
+                        supporting = stringResource(R.string.counts_hint_comment),
+                        singleLine = false,
                     )
                 }
             }
@@ -379,7 +470,9 @@ private fun ShiftingAnimalHero(
                 modifier = Modifier.weight(1f),
                 label = stringResource(R.string.counts_shifting_from),
                 parkLabel = animal.parkName,
-                shedLabel = animal.shedName,
+                // The operational location — shed name plus partition when the animal's shed is
+                // partitioned (e.g. "Yashoda 2"), so a same-shed cross-partition move is visible.
+                shedLabel = operationalLocationLabel(animal.shedName, animal.partitionLabel),
                 fallback = animal.locationLabel,
                 accent = MeshaColors.Faint,
             )

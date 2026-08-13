@@ -59,14 +59,26 @@ export async function getFirebaseClientRuntimeConfig(): Promise<FirebaseClientRu
 export async function signInWithGoogleIdToken(googleIdToken: string): Promise<User> {
   const auth = await getFirebaseAuth();
   const credential = GoogleAuthProvider.credential(googleIdToken);
-  const result = await signInWithCredential(auth, credential);
-  return syncSignedInUser(result.user);
+  try {
+    const result = await signInWithCredential(auth, credential);
+    console.info("admin_firebase_login_succeeded", { method: "google", email: result.user.email, firebaseUid: result.user.uid });
+    return syncSignedInUser(result.user);
+  } catch (error) {
+    console.warn("admin_firebase_login_failed", { method: "google", code: firebaseErrorCode(error) });
+    throw error;
+  }
 }
 
 export async function signInWithEmailPassword(email: string, password: string): Promise<User> {
   const auth = await getFirebaseAuth();
-  const result = await signInWithEmailAndPassword(auth, email, password);
-  return syncSignedInUser(result.user);
+  try {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    console.info("admin_firebase_login_succeeded", { method: "password", email: result.user.email, firebaseUid: result.user.uid });
+    return syncSignedInUser(result.user);
+  } catch (error) {
+    console.warn("admin_firebase_login_failed", { method: "password", email, code: firebaseErrorCode(error) });
+    throw error;
+  }
 }
 
 export async function sendPasswordReset(email: string): Promise<void> {
@@ -89,6 +101,7 @@ async function syncSignedInUser(user: User): Promise<User> {
   try {
     await syncFirebaseSession(user, true, "auth.sign_in");
   } catch (error) {
+    console.warn("admin_firebase_session_sync_failed", { email: user.email, firebaseUid: user.uid, code: firebaseErrorCode(error) });
     await signOut(auth).catch(() => undefined);
     throw error;
   }
@@ -123,6 +136,7 @@ export async function syncFirebaseSession(
     const code = await sessionRouteErrorCode(response);
     throw new FirebaseSessionError(messageForSessionRouteError(code), code);
   }
+  console.info("admin_firebase_session_sync_succeeded", { eventType, email: user.email, firebaseUid: user.uid });
   return true;
 }
 
@@ -195,4 +209,14 @@ function messageForSessionRouteError(code: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function firebaseErrorCode(error: unknown): string {
+  if (isRecord(error) && typeof error.code === "string" && error.code.trim() !== "") {
+    return error.code.trim();
+  }
+  if (error instanceof Error && error.name.trim() !== "") {
+    return error.name;
+  }
+  return "unknown";
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 // Read-only support for the operator-facing single-animal shifting flow.
@@ -15,7 +17,8 @@ import (
 // tables -- counts already reads locations for park/shed labels in the herd-register rollups
 // (repository.go) and reads goats for the census aggregates. Nothing here mutates.
 
-// shiftingDestinationCatalogQuery returns every active park with its active sheds in one round trip.
+// shiftingDestinationCatalogQuery returns every active park with its active OPERATIONAL LOCATIONS
+// (physical shed, or one row per real partition of that shed) in one round trip.
 //
 // Shape notes:
 //   - LEFT JOIN, not INNER: a park with no sheds yet must still appear in the dropdown, otherwise a
@@ -23,21 +26,44 @@ import (
 //   - The status/retired_at filters live in the JOIN's ON clause for the shed side. Putting them in
 //     WHERE would silently convert the LEFT JOIN back into an inner join and drop exactly those
 //     empty parks.
-//   - ORDER BY name then id: name is the human sort, and the id tiebreak keeps the order stable
-//     across calls when two sheds in the same park share a name (which happens).
+//   - legacy partition-alias locations are suppressed at the shed JOIN through the SHARED
+//     oploc.PartitionAliasExclusionSQL, not a local copy. If an active sibling parent shed
+//     ("Castro") has an active partition catalog row "1", the old active shed row named "Castro 1"
+//     is not a separate destination; the parent+partition row renders as "Castro - 1". The local
+//     copy this replaced handled only that spelling: for "Mandela 1 - Part 3" the remainder is
+//     "part3" against a normalized_label of "3", so every "- Part N" alias survived and the picker
+//     served 195 rows for 120 real locations -- 75 exact-duplicate labels behind two shed ids.
+//     Genuine same-named sheds in different parks remain because the sibling check is park-local.
+//   - partitions comes from the shed_partitions CATALOG (status='active'), LEFT JOINed so a shed
+//     with no catalog rows still yields exactly ONE destination row with partition_label NULL --
+//     the bare, non-partitioned shed. A shed WITH real partitions returns one row per partition.
+//     This is the critical difference from the prior goat_shed_partitions LATERAL: the catalog
+//     includes EMPTY partitions (e.g. Yashoda 5) that no goat currently occupies, making them
+//     reachable as shifting destinations. The partition_label returned to callers is the catalog's
+//     human label; normalized_label remains an internal matching key and never drives display copy.
+//   - animal_count is computed per operational location using the SAME normalization:
+//     count of goats whose goat_shed_partitions.partition_label matches, zero for empty partitions.
+//   - management_stages is computed per SHED (not per partition): the cohort vocabulary offered to
+//     the operator is a shed-level fact today: goats do not carry a partition-scoped stage set.
+//   - ORDER BY name then id then partition_label: name is the human sort, the id tiebreak keeps the
+//     order stable across calls when two sheds in the same park share a name (which happens), and
+//     partition_label last keeps a partitioned shed's rows adjacent and stably ordered.
 //
 // Index: locations_tenant_type_status_order_idx covers the park side
-// (tenant_id, location_type, status, ...) and locations_tenant_parent_status_idx covers the shed
-// side (tenant_id, parent_location_id, status, ...). No new index is required.
+// (tenant_id, location_type, status, ...); shed_partitions_tenant_shed_idx covers the catalog
+// (tenant_id, shed_id, status). No new index is required.
 //
 // mobile-guard:ignore: bounded location catalog cached on-device, not a paginated feed
 // scale-guard:ignore: bounded location catalog cached on-device, not a paginated feed
-const shiftingDestinationCatalogQuery = `
+var shiftingDestinationCatalogQuery = `
 SELECT
     park.location_id::text,
     park.name,
     shed.location_id::text,
-    shed.name
+    shed.name,
+    partitions.partition_label,
+    COALESCE(animal_count.count, 0),
+    COALESCE(stage_agg.stages, ARRAY[]::text[])
 FROM locations park
 LEFT JOIN locations shed
        ON shed.tenant_id = park.tenant_id
@@ -45,11 +71,42 @@ LEFT JOIN locations shed
       AND shed.location_type = 'shed'
       AND shed.status = 'active'
       AND shed.retired_at IS NULL
+      AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
+-- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
+LEFT JOIN shed_partitions partitions
+       ON partitions.tenant_id = park.tenant_id
+      AND partitions.shed_id = shed.location_id
+      AND partitions.status = 'active'
+LEFT JOIN LATERAL (
+    SELECT COUNT(DISTINCT g.goat_id) AS count
+    FROM goats g
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+    WHERE g.tenant_id = park.tenant_id
+      AND g.shed_id = shed.location_id
+      AND g.lifecycle_status = 'alive'
+      AND g.exited_at IS NULL
+      AND (
+        -- For this partition, count goats whose partition_label matches (after normalization)
+        CASE WHEN partitions.normalized_label IS NOT NULL THEN
+          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
+        ELSE
+          -- For non-partitioned shed, count all goats with whole/null partition
+          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
+        END
+      )
+) animal_count ON shed.location_id IS NOT NULL
+LEFT JOIN LATERAL (
+    SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage)) AS stages
+    FROM goats g
+    WHERE g.tenant_id = park.tenant_id AND g.shed_id = shed.location_id
+      AND g.lifecycle_status = 'alive' AND g.exited_at IS NULL
+      AND btrim(COALESCE(g.management_stage, '')) <> ''
+) stage_agg ON shed.location_id IS NOT NULL
 WHERE park.tenant_id = $1::uuid
   AND park.location_type = 'park'
   AND park.status = 'active'
   AND park.retired_at IS NULL
-ORDER BY park.name, park.location_id, shed.name, shed.location_id`
+ORDER BY park.name, park.location_id, shed.name, shed.location_id, partitions.normalized_label NULLS FIRST`
 
 // ShiftingDestinationCatalog implements ports.Repository.ShiftingDestinationCatalog.
 //
@@ -76,8 +133,10 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	parkIndex := map[string]int{}
 	for rows.Next() {
 		var parkID, parkName string
-		var shedID, shedName *string
-		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName); err != nil {
+		var shedID, shedName, partitionLabel *string
+		var animalCount int
+		var shedStages []string
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil {
 			return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog scan: %w", err)
 		}
 		idx, ok := parkIndex[parkID]
@@ -94,15 +153,69 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 		if shedID == nil || shedName == nil {
 			continue
 		}
+		shedStages = nonClinicalShiftingStages(shedStages)
+		// partitionLabel comes from the shed_partitions catalog's display label. A non-partitioned
+		// shed comes through with partitionLabel nil -- exactly one entry, never synthesized as "whole".
+		// animalCount is 0 for empty partitions (e.g. Yashoda 5 with no goats) and the true count
+		// of goats occupying this partition for filled ones.
+		loc := oploc.OperationalLocation{
+			ParkID:   parkID,
+			ParkName: parkName,
+			ShedID:   *shedID,
+			ShedName: *shedName,
+		}
+		if partitionLabel != nil {
+			loc.PartitionLabel = *partitionLabel
+		}
 		out.Parks[idx].Sheds = append(out.Parks[idx].Sheds, domain.ShiftingDestinationShed{
-			ShedID: *shedID,
-			Name:   *shedName,
+			ShedID:           *shedID,
+			Name:             *shedName,
+			ManagementStages: shedStages,
+			PartitionLabel:   partitionLabel,
+			Display:          loc.Display(),
 		})
+		_ = animalCount // captured for completeness; not used in this API layer
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog rows: %w", err)
 	}
+	stageRows, err := r.pool.Query(ctx, `SELECT stage_code FROM animal_stage_lookup
+WHERE tenant_id=$1::uuid AND status='active' ORDER BY sort_order, stage_code`, tenantID)
+	if err != nil {
+		return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting management stages: %w", err)
+	}
+	defer stageRows.Close()
+	for stageRows.Next() {
+		var stage string
+		if err := stageRows.Scan(&stage); err != nil {
+			return domain.ShiftingDestinationCatalog{}, err
+		}
+		if len(nonClinicalShiftingStages([]string{stage})) == 1 {
+			out.ManagementStages = append(out.ManagementStages, stage)
+		}
+	}
+	if err := stageRows.Err(); err != nil {
+		return domain.ShiftingDestinationCatalog{}, err
+	}
 	return out, nil
+}
+
+func nonClinicalShiftingStages(stages []string) []string {
+	out := make([]string, 0, len(stages))
+	for _, stage := range stages {
+		key := strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(stage))), "_")
+		clinical := false
+		for _, blocked := range protocoldomain.MandatoryClinicalDeferStates {
+			if key == strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(blocked))), "_") {
+				clinical = true
+				break
+			}
+		}
+		if !clinical {
+			out = append(out, stage)
+		}
+	}
+	return out
 }
 
 // goatShiftingFactsQuery reads the narrow impact-shaped facts for the named animals.
@@ -111,14 +224,17 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 // (`goat_id = ANY($2::uuid[])`), never `goat_id::text = ANY($2::text[])` -- a column-side cast
 // disables the ordinary index on the stored column.
 //
-// merged_into_goat_id IS NULL AND exited_at IS NULL mirrors the membership predicate identity's
-// relocate path uses, so an animal this query happily describes is an animal the approval could
-// actually move. A merged or exited goat resolves to zero rows and the caller fails closed.
+// merged_into_goat_id IS NULL keeps merged aliases out. Terminal/exited goats deliberately remain
+// visible to this narrow validator so the service can distinguish "this goat exists but cannot be
+// shifted" (422) from "this goat id does not resolve in the tenant" (404). The actual relocation
+// path repeats the current-membership guard under lock.
 //
 // scale-guard:ignore: bounded by MaxRelocateGoatsPerCommand, single set-based read by id
 const goatShiftingFactsQuery = `
 SELECT
     g.goat_id::text,
+    g.lifecycle_status,
+    g.exited_at,
     g.breed_id::text,
     COALESCE(
         NULLIF(btrim(b.canonical_name), ''),
@@ -129,15 +245,25 @@ SELECT
     NULLIF(btrim(COALESCE(g.age_band, '')), '')         AS age_class,
     NULLIF(btrim(COALESCE(g.sex, '')), '')              AS sex,
     g.park_id::text,
-    g.shed_id::text
+    g.shed_id::text,
+    -- The goat's current partition within g.shed_id, when it sits in a partitioned shed. Excludes the
+    -- 'whole' sentinel (same normalization as oploc.IsPartitioned) so a non-partitioned placement's
+    -- goat_shed_partitions row (if one even exists) never surfaces as a fake partition.
+    CASE
+        WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
+            THEN btrim(gsp.partition_label)
+        ELSE NULL
+    END AS shed_partition_label
 FROM goats g
 LEFT JOIN breeds b
        ON b.breed_id = g.breed_id
       AND b.status = 'active'
+LEFT JOIN goat_shed_partitions gsp
+       ON gsp.tenant_id = g.tenant_id
+      AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1::uuid
   AND g.goat_id = ANY($2::uuid[])
   AND g.merged_into_goat_id IS NULL
-  AND g.exited_at IS NULL
 ORDER BY g.goat_id`
 
 // GoatShiftingFacts implements ports.Repository.GoatShiftingFacts.
@@ -166,8 +292,9 @@ func (r *Repository) GoatShiftingFacts(ctx context.Context, tenantID string, goa
 	for rows.Next() {
 		var fact domain.GoatShiftingFact
 		var breedLabel string
-		if err := rows.Scan(&fact.GoatID, &fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex,
-			&fact.ParkID, &fact.ShedID); err != nil {
+		if err := rows.Scan(&fact.GoatID, &fact.LifecycleStatus, &fact.ExitedAt,
+			&fact.BreedID, &breedLabel, &fact.StageTag, &fact.AgeClass, &fact.Sex,
+			&fact.ParkID, &fact.ShedID, &fact.ShedPartitionLabel); err != nil {
 			return nil, fmt.Errorf("counts: goat shifting facts scan: %w", err)
 		}
 		fact.BreedLabel = strings.TrimSpace(breedLabel)

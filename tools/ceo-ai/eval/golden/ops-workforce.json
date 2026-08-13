@@ -89,5 +89,16 @@
       "aggregate_first": true,
       "tiers_any_of": ["cube", "api", "toolbox"]
     }
+  },
+  {
+    "id": "verifier-rubber-stamping",
+    "class": "verifier_review_integrity",
+    "question": "Which verifiers are rubber-stamping proof videos instead of watching them?",
+    "notes": "ceo_ai.verifier_review_integrity (migration 000114); below_watch_threshold_count is the integrity signal (verdicts recorded under the 90% watch-fraction bar) and must be reported separately from missing_review_telemetry_count (no telemetry sent at all) -- do not sum them into one number. Aggregate, IST business day.",
+    "expect": {
+      "aggregate_first": true,
+      "ist": true,
+      "tiers_any_of": ["toolbox", "sql"]
+    }
   }
 ]

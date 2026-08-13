@@ -25,14 +25,14 @@ class FirebaseAnalyticsAdapter(
 ) : AnalyticsPort {
     private val firebaseAnalytics: FirebaseAnalytics = FirebaseAnalytics.getInstance(context)
 
+    init {
+        firebaseAnalytics.setAnalyticsCollectionEnabled(true)
+    }
+
     override fun track(event: String, props: Map<String, String>) {
-        // Stamp the stable per-install device id onto every event (from the bootstrap-populated
-        // AnalyticsContext) so the same login on two phones is distinguishable per-event. Null
-        // before bootstrap resolves; an explicit prop of the same key always wins.
-        val deviceId = analyticsContext.deviceId
-        val bundle = Bundle(props.size + 1)
-        if (!deviceId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.DEVICE_ID, deviceId)
-        for ((key, value) in props) bundle.putString(key, value)
+        val mergedProps = firebaseEventParams(analyticsContext.standardEventParams() + props)
+        val bundle = Bundle(mergedProps.size)
+        for ((key, value) in mergedProps) bundle.putString(key, value)
         firebaseAnalytics.logEvent(event, bundle)
     }
 
@@ -80,3 +80,62 @@ class FirebaseAnalyticsAdapter(
         private const val USER_ID_CRASH_KEY = "member_id"
     }
 }
+
+internal const val FIREBASE_MAX_EVENT_PARAMS = 25
+internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
+
+internal fun firebaseEventParams(props: Map<String, String>): Map<String, String> {
+    val result = LinkedHashMap<String, String>(FIREBASE_MAX_EVENT_PARAMS) // mobile-guard:ignore: bounded by FIREBASE_MAX_EVENT_PARAMS and allocated per event only.
+    for (key in FIREBASE_PARAM_ALLOWLIST) {
+        props[key]?.let { value ->
+            if (result.size < FIREBASE_MAX_EVENT_PARAMS) result[key] = value.firebaseParamValue()
+        }
+    }
+    return result
+}
+
+private fun String.firebaseParamValue(): String =
+    if (length <= FIREBASE_MAX_PARAM_VALUE_LENGTH) this else take(FIREBASE_MAX_PARAM_VALUE_LENGTH)
+
+private val FIREBASE_PARAM_ALLOWLIST = listOf(
+    AnalyticsEvents.Params.DEVICE_ID,
+    AnalyticsEvents.Params.JOURNEY_ID,
+    AnalyticsEvents.UserProps.ROLE,
+    AnalyticsEvents.UserProps.PRIMARY_PARK,
+    "proof_id",
+    "task_id",
+    "field_key",
+    "feature_surface",
+    "proof_subject",
+    "rfid_tag",
+    AnalyticsEvents.Params.RFID,
+    AnalyticsEvents.Params.OUTCOME,
+    AnalyticsEvents.Params.REASON,
+    "capture_source",
+    "mime_type",
+    "processing_state",
+    "processing_attempt",
+    "upload_original",
+    "location_status",
+    "geocoder_status",
+    "duration_bucket",
+    "original_size_bucket",
+    "processed_size_bucket",
+    "proof_upload_status",
+    "submit_status",
+)
+
+fun AnalyticsContext.standardEventParams(): Map<String, String> =
+    buildMap {
+        deviceId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.DEVICE_ID, it) }
+        journeyId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.JOURNEY_ID, it) }
+        tenantId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.TENANT, it) }
+        actorId?.takeIf { it.isNotBlank() }?.let { put("actor_id", it) }
+        email?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.EMAIL, it) }
+        role?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.ROLE, it) }
+        parkScope?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.PRIMARY_PARK, it) }
+        parkId?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.PARK_ID, it) }
+        flavor.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.UserProps.FLAVOR, it) }
+        appVersionName?.takeIf { it.isNotBlank() }?.let { put("app_version_name", it) }
+        appVersionCode?.takeIf { it.isNotBlank() }?.let { put("app_version_code", it) }
+    }

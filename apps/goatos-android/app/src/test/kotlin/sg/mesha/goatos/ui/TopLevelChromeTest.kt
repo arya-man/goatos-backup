@@ -2,8 +2,11 @@ package sg.mesha.goatos.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavModule
@@ -17,7 +20,7 @@ class TopLevelChromeTest {
     private val roots = listOf(
         Routes.CALENDAR,
         Routes.VACCINATION,
-        Routes.ALERTS,
+        Routes.VACCINATION_ALERTS,
         Routes.YOU,
     )
 
@@ -98,7 +101,7 @@ class TopLevelChromeTest {
         status = NavModuleStatus.AVAILABLE,
         navItems = listOf(
             NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-            NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+            NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
             NavItem(key = "you", label = "You", href = Routes.YOU),
         ),
     )
@@ -106,20 +109,35 @@ class TopLevelChromeTest {
     private val counts = NavModule(
         key = "counts",
         label = "Counts",
-        href = "/counts",
+        href = "/counts/birth",
         status = NavModuleStatus.AVAILABLE,
         navItems = listOf(
-            NavItem(key = "counts", label = "Counts", href = "/counts"),
-            NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+            // No census read page: the phone Counts module is capture-only work lists
+            // (maintainer decision 2026-07-30).
+            NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
+            NavItem(key = "death", label = "Death", href = "/counts/death"),
             NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
-            // Counts contributes Approval in the trailing slot other modules give to You.
-            NavItem(key = "approval", label = "Approval", href = Routes.COUNTS_APPROVALS),
+            // Milk Prep/Feeding moved to the "milk" module (maintainer decision 2026-07-31).
+            // Approvals were removed from mobile (maintainer decision 2026-07-21): the Counts bar is
+            // capture-only now, with no trailing Approval tab.
+        ),
+    )
+
+    // The Feed module: two L0 read screens on its own bottom bar (Feed Direction + Feed Packing).
+    private val feed = NavModule(
+        key = "feed_direction",
+        label = "Feed",
+        href = Routes.FEED_DIRECTION,
+        status = NavModuleStatus.AVAILABLE,
+        navItems = listOf(
+            NavItem(key = "feed_direction", label = "Feed Direction", href = Routes.FEED_DIRECTION),
+            NavItem(key = "feed_packing", label = "Feed Packing", href = Routes.FEED_PACKING),
         ),
     )
 
     private val soon = NavModule(
-        key = "feed_direction",
-        label = "Feed direction",
+        key = "breeding",
+        label = "Breeding",
         href = "",
         status = NavModuleStatus.SOON,
         navItems = emptyList(),
@@ -128,7 +146,7 @@ class TopLevelChromeTest {
     private val twoModules = NavState(
         chrome = NavChrome.EXPANDED,
         items = vaccination.navItems,
-        modules = listOf(vaccination, counts, soon),
+        modules = listOf(vaccination, counts, feed, soon),
     )
 
     /**
@@ -147,36 +165,70 @@ class TopLevelChromeTest {
         assertTrue(isTopLevelRoute(Routes.VACCINATION, vaccinationRoots))
         assertFalse(isTopLevelRoute(Routes.CALENDAR, vaccinationRoots))
         // Another module's landing route is NOT an L0 root while this module is open.
-        assertFalse(isTopLevelRoute("/counts", vaccinationRoots))
+        assertFalse(isTopLevelRoute("/counts/birth", vaccinationRoots))
 
-        val countsRoots = rootsFor(twoModules, "counts", "/counts")
-        assertTrue(isTopLevelRoute("/counts", countsRoots))
-        assertTrue(isTopLevelRoute("/counts/birth-death", countsRoots))
+        val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
+        assertTrue(isTopLevelRoute("/counts/birth", countsRoots))
+        assertTrue(isTopLevelRoute("/counts/death", countsRoots))
         assertFalse(isTopLevelRoute(Routes.VACCINATION, countsRoots))
     }
 
     @Test
     fun `switching modules swaps the bar to that module's own items`() {
         assertEquals(
-            listOf(Routes.VACCINATION, Routes.ALERTS, Routes.YOU),
+            listOf(Routes.VACCINATION, Routes.VACCINATION_ALERTS, Routes.YOU),
             twoModules.barItems("vaccination", Routes.VACCINATION).map { it.href },
         )
-        // The trailing tab DIFFERS by module: Counts ends in Approval, not You. This is the
-        // assertion that would fail if the client ever went back to appending a fixed tab.
+        // The trailing tab DIFFERS by module: the vaccination bar ends in You, while Counts is
+        // capture-only (no You, and no Approval since approvals were removed from mobile). This is
+        // the assertion that would fail if the client ever went back to appending a fixed tab.
         assertEquals(
-            listOf("/counts", "/counts/birth-death", "/counts/shifting", Routes.COUNTS_APPROVALS),
-            twoModules.barItems("counts", "/counts").map { it.href },
+            listOf("/counts/birth", "/counts/death", "/counts/shifting"),
+            twoModules.barItems("counts", "/counts/birth").map { it.href },
         )
     }
 
     @Test
     fun `a drill inside the open module never inherits chrome`() {
-        val countsRoots = rootsFor(twoModules, "counts", "/counts")
-        // "/counts/birth-death" IS a root; a deeper drill under it is not. Exact membership,
+        val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
+        // "/counts/birth" IS a root; a deeper drill under it (/add, /workflows/{id}) is not.
+        // Exact membership,
         // never prefix matching (docs/decisions/android-navigation-stack.md).
-        assertFalse(isTopLevelRoute("/counts/birth-death/record", countsRoots))
+        assertFalse(isTopLevelRoute("/counts/birth/add", countsRoots))
+        assertFalse(isTopLevelRoute("/counts/birth/workflows/wf-1", countsRoots))
         assertFalse(isTopLevelRoute("/counts/shifting/confirm", countsRoots))
         assertFalse(isTopLevelRoute(Routes.CALENDAR_DRIVE, countsRoots))
+    }
+
+    @Test
+    fun `birth tag route carries backend kid context and is never a root`() {
+        val route = Routes.promoteGoatRoute(
+            goatId = "kid/1",
+            displayId = "G-77",
+            temporaryIdentifier = "CPT-00042",
+            locationDisplay = "North Park / Shed A",
+            rowVersion = 7,
+        )
+
+        assertEquals(
+            "/counts/birth/tag/kid%2F1?display_id=G-77" +
+                "&temporary_identifier=CPT-00042" +
+                "&location_display=North%20Park%20%2F%20Shed%20A" +
+                "&row_version=7",
+            route,
+        )
+        assertFalse(isTopLevelRoute(route, rootsFor(twoModules, "counts", Routes.COUNTS_BIRTH)))
+    }
+
+    @Test
+    fun `birth and death nav keys use distinct lifecycle icons`() {
+        val birthIcon = MeshaIcons.forNavKey("birth")
+        val deathIcon = MeshaIcons.forNavKey("death")
+
+        assertSame(MeshaIcons.Birth, birthIcon)
+        assertSame(MeshaIcons.Death, deathIcon)
+        assertNotSame(birthIcon, deathIcon)
+        assertSame(MeshaIcons.ArrowUpDown, MeshaIcons.forNavKey("birth_death"))
     }
 
     @Test
@@ -184,14 +236,30 @@ class TopLevelChromeTest {
         // No explicit selection yet: the first available module wins, and the "soon" module
         // is never selectable.
         assertEquals(vaccination, twoModules.resolveModule(null, null))
-        assertEquals(vaccination, twoModules.resolveModule("feed_direction", null))
-        assertEquals(listOf(vaccination, counts), twoModules.availableModules())
+        // The "soon" (breeding) module is never selectable, so it resolves to the default.
+        assertEquals(vaccination, twoModules.resolveModule("breeding", null))
+        assertEquals(listOf(vaccination, counts, feed), twoModules.availableModules())
+    }
+
+    @Test
+    fun `the feed module owns a two-tab bar and both feed screens are L0 roots`() {
+        val feedRoots = rootsFor(twoModules, "feed_direction", Routes.FEED_DIRECTION)
+        assertTrue(isTopLevelRoute(Routes.FEED_DIRECTION, feedRoots))
+        assertTrue(isTopLevelRoute(Routes.FEED_PACKING, feedRoots))
+        // A drill under a feed root never inherits chrome (exact membership, not prefix).
+        assertFalse(isTopLevelRoute("${Routes.FEED_DIRECTION}/detail", feedRoots))
+        // Another module's route is not an L0 root while Feed is open.
+        assertFalse(isTopLevelRoute(Routes.VACCINATION, feedRoots))
+        assertEquals(
+            listOf(Routes.FEED_DIRECTION, Routes.FEED_PACKING),
+            twoModules.barItems("feed_direction", Routes.FEED_DIRECTION).map { it.href },
+        )
     }
 
     @Test
     fun `a route in another module re-resolves the bar to that module`() {
         // Deep-link/push into Counts while Vaccination was the selected module: the bar must
-        // follow the route, otherwise "/counts" would render with no chrome at all.
+        // follow the route, otherwise "/counts/shifting" would render with no chrome at all.
         val resolved = twoModules.resolveModule("vaccination", "/counts/shifting")
         assertEquals(counts, resolved)
         assertTrue(isTopLevelRoute("/counts/shifting", rootsFor(twoModules, "vaccination", "/counts/shifting")))
@@ -203,7 +271,7 @@ class TopLevelChromeTest {
             navItems = listOf(
                 NavItem(key = "vaccination", label = "Overview", href = Routes.VACCINATION),
                 NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
-                NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+                NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
                 NavItem(key = "you", label = "You", href = Routes.YOU),
             ),
         )
@@ -254,7 +322,7 @@ class TopLevelChromeTest {
     fun `a shared route keeps the selected module's bar`() {
         // Alerts is contributed by several modules. The explicitly selected module wins so
         // the bar does not silently flip while the operator is working inside one module.
-        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.ALERTS))
+        assertEquals(vaccination, twoModules.resolveModule("vaccination", Routes.VACCINATION_ALERTS))
     }
 
     // -----------------------------------------------------------------------
@@ -282,13 +350,15 @@ class TopLevelChromeTest {
 
     @Test
     fun `a drill never offers the drawer`() {
-        val countsRoots = rootsFor(twoModules, "counts", "/counts")
+        val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
         listOf(
             Routes.CALENDAR_DRIVE,
             Routes.SCAN,
             Routes.SUBMIT,
             Routes.RECORD,
-            "/counts/birth-death/record",
+            Routes.COUNTS_BIRTH_ADD,
+            Routes.COUNTS_DEATH_ADD,
+            Routes.COUNTS_SHIFTING_ADD,
         ).forEach { route ->
             assertFalse(route, drawerAvailable(twoModules.chrome, route, countsRoots))
         }
@@ -309,7 +379,7 @@ class TopLevelChromeTest {
 
     @Test
     fun `a route with no match offers nothing`() {
-        val roots = rootsFor(twoModules, "counts", "/counts")
+        val roots = rootsFor(twoModules, "counts", "/counts/birth")
         assertFalse(drawerAvailable(twoModules.chrome, null, roots))
         assertFalse(drawerAvailable(twoModules.chrome, "/not-a-route", roots))
     }
@@ -329,11 +399,13 @@ class TopLevelChromeTest {
         val operatorCounts = NavModule(
             key = "counts",
             label = "Counts",
-            href = "/counts/birth-death",
+            href = "/counts/birth",
             status = NavModuleStatus.AVAILABLE,
             navItems = listOf(
-                NavItem(key = "birth_death", label = "Birth/Death", href = "/counts/birth-death"),
+                NavItem(key = "birth", label = "Birth", href = "/counts/birth"),
+            NavItem(key = "death", label = "Death", href = "/counts/death"),
                 NavItem(key = "shifting", label = "Shifting", href = "/counts/shifting"),
+                // Milk Prep/Feeding now belong to the "milk" module, not Counts.
             ),
         )
         val operatorState = NavState(
@@ -342,17 +414,90 @@ class TopLevelChromeTest {
             modules = listOf(operatorCounts),
         )
         assertEquals(
-            listOf("/counts/birth-death", "/counts/shifting"),
-            operatorState.barItems("counts", "/counts/birth-death").map { it.href },
+            listOf("/counts/birth", "/counts/death", "/counts/shifting"),
+            operatorState.barItems("counts", "/counts/birth").map { it.href },
         )
         // ...and no You route sneaks into the operator's L0 set.
-        val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth-death")
+        val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth")
         assertFalse(isTopLevelRoute(Routes.YOU, operatorRoots))
-        assertFalse(isTopLevelRoute(Routes.COUNTS_APPROVALS, operatorRoots))
 
-        // An approver on the same module DOES get Approval as a real L0 root.
-        val approverRoots = rootsFor(twoModules, "counts", "/counts")
-        assertTrue(isTopLevelRoute(Routes.COUNTS_APPROVALS, approverRoots))
+        // Approvals came BACK to mobile as its own module (maintainer decision 2026-08-05,
+        // superseding the 2026-07-21 removal) -- and this assertion is unchanged by that, which is
+        // the point. No COUNTS bar, for any role, carries an approval route: the Counts L0 set
+        // stays capture-only, and approving lives in a separate module with separate authority.
+        // If someone ever "restores" approvals as a Counts tab, this goes red.
+        val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
+        assertFalse(isTopLevelRoute("/counts/approvals", countsRoots))
+    }
+
+    /**
+     * The Approvals module owns the approvals route, and owns ONLY that route.
+     *
+     * Two halves, both load-bearing (maintainer decision 2026-08-05):
+     *  - the queue IS reachable as an L0 root when the backend sends the module, so an approver
+     *    who holds counts.approve_access actually lands somewhere;
+     *  - its bar is exactly one tab, with no client-appended "You". Every holder of this module
+     *    also holds a job module, so they get the drawer -- and "You" belongs there once, not
+     *    repeated into every module's bar (docs/decisions/role-module-nav-composition.md).
+     */
+    @Test
+    fun `the approvals module owns the approvals route and nothing else`() {
+        val approvals = NavModule(
+            key = "approvals",
+            label = "Approvals",
+            href = "/counts/approvals",
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(
+                NavItem(key = "approvals", label = "Approval", href = "/counts/approvals"),
+            ),
+        )
+        val state = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = approvals.navItems,
+            modules = listOf(vaccination, counts, approvals),
+        )
+
+        val approvalRoots = rootsFor(state, "approvals", "/counts/approvals")
+        assertEquals(listOf("/counts/approvals"), approvalRoots)
+        assertTrue(isTopLevelRoute("/counts/approvals", approvalRoots))
+        // No client-appended trailing tab, and no other module's landing route leaks in.
+        assertFalse(isTopLevelRoute(Routes.YOU, approvalRoots))
+        assertFalse(isTopLevelRoute("/counts/birth", approvalRoots))
+        assertFalse(isTopLevelRoute(Routes.VACCINATION, approvalRoots))
+    }
+
+    @Test
+    fun `the Milk bar carries three leaves and the colostrum drill is not a root`() {
+        // Colostrum joined the Milk module on 2026-08-06 (docs/decisions/colostrum-milk-module.md)
+        // as a backend-composed leaf beside Milk Prep and Milk Feeding. Two things must hold and
+        // are easy to get wrong independently: the leaf is an L0 ROOT (a composable registered but
+        // absent from the root set is treated as unhosted, so a deep link to it bounces to home),
+        // and its date-scoped DRILL is NOT (an L1 that leaks into the root set would render the
+        // bottom bar over a detail screen -- the android-navigation-stack invariant).
+        val milk = NavModule(
+            key = "milk",
+            label = "Milk",
+            href = Routes.COUNTS_MILK_PREPARATION,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(
+                NavItem(key = "milk_preparation", label = "Milk Prep", href = Routes.COUNTS_MILK_PREPARATION),
+                NavItem(key = "milk_feeding", label = "Milk Feeding", href = Routes.COUNTS_MILK_FEEDING),
+                NavItem(key = "colostrum", label = "Colostrum", href = Routes.COUNTS_COLOSTRUM),
+            ),
+        )
+        val state = NavState(chrome = NavChrome.MINIMAL, items = milk.navItems, modules = listOf(milk))
+        val milkRoots = rootsFor(state, "milk", Routes.COUNTS_MILK_PREPARATION)
+
+        assertEquals(
+            listOf(Routes.COUNTS_MILK_PREPARATION, Routes.COUNTS_MILK_FEEDING, Routes.COUNTS_COLOSTRUM),
+            milkRoots,
+        )
+        assertTrue(isTopLevelRoute(Routes.COUNTS_COLOSTRUM, milkRoots))
+        assertFalse(
+            isTopLevelRoute(Routes.colostrumWorkflowRoute("wf-1", "2026-08-06"), milkRoots),
+        )
+        // Milk Prep keeps the landing slot (maintainer decision 2026-08-06).
+        assertEquals(Routes.COUNTS_MILK_PREPARATION, milk.href)
     }
 
     @Test

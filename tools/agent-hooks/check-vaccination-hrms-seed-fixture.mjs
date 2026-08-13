@@ -29,7 +29,15 @@ const REQUIRED_COMPANIONS = [
   "docs/decisions/scale-anti-patterns.md",
   ".agents/skills/goatos-build/SKILL.md",
 ];
-const RELEVANT_MIGRATION_TERMS = /vaccination|protocol_versions|protocol_rules|sop_versions|workforce_members|workforce_positions|position_module_duties|\bgoats\b|management_stage|\bdob\b|species/i;
+// The terms that make a migration part of the VACCINATION seed contract.
+//
+// The table names carry a leading \b deliberately. Without it, `protocol_versions` matches as a
+// SUBSTRING of another module's table -- `health_protocol_versions` (the Health module's treatment
+// protocols, migration 000098/000121) is a completely different table with its own seed path, and
+// it was tripping this guard and demanding seven vaccination companions that have nothing to do
+// with it. `\b` does not match between `_` and a letter (both are word characters), so
+// `health_protocol_versions` no longer matches while a bare `protocol_versions` still does.
+const RELEVANT_MIGRATION_TERMS = /vaccination|\bprotocol_versions|\bprotocol_rules|\bsop_versions|\bworkforce_members|\bworkforce_positions|\bposition_module_duties|\bgoats\b|management_stage|\bdob\b|species/i;
 
 function changedFilesAndDiffs() {
   let base;
@@ -79,11 +87,60 @@ function makefileTouchesSeedPipeline(diff) {
 // carry no seed-data contract. Must state a reason.
 const SEED_CONTRACT_IGNORE = /seed-fixture-guard:ignore:\s*\S+/i;
 
+// RELEVANCE IS A PROPERTY OF SQL, NOT OF PROSE.
+//
+// RELEVANT_MIGRATION_TERMS used to be tested against the RAW diff, so an
+// explanatory SQL comment was enough to couple a migration to the vaccination
+// seed contract. That produced a false positive class with no schema meaning:
+// weighing migrations 000058/000059 do DDL only on weighing_* tables, but their
+// header comments say "nothing here references goats ... or vaccination", and
+// the `seed-fixture-guard:ignore:` marker's own reason text contains the word
+// "Vaccination". A migration was therefore penalised for DOCUMENTING that it is
+// out of scope, and could be exonerated by deleting a comment — the guard was
+// reading English, not schema.
+//
+// Relevance is now tested against the SQL with comments removed. This deletes
+// only prose; every executable statement is still in scope, so a data migration
+// such as `UPDATE public.goats SET species = ...` sitting next to a weighing
+// CREATE TABLE still couples (self-test `dmlOnCanonicalTable`).
+//
+// KNOWN BLIND SPOTS (stated per the AGENTS.md guard-honesty rule):
+//   - `--` inside a string literal (e.g. `DEFAULT 'a--b'`) is stripped as a
+//     comment. No migration in this repo does that, and the failure direction is
+//     a false NEGATIVE only when the seed-relevant token sits after such a `--`
+//     in the same line, which the addedDdl check below would still catch for any
+//     real CREATE/ALTER/DROP of a canonical table.
+//   - Dollar-quoted bodies ($$ ... $$) are scanned as ordinary SQL; a `--`
+//     comment inside a function body is stripped, which is the intended reading.
+function stripSqlComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/--.*$/, ""))
+    .join("\n");
+}
+
+// A goose Down block only RESTORES the shape that existed before this migration.
+// It cannot introduce a seed/config/SOP contract: whatever it recreates was
+// already covered by whichever migration originally created it. Dropping a
+// weighing column that carried an FK to `goats` therefore has to write
+// `REFERENCES public.goats(goat_id)` in its rollback, and that mention alone
+// used to make the guard demand vaccination/HRMS fixture companions for a
+// weighing-only schema change.
+//
+// Relevance is decided on the Up block ONLY. Everything the guard actually
+// protects -- a real forward change to a seeded vaccination/HRMS/goats table --
+// lives in Up and is still tested exactly as before.
+function upBlock(diff) {
+  const down = diff.search(/^[+ -]?\s*--\s*\+goose\s+Down\b/mi);
+  return down < 0 ? diff : diff.slice(0, down);
+}
+
 function migrationCouplesToSeedContract(diff) {
   if (/Collapsed clean-slate baseline generated from migrations 000001\.\.000046/.test(diff)) {
     return false;
   }
-  if (!RELEVANT_MIGRATION_TERMS.test(diff)) return false;
+  if (!RELEVANT_MIGRATION_TERMS.test(stripSqlComments(upBlock(diff)))) return false;
   const addedDdl = diff
     .split("\n")
     .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line))
@@ -256,6 +313,25 @@ function runSelfTest() {
   if (couplingProblems(["backend/migrations/postgres/000999_ceo_ai_view.sql"], ceoAiOnlyMigration).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged a ceo_ai-only reporting-view migration");
   }
+  // A weighing-only DROP whose goose Down block has to restore an FK to `goats`
+  // must NOT couple: the rollback recreates a shape that already existed, so it
+  // introduces no seed/config/SOP contract.
+  const downOnlyGoatsReference = new Map([[
+    "backend/migrations/postgres/000993_weighing_drop.sql",
+    "+-- +goose Up\n+ALTER TABLE public.weighing_observations\n+  DROP COLUMN IF EXISTS animal_id;\n+\n+-- +goose Down\n+ALTER TABLE public.weighing_observations\n+  ADD COLUMN IF NOT EXISTS animal_id uuid REFERENCES public.goats(goat_id);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000993_weighing_drop.sql"], downOnlyGoatsReference).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a rollback-only canonical-table reference");
+  }
+  // ...but the SAME term in the Up block still couples. The Down-block carve-out
+  // must never become a way to launder a forward seed-schema change.
+  const upBlockGoatsChange = new Map([[
+    "backend/migrations/postgres/000990_goats_alter.sql",
+    "+-- +goose Up\n+ALTER TABLE public.goats\n+  ADD COLUMN IF NOT EXISTS species text;\n+\n+-- +goose Down\n+ALTER TABLE public.goats DROP COLUMN IF EXISTS species;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000990_goats_alter.sql"], upBlockGoatsChange).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let an Up-block canonical-table change skip its companions");
+  }
   // An OPERATIONAL table declaring the explicit opt-out marker must NOT couple.
   const operationalMigration = new Map([[
     "backend/migrations/postgres/000996_members.sql",
@@ -289,6 +365,17 @@ function runSelfTest() {
   if (couplingProblems(["backend/migrations/postgres/000998_alter_goats.sql"], canonicalMigration).length !== REQUIRED_COMPANIONS.length) {
     throw new Error("contract coupling self-test missed a canonical seed-table migration");
   }
+  // A migration for ANOTHER module whose table name merely CONTAINS a vaccination table name must
+  // NOT couple. `health_protocol_versions` is the Health module's treatment-protocol table and has
+  // no relationship to the vaccination seed contract.
+  const otherModuleMigration = new Map([[
+    "backend/migrations/postgres/000997_health_protocol_authoring.sql",
+    "+ALTER TABLE public.health_protocol_versions ADD COLUMN created_by uuid;\n" +
+      "+CREATE UNIQUE INDEX health_protocol_versions_one_draft_uq ON public.health_protocol_versions (tenant_id, disease_key, age_band) WHERE status = 'draft';\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000997_health_protocol_authoring.sql"], otherModuleMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly coupled another module's protocol table");
+  }
   // An index-only migration that merely NAMES a canonical table in its predicate
   // (e.g. a partial unique index keyed on a vaccination event_type) must NOT couple.
   const indexOnlyMigration = new Map([[
@@ -306,6 +393,36 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000996_validate_fn.sql"], functionOnlyMigration).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged a trigger-function-only migration referencing canonical tables");
+  }
+  // A migration whose DDL touches ONLY module-owned tables must NOT couple just
+  // because its explanatory comments NAME canonical seed tables — including a
+  // comment that exists precisely to say the migration is out of scope. This is
+  // the weighing 000058/000059 case.
+  const proseOnlyMention = new Map([[
+    "backend/migrations/postgres/000993_weighing_close.sql",
+    "+-- Free-flow is preserved: nothing here references goats, herd rosters, or\n+-- vaccination, and no species or dob column is added.\n+ALTER TABLE public.weighing_observations ADD COLUMN verification_status text NOT NULL DEFAULT 'pending';\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000993_weighing_close.sql"], proseOnlyMention).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a module-only migration that merely NAMES canonical tables in comments");
+  }
+  // ADVERSARIAL: comment-stripping must not become a laundering channel. A
+  // comment claiming the migration is weighing-only cannot excuse real DDL on a
+  // canonical seed table.
+  const commentDisguisedSeedAlter = new Map([[
+    "backend/migrations/postgres/000992_disguised.sql",
+    "+-- Weighing-only change; does not touch the herd register.\n+ALTER TABLE public.goats ADD COLUMN species text;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000992_disguised.sql"], commentDisguisedSeedAlter).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let a reassuring comment launder an ALTER of a canonical seed table");
+  }
+  // ADVERSARIAL: stripping removes COMMENTS ONLY. A canonical-table DML data
+  // migration riding alongside module-owned DDL must still couple.
+  const dmlOnCanonicalTable = new Map([[
+    "backend/migrations/postgres/000991_backfill.sql",
+    "+-- weighing work items\n+CREATE TABLE public.weighing_work_items (tenant_id uuid NOT NULL);\n+UPDATE public.goats SET species = 'goat' WHERE species IS NULL;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000991_backfill.sql"], dmlOnCanonicalTable).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let a canonical-table DML backfill skip its companions");
   }
   const makefile = fs.readFileSync(path.join(repo, "Makefile"), "utf8");
   if (seedOrderingProblems(makefile).length) throw new Error(`baseline seed ordering invalid: ${seedOrderingProblems(makefile).join("; ")}`);

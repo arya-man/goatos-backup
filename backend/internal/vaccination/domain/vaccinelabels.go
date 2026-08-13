@@ -90,3 +90,38 @@ func vaccinationAntigenLabel(code string) string {
 		return ""
 	}
 }
+
+// DoseQualifiedDisplayLabel renders the human vaccine label together with the
+// dose position inside its course ("ET+TT · Dose 2", "FMD · Revaccination"), so
+// surfaces whose row grain is per dose (the vaccination command board's shed ×
+// dose × state matrix and verification queue) can show two doses of the same
+// antigen as distinct rows instead of two identical "ET+TT" labels.
+// It stays inside this display mapper per the raw-token firewall: clients never
+// interpret dose codes themselves.
+func DoseQualifiedDisplayLabel(protocolName, doseCode string) string {
+	base := DoseDisplayLabel(protocolName, doseCode)
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(doseCode), " ", "_"))
+	switch {
+	case strings.HasSuffix(normalized, "_W1") || strings.HasSuffix(normalized, "_FIRST"):
+		return base + " · Dose 1"
+	case strings.HasSuffix(normalized, "_W2"):
+		return base + " · Dose 2"
+	case strings.HasSuffix(normalized, "_BOOSTER"):
+		return base + " · Booster"
+	case strings.HasSuffix(normalized, "REVAC") || strings.HasSuffix(normalized, "_REPEAT"):
+		return base + " · Revaccination"
+	}
+	return base
+}
+
+// VaccineAntigenLabel is the human label for a protocol vaccine CODE ("ET_TT" -> "ET+TT"), with no
+// dose qualifier.
+//
+// Exported so read models that group by vaccine rather than by dose can send labels instead of
+// codes. The alternative -- letting a client map codes to labels -- puts a second, drifting copy of
+// this table in the frontend and trips the admin-UI contract guard, which requires visible copy to
+// originate on the server. An unknown code returns "" so callers can decide between showing the raw
+// code and hiding the column, rather than rendering a guess.
+func VaccineAntigenLabel(code string) string {
+	return vaccinationAntigenLabel(code)
+}

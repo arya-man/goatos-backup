@@ -25,11 +25,415 @@
     "goat.obligations_canceled",
     "obligation.rescoped",
     "protocol.version.published",
+    "feed.direction.completed",
+    "feed.distribution.completed",
+    "feed.packing.completed",
     "vaccination.capacity.changed",
     "vaccination.roster.changed",
-    "vaccination.leave.changed"
+    "vaccination.leave.changed",
+    "weighing.campaign_created",
+    "weighing.campaign_published",
+    "weighing.observation_accepted",
+    "weighing.shed_observation_accepted",
+    "weighing.shed_submission.completed",
+    "health.protocol.published",
+    "health.case.opened",
+    "health.case.death_held",
+    "health.case.death_resumed",
+    "health.case.closed_dead",
+    "health.treatment.completed",
+    "weighing.shed.reopened",
+    "weighing.observation.verified",
+    "weighing.observation.rework",
+    "weighing.observation.rework_digest",
+    "weighing.shed.closed",
+    "weighing.campaign.closed",
+    "weighing.shed.verified_closed",
+    "weighing.campaign.verified_closed",
+    "weighing.work_item.day_start",
+    "weighing.work_item.rolled_forward",
+    "weighing.work_item.delayed"
   ],
   "events": [
+    {
+      "eventType": "weighing.campaign_created",
+      "producer": "weighing campaign create transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign_published",
+      "producer": "weighing campaign publish transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER assignment contact. Preserve the source event, add shared task materializer/contact consumers, and suppress this direct sender before shared contacts activate."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation_accepted",
+      "producer": "individual animal weighing observation accept transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed_observation_accepted",
+      "producer": "per-shed/partition weighing observation accept transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed_submission.completed",
+      "producer": "weighing campaign shed completion transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event.go",
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER submission/sign-off contact. Shared verifier/sign-off task and contact policy become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event_integration_test.go",
+        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.reopened",
+      "producer": "weighing campaign shed reopen transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/shed_submission_event.go",
+        "backend/internal/weighing/adapters/postgres/repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_submission_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER reopen contact. Shared task descendant/ancestor reopening and contact policy become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_submission_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.verified",
+      "producer": "weighing verification verdict applier (verification.verdict.approved consumer transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verification-settled contact. Shared sibling sign-off/task policy becomes authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/verification_verdict_handler_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.rework",
+      "producer": "weighing verification verdict applier (verification.verdict.rework consumer transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER rework contact. Shared sibling sign-off/operator rework task and contact policy become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/verification_verdict_handler_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.rework_digest",
+      "producer": "weighing per-shed rework digest sweeper (weighing-rework-digest kernel stage transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/rework_digest.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER rework digest contact. Shared contact policy becomes authoritative; suppress and retire this direct digest after parity, replay, and zero-use proof."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/rework_digest_integration_test.go",
+        "backend/internal/notificationbridge/weighing_rework_digest_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.closed",
+      "producer": "weighing explicit bucket close transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/close.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER close contact. Shared task close/rollup and contact policy become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign.closed",
+      "producer": "weighing explicit campaign close transaction",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/close.go",
+        "backend/internal/weighing/adapters/postgres/close_event.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER campaign-close contact. Shared task close/rollup and contact policy become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.verified_closed",
+      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verified_closure.go",
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verified-close contact. Shared sign-off completion and task rollup become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/verified_closure_integration_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign.verified_closed",
+      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verified_closure.go",
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "notes": "LEGACY PRE-CUTOVER verified campaign-close contact. Shared sign-off completion and hierarchy rollup become authoritative; suppress this direct sender before activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/verified_closure_integration_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.day_start",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel day-start cadence pass (kernel-worker operational lane); one event per (campaign, assigned operator, Asia/Kolkata business date), enqueued in the same transaction as the day_start_surfaced_on claim. Suppress its direct contact before shared task contacts activate, then retire/demote it after parity, replay, and zero-use proof.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "LEGACY PRE-CUTOVER direct contact only. It currently resolves the assigned bucket operator via ResolveMemberRecipients. Shared task policy becomes sole contact authority; this consumer must be suppressed before that activation."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.rolled_forward",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel roll-forward pass. Shared task policy becomes the only app-visible clock/roll-forward authority; retain this event only through shadow parity and source reconciliation, then retire/demote it.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "LEGACY PRE-CUTOVER direct contacts. Suppress before shared task contact activation; shared versioned policy owns operator and leadership audiences thereafter."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.work_item.delayed",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel delayed/escalation pass. Shared task policy becomes the sole app-visible clock/escalation authority; this local producer is shadowed and reconciled, then retired/demoted.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "LEGACY PRE-CUTOVER direct escalation only. Suppress before shared task contacts activate; the shared ack-gated policy resolves real recipients and owns all later contacts."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
     {
       "eventType": "goat.created",
       "producer": "identity admin goat create / procurement accepted-intake PC handoff",
@@ -42,13 +446,19 @@
           "module": "vaccination",
           "file": "backend/internal/vaccination/app/generation_handler.go",
           "notes": "GoatCreatedHandler.HandleEvent reads the payload key trusted_vaccination_history (written by the procurement producer) and routes it through GenerationService.ingestPreArrivalHistory (backend/internal/vaccination/app/prearrival_history.go), which reviews each supplier claim and persists it as accepted or rejected pre-arrival history before generation runs (BUG-017)."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "GoatCreatedWorkflowHandler.HandleEvent filters origin_type=birth, reads the canonical goats row (dob/time_of_birth/sex/park/shed) by PK, and opens the birth_kid workflow linked to the canonical mother plus the shared birth_mother workflow. For new births the identity producer resolves the scanned mother RFID before approval, persists mother_goat_id + litter_size in goat_births atomically with kid creation, and emits that canonical UUID as dam_id; unresolved dam handling remains only for legacy events. The consumer parses dob, dam_id, sex, and time_of_birth; the tasks repository uses that canonical event moment to include remaining birth-day colostrum slots before their 15-minute cutoff plus all five next-day slots, so none of those event keys is accept-and-discard. Each scheduled round is hard-gated until its stored due_at and then remains available; Tag the kid waits for every other kid task, including the entire scheduled series."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
         "backend/internal/vaccination/adapters/postgres/generation_integration_test.go",
-        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go"
+        "backend/internal/vaccination/adapters/postgres/prearrival_history_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -61,7 +471,8 @@
       "producer": "identity goat move/shifting",
       "producerFiles": [
         "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
-        "backend/internal/identity/adapters/postgres/goat_relocate.go"
+        "backend/internal/identity/adapters/postgres/goat_relocate.go",
+        "backend/internal/identity/adapters/postgres/shed_stage.go"
       ],
       "consumers": [
         {
@@ -103,7 +514,8 @@
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
         "backend/tests/e2e/story_vaccrev_identity_recompute_test.go",
-        "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go"
+        "backend/internal/counts/adapters/postgres/approval_relocate_integration_test.go",
+        "backend/internal/identity/adapters/postgres/shed_stage_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -182,6 +594,70 @@
       ]
     },
     {
+      "eventType": "counts.death.reported",
+      "producer": "counts death approval-request submission",
+      "producerFiles": [
+        "backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "CountsDeathReportedHandler opens the death workflow immediately from the still-live goat's canonical park/shed facts. The event and counts_approval_requests insert commit atomically; migration 000035 backfills pending pre-existing death requests."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Holds every incomplete treatment work item while the death report is under review."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/counts/adapters/postgres/approval_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring, and internal/kernelstages.",
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "counts.death.rejected",
+      "producer": "counts death approval rejection",
+      "producerFiles": [
+        "backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "CountsDeathRejectedHandler cancels the staged death workflow and clears its proof refs. The rejection applies no identity/count effect, so the goat remains alive."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Restores held Health sessions; past sessions become due and future sessions return to scheduled."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/counts/adapters/postgres/approval_integration_test.go",
+        "backend/internal/tasks/app/service_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers) is called by every domain-event bus composition.",
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "goat.exited",
       "producer": "identity goat exit",
       "producerFiles": [
@@ -191,12 +667,23 @@
         {
           "module": "obligation",
           "file": "backend/internal/obligation/app/cancel.go"
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "GoatExitedWorkflowHandler.HandleEvent filters exit_reason=died and releases the approval-prepared pair of death videos to the generic Verify queue. The counts approval transaction first proves both videos, moves the internal review action to in_review, applies the guarded exit/count change, and emits goat.exited atomically. Sold/culled/transferred exits release nothing."
+        },
+        {
+          "module": "health",
+          "file": "backend/internal/health/app/event_handlers.go",
+          "notes": "Filters exit_reason=died, closes open Health cases, and cancels every incomplete future session while retaining completed medicine history."
         }
       ],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
-        "backend/internal/obligation/adapters/postgres/cancel_integration_test.go"
+        "backend/internal/obligation/adapters/postgres/cancel_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -231,7 +718,7 @@
     },
     {
       "eventType": "verification.item.pending",
-      "producer": "generic verification item enqueue",
+      "producer": "generic verification item enqueue (categories include vaccination_goat_video, shifting_move, feed_distribution, feed_packing, feed_transport, milk_preparation, milk_feeding, and death_evidence; milk_feeding is one immutable farm-session attempt carrying questions and two live-camera videos)",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
@@ -244,7 +731,8 @@
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/adapters/postgres/repository_integration_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/countsbridge/shifting_verification_enqueue_test.go"
       ],
       "surfaces": [
         "backend",
@@ -262,13 +750,65 @@
         {
           "module": "notification",
           "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/shifting_verification_handler.go",
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.ApplyVerifiedShiftingEvent (legacy method name), which marks verification_state='verified' only. Under the maintainer-2026-07-28 rule, Park Head approval + operator completion already own relocation/count; verifier approval cannot move or roll back census truth. A pre-000049 authorized+completed row may be lazily applied once for rollout compatibility."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_feeding_verification_handler.go",
+          "notes": "Filters source.module=milk_feeding + ref_type=milk_feeding_completion. APPROVE completes exactly one farm x feeding_date x session task and applies that accepted session's watchlist answers; two consecutive accepted Yes answers graduate a kid, while No resets the streak."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
+          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.ApplyVerifiedDistribution, which flips the feed_distribution_completions row 'pending_verification' -> 'completed' and emits feed.distribution.completed. Maintainer-2026-07-26 gate, EXTENDED 2026-08-11: a feed-direction session is completed only when a verifier approves the operator's THREE proofs -- a feed-weight PHOTO, a feed-distribution VIDEO and a water-distribution VIDEO (water was photo-or-video until then; migration 000151 adds feed_weight_proof_ref). All three ride ONE verification item in capture order. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_packing_verification_handler.go",
+          "notes": "FeedPackingVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_packing_completion (distinct from the distribution handler, which shares module=feed but uses ref_type=feed_distribution_completion) and calls PackingCompletionStore.ApplyVerifiedPacking, which flips the feed_packing_completions row 'pending_verification' -> 'completed' and emits feed.packing.completed. Maintainer-2026-07-26 gate (SUPERSEDING the earlier 'packing stays instant' rule): a feed PACKING session is completed only when a verifier approves the operator's ONE mandatory packing video. Separate NEW table."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_transport_verification_handler.go",
+          "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; approval marks the immutable attempt approved and its daily shed task completed."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
+        "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/domain/milk_feeding_test.go",
+        "backend/internal/countsbridge/shifting_verification_enqueue_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
+        "backend/internal/eventwiring/appliers_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
+      "durableBusRegistration": "backend/internal/eventwiring/appliers.go (RegisterVerificationAppliers) is the SINGLE registration of the shifting + feed-distribution + feed-packing verdict appliers, called by bootstrap/api.go, cmd/outbox-relay, AND cmd/domain-event-consumer. The verdict is delivered ONLY via the outbox, so the durable-bus consumers (outbox-relay local / domain-event-consumer prod) MUST register them; before 2026-07-27 they did not and every feed/shifting approval was silently dropped while the API-bus registration never fired. appliers_test.go is the drift guard.",
       "surfaces": [
         "backend",
         "frontend",
@@ -289,12 +829,55 @@
         {
           "module": "notification",
           "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/shifting_verification_handler.go",
+          "notes": "ShiftingVerificationHandler.HandleEvent filters source.module=counts + source.ref_type=shifting_event and calls Repository.BounceShiftingEventForRework, which sets verification_state='rejected' and clears the proof-submit idempotency pair so the evidence rework appears in Actions. It preserves event_status, goat location, and census truth even when the move is already applied."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. REWORK returns the farm-day completion to rework; the next submission creates a fresh immutable complete proof attempt while rejected evidence stays in history."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/milk_feeding_verification_handler.go",
+          "notes": "Filters source.module=milk_feeding + ref_type=milk_feeding_completion. REWORK preserves the rejected question/proof attempt and returns the same farm-session task to the assigned operator for fresh answers and two fresh videos; rejected answers do not change the watchlist."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_distribution_verification_handler.go",
+          "notes": "FeedDistributionVerificationHandler.HandleEvent filters source.module=feed + source.ref_type=feed_distribution_completion and calls DistributionCompletionStore.BounceDistributionForRework, which returns the feed_distribution_completions row 'pending_verification' -> 'rework' (nothing completed) so the operator re-captures the weight photo, the feed video and the water video and re-submits."
+        },
+        {
+          "module": "feeddirection",
+          "file": "backend/internal/feeddirection/app/feed_transport_verification_handler.go",
+          "notes": "Filters source.module=feed + ref_type=feed_transport_attempt; rejection preserves the rejected attempt/proof and returns the daily task to rework for the same operator and a fresh attempt."
+        },
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/vaccination/app/completion_test.go",
-        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go",
+        "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
+        "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/domain/milk_feeding_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -304,24 +887,28 @@
     },
     {
       "eventType": "verification.item.closed",
-      "producer": "scoped leadership drive closure",
+      "producer": "scoped leadership drive closure, AND the producing module's retire seam (Repository.WithdrawItemsBySource) when a still-pending item's source record is superseded -- published on the SAME transaction as the status flip, with status/decision='withdrawn' so a consumer can tell a retraction from a verdict",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
           "module": "vaccination",
-          "file": "backend/internal/vaccination/app/verification_handler.go"
+          "file": "backend/internal/vaccination/app/verification_handler.go",
+          "notes": "verification.item.closed is POLYSEMOUS -- it carries both an operational closure and a WithdrawItemsBySource retraction -- so every consumer must read payload.status. handleGenericEvent filters Source.Module='vaccination' with a non-empty Source.SubmissionID (weighing withdrawals, the only producer of the 'withdrawn' variant today, never reach it) AND returns early on status='withdrawn', so a future vaccination supersede path cannot apply a verdict-shaped outcome with an empty actor to work that was taken back."
         },
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go",
+          "notes": "handleItemClosed branches on status: an operational closure notifies the OPERATOR that their record is done; a 'withdrawn' retraction instead routes handleItemWithdrawn to the park's module verify-duty holders -- the same audience verification.item.pending pushed to -- because they are the ones left holding a review request that no longer exists. The operator caused the withdrawal by editing their own draft and is deliberately not pushed."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
-        "backend/internal/vaccination/app/completion_test.go"
+        "backend/internal/vaccination/app/completion_test.go",
+        "backend/internal/verification/adapters/postgres/withdraw_emits_retraction_integration_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [
         "backend",
@@ -474,6 +1061,57 @@
       ]
     },
     {
+      "eventType": "feed.direction.completed",
+      "producer": "feed-direction shed-session completion (POST /feed-direction/complete): feeddirection.Repository.CompleteSession writes the canonical feed_direction_session_completions row, the audit row, and the transactional outbox message in one transaction, idempotent on both the request key and the shed-session natural key",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/completions.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/completions_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "feed.distribution.completed",
+      "producer": "feed DISTRIBUTION verifier approval (maintainer decision, 2026-07-26): feeddirection.Repository.ApplyVerifiedDistribution, consuming verification.verdict.approved for a feed_distribution item, flips the NEW feed_distribution_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion. Entirely separate from the old instant feed.direction.completed path, which is inert.",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/distribution_completions.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/feed-distribution-verification.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "feed.packing.completed",
+      "producer": "feed PACKING verifier approval (maintainer decision, 2026-07-26, SUPERSEDING the earlier 'packing stays instant, no verifier' rule): feeddirection.Repository.ApplyVerifiedPacking, consuming verification.verdict.approved for a feed_packing item, flips the NEW feed_packing_completions row 'pending_verification' -> 'completed', stamps verified_by/verified_at, and writes the audit row + transactional outbox message in one transaction. Emitted ONLY at verifier approval, never at operator completion. Requires ONE mandatory packing video. Separate NEW table; the old instant feed_direction_session_completions / feed.direction.completed path is inert.",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/packing_completions.go"
+      ],
+      "consumers": [],
+      "owningDoc": "docs/decisions/feed-distribution-verification.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "vaccination.capacity.changed",
       "producer": "vaccination-execution operator assignment config write (N/active-operators-per-day change), durable outbox enqueue",
       "producerFiles": [
@@ -543,6 +1181,111 @@
         "frontend",
         "mobile"
       ]
+    },
+    {
+      "eventType": "goat.identifier.added",
+      "producer": "identity identifier attach / temp-to-permanent promote",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/identifier_write.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "A permanent primary RFID promotion records the assigned identifier on the pending Tag the kid task, but does not complete it. The task completes only through its mandatory video command; the identity promote transaction remains the sole writer of goat identifier truth."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/identifier_write_integration_test.go",
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "health.protocol.published",
+      "producer": "strict Health SOP snapshot import transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/protocol_import.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.opened",
+      "producer": "Health diagnosis/course open transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.death_held",
+      "producer": "Health counts.death.reported consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.death_resumed",
+      "producer": "Health counts.death.rejected consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.case.closed_dead",
+      "producer": "Health goat.exited consumer transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/app/event_handlers_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "health.treatment.completed",
+      "producer": "Health treatment-session completion transaction",
+      "producerFiles": ["backend/internal/health/adapters/postgres/repository.go"],
+      "consumers": [],
+      "owningDoc": "docs/decisions/health-workflows.md",
+      "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "weighing.work_item.merged_on_carry_over",
+      "producer": "LEGACY PRE-CUTOVER compatibility producer: weighing kernel carry-over merge pass. It records a local collision/source-reconciliation fact without moving capture. The shared task hierarchy must materialize the one-open-work-unit result, suppress the direct contact before activation, and retire/demote this local coordination event after parity and zero-use proof.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "LEGACY PRE-CUTOVER direct contact only. Shared task materialization and contact policy become authoritative; suppress this consumer before shared sends activate."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [
@@ -559,7 +1302,12 @@
     {
       "path": "backend/internal/identity/adapters/postgres/goat_relocate.go",
       "owner": "identity",
-      "reason": "canonical bulk shifting-execution relocation producer; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and the matching outbox_messages rows in the same transaction (enforced by outbox_messages_validate_event_tenant_trg), consumed by obligation/app/shift.go to re-scope shed-scoped vaccination obligations and by vaccination generation to recompute on the new management_stage"
+      "reason": "canonical bulk shifting relocation producer called only by the shared Park-Head-approval + operator-completion second-gate transaction; emits per-animal goat.location.changed AND (for animals reclassified into the destination shed's cohort) goat.stage_changed into goat_identity_events and matching outbox_messages in the same transaction, consumed by obligation/app/shift.go and vaccination generation"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/shed_stage.go",
+      "owner": "identity",
+      "reason": "canonical Counts shed-stage cohort correction writer; emits per-animal goat.stage_changed into goat_identity_events and matching outbox_messages for changed live animals in one physical pen"
     },
     {
       "path": "backend/internal/identity/adapters/postgres/sqlc/commands.sql",
@@ -580,6 +1328,11 @@
       "path": "backend/cmd/seed-vaccination-real/main.go",
       "owner": "seed",
       "reason": "idempotent local/source seed; closeout must include HRMS, stages, generation, and sweeper"
+    },
+    {
+      "path": "backend/cmd/seed-vaccination-per-goat-qa/main.go",
+      "owner": "seed",
+      "reason": "idempotent local QA seed for per-goat proof testing; not a production herd mutation writer"
     }
   ],
   "futureFeatureContracts": [
@@ -616,7 +1369,7 @@
         "cross-stage shed move",
         "ICU/quarantine entry and exit",
         "stale event replay",
-        "verified shifting completion atomically updates shed and operational stage then reschedules and rechecks vaccination"
+        "the second Park Head approval/operator-completion gate atomically updates shed and operational stage then reschedules and rechecks vaccination"
       ]
     },
     {
@@ -648,7 +1401,8 @@
         "goat.stage_changed",
         "goat.health.changed",
         "goat.reproductive.changed",
-        "protocol.version.published"
+        "protocol.version.published",
+        "feed.direction.completed"
       ],
       "requiredConsumers": [],
       "surfaces": [
@@ -658,7 +1412,8 @@
       ],
       "e2eScenarios": [
         "location/stage/health/reproductive changes recompute feed work",
-        "offline mobile command converges through backend event"
+        "offline mobile command converges through backend event",
+        "operator marks a shed-session fed (optional video) -> feed.direction.completed produced -> serve path reports the row completed"
       ]
     }
   ],
@@ -693,26 +1448,26 @@
           "file": "backend/internal/vaccination/app/generation_handler.go"
         }
       ],
-      "authoritativeProfile": {
-        "source": "active destination shed_profiles row joined through animal_stage_lookup",
-        "snapshotAtAuthorization": [
-          "destination_profile_id",
-          "destination_profile_row_version"
+      "authoritativeStageSelection": {
+        "source": "mandatory raise-time mode plus explicit target validated against animal_stage_lookup",
+        "snapshotAtRaise": [
+          "management_stage_mode",
+          "target_management_stage"
         ],
         "evidenceFiles": [
-          "backend/internal/identity/adapters/postgres/goat_relocate.go"
+          "backend/internal/identity/adapters/postgres/goat_relocate.go",
+          "backend/internal/counts/adapters/postgres/shifting_execution.go"
         ],
         "requiredTokens": [
-          "shed_profiles",
+          "management_stage_mode",
+          "target_management_stage",
           "animal_stage_lookup",
-          "row_version",
-          "destination_profile_id",
-          "destination_profile_row_version"
+          "management_stage"
         ],
         "forbiddenPatterns": [
           {
             "pattern": "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats",
-            "reason": "resident goats are observations, not destination shed configuration authority"
+            "reason": "resident stages may be offered as explicit options but must never be inferred as one shed-wide authority"
           }
         ]
       },

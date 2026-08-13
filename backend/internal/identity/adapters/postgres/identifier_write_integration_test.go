@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,112 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 			t.Fatalf("expected Animal ID 1 and Animal ID 2 identifiers, got %#v", result.Identifiers)
 		}
 		assertAdminGoatCreateRows(t, pool, cmd, result)
+	})
+
+	t.Run("admin create requires and preserves partition grain while bare sheds remain bare", func(t *testing.T) {
+		farmID := adminCreateFarmLocation
+		parkID := cbeLocation
+		shedID := adminCreateShedLocation
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')`, meshaTenant, adminCreateShedLocation); err != nil {
+			t.Fatalf("seed partition catalog: %v", err)
+		}
+		defer func() {
+			_, _ = pool.Exec(ctx, `
+DELETE FROM shed_partitions
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = '3'`, meshaTenant, adminCreateShedLocation)
+		}()
+
+		missing, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+			TenantID:              meshaTenant,
+			FarmID:                &farmID,
+			ParkID:                &parkID,
+			ShedID:                &shedID,
+			RequirePartitionGrain: true,
+		})
+		if err != nil {
+			t.Fatalf("ValidateAdminGoatCreate missing partition: %v", err)
+		}
+		if !hasFieldError(missing.Conflicts, "partition_label", "required") {
+			t.Fatalf("missing partition conflicts = %#v", missing.Conflicts)
+		}
+
+		requested := "3"
+		valid, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+			TenantID:              meshaTenant,
+			FarmID:                &farmID,
+			ParkID:                &parkID,
+			ShedID:                &shedID,
+			PartitionLabel:        &requested,
+			RequirePartitionGrain: true,
+		})
+		if err != nil {
+			t.Fatalf("ValidateAdminGoatCreate canonical partition: %v", err)
+		}
+		if len(valid.Conflicts) != 0 || valid.PartitionLabel == nil || *valid.PartitionLabel != "Part 3" {
+			t.Fatalf("canonical partition validation = %#v", valid)
+		}
+
+		partitioned := adminGoatCreateCommand(t, "idem-create-goat-partition-0001", "aid1-admin-partition-0001", "admin-partition-aid2-0001")
+		partitioned.PartitionLabel = &requested
+		partitioned.RequirePartitionGrain = true
+		created, err := repo.CreateAdminGoat(ctx, partitioned)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat partitioned: %v", err)
+		}
+		if created.Goat.LocationPath.PartitionLabel == nil || *created.Goat.LocationPath.PartitionLabel != "Part 3" || created.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin create shed - Part 3" {
+			t.Fatalf("partitioned create location = %#v", created.Goat.LocationPath)
+		}
+		var storedPartition, sourceShedName, identityEventPartition, outboxPartition string
+		if err := pool.QueryRow(ctx, `
+SELECT partition_label, COALESCE(source_shed_name, '')
+FROM goat_shed_partitions
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, created.Goat.GoatID).Scan(&storedPartition, &sourceShedName); err != nil {
+			t.Fatalf("read partition placement: %v", err)
+		}
+		if storedPartition != "Part 3" || sourceShedName != "Synthetic admin create shed - Part 3" {
+			t.Fatalf("stored partition/source = %q/%q, want canonical label and human operational display", storedPartition, sourceShedName)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT payload->>'partition_label'
+FROM goat_identity_events
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&identityEventPartition); err != nil {
+			t.Fatalf("read identity event partition: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'partition_label'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`, meshaTenant, created.Goat.GoatID).Scan(&outboxPartition); err != nil {
+			t.Fatalf("read outbox partition: %v", err)
+		}
+		if identityEventPartition != "Part 3" || outboxPartition != "Part 3" {
+			t.Fatalf("event partitions identity/outbox = %q/%q", identityEventPartition, outboxPartition)
+		}
+
+		replay, err := repo.CreateAdminGoat(ctx, partitioned)
+		if err != nil {
+			t.Fatalf("replay partitioned create: %v", err)
+		}
+		if !replay.Replayed || replay.Goat.LocationPath.PartitionLabel == nil || *replay.Goat.LocationPath.PartitionLabel != "Part 3" {
+			t.Fatalf("partitioned replay = %#v", replay)
+		}
+
+		bare := adminGoatCreateCommand(t, "idem-create-goat-unpartitioned-0001", "aid1-admin-unpartitioned-0001", "admin-unpartitioned-aid2-0001")
+		bare.ShedID = adminMoveTargetShed
+		bare.RequirePartitionGrain = true
+		bareResult, err := repo.CreateAdminGoat(ctx, bare)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat unpartitioned: %v", err)
+		}
+		if bareResult.Goat.LocationPath.PartitionLabel != nil || bareResult.Goat.LocationPath.OperationalLocationDisplay != "Synthetic admin move target shed" {
+			t.Fatalf("bare create location = %#v", bareResult.Goat.LocationPath)
+		}
+		if got := countRows(t, pool, `
+SELECT count(*) FROM goat_shed_partitions
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, meshaTenant, bareResult.Goat.GoatID); got != 0 {
+			t.Fatalf("unpartitioned create placement rows = %d, want 0", got)
+		}
 	})
 
 	t.Run("admin goat create validation rejects orphan and wrong-parent sheds", func(t *testing.T) {
@@ -101,6 +208,93 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		}
 		if !hasFieldError(validation.Conflicts, "management_stage", "not_found") {
 			t.Fatalf("expected management_stage not_found conflict, got %#v", validation.Conflicts)
+		}
+	})
+
+	t.Run("birth with no management_stage inherits the shed's configured profile stage", func(t *testing.T) {
+		// "One shed, one tag": the birth form sends NO management_stage, so the created animal must
+		// adopt the destination shed's CONFIGURED profile stage — not persist NULL. A NULL stage
+		// carries no feed shed tag, which blocks the whole shed's feed packing (unknown_shed_tag).
+		// This reproduces the exact production defect: G-001683/G-001684 were created via the birth
+		// flow with a blank stage and blocked Gandhi 2 / Godel 1 - Part 1 feed packing.
+		seedShedProfile(t, pool, adminCreateShedLocation, "adult")
+		motherCmd := adminGoatCreateCommand(t, "idem-birth-mother-0001", "aid1-birth-mother-0001", "birth-mother-aid2-0001")
+		mother, err := repo.CreateAdminGoat(ctx, motherCmd)
+		if err != nil {
+			t.Fatalf("create canonical mother: %v", err)
+		}
+		motherRFID := motherCmd.Identifiers[0].IdentifierValue
+		validation, err := repo.ValidateAdminGoatCreate(ctx, ports.ValidateAdminGoatCreateCommand{
+			TenantID:    meshaTenant,
+			ParkID:      &motherCmd.ParkID,
+			ShedID:      &motherCmd.ShedID,
+			BirthDamRef: &motherRFID,
+			Species:     "goat",
+		})
+		if err != nil {
+			t.Fatalf("resolve mother RFID: %v", err)
+		}
+		if validation.DamGoatID == nil || *validation.DamGoatID != mother.Goat.GoatID {
+			t.Fatalf("resolved mother=%v, want %s", validation.DamGoatID, mother.Goat.GoatID)
+		}
+
+		cmd := adminGoatCreateCommand(t, "idem-birth-inherit-0001", "aid1-birth-inherit-0001", "birth-inherit-aid2-0001")
+		cmd.OriginType = "birth"
+		cmd.ManagementStage = nil // birth form supplies none
+		cmd.DamID = validation.DamGoatID
+		litterSize := 2
+		cmd.LitterSize = &litterSize
+
+		result, err := repo.CreateAdminGoat(ctx, cmd)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat (birth, blank stage): %v", err)
+		}
+		var stage string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(management_stage, '') FROM goats WHERE goat_id = $1::uuid`,
+			result.Goat.GoatID).Scan(&stage); err != nil {
+			t.Fatalf("read created goat stage: %v", err)
+		}
+		if stage != "adult" {
+			t.Fatalf("birth-created goat management_stage = %q, want the shed's configured profile stage %q (a blank/NULL stage blocks feed packing)", stage, "adult")
+		}
+		var storedMother string
+		var storedLitter int
+		if err := pool.QueryRow(ctx, `
+SELECT mother_goat_id::text, litter_size
+FROM goat_births
+WHERE tenant_id = $1::uuid AND child_goat_id = $2::uuid`,
+			meshaTenant, result.Goat.GoatID).Scan(&storedMother, &storedLitter); err != nil {
+			t.Fatalf("read permanent birth relationship: %v", err)
+		}
+		if storedMother != mother.Goat.GoatID || storedLitter != 2 {
+			t.Fatalf("birth row mother=%s litter=%d, want %s/2", storedMother, storedLitter, mother.Goat.GoatID)
+		}
+		var eventMother string
+		if err := pool.QueryRow(ctx, `
+SELECT payload->'payload'->>'dam_id'
+FROM outbox_messages
+WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'goat.created'`,
+			meshaTenant, result.Goat.GoatID).Scan(&eventMother); err != nil {
+			t.Fatalf("read goat.created mother: %v", err)
+		}
+		if eventMother != mother.Goat.GoatID {
+			t.Fatalf("goat.created dam_id=%s, want canonical mother %s", eventMother, mother.Goat.GoatID)
+		}
+	})
+
+	t.Run("create with no management_stage into a shed with no configured profile fails closed", func(t *testing.T) {
+		// A stage-less alive animal is a data-integrity defect (it silently breaks feed packing for
+		// its shed). If the shed has no active profile stage to inherit and none was supplied, the
+		// create must FAIL CLOSED rather than persist NULL. adminMoveTargetShed is a validly-parented
+		// shed with NO shed_profiles row.
+		cmd := adminGoatCreateCommand(t, "idem-birth-noprofile-0001", "aid1-birth-noprofile-0001", "birth-noprofile-aid2-0001")
+		cmd.OriginType = "birth"
+		cmd.ManagementStage = nil
+		cmd.ShedID = adminMoveTargetShed
+
+		if _, err := repo.CreateAdminGoat(ctx, cmd); !errors.Is(err, ports.ErrShedProfileStageRequired) {
+			t.Fatalf("CreateAdminGoat into profile-less shed: got err %v, want ErrShedProfileStageRequired", err)
 		}
 	})
 
@@ -227,6 +421,12 @@ FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		}
 		assertNoRows(t, pool, "idempotency after blocked death exit", "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
 		assertNoRows(t, pool, "outbox after blocked death exit", "SELECT count(*) FROM outbox_messages WHERE idempotency_key = $1", cmd.StoredIdempotencyKey)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Synthetic admin create shed - Part 1')`,
+			meshaTenant, created.Goat.GoatID, adminCreateShedLocation); err != nil {
+			t.Fatalf("seed death partition placement: %v", err)
+		}
 
 		approved := cmd
 		approved.ClientIdempotencyKey = "idem-exit-death-approved-0001"
@@ -763,6 +963,38 @@ func TestGoatDisplayIDNoTruncatePastMillion(t *testing.T) {
 	}
 }
 
+// TestGoatDisplayIDGeneratorSkipsImportedCollision reproduces the production birth failure where
+// a source import had inserted explicit G- display IDs ahead of goat_display_id_seq. The next
+// canonical goat insert must skip that occupied value instead of failing goats_display_id_unique.
+func TestGoatDisplayIDGeneratorSkipsImportedCollision(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, _ := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+
+	var last int64
+	if err := pool.QueryRow(ctx, `SELECT last_value FROM goat_display_id_seq`).Scan(&last); err != nil {
+		t.Fatalf("read display-id sequence: %v", err)
+	}
+	occupied := fmt.Sprintf("G-%06d", last+1)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  display_id, tenant_id, lifecycle_status, species, custodian_party_id,
+  current_location_id, park_id, breed, sex
+) VALUES ($1, $2::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $4::uuid, 'Imported Boer', 'female')`,
+		occupied, meshaTenant, meshaParty, cbeLocation); err != nil {
+		t.Fatalf("seed explicit imported display id %s: %v", occupied, err)
+	}
+
+	var generated string
+	if err := pool.QueryRow(ctx, `SELECT next_goat_display_id()`).Scan(&generated); err != nil {
+		t.Fatalf("next_goat_display_id(): %v", err)
+	}
+	if generated == occupied {
+		t.Fatalf("next_goat_display_id() returned occupied imported id %s", generated)
+	}
+}
+
 func insertSyntheticGoat(t *testing.T, pool *pgxpool.Pool, tenantID, parkID string) string {
 	t.Helper()
 	var goatID string
@@ -916,6 +1148,23 @@ WHERE tenant_id = $1
   AND location_id IN ($2, $3, $4, $5, $6)
   AND status = 'active'`, meshaTenant, adminCreateFarmLocation, adminCreateShedLocation, adminCreateOrphanShed, adminCreateWrongParkShed, adminMoveTargetShed); got != 5 {
 		t.Fatalf("admin create fixture locations = %d, want 5", got)
+	}
+}
+
+// seedShedProfile configures a shed's authoritative operational stage (an active shed_profiles row
+// joined through animal_stage_lookup) so a goat created into it with no supplied management_stage
+// inherits that stage. stageCode must already exist in animal_stage_lookup for the tenant.
+func seedShedProfile(t *testing.T, pool *pgxpool.Pool, shedID, stageCode string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id)
+SELECT $1::uuid, $2::uuid, a.animal_stage_id
+FROM animal_stage_lookup a
+WHERE a.tenant_id = $2::uuid AND a.stage_code = $3 AND a.status = 'active'
+ON CONFLICT (location_id) DO UPDATE
+SET animal_stage_id = EXCLUDED.animal_stage_id, updated_at = now()`,
+		shedID, meshaTenant, stageCode); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
 	}
 }
 

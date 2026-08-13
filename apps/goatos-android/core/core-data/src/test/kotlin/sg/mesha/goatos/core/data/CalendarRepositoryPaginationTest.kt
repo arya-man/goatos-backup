@@ -31,7 +31,13 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class CalendarRepositoryPaginationTest {
-    private data class Request(val status: String?, val dateFrom: String?, val cursor: String?, val limit: Int?)
+    private data class Request(
+        val status: String?,
+        val dateFrom: String?,
+        val includeDriveSummary: Boolean,
+        val cursor: String?,
+        val limit: Int?,
+    )
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -73,6 +79,7 @@ class CalendarRepositoryPaginationTest {
             assertEquals("cursor-2", afterTwoPages.nextCursor)
             val requestsAfterLoad = requests.size
             assertEquals(listOf(null, "cursor-1"), requests.map { it.cursor })
+            assertTrue("calendar list cards must request backend drive_summary buckets", requests.all { it.includeDriveSummary })
 
             // --- process death + offline: a brand-new repository instance over the SAME Room,
             // with the network now hard-down. The observed read must return both ordered pages
@@ -169,8 +176,9 @@ class CalendarRepositoryPaginationTest {
                     val request = Request(
                         status = args?.get(3) as String?,
                         dateFrom = args?.get(4) as String?,
-                        cursor = args?.get(9) as String?,
-                        limit = args?.get(10) as Int?,
+                        includeDriveSummary = args.get(7) as Boolean,
+                        cursor = args.get(10) as String?,
+                        limit = args.get(11) as Int?,
                     )
                     requests += request
                     if (backend.offline) throw IOException("offline")

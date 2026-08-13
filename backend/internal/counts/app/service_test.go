@@ -25,9 +25,12 @@ type fakeRepo struct {
 	query      domain.ProjectionExceptionQuery
 	resolution domain.ProjectionExceptionResolutionRequest
 
-	breakdown      domain.CountsBreakdown
-	breakdownQuery domain.CountsBreakdownQuery
-	breakdownErr   error
+	breakdown            domain.CountsBreakdown
+	breakdownQuery       domain.CountsBreakdownQuery
+	breakdownErr         error
+	milkPreparation      domain.MilkPreparationPage
+	milkPreparationQuery domain.MilkPreparationQuery
+	milkPreparationErr   error
 
 	// Live-herd feed projection. feedProjectedQuery captures the NORMALIZED query the service
 	// passed down, so a test can assert the boundary normalization (business-day target date,
@@ -41,6 +44,8 @@ type fakeRepo struct {
 	// and the exact goat id set through unchanged.
 	destinations    domain.ShiftingDestinationCatalog
 	destinationsErr error
+	activeBreeds    []domain.CountsBreakdownSeriesPoint
+	activeBreedsErr error
 	goatFacts       []domain.GoatShiftingFact
 	goatFactsErr    error
 	goatFactsReq    []string
@@ -124,6 +129,11 @@ func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSu
 func (f *fakeRepo) GetCountsBreakdown(_ context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error) {
 	f.breakdownQuery = req
 	return f.breakdown, f.breakdownErr
+}
+
+func (f *fakeRepo) GetMilkPreparation(_ context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error) {
+	f.milkPreparationQuery = req
+	return f.milkPreparation, f.milkPreparationErr
 }
 
 func (f *fakeRepo) ProjectedShedCountsForFeed(_ context.Context, req domain.FeedProjectedCountQuery) (domain.FeedProjectedCounts, error) {
@@ -587,6 +597,10 @@ func (f *fakeRepo) ShiftingDestinationCatalog(_ context.Context, _ string) (doma
 	return f.destinations, nil
 }
 
+func (f *fakeRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.CountsBreakdownSeriesPoint, error) {
+	return f.activeBreeds, f.activeBreedsErr
+}
+
 func (f *fakeRepo) GoatShiftingFacts(_ context.Context, _ string, goatIDs []string) ([]domain.GoatShiftingFact, error) {
 	f.goatFactsReq = goatIDs
 	if f.goatFactsErr != nil {
@@ -626,6 +640,14 @@ func (f *fakeRepo) CompleteShiftingEvent(context.Context, domain.ShiftingComplet
 
 func (f *fakeRepo) CancelShiftingEvent(context.Context, domain.ShiftingCancellationCommand) (domain.ShiftingExecutionResult, bool, error) {
 	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) ApplyVerifiedShiftingEvent(context.Context, domain.ShiftingVerifiedApplyCommand) (domain.ShiftingExecutionResult, bool, error) {
+	return domain.ShiftingExecutionResult{}, false, errors.New("not implemented")
+}
+
+func (f *fakeRepo) BounceShiftingEventForRework(context.Context, domain.ShiftingReworkCommand) error {
+	return errors.New("not implemented")
 }
 
 func (f *fakeRepo) ListShiftingEventsPendingExecution(context.Context, domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error) {

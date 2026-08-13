@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { ArrowLeft, Ban, Syringe } from "lucide-react";
 import { getVaccinationWorkflowDrilldown } from "@/lib/api/server";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -68,7 +69,7 @@ export async function VaccinationWorkflowDrilldownPage({
 	            <b>{copy(pageContract, "crumb")}</b>
 	          </div>
 	          <h1>{title}</h1>
-	          <div className="sub">{drive} · {row.park_name} · {row.shed_name} · {row.animal_stage} — {pageContract.subtitle}</div>
+	          <div className="sub">{drive} · {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · {row.animal_stage} — {pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <Link href={backHref} className="btn">
@@ -115,7 +116,7 @@ export async function VaccinationWorkflowDrilldownPage({
 	            {copy(pageContract, "action.goat_passport")} →
           </Link>
         ) : null}
-        <Link href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope, { mode: "park", park: row.park_id })} className="lk small">
+        <Link href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope, { mode: "park", park: row.park_id }, row.partition_label ? { partition_label: row.partition_label } : {})} className="lk small">
 	          {copy(pageContract, "action.shed_execution")} →
         </Link>
         <Link href={scopeHref("/action-center", scope, {}, { ac_row: row.row_id })} className="lk small">

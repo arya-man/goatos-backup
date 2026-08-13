@@ -1,0 +1,458 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mesha — Vaccination · Live Drive Tracker (Product Mock)</title>
+<style>
+  :root{
+    --logo:#7CCB45; --brand-l:#A6E07A;
+    --r:14px; --r2:10px;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
+    --line:#26332B; --line2:#1C261F;
+    --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15);
+    --ok:#7CCB45; --okx:rgba(124,203,69,.17); --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16);
+    --info:#5B9BE8; --infox:rgba(91,155,232,.16); --purple:#A78BF5; --purplex:rgba(167,139,245,.16); --teal:#34C2A6; --tealx:rgba(52,194,166,.16);
+    --amber:#E0A53A; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36); --ring:rgba(124,203,69,.32);
+  }
+  :root.light{
+    --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
+    --line:#E2E8E1; --line2:#EEF2ED;
+    --brand:#54A02C; --brand-d:#44831F; --brand-soft:#ECF7E0;
+    --ok:#3F9A28; --okx:#ECF7E0; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6;
+    --info:#2B66B8; --infox:#E5EFFB; --purple:#7A5BD1; --purplex:#EDE7FB; --teal:#13816F; --tealx:#DEF3EF;
+    --amber:#C9871F; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;letter-spacing:.2px}
+  svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+  .top{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;padding:0 18px;height:58px;background:color-mix(in srgb,var(--panel) 82%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.2px}
+  .brand .logo{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:800;font-size:16px}
+  .brand b{font-size:16px}.brand small{color:var(--faint);font-weight:600;font-size:11px}
+  .sp{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 12px;font:inherit;font-weight:650;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--brand);color:var(--brand-d)}
+  .btn.p{background:linear-gradient(100deg,var(--brand-d),var(--brand));color:#08130B;border-color:var(--brand)}
+  .btn.p:hover{color:#08130B;filter:brightness(1.06)}
+  .btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
+
+  /* LIVE badge */
+  .livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px}
+  .livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lp 1.4s ease-in-out infinite}
+  @keyframes lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
+  .livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
+  .livebadge.paused .livedot{background:var(--faint);animation:none}
+  .refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+  .refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+  .intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
+
+  .wrap{max-width:1440px;margin:0 auto;padding:18px 18px 60px}
+  .phead{display:flex;align-items:flex-start;gap:12px;margin:4px 0 14px;flex-wrap:wrap}
+  .phead h1{margin:0;font-size:21px;letter-spacing:-.4px}
+  .crumb{color:var(--muted);font-size:12px;margin-bottom:3px}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:3px;max-width:760px}
+
+  /* filter bar — persistent across the page */
+  .fbar{position:sticky;top:58px;z-index:30;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+  .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+  .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer}
+  .fsel select option{background:var(--panel);color:var(--ink)}
+  .achip{display:inline-flex;gap:6px;align-items:center;background:var(--brand-soft);color:var(--brand-d);border-radius:7px;padding:3px 9px;font-size:11.5px;font-weight:600}
+  .achip b{cursor:pointer;opacity:.65;font-weight:800}
+  .achip b:hover{opacity:1}
+  .achip.clr{background:transparent;color:var(--muted);cursor:pointer;border:1px dashed var(--line2)}
+  .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+
+  /* KPI row */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r2);padding:11px 13px;box-shadow:var(--shadow);cursor:pointer;min-width:0}
+  .kpi:hover{border-color:var(--brand)}
+  .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px;font-variant-numeric:tabular-nums}
+  .kpi .dl{font-size:11px;color:var(--muted)}
+  .kpi.k-ok{border-left-color:var(--ok)}.kpi.k-ok .val{color:var(--ok)}
+  .kpi.k-warn{border-left-color:var(--warn)}.kpi.k-warn .val{color:var(--warn)}
+  .kpi.k-info{border-left-color:var(--info)}.kpi.k-info .val{color:var(--info)}
+  .kpi.k-purple{border-left-color:var(--purple)}.kpi.k-purple .val{color:var(--purple)}
+  .kpi.k-dng{border-left-color:var(--danger)}.kpi.k-dng .val{color:var(--danger)}
+  .kpi .tick{display:inline-block;font-size:10px;font-weight:700;color:var(--ok);opacity:0;transition:opacity .3s}
+  .kpi .tick.on{opacity:1}
+
+  .grid{display:grid;grid-template-columns:1fr 330px;gap:14px;align-items:start}
+  @media(max-width:1080px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);min-width:0}
+  .card .hd{display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid var(--line2)}
+  .card .hd h3{margin:0;font-size:13.5px;font-weight:720}
+  .card .bd{padding:13px 15px}
+  .muted{color:var(--muted)}.small{font-size:11.5px}
+
+  .tag{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+  .t-ok{background:var(--okx);color:var(--ok)} .t-warn{background:var(--warnx);color:var(--warn)}
+  .t-dng{background:var(--dangerx);color:var(--danger)} .t-info{background:var(--infox);color:var(--info)}
+  .t-mut{background:var(--panel-2);color:var(--muted)} .t-purple{background:var(--purplex);color:var(--purple)}
+  .t-teal{background:var(--tealx);color:var(--teal)}
+  .t-live{background:var(--dangerx);color:var(--danger)}
+  .t-live i{width:6px;height:6px;border-radius:50%;background:var(--danger);animation:lp 1.4s ease-in-out infinite;font-style:normal}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+  td{padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
+  tbody tr{cursor:pointer;transition:background .12s}
+  tbody tr:hover{background:var(--bg)}
+  tr.rowflash{animation:rf 1.6s ease}
+  @keyframes rf{0%{background:color-mix(in srgb,var(--brand) 20%,transparent)}100%{background:transparent}}
+  .num{font-variant-numeric:tabular-nums;text-align:right}
+  th.num{text-align:right}
+
+  .pbar{height:6px;background:var(--line2);border-radius:4px;overflow:hidden;min-width:90px}
+  .pbar i{display:block;height:100%;background:var(--brand);border-radius:4px;transition:width .6s ease}
+  .pbar i.warn{background:var(--warn)} .pbar i.dng{background:var(--danger)}
+  .pcell{display:flex;align-items:center;gap:9px}
+  .pcell .pct{font-size:11px;font-weight:700;color:var(--muted);min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
+
+  .opname{display:flex;align-items:center;gap:9px;font-weight:650}
+  .avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
+  .shedlbl{font-weight:650}
+  .shedlbl small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+
+  .combo{display:inline-flex;align-items:center;gap:4px;background:var(--purplex);color:var(--purple);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:800}
+
+  /* live feed */
+  .feed{max-height:560px;overflow:auto;padding:4px 0}
+  .frow{display:flex;align-items:flex-start;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line2)}
+  .frow.new{animation:fin .5s ease}
+  @keyframes fin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+  .fdot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:none;background:var(--brand)}
+  .fdot.f-warn{background:var(--amber)}.fdot.f-info{background:var(--info)}.fdot.f-purple{background:var(--purple)}.fdot.f-dng{background:var(--danger)}
+  .ftx{flex:1;min-width:0;font-size:12.5px}
+  .ftx b{font-weight:680}
+  .fmeta{color:var(--muted);font-size:11px;margin-top:1px}
+  .ftime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+
+  .note{background:var(--panel-2);border:1px solid var(--line2);border-radius:9px;padding:10px 13px;font-size:12px;color:var(--muted);line-height:1.5}
+  .note b{color:var(--ink)}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{width:9px;height:9px;border-radius:3px;font-style:normal}
+
+  .stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+  /* combo drawer-ish detail */
+  .comborow{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+  .comborow:last-child{border-bottom:0}
+  .goatid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+
+  .themebtn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;color:var(--muted);cursor:pointer}
+  .themebtn:hover{color:var(--brand);border-color:var(--brand)}
+
+  .stale{display:none;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650;margin-bottom:14px}
+  .stale.on{display:flex}
+</style>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-syringe" viewBox="0 0 24 24"><path d="m18 2 4 4M17 7l3-3M19 9 9 19l-4 1 1-4L16 6M14 4l6 6M5 20l-2 2"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5ZM2 17l10 5 10-5M2 12l10 5 10-5"/></symbol>
+</svg>
+
+<div class="top">
+  <div class="brand"><div class="logo">मे</div><div><b>Mesha</b><br><small>Preventive Care · Vaccination</small></div></div>
+  <div class="sp"></div>
+  <span class="livebadge" id="liveBadge" onclick="toggleLive()" title="Click to pause/resume live updates"><span class="livedot"></span><span id="liveTxt">LIVE</span></span>
+  <div class="refreshmeta">Updated <b id="lastUpd">17:53:50</b> IST</div>
+  <div class="intervalpick" id="ivp">
+    <button data-iv="10" class="on" onclick="setIv(this)">10s</button>
+    <button data-iv="30" onclick="setIv(this)">30s</button>
+    <button data-iv="60" onclick="setIv(this)">1m</button>
+  </div>
+  <button class="themebtn" onclick="document.documentElement.classList.toggle('light')" title="Theme"><svg class="ic" style="width:16px"><use href="#i-sun"/></svg></button>
+</div>
+
+<div class="wrap">
+  <div class="phead">
+    <div>
+      <div class="crumb">Preventive Care (PC) · Vaccination / <b>Live Drive Tracker</b></div>
+      <h1>Drive Day — Wed 12 Aug <span class="tag t-live" style="vertical-align:middle;margin-left:6px"><i></i>2 parks running</span></h1>
+      <div class="sub">Field proof arriving in real time — videos, scan captures and per-animal submissions per operator and per shed. Counts are <b>per administration (dose)</b>, not per animal: a combo day gives one animal two obligations from one proof.</div>
+    </div>
+    <div class="sp"></div>
+    <button class="btn"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg>Full Schedule</button>
+    <button class="btn p"><svg class="ic" style="width:14px"><use href="#i-pulse"/></svg>Command Board</button>
+  </div>
+
+  <div class="stale" id="staleBanner"><svg class="ic" style="width:15px"><use href="#i-pulse"/></svg>Live updates paused — data shown as of <span id="staleTime">17:53</span> IST. Click LIVE to resume.</div>
+
+  <!-- persistent filter bar -->
+  <div class="fbar">
+    <span class="fsel"><svg class="ic" style="width:13px"><use href="#i-layers"/></svg>
+      <select id="fPark" onchange="applyFilters()"><option value="">All parks</option><option>CBE — Coimbatore</option><option>CPT — Channapatna</option></select></span>
+    <span class="fsel"><svg class="ic" style="width:13px"><use href="#i-syringe"/></svg>
+      <select id="fVax" onchange="applyFilters()"><option value="">All vaccines</option><option>Goat Pox</option><option>Blue Tongue</option><option>ET+TT</option><option>FMD + HS (combo)</option></select></span>
+    <span class="fsel"><svg class="ic" style="width:13px"><use href="#i-user"/></svg>
+      <select id="fOp" onchange="applyFilters()"><option value="">All operators</option><option>Kumar Sharath</option><option>Natheswar</option><option>Pramod</option><option>Sagar Mahoor</option><option>Darshan Talwar</option></select></span>
+    <span class="fsel">
+      <select id="fShed" onchange="applyFilters()"><option value="">All sheds</option><option>Gandhi 2</option><option>Gandhi 3</option><option>Sumathi 2 - Part 1</option><option>Sumathi 2 - Part 2</option><option>Sumathi 2 - Part 3</option><option>Sumathi 2 - Part 4</option><option>Sumathi 2 - Part 5</option><option>Sumathi 2 - Part 6</option><option>Godel 1 - Part 1</option><option>Godel 1 - Part 2</option><option>Godel 1 - Part 3</option><option>Godel 1 - Part 4</option><option>Mandela 2 - Part 1</option><option>Old Yashoda - Part 1</option></select></span>
+    <span class="fsel">
+      <select id="fStatus" onchange="applyFilters()"><option value="">All statuses</option><option value="active">Active now</option><option value="done">Done</option><option value="pending">Not started</option><option value="review">Needs review</option></select></span>
+    <span id="chips"></span>
+    <span class="fnote" id="fnote">Filters apply to tiles, tables and the live feed together</span>
+  </div>
+
+  <!-- KPI row — disjoint buckets at ADMINISTRATION grain -->
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="lab">Scheduled today</div><div class="val" id="kSched">298</div><div class="dl">administrations · 153 CBE + 145 CPT</div></div>
+    <div class="kpi k-ok"><div class="lab">Proofs received</div><div class="val" id="kProof">186</div><div class="dl">videos landed <span class="tick" id="tProof">▲ live</span></div></div>
+    <div class="kpi k-info"><div class="lab">Scan captures</div><div class="val" id="kScan">99</div><div class="dl">RFID confirmed <span class="tick" id="tScan">▲ live</span></div></div>
+    <div class="kpi k-warn"><div class="lab">Remaining</div><div class="val" id="kRem">112</div><div class="dl">not yet submitted</div></div>
+    <div class="kpi k-purple"><div class="lab">Combo animals</div><div class="val">70</div><div class="dl">1 proof → 2 obligations</div></div>
+    <div class="kpi k-dng"><div class="lab">Attention</div><div class="val" id="kAttn">3</div><div class="dl">extra attempts · idle operator</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="stack">
+
+      <!-- operator live board -->
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-user"/></svg><h3>Operators — live</h3>
+          <span class="tag t-mut" id="opCount">5 operators · 2 parks</span><div class="sp"></div>
+          <span class="small muted">tap a row for shed drill-down</span></div>
+        <div class="bd" style="padding:0;overflow-x:auto">
+          <table id="opTbl">
+            <thead><tr><th>Operator</th><th>Park</th><th>Now at</th><th class="num">Scheduled</th><th class="num">Videos</th><th class="num">Scans</th><th class="num">Remaining</th><th style="min-width:150px">Progress</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr data-op="Kumar Sharath" data-park="CBE — Coimbatore" data-status="active">
+                <td><span class="opname"><span class="avx">KS</span>Kumar Sharath</span></td><td>CBE</td>
+                <td class="shedlbl">Gandhi 2<small>Goat Pox</small></td>
+                <td class="num">74</td><td class="num jv">62</td><td class="num js">62</td><td class="num jr">12</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:84%"></i></div><span class="pct">62/74</span></div></td>
+                <td><span class="tag t-live"><i></i>active now</span></td></tr>
+              <tr data-op="Natheswar" data-park="CBE — Coimbatore" data-status="active">
+                <td><span class="opname"><span class="avx">N</span>Natheswar</span></td><td>CBE</td>
+                <td class="shedlbl">Gandhi 3<small>Goat Pox</small></td>
+                <td class="num">58</td><td class="num jv">14</td><td class="num js">14</td><td class="num jr">44</td>
+                <td><div class="pcell"><div class="pbar"><i class="warn" style="width:24%"></i></div><span class="pct">14/58</span></div></td>
+                <td><span class="tag t-live"><i></i>active now</span></td></tr>
+              <tr data-op="Pramod" data-park="CBE — Coimbatore" data-status="done">
+                <td><span class="opname"><span class="avx">P</span>Pramod</span></td><td>CBE</td>
+                <td class="shedlbl">Sumathi 2 - Part 4<small>submitted 16:58</small></td>
+                <td class="num">21</td><td class="num">21</td><td class="num">21</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">21/21</span></div></td>
+                <td><span class="tag t-ok">done</span></td></tr>
+              <tr data-op="Sagar Mahoor" data-park="CPT — Channapatna" data-status="active">
+                <td><span class="opname"><span class="avx">SM</span>Sagar Mahoor</span></td><td>CPT</td>
+                <td class="shedlbl">Godel 1 - Part 3<small>Blue Tongue</small></td>
+                <td class="num">145</td><td class="num jv">87</td><td class="num">—</td><td class="num jr">58</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:60%"></i></div><span class="pct">87/145</span></div></td>
+                <td><span class="tag t-live"><i></i>active now</span></td></tr>
+              <tr data-op="Darshan Talwar" data-park="CPT — Channapatna" data-status="pending">
+                <td><span class="opname"><span class="avx">DT</span>Darshan Talwar</span></td><td>CPT</td>
+                <td class="shedlbl">Old Yashoda - Part 2<small>not started</small></td>
+                <td class="num">8</td><td class="num">0</td><td class="num">0</td><td class="num">8</td>
+                <td><div class="pcell"><div class="pbar"><i class="dng" style="width:0%"></i></div><span class="pct">0/8</span></div></td>
+                <td><span class="tag t-dng">idle 2h+</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- shed × part progress -->
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--teal)"><use href="#i-layers"/></svg><h3>Sheds — proof progress</h3>
+          <div class="sp"></div>
+          <div class="legend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--brand)"></i>in progress</span><span><i style="background:var(--warn)"></i>slow</span><span><i style="background:var(--danger)"></i>not started</span></div></div>
+        <div class="bd" style="padding:0;overflow-x:auto">
+          <table id="shedTbl">
+            <thead><tr><th>Shed</th><th>Vaccine</th><th>Operator</th><th class="num">Scheduled</th><th class="num">Received</th><th class="num">Remaining</th><th style="min-width:150px">Progress</th><th>Last proof</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr data-park="CBE — Coimbatore" data-op="Kumar Sharath" data-shed="Gandhi 2" data-vax="Goat Pox" data-status="active">
+                <td class="shedlbl">Gandhi 2</td><td>Goat Pox</td><td>Kumar Sharath</td>
+                <td class="num">46</td><td class="num jv">36</td><td class="num jr">10</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:78%"></i></div><span class="pct">78%</span></div></td>
+                <td class="muted jt">17:52</td><td><span class="tag t-live"><i></i>receiving</span></td></tr>
+              <tr data-park="CBE — Coimbatore" data-op="Natheswar" data-shed="Gandhi 3" data-vax="Goat Pox" data-status="active">
+                <td class="shedlbl">Gandhi 3</td><td>Goat Pox</td><td>Natheswar</td>
+                <td class="num">49</td><td class="num jv">5</td><td class="num jr">44</td>
+                <td><div class="pcell"><div class="pbar"><i class="warn" style="width:10%"></i></div><span class="pct">10%</span></div></td>
+                <td class="muted jt">17:49</td><td><span class="tag t-warn">slow start</span></td></tr>
+              <tr data-park="CBE — Coimbatore" data-op="Kumar Sharath" data-shed="Sumathi 2 - Part 1" data-vax="Goat Pox" data-status="done">
+                <td class="shedlbl">Sumathi 2 - Part 1</td><td>Goat Pox</td><td>Kumar Sharath</td>
+                <td class="num">10</td><td class="num">10</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">100%</span></div></td>
+                <td class="muted">16:41</td><td><span class="tag t-ok">done</span></td></tr>
+              <tr data-park="CBE — Coimbatore" data-op="Kumar Sharath" data-shed="Sumathi 2 - Part 5" data-vax="Goat Pox" data-status="review">
+                <td class="shedlbl">Sumathi 2 - Part 5</td><td>Goat Pox</td><td>Kumar Sharath</td>
+                <td class="num">10</td><td class="num">10</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">100%</span></div></td>
+                <td class="muted">16:52</td><td><span class="tag t-warn">2 extra attempts</span></td></tr>
+              <tr data-park="CBE — Coimbatore" data-op="Natheswar" data-shed="Sumathi 2 - Part 2" data-vax="Goat Pox" data-status="review">
+                <td class="shedlbl">Sumathi 2 - Part 2</td><td>Goat Pox</td><td>Natheswar</td>
+                <td class="num">9</td><td class="num">9</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">100%</span></div></td>
+                <td class="muted">16:35</td><td><span class="tag t-warn">extra attempts</span></td></tr>
+              <tr data-park="CBE — Coimbatore" data-op="Pramod" data-shed="Sumathi 2 - Part 3" data-vax="Goat Pox" data-status="done">
+                <td class="shedlbl">Sumathi 2 - Part 3</td><td>Goat Pox</td><td>Pramod</td>
+                <td class="num">12</td><td class="num">12</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">100%</span></div></td>
+                <td class="muted">16:20</td><td><span class="tag t-ok">done</span></td></tr>
+              <tr data-park="CPT — Channapatna" data-op="Sagar Mahoor" data-shed="Godel 1 - Part 1" data-vax="Blue Tongue" data-status="active">
+                <td class="shedlbl">Godel 1 - Part 1</td><td>Blue Tongue</td><td>Sagar Mahoor</td>
+                <td class="num">30</td><td class="num jv">22</td><td class="num jr">8</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:73%"></i></div><span class="pct">73%</span></div></td>
+                <td class="muted jt">17:12</td><td><span class="tag t-live"><i></i>receiving</span></td></tr>
+              <tr data-park="CPT — Channapatna" data-op="Sagar Mahoor" data-shed="Godel 1 - Part 3" data-vax="Blue Tongue" data-status="active">
+                <td class="shedlbl">Godel 1 - Part 3</td><td>Blue Tongue</td><td>Sagar Mahoor</td>
+                <td class="num">30</td><td class="num jv">17</td><td class="num jr">13</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:57%"></i></div><span class="pct">57%</span></div></td>
+                <td class="muted jt">17:31</td><td><span class="tag t-live"><i></i>receiving</span></td></tr>
+              <tr data-park="CPT — Channapatna" data-op="Sagar Mahoor" data-shed="Mandela 2 - Part 1" data-vax="Blue Tongue" data-status="done">
+                <td class="shedlbl">Mandela 2 - Part 1</td><td>Blue Tongue</td><td>Sagar Mahoor</td>
+                <td class="num">13</td><td class="num">13</td><td class="num">0</td>
+                <td><div class="pcell"><div class="pbar"><i style="width:100%"></i></div><span class="pct">100%</span></div></td>
+                <td class="muted">16:11</td><td><span class="tag t-ok">done</span></td></tr>
+              <tr data-park="CPT — Channapatna" data-op="Darshan Talwar" data-shed="Old Yashoda - Part 1" data-vax="Blue Tongue" data-status="pending">
+                <td class="shedlbl">Old Yashoda - Part 1</td><td>Blue Tongue</td><td>Darshan Talwar</td>
+                <td class="num">2</td><td class="num">0</td><td class="num">2</td>
+                <td><div class="pcell"><div class="pbar"><i class="dng" style="width:0%"></i></div><span class="pct">0%</span></div></td>
+                <td class="muted">—</td><td><span class="tag t-dng">not started</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- combo dose grain -->
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--purple)"><use href="#i-syringe"/></svg><h3>Combo doses — one proof, two obligations</h3>
+          <span class="combo">FMD + HS</span><div class="sp"></div><span class="small muted">70 animals today</span></div>
+        <div class="bd">
+          <div class="note" style="margin-bottom:11px">When a shed gets a <b>combo day</b>, each animal receives <b>2 administrations</b> in one handling. The operator scans once and uploads <b>one video proof per animal</b>; the system closes <b>both obligations</b> from that single proof. Tiles above therefore count <b>administrations</b> — a combo animal contributes 2 to Scheduled and 2 to Proofs received when its single proof lands. Animals and administrations are never mixed in one number.</div>
+          <div class="comborow" style="font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)"><span>Animal</span><span>Shed</span><span>Proof</span><span>FMD</span><span>HS</span></div>
+          <div class="comborow"><span class="goatid">GT-88231</span><span>Sumathi 2 - Part 3</span><span class="tag t-ok">1 video</span><span class="tag t-ok">closed</span><span class="tag t-ok">closed</span></div>
+          <div class="comborow"><span class="goatid">GT-88240</span><span>Sumathi 2 - Part 3</span><span class="tag t-ok">1 video</span><span class="tag t-ok">closed</span><span class="tag t-ok">closed</span></div>
+          <div class="comborow"><span class="goatid">GT-88307</span><span>Sumathi 2 - Part 4</span><span class="tag t-warn">uploading…</span><span class="tag t-mut">awaiting proof</span><span class="tag t-mut">awaiting proof</span></div>
+          <div class="comborow"><span class="goatid">GT-88311</span><span>Sumathi 2 - Part 4</span><span class="tag t-mut">—</span><span class="tag t-mut">scheduled</span><span class="tag t-mut">scheduled</span></div>
+          <div style="margin-top:9px"><button class="btn sm">All 70 combo animals →</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- right rail: live feed -->
+    <div class="stack">
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--danger)"><use href="#i-pulse"/></svg><h3>Live activity</h3>
+          <span class="tag t-live"><i></i><span id="feedRate">~3/min</span></span><div class="sp"></div>
+          <span class="small muted">newest first</span></div>
+        <div class="feed" id="feed">
+          <div class="frow"><span class="fdot"></span><div class="ftx"><b>Kumar Sharath</b> · video proof landed<div class="fmeta">Gandhi 2 · Goat Pox · GT-77452</div></div><span class="ftime">17:53</span></div>
+          <div class="frow"><span class="fdot f-info"></span><div class="ftx"><b>Kumar Sharath</b> · scan capture<div class="fmeta">Gandhi 2 · GT-77452 confirmed</div></div><span class="ftime">17:53</span></div>
+          <div class="frow"><span class="fdot"></span><div class="ftx"><b>Sagar Mahoor</b> · video proof landed<div class="fmeta">Godel 1 - Part 3 · Blue Tongue · GT-91208</div></div><span class="ftime">17:52</span></div>
+          <div class="frow"><span class="fdot f-warn"></span><div class="ftx"><b>Natheswar</b> · duplicate scan attempt<div class="fmeta">Gandhi 3 · GT-77519 already scanned — ignored</div></div><span class="ftime">17:51</span></div>
+          <div class="frow"><span class="fdot f-purple"></span><div class="ftx"><b>Pramod</b> · combo proof closed 2 obligations<div class="fmeta">Sumathi 2 - Part 4 · FMD + HS · GT-88240</div></div><span class="ftime">17:50</span></div>
+          <div class="frow"><span class="fdot f-info"></span><div class="ftx"><b>Sagar Mahoor</b> · shed submitted<div class="fmeta">Mandela 2 - Part 1 · 13/13 · awaiting verification</div></div><span class="ftime">17:49</span></div>
+          <div class="frow"><span class="fdot f-dng"></span><div class="ftx"><b>Darshan Talwar</b> · still idle<div class="fmeta">Old Yashoda - Part 2 · 0/8 · nudge sent 17:45</div></div><span class="ftime">17:45</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--warn)"><use href="#i-pulse"/></svg><h3>Attention</h3><div class="sp"></div><span class="tag t-warn" id="kAttn2">3</span></div>
+        <div class="bd" style="display:flex;flex-direction:column;gap:9px">
+          <div class="note"><b>Darshan Talwar idle 2h+</b> — Old Yashoda parts untouched (0/8). Nudge sent 17:45. <span class="tag t-dng" style="margin-left:4px">escalates 18:15</span></div>
+          <div class="note"><b>Sumathi 2 - Part 5 · 2 extra attempts</b> — same animals re-scanned; duplicates ignored, flagged for verifier note.</div>
+          <div class="note"><b>Gandhi 3 slow</b> — 5/49 after 40 min at current pace finishes ~19:40, past shed close.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd"><svg class="ic" style="color:var(--info)"><use href="#i-video"/></svg><h3>Verification queue</h3><div class="sp"></div><span class="small muted">post-drive</span></div>
+        <div class="bd" style="display:flex;flex-direction:column;gap:7px;font-size:12.5px">
+          <div style="display:flex;justify-content:space-between"><span>Awaiting verifier review</span><b>4 sheds</b></div>
+          <div style="display:flex;justify-content:space-between"><span>Verified today</span><b style="color:var(--ok)">2 sheds</b></div>
+          <div style="display:flex;justify-content:space-between"><span>Rework requested</span><b style="color:var(--warn)">0</b></div>
+          <button class="btn sm" style="margin-top:5px">Open Verify →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// mock-only live simulation
+var live=true, iv=10, timer=null, t=new Date(); t.setHours(17,53,50,0);
+function pad(n){return (n<10?'0':'')+n}
+function tstr(){return pad(t.getHours())+':'+pad(t.getMinutes())}
+function tstrs(){return tstr()+':'+pad(t.getSeconds())}
+function setIv(b){document.querySelectorAll('#ivp button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');iv=+b.dataset.iv;restart()}
+function toggleLive(){live=!live;
+  document.getElementById('liveBadge').classList.toggle('paused',!live);
+  document.getElementById('liveTxt').textContent=live?'LIVE':'PAUSED';
+  document.getElementById('staleBanner').classList.toggle('on',!live);
+  document.getElementById('staleTime').textContent=tstr();
+  restart()}
+function restart(){clearInterval(timer);if(live)timer=setInterval(tick,iv*1000)}
+
+var events=[
+  {op:'Kumar Sharath',what:'video proof landed',meta:'Gandhi 2 · Goat Pox',dot:'',goat:true,bump:true},
+  {op:'Kumar Sharath',what:'scan capture',meta:'Gandhi 2 · RFID confirmed',dot:'f-info',goat:true,scan:true},
+  {op:'Sagar Mahoor',what:'video proof landed',meta:'Godel 1 - Part 3 · Blue Tongue',dot:'',goat:true,bump:true},
+  {op:'Natheswar',what:'video proof landed',meta:'Gandhi 3 · Goat Pox',dot:'',goat:true,bump:true},
+  {op:'Pramod',what:'combo proof closed 2 obligations',meta:'Sumathi 2 - Part 4 · FMD + HS',dot:'f-purple',goat:true,bump:true},
+  {op:'Natheswar',what:'duplicate scan attempt',meta:'Gandhi 3 · already scanned — ignored',dot:'f-warn',goat:true}
+];
+function tick(){
+  t.setSeconds(t.getSeconds()+iv);
+  var e=events[Math.floor(Math.random()*events.length)];
+  var g='GT-'+(77000+Math.floor(Math.random()*15000));
+  var row=document.createElement('div');row.className='frow new';
+  row.innerHTML='<span class="fdot '+e.dot+'"></span><div class="ftx"><b>'+e.op+'</b> · '+e.what+'<div class="fmeta">'+e.meta+(e.goat?' · '+g:'')+'</div></div><span class="ftime">'+tstr()+'</span>';
+  var feed=document.getElementById('feed');feed.insertBefore(row,feed.firstChild);
+  if(feed.children.length>30)feed.removeChild(feed.lastChild);
+  document.getElementById('lastUpd').textContent=tstrs();
+  if(e.bump){bump('kProof');flash('tProof')}
+  if(e.scan){bump('kScan');flash('tScan')}
+  if(e.bump){var r=document.getElementById('kRem');r.textContent=Math.max(0,+r.textContent-1)}
+  // nudge the matching operator row
+  document.querySelectorAll('#opTbl tbody tr').forEach(function(tr){
+    if(tr.dataset.op===e.op){tr.classList.remove('rowflash');void tr.offsetWidth;tr.classList.add('rowflash');
+      if(e.bump){var jv=tr.querySelector('.jv'),jr=tr.querySelector('.jr');
+        if(jv&&jr&&+jr.textContent>0){jv.textContent=+jv.textContent+1;jr.textContent=+jr.textContent-1;
+          var sched=+tr.children[3].textContent,done=+jv.textContent;
+          var bar=tr.querySelector('.pbar i'),pct=tr.querySelector('.pct');
+          bar.style.width=Math.round(done/sched*100)+'%';pct.textContent=done+'/'+sched}}}
+  });
+}
+function bump(id){var el=document.getElementById(id);el.textContent=+el.textContent+1}
+function flash(id){var el=document.getElementById(id);el.classList.add('on');setTimeout(function(){el.classList.remove('on')},2500)}
+
+// filters — apply to both tables + feed dim
+function applyFilters(){
+  var park=document.getElementById('fPark').value,
+      vax=document.getElementById('fVax').value,
+      op=document.getElementById('fOp').value,
+      shed=document.getElementById('fShed').value,
+      st=document.getElementById('fStatus').value;
+  document.querySelectorAll('#shedTbl tbody tr').forEach(function(tr){
+    var show=(!park||tr.dataset.park===park)&&(!op||tr.dataset.op===op)&&(!shed||tr.dataset.shed===shed)&&(!st||tr.dataset.status===st)&&(!vax||tr.dataset.vax===vax.replace(' (combo)',''));
+    tr.style.display=show?'':'none'});
+  document.querySelectorAll('#opTbl tbody tr').forEach(function(tr){
+    var show=(!park||tr.dataset.park===park)&&(!op||tr.dataset.op===op)&&(!st||tr.dataset.status===st);
+    tr.style.display=show?'':'none'});
+  // chips
+  var c=document.getElementById('chips');c.innerHTML='';
+  [['fPark',park],['fVax',vax],['fOp',op],['fShed',shed],['fStatus',st]].forEach(function(p){
+    if(p[1]){var s=document.createElement('span');s.className='achip';
+      var lbl=p[1];if(p[0]==='fStatus')lbl=document.querySelector('#fStatus option[value="'+p[1]+'"]').textContent;
+      s.innerHTML=lbl+' <b onclick="clearF(\''+p[0]+'\')">×</b>';c.appendChild(s)}});
+  if(park||vax||op||shed||st){var x=document.createElement('span');x.className='achip clr';x.textContent='clear all';
+    x.onclick=function(){['fPark','fVax','fOp','fShed','fStatus'].forEach(function(id){document.getElementById(id).value=''});applyFilters()};c.appendChild(x)}
+}
+function clearF(id){document.getElementById(id).value='';applyFilters()}
+restart();
+</script>

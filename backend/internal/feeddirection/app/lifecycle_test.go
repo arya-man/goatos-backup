@@ -102,7 +102,15 @@ func (f *fakeIssueStore) AmendIssue(_ context.Context, cmd ports.AmendIssueComma
 	h.AmendedAt = &at
 	h.AmendmentCount++
 	h.GenerationInputFingerprint = cmd.Fingerprint
-	return ports.AmendResult{Header: *h, Outcome: ports.AmendOutcomeAmended, AffectedShedIDs: diff.AffectedShedIDs}, nil
+	// HeadCountChangedPens is carried through DELIBERATELY. Dropping it here would make every test of
+	// the packing reopen pass vacuously -- the service would receive an empty pen set and correctly
+	// reopen nothing, whatever the production adapter actually returns.
+	return ports.AmendResult{
+		Header:               *h,
+		Outcome:              ports.AmendOutcomeAmended,
+		AffectedShedIDs:      diff.AffectedShedIDs,
+		HeadCountChangedPens: diff.HeadCountChangedPens,
+	}, nil
 }
 
 func (f *fakeIssueStore) LockIssue(_ context.Context, cmd ports.LockIssueCommand) (ports.LockResult, error) {
@@ -160,6 +168,73 @@ func newLifecycleService(now time.Time) (*Service, *fakeConfigRepo, *fakeCountsR
 	sched := &fakeScheduleReader{clocks: []domain.WorkflowClock{normalClock()}, parks: []string{testPark}}
 	svc = svc.WithIssueStore(store).WithScheduleReader(sched).WithClock(func() time.Time { return now })
 	return svc, config, counts, store
+}
+
+func TestAdvanceScheduledLifecycleFreezesRowsAndResumesFromDurableState(t *testing.T) {
+	transportTime := "15:45:00"
+	svc, _, _, store := newLifecycleService(istInstant(2026, 7, 29, 6))
+	svc.schedule = &fakeScheduleReader{
+		parks: []string{testPark},
+		clocks: []domain.WorkflowClock{{
+			Workflow:       domain.WorkflowNormal,
+			DirectionTime:  "07:00:00",
+			CorrectionTime: "14:00:00",
+			TransportTime:  &transportTime,
+		}},
+	}
+
+	beforeIssue, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 6))
+	if err != nil {
+		t.Fatalf("advance before issue: %v", err)
+	}
+	if len(beforeIssue) != 0 || len(store.headers) != 0 {
+		t.Fatalf("before issue cutoff reports=%d headers=%d, want no durable work", len(beforeIssue), len(store.headers))
+	}
+
+	issued, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 7))
+	if err != nil {
+		t.Fatalf("advance at issue: %v", err)
+	}
+	if len(issued) != 1 || issued[0].Header.State != domain.IssueStateIssued {
+		t.Fatalf("issue reports = %+v, want one issued transition", issued)
+	}
+	header := store.headers[issueKey(testPark, "2026-07-30", domain.WorkflowNormal)]
+	if header == nil || len(store.cells[header.IssueID]) == 0 {
+		t.Fatal("scheduled issue did not freeze generated rows")
+	}
+	issuedAt := header.IssuedAt
+
+	retry, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 8))
+	if err != nil {
+		t.Fatalf("advance issue retry: %v", err)
+	}
+	if len(retry) != 0 || !header.IssuedAt.Equal(issuedAt) {
+		t.Fatalf("issue retry repeated a durable transition: reports=%+v issued_at=%s", retry, header.IssuedAt)
+	}
+
+	amended, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 14))
+	if err != nil {
+		t.Fatalf("advance at correction: %v", err)
+	}
+	if len(amended) != 1 || header.State != domain.IssueStateAmended {
+		t.Fatalf("correction reports=%+v state=%q, want one amended transition", amended, header.State)
+	}
+
+	locked, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 16))
+	if err != nil {
+		t.Fatalf("advance after transport: %v", err)
+	}
+	if len(locked) != 1 || header.State != domain.IssueStateLocked {
+		t.Fatalf("transport reports=%+v state=%q, want one locked transition", locked, header.State)
+	}
+
+	lockedRetry, err := svc.AdvanceScheduledLifecycle(context.Background(), testTenant, istInstant(2026, 7, 29, 17))
+	if err != nil {
+		t.Fatalf("advance locked retry: %v", err)
+	}
+	if len(lockedRetry) != 0 {
+		t.Fatalf("locked retry repeated a transition: %+v", lockedRetry)
+	}
 }
 
 func istInstant(y int, m time.Month, d, h int) time.Time {
@@ -260,10 +335,18 @@ func TestServeIssuedReturnsStoredRowsWithPageInvariantSummary(t *testing.T) {
 	if reference.TotalKgByFeedItem[0].QuantityKg != draft.Summary.TotalKgByFeedItem[0].QuantityKg {
 		t.Fatalf("served total %s != draft total %s", reference.TotalKgByFeedItem[0].QuantityKg, draft.Summary.TotalKgByFeedItem[0].QuantityKg)
 	}
-	// SERVING A FROZEN SHEET LIVE-COMPUTES NOTHING: no config snapshot, no shed scope, no counts read.
-	if config.shedCalls != shedCallsBefore || config.snapshotCalls != snapCallsBefore || counts.calls != countCallsBefore {
-		t.Fatalf("serving an issued sheet issued generation reads (shed %d->%d, snap %d->%d, counts %d->%d)",
-			shedCallsBefore, config.shedCalls, snapCallsBefore, config.snapshotCalls, countCallsBefore, counts.calls)
+	// A serve RE-GENERATES nothing (no config snapshot, no counts read), whatever the page size.
+	// The only reads a serve makes are the backend-owned filter vocabulary: one park-catalog + one
+	// shed-catalog read per request, both page-size-independent — a picker vocabulary, not a
+	// generation read.
+	const servedTimes = 3 // limits {1, 2, 50}
+	if config.snapshotCalls != snapCallsBefore || counts.calls != countCallsBefore {
+		t.Fatalf("serving an issued sheet RE-GENERATED (snap %d->%d, counts %d->%d)",
+			snapCallsBefore, config.snapshotCalls, countCallsBefore, counts.calls)
+	}
+	if config.shedCalls != shedCallsBefore+servedTimes {
+		t.Fatalf("serving %d times should add exactly %d filter-vocabulary shed reads, got shed %d->%d",
+			servedTimes, servedTimes, shedCallsBefore, config.shedCalls)
 	}
 }
 
@@ -271,14 +354,13 @@ func TestServeIssuedReturnsStoredRowsWithPageInvariantSummary(t *testing.T) {
 // Serve: generated preview (no issued sheet)
 // ---------------------------------------------------------------------------
 
-// TOMORROW (the default feed day) with no issue GENERATES the sheet and returns it as a `preview`
-// (maintainer decision 2026-07-20): rows AND a whole-scope summary, plus the per-workflow expected
-// issue time so the operator sees when it WILL be issued. Tomorrow is inside the [today, tomorrow]
-// generation horizon, so the on-the-fly generate is allowed. The per-workflow detail is `pending`
-// (issue instant still ahead). It live-computes, and it is NOT labelled draft.
-func TestServeTomorrowWithNoIssueReturnsGeneratedPreview(t *testing.T) {
+// BEFORE the dispatch clock, a feed day has NO ROWS AT ALL (maintainer decision 2026-08-08,
+// superseding the 2026-07-20 always-generate preview). The screen must not show a number that can
+// still move: it shows WHEN the sheet arrives. Critically the gate must also not live-compute --
+// generating rows and then hiding them would burn a config snapshot + counts read on every poll.
+func TestServeBeforeDispatchClockShowsNoRowsAndNamesTheArrivalTime(t *testing.T) {
 	t.Parallel()
-	// now = 2026-07-29 06:00 -> today 07-29, tomorrow 07-30 (= feedDayTarget), before the 07:00 issue.
+	// now = 2026-07-29 06:00 -> tomorrow 07-30 (= feedDayTarget) is issued at 07-29 07:00: one hour away.
 	now := istInstant(2026, 7, 29, 6)
 	svc, config, counts, _ := newLifecycleService(now)
 
@@ -286,57 +368,68 @@ func TestServeTomorrowWithNoIssueReturnsGeneratedPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePending {
+		t.Fatalf("state = %q, want pending before the dispatch clock", page.Lifecycle.State)
 	}
-	if page.Draft {
-		t.Fatal("a generated preview must NOT be labelled draft")
-	}
-	if len(page.Items) == 0 {
-		t.Fatal("preview must GENERATE and return rows, not an empty wall")
-	}
-	if page.Summary.Scope != domain.SummaryScopeFiltered || len(page.Summary.TotalKgByFeedItem) == 0 {
-		t.Fatalf("preview must carry a whole-scope summary, got %+v", page.Summary)
+	if len(page.Items) != 0 {
+		t.Fatalf("a gated day must serve NO rows, got %d", len(page.Items))
 	}
 	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].ExpectedIssueAt == nil {
-		t.Fatalf("preview must name the expected issue instant per workflow, got %+v", page.Lifecycle.Workflows)
-	}
-	if page.Lifecycle.Workflows[0].State != domain.LifecycleStatePending {
-		t.Fatalf("future workflow detail = %q, want pending", page.Lifecycle.Workflows[0].State)
+		t.Fatalf("a gated day must name the expected issue instant, got %+v", page.Lifecycle.Workflows)
 	}
 	want := domain.FormatBusinessInstant(istInstant(2026, 7, 29, 7))
 	if *page.Lifecycle.Workflows[0].ExpectedIssueAt != want {
 		t.Fatalf("expected_issue_at = %s, want %s", *page.Lifecycle.Workflows[0].ExpectedIssueAt, want)
 	}
-	if config.snapshotCalls == 0 || counts.calls == 0 {
-		t.Fatal("a generated preview MUST live-compute the rows")
+	if config.snapshotCalls != 0 || counts.calls != 0 {
+		t.Fatalf("a gated day must NOT live-compute (snapshots %d, counts %d)", config.snapshotCalls, counts.calls)
 	}
 }
 
-// TODAY with no issue also GENERATES a `preview` — today is the lower bound of the [today, tomorrow]
-// horizon ("today" is being fed, packed yesterday). The per-workflow detail is `not_issued` because
-// today's issue instant (yesterday 07:00) has passed.
-func TestServeTodayWithNoIssueReturnsGeneratedPreview(t *testing.T) {
+// AT/AFTER the dispatch clock the FIRST read generates the sheet AND FREEZES it, then serves the
+// frozen rows. This is the whole point of the gate: what the packing crew sees at 08:00 is what the
+// sheet said at 07:00, and it cannot drift afterwards. The second read must serve the SAME stored
+// rows without recomputing -- if it recomputed, a shifting approved between the two reads would move
+// the kilograms under a crew that has already packed the bags.
+func TestServeAfterDispatchClockFreezesOnFirstReadAndNeverRecomputes(t *testing.T) {
 	t.Parallel()
-	// now = 2026-07-30 08:00 -> today 07-30 (= feedDayTarget), after the 07-29 07:00 issue instant.
+	// now = 2026-07-30 08:00 -> today 07-30 (= feedDayTarget), past its 07-29 07:00 issue instant.
 	now := istInstant(2026, 7, 30, 8)
-	svc, config, counts, _ := newLifecycleService(now)
+	svc, config, counts, store := newLifecycleService(now)
 
-	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	first, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
-		t.Fatalf("Preview: %v", err)
+		t.Fatalf("Preview (first): %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+	if first.Lifecycle.State != domain.IssueStateIssued {
+		t.Fatalf("state = %q, want issued: the first read past the clock must FREEZE", first.Lifecycle.State)
 	}
-	if len(page.Items) == 0 {
-		t.Fatal("today's preview must GENERATE rows")
+	if len(first.Items) == 0 {
+		t.Fatal("the frozen sheet must carry rows")
 	}
-	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].State != domain.LifecycleStateNotIssued {
-		t.Fatalf("today workflow detail = %+v, want not_issued", page.Lifecycle.Workflows)
+	if len(store.headers) == 0 {
+		t.Fatal("the first read past the clock must PERSIST the sheet, not just render it")
 	}
-	if config.snapshotCalls == 0 || counts.calls == 0 {
-		t.Fatal("a generated preview MUST live-compute the rows")
+
+	// The freeze is stamped at the SCHEDULED instant, not at first-read time, so the audit trail does
+	// not record whoever happened to open the screen first.
+	for _, header := range store.headers {
+		if got := header.IssuedAt.In(biztime.DefaultLocation()); !got.Equal(istInstant(2026, 7, 29, 7)) {
+			t.Fatalf("issued_at = %s, want the scheduled 07-29 07:00 instant", got)
+		}
+	}
+
+	snapAfterFreeze, countsAfterFreeze := config.snapshotCalls, counts.calls
+	second, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("Preview (second): %v", err)
+	}
+	if config.snapshotCalls != snapAfterFreeze || counts.calls != countsAfterFreeze {
+		t.Fatalf("the second read RECOMPUTED (snapshots %d->%d, counts %d->%d): frozen rows must be served verbatim",
+			snapAfterFreeze, config.snapshotCalls, countsAfterFreeze, counts.calls)
+	}
+	if len(second.Items) != len(first.Items) {
+		t.Fatalf("frozen serve returned %d rows, first read had %d", len(second.Items), len(first.Items))
 	}
 }
 
@@ -422,11 +515,14 @@ func TestServeIssuedBeyondHorizonStillServesFrozenRows(t *testing.T) {
 	}
 }
 
-// The preview summary is WHOLE-SCOPE and page-size invariant, and blocked-vs-zero survives the
-// generated path exactly as it does on an issued sheet: a blocked cell is null + counted, never a 0.
+// The served summary is WHOLE-SCOPE and page-size invariant, and blocked-vs-zero survives the
+// freeze-on-first-read path exactly as it does on an already-issued sheet: a blocked cell is null +
+// counted, never a 0.
 func TestServePreviewSummaryIsWholeScopeAndPreservesBlocked(t *testing.T) {
 	t.Parallel()
-	now := istInstant(2026, 7, 29, 6) // tomorrow = feedDayTarget 07-30, inside the generation horizon
+	// 08:00 is PAST the 07:00 dispatch clock for feedDayTarget, so the first read freezes the sheet
+	// and every read after it serves those frozen rows.
+	now := istInstant(2026, 7, 29, 8)
 	svc, _, counts, _ := newLifecycleService(now)
 	// Give shed B a management stage with no authored ration so at least one cell BLOCKS.
 	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "No-Such-Stage", Breed: "No-Such-Breed", HeadCount: 12}}
@@ -437,8 +533,8 @@ func TestServePreviewSummaryIsWholeScopeAndPreservesBlocked(t *testing.T) {
 		if err != nil {
 			t.Fatalf("preview(limit=%d): %v", limit, err)
 		}
-		if page.Lifecycle.State != domain.LifecycleStatePreview {
-			t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+		if page.Lifecycle.State != domain.IssueStateIssued {
+			t.Fatalf("state = %q, want issued", page.Lifecycle.State)
 		}
 		if i == 0 {
 			reference = page.Summary
@@ -561,9 +657,10 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 		t.Fatal("draft must actually hit the generation reads")
 	}
 
-	// The non-draft serve of the same future day now GENERATES a preview (it also live-computes), but
-	// it is a `preview`, never a `draft`: draft is the explicit config-authoring escape hatch, preview
-	// is the serve-path fallback for a day with no issued sheet.
+	// Draft is the ONLY path that still live-computes an un-issued day on demand. The non-draft serve
+	// of that same day is GATED (the dispatch clock has not fired), so it returns `pending` with no
+	// rows -- proving the 2026-08-08 gate did not accidentally close the config-authoring what-if
+	// hatch along with the drifting preview.
 	page, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
 		t.Fatalf("serve Preview: %v", err)
@@ -571,8 +668,11 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 	if page.Draft {
 		t.Fatal("a non-draft serve must not be draft")
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("non-draft serve of an un-issued day = %q, want preview", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePending {
+		t.Fatalf("non-draft serve of a gated day = %q, want pending", page.Lifecycle.State)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("a gated day must serve no rows, got %d", len(page.Items))
 	}
 }
 
@@ -580,4 +680,137 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 // 2026-07-30.
 func feedDayTarget() time.Time {
 	return time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+}
+
+// ---------------------------------------------------------------------------
+// The afternoon correction reopens already-packed pens (maintainer decision 2026-08-10)
+// ---------------------------------------------------------------------------
+//
+// A low-priority movement raised in the morning is due tomorrow, and tomorrow's normal sheet was
+// issued at 07:00 and is already being packed. The 14:00 correction recomputes it -- but a pen whose
+// bag was packed and filmed at 09:00 was packed for the OLD head count, and nothing was telling the
+// packer. These pin that the correction sends exactly those pens back, and no others.
+
+// newPackingLifecycleService is newLifecycleService plus a packing store, so a test can observe what
+// the correction asked the store to reopen.
+func newPackingLifecycleService(now time.Time) (*Service, *fakeCountsReader, *fakePackingStore) {
+	svc, _, counts, _ := newLifecycleService(now)
+	packing := &fakePackingStore{}
+	return svc.WithPackingStore(packing), counts, packing
+}
+
+// THE CASE THE FEATURE EXISTS FOR. Animals arrive in shed B, so its quantities move, and the
+// correction reopens exactly that pen -- carrying the pen key the completion is keyed on and an
+// operator-facing sentence saying why.
+func TestAfternoonCorrectionReopensPackingForAPenWhoseAnimalCountMoved(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, counts, packing := newPackingLifecycleService(asOf)
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection: %v", err)
+	}
+
+	// Animals shift into shed B between the 07:00 issue and the 14:00 correction.
+	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Sirohi", HeadCount: 40}}
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection: %v", err)
+	}
+
+	if len(packing.reopenCalls) != 1 {
+		t.Fatalf("packing reopen calls = %d, want exactly one for the correction", len(packing.reopenCalls))
+	}
+	call := packing.reopenCalls[0]
+	if call.Workflow != domain.WorkflowNormal {
+		t.Fatalf("reopen workflow = %q, want normal", call.Workflow)
+	}
+	if len(call.Pens) != 1 || call.Pens[0].ShedID != shedB {
+		t.Fatalf("reopened pens = %+v, want only shed B -- shed A did not move and its video is still good", call.Pens)
+	}
+	// The packer is TOLD WHY. A reopened pen surfaces as lifecycle_status "pending", the same bucket
+	// as one nobody has packed, so without this sentence the card is indistinguishable from work they
+	// never started -- and they would be shown the same pen twice with no explanation.
+	if !strings.Contains(call.Reason, "Animals moved") {
+		t.Fatalf("reopen reason = %q, want a farm sentence naming the animal movement", call.Reason)
+	}
+	// Copy firewall: operator-facing text must not leak implementation vocabulary.
+	for _, banned := range []string{"amend", "correction", "shifting_events", "projection", "workflow", "row_version"} {
+		if strings.Contains(strings.ToLower(call.Reason), banned) {
+			t.Fatalf("reopen reason %q leaks the internal word %q to an operator", call.Reason, banned)
+		}
+	}
+	// The feed day, not the day the correction ran: the packer is working today on tomorrow's sheet.
+	if got := call.TargetDate.Format("2006-01-02"); got != "2026-07-30" {
+		t.Fatalf("reopen target date = %s, want the FEED day 2026-07-30, not the correction day", got)
+	}
+}
+
+// A COSMETIC amendment reprints the sheet but must NOT cost an operator their video. This is the
+// narrowing that makes the feature affordable: reopening is expensive, so it is spent only where the
+// number of mouths actually moved.
+func TestAfternoonCorrectionDoesNotReopenPackingWhenNoAnimalCountMoved(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, _, packing := newPackingLifecycleService(asOf)
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection: %v", err)
+	}
+
+	// Nothing changed at all: the herd and the config are identical.
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowNormal,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection: %v", err)
+	}
+
+	if len(packing.reopenCalls) != 0 {
+		t.Fatalf("reopen calls = %+v, want none -- an unchanged sheet must not discard a packing video", packing.reopenCalls)
+	}
+}
+
+// EXPERIMENT IS EXEMPT, and this is the half a later change is most likely to break by "simplifying"
+// the branch away. Experiment rations are authored as ABSOLUTE KG PER PEN, so a head-count change
+// moves no quantity there -- reopening one would throw away a perfectly good video for a sheet that
+// did not change.
+func TestAfternoonCorrectionNeverReopensExperimentPacking(t *testing.T) {
+	t.Parallel()
+	asOf := istInstant(2026, 7, 29, 9)
+	svc, counts, packing := newPackingLifecycleService(asOf)
+	svc.schedule = &fakeScheduleReader{
+		parks: []string{testPark},
+		clocks: []domain.WorkflowClock{
+			normalClock(),
+			{Workflow: domain.WorkflowExperiment, DirectionTime: "14:00:00", CorrectionTime: "14:00:00"},
+		},
+	}
+	// shed B is a REAL experiment pen: an authored ABSOLUTE kg total for the whole pen, not a
+	// per-head rate. Without this the experiment sheet generates no rows at all and the assertion
+	// below passes for the wrong reason -- it would pass with the exemption deleted.
+	svc.config.(*fakeConfigRepo).snapshot.ExperimentByLocation = map[string][]domain.ExperimentCell{
+		domain.ExperimentLocationKey(shedB, ""): {
+			{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000"},
+		},
+	}
+	ctx := context.Background()
+	if _, err := svc.IssueDirection(ctx, IssueRequest{TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowExperiment, AsOf: asOf}); err != nil {
+		t.Fatalf("IssueDirection(experiment): %v", err)
+	}
+
+	// The same herd movement that reopens a NORMAL pen above.
+	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Sirohi", HeadCount: 40}}
+	if _, err := svc.AmendDirection(ctx, IssueRequest{
+		TenantID: testTenant, ParkID: testPark, Workflow: domain.WorkflowExperiment,
+		AsOf: istInstant(2026, 7, 29, 14),
+	}); err != nil {
+		t.Fatalf("AmendDirection(experiment): %v", err)
+	}
+
+	if len(packing.reopenCalls) != 0 {
+		t.Fatalf("experiment reopen calls = %+v, want none -- experiment quantities are authored in absolute kg and do not move with head count", packing.reopenCalls)
+	}
 }

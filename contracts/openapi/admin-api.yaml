@@ -1647,6 +1647,75 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/shed-stage/preview:
+    post:
+      tags:
+        - Admin Goats
+      operationId: previewReclassifyShedStage
+      summary: Report what a whole-pen cohort reclassification would change, without writing anything.
+      description: >-
+        Read-only. Returns the pen's whole-scope live composition and how many animals the requested
+        cohort tag would actually change, so the operator sees a mixed pen before flipping it. Takes
+        no Idempotency-Key because it is safe to repeat. Gated on the same permission as the commit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReclassifyShedStageRequest"
+      responses:
+        "200":
+          description: Preview of the reclassification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReclassifyShedStagePreviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+  /admin/goats/shed-stage/commit:
+    post:
+      tags:
+        - Admin Goats
+      operationId: commitReclassifyShedStage
+      summary: Apply a management stage to every live animal in one shed partition.
+      description: >-
+        Applies immediately: there is no approval step and no proof, so the Idempotency-Key is what
+        stops a double-clicked button from re-emitting stage-change events. Animals already carrying
+        the target tag are left untouched and emit no event. The tag also carries kid/adult, so
+        age_band moves with it and vaccination re-derives each affected animal's schedule. A
+        clinical target (sick, under_treatment, recovering, quarantine, icu) is rejected: those are
+        set by the animal's own health workflow.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReclassifyShedStageRequest"
+      responses:
+        "200":
+          description: Pen reclassified, or the original result replayed for an exact retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReclassifyShedStageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/goats/{goat_id}/stage:
     post:
       tags:
@@ -4774,6 +4843,16 @@ components:
             - string
             - "null"
           format: uuid
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label ('1', 'Part 3'). Null when the shed is not
+            partitioned. Never the literal 'whole' -- that is a matching key.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed location label. Clients render it verbatim.
         cohort_id:
           type:
             - string
@@ -4784,6 +4863,7 @@ components:
       enum:
         - animal_identifier_1
         - animal_identifier_2
+        - temporary_tag
     IdentifierStatus:
       type: string
       enum:
@@ -4796,12 +4876,8 @@ components:
       type: object
       additionalProperties: false
       required:
-        - display
+        - operational_location_display
       properties:
-        display:
-          type: string
-          minLength: 1
-          maxLength: 200
         farm_id:
           type:
             - string
@@ -4822,6 +4898,30 @@ components:
             - string
             - "null"
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or
+            absent means the shed is non-partitioned. Never the literal string
+            "whole".
+        source_shed_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+          description: >-
+            Original partition-bearing source name (e.g. "Castro 1"), kept for
+            traceability only. Not a display field.
+        operational_location_display:
+          type: string
+          maxLength: 200
+          description: >-
+            User-facing location label. No partition -> bare shed name
+            ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention
+            -> "Godel 1 - Part 3".
     GoatSummary:
       type: object
       additionalProperties: false
@@ -5055,6 +5155,17 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+          description: >-
+            The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in
+            the active shed_partitions catalog for that shed. Required when the resolved shed has
+            one or more active partitions; omit it only for a genuinely non-partitioned shed. The
+            service accepts a normalized alias such as "3" but preserves and returns the catalog's
+            human label such as "Part 3". Never the "whole" sentinel.
         breed:
           type: string
           maxLength: 120
@@ -5068,6 +5179,13 @@ components:
           format: date
         dob_estimated:
           type: boolean
+        time_of_birth:
+          description: >-
+            Optional birth time (HH:MM, 24-hour, IST wall clock). Stored as goats.time_of_birth and
+            carried on the goat.created payload for the birth follow-up workflow opener; absent
+            means unknown (readers fall back to 07:00 IST).
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
         origin_type:
           type: string
           enum:
@@ -5087,8 +5205,15 @@ components:
           type: number
           minimum: 0
         dam_id:
+          description: >-
+            For birth-origin creates, the required mother RFID or already-resolved canonical mother
+            goat UUID. The server persists only the canonical mother goat relationship.
           type: string
           maxLength: 120
+        litter_size:
+          description: Required for birth-origin creates; rejected for other origin types.
+          type: integer
+          enum: [1, 2, 3]
         sire_or_lot:
           type: string
           maxLength: 120
@@ -5171,6 +5296,16 @@ components:
         shed_id:
           type: string
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+          description: >-
+            The destination pen within shed_id ('1', 'Part 3'). Without this a move could only
+            target a whole shed, so Castro 1 -> Castro 2 was unexpressible on this route while
+            the app-api shifting route could already express it. Optional and additive: omitting
+            it preserves the previous shed-level move behaviour.
         reason:
           type: string
           minLength: 3
@@ -5186,6 +5321,143 @@ components:
         row_version:
           type: integer
           minimum: 1
+    ReclassifyShedStageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - management_stage
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+          description: >-
+            The PARENT physical shed. Never a partition-bearing alias row: the operational-location
+            convention keeps goats.shed_id on the building and the pen in partition_label.
+        partition_label:
+          type: string
+          maxLength: 80
+          description: >-
+            The pen inside shed_id ('1', 'Part 3'). Omitted or empty means the shed is genuinely
+            undivided -- it does NOT mean "every partition of this shed". Matched tolerantly, so
+            'Part 3' and '3' resolve to the same pen.
+        management_stage:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            Target cohort tag, matched case-insensitively against the tenant's active stage
+            vocabulary and echoed back canonicalized. Clinical states are rejected.
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Required on commit, ignored on preview. Recorded in audit and on every animal's event.
+    ReclassifyShedStageBucket:
+      type: object
+      additionalProperties: false
+      required:
+        - management_stage
+        - age_band
+        - count
+      properties:
+        management_stage:
+          type: string
+        age_band:
+          type: string
+          description: kid, adult, or empty when the tag is deliberately unclassified.
+        count:
+          type: integer
+          description: "Grain: live animal. Buckets are disjoint and sum to total_live."
+    ReclassifyShedStagePreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
+        - management_stage
+        - age_band
+        - total_live
+        - changing
+        - unchanged
+        - current_stages
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          nullable: true
+          description: Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here.
+        operational_location_display:
+          type: string
+          description: Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it.
+        management_stage:
+          type: string
+          description: The canonical resolved target tag.
+        age_band:
+          type: string
+          description: >-
+            kid or adult, the band the target tag carries. Empty when the tag is deliberately
+            unclassified, in which case animals keep the band they already have.
+        total_live:
+          type: integer
+        changing:
+          type: integer
+          description: Animals whose stage differs from the target. changing + unchanged == total_live.
+        unchanged:
+          type: integer
+          description: Animals already on the target tag. They will not be written or evented.
+        current_stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReclassifyShedStageBucket"
+          description: The pen's complete present composition, so a mixed pen is visible before the flip.
+        trace_id:
+          type: string
+    ReclassifyShedStageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
+        - management_stage
+        - age_band
+        - total_live
+        - reclassified
+        - unchanged
+      properties:
+        shed_id:
+          type: string
+          format: uuid
+        shed_name:
+          type: string
+        partition_label:
+          type: string
+          nullable: true
+        operational_location_display:
+          type: string
+        management_stage:
+          type: string
+        age_band:
+          type: string
+        total_live:
+          type: integer
+        reclassified:
+          type: integer
+          description: Animals whose stage genuinely changed. Only these were written and evented.
+        unchanged:
+          type: integer
+        idempotency_key:
+          type: string
+        trace_id:
+          type: string
     StageGoatRequest:
       type: object
       additionalProperties: false
@@ -7431,6 +7703,11 @@ components:
         shed_location_id:
           type: string
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          description: Physical partition within shed_location_id. Required when that shed has active partitions.
         accepted_at:
           type:
             - string

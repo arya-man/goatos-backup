@@ -937,6 +937,64 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 		if _, err := repo.AcceptIntake(ctx, badIntake); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("intake same-key different-payload: err = %v, want ErrIdempotencyConflict", err)
 		}
+
+		partitionLoad := createProcurementLoad(t, ctx, repo, "idem-arrival-partition-load", 1)
+		partitionGoat := addProcurementGoat(t, ctx, repo, partitionLoad.LoadID, ports.AddGoatToLoad{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, AnimalIdentifier1: strPtr("IDEM-ARRIVAL-PARTITION"),
+			SourceEntryState: "accepted", OwnershipState: "mesha_owned", IdempotencyKey: "idem-arrival-partition-goat",
+		})
+		if _, err := repo.RecordSourceHealth(ctx, ports.SourceHealth{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, GoatID: partitionGoat.GoatID, HealthState: domain.HealthPassed,
+			CheckedAt: time.Date(2026, 5, 3, 9, 0, 0, 0, time.UTC), IdempotencyKey: "idem-arrival-partition-health",
+		}); err != nil {
+			t.Fatalf("partition health pass: %v", err)
+		}
+		if _, err := repo.RecordDecision(ctx, ports.Decision{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, GoatID: partitionGoat.GoatID, DecisionStage: "pre_dispatch",
+			DecisionType: domain.DecisionAccepted, DecidedAt: time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-arrival-partition-decision",
+		}); err != nil {
+			t.Fatalf("partition decision accept: %v", err)
+		}
+		partitionProofID := insertProof(t, ctx, pool, "71000000-0000-4000-8000-000000000302", "idem-arrival-partition-dispatch-proof")
+		if _, err := repo.DispatchLoad(ctx, ports.DispatchLoad{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, ToLocationID: testPark, ProofRefID: &partitionProofID,
+			DispatchedAt: time.Date(2026, 5, 3, 11, 0, 0, 0, time.UTC), IdempotencyKey: "idem-arrival-partition-dispatch",
+		}); err != nil {
+			t.Fatalf("partition dispatch: %v", err)
+		}
+		if _, err := repo.RecordArrivalReview(ctx, ports.ArrivalReview{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, ParkLocationID: testPark,
+			ExpectedCount: 1, LoadedCount: 1, ArrivedCount: 1, MatchedCount: 1,
+			Status: domain.DecisionAccepted, ReviewedAt: time.Date(2026, 5, 3, 16, 0, 0, 0, time.UTC),
+			IdempotencyKey: "idem-arrival-partition", Goats: []ports.ArrivalGoat{{GoatID: &partitionGoat.GoatID, ArrivalState: "accepted"}},
+		}); err != nil {
+			t.Fatalf("partition RecordArrivalReview: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')
+ON CONFLICT DO NOTHING`, testTenant, testShed); err != nil {
+			t.Fatalf("seed shed partition: %v", err)
+		}
+		if _, err := repo.AcceptIntake(ctx, ports.AcceptIntake{
+			TenantID: testTenant, LoadID: partitionLoad.LoadID, GoatIDs: []string{partitionGoat.GoatID},
+			ParkLocationID: testPark, ShedLocationID: testShed, PartitionLabel: "Part 1",
+			AcceptedAt: time.Date(2026, 5, 3, 17, 0, 0, 0, time.UTC),
+			EntryDate:  time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC), IdempotencyKey: "idem-intake-partition",
+		}); err != nil {
+			t.Fatalf("partition AcceptIntake: %v", err)
+		}
+		var partitionLabel, sourceShedName string
+		if err := pool.QueryRow(ctx, `
+SELECT partition_label, source_shed_name
+FROM goat_shed_partitions
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, testTenant, partitionGoat.GoatID).Scan(&partitionLabel, &sourceShedName); err != nil {
+			t.Fatalf("read goat_shed_partitions: %v", err)
+		}
+		if partitionLabel != "Part 1" || sourceShedName != "Procurement Test Shed - Part 1" {
+			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Test Shed - Part 1", partitionLabel, sourceShedName)
+		}
 	})
 
 	countGoats := func() int64 {

@@ -74,6 +74,9 @@ data class CalendarDateMarkerDto(
     @SerialName("completed_count") val completedCount: Int = 0,
     @SerialName("open_count") val openCount: Int = 0,
     @SerialName("drive_count") val driveCount: Int = 0,
+    @SerialName("due_count") val dueCount: Int = 0,
+    @SerialName("overdue_count") val overdueCount: Int = 0,
+    @SerialName("deferred_count") val deferredCount: Int = 0,
 )
 
 /**
@@ -85,28 +88,50 @@ data class CalendarDateMarkerDto(
  * `drive_summary`; the screen falls back to the legacy tiles in that case.
  */
 @Serializable
+data class DriveShedSummaryDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("total_animals") val totalAnimals: Int = 0,
+)
+
+@Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
-    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
-    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
-    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
-    @SerialName("planned_date") val plannedDate: String? = null,
-    @SerialName("scheduled_date") val scheduledDate: String? = null,
+    @SerialName("drive_name") val driveName: String = "",
+    // Nullable for mixed-version Room cache rows written before logical multi-day totals shipped.
+    @SerialName("drive_total") val driveTotal: Int? = null,
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,
+    @SerialName("sheds") val sheds: List<DriveShedSummaryDto> = emptyList(),
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("total_count") val totalCount: Int = 0,
     @SerialName("completed_count") val completedCount: Int = 0,
+    @SerialName("submitted_count") val submittedCount: Int = 0,
     // Nullable, NOT defaulted to 0: a cache row / mixed-version response predating these fields must
     // decode as null (absent), distinguishable from a real 0, so the card can fall back to dose
     // counts instead of showing a false "0 / 0 animals" (CDR-R1).
     @SerialName("total_animals") val totalAnimals: Int? = null,
     @SerialName("completed_animals") val completedAnimals: Int? = null,
+    @SerialName("submitted_animals") val submittedAnimals: Int? = null,
     @SerialName("remaining_count") val remainingCount: Int = 0,
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,
     @SerialName("deferred_count") val deferredCount: Int = 0,
+    // Informational subset of dueCount/overdueCount (a rejected obligation is one of the statuses
+    // those buckets already include) — names WHY the progress numerator dropped after a verifier
+    // rejects proof, instead of the drop reading as an unexplained mystery. Absent/0 on a cache row
+    // written before this field shipped, which is the correct "nothing to explain" default.
+    @SerialName("rejected_count") val rejectedCount: Int = 0,
+    // Backend-owned cross-surface progress. Nullable, NOT defaulted: a cache row / older backend
+    // predating these fields decodes as null so the card can fall back to the legacy client-side
+    // derivation; when present these MUST be rendered verbatim (see DriveCardMetrics).
+    @SerialName("progress_basis") val progressBasis: String? = null,
+    @SerialName("progress_completed") val progressCompleted: Int? = null,
+    @SerialName("progress_total") val progressTotal: Int? = null,
+    @SerialName("progress_pct") val progressPct: Int? = null,
     @SerialName("owner_label") val ownerLabel: String = "",
 )
 
@@ -146,11 +171,6 @@ data class CalendarEventDto(
     @SerialName("summary_tertiary") val summaryTertiary: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("severity") val severity: String = "",
-    @SerialName("effective_schedule_date") val effectiveScheduleDate: String? = null,
-    @SerialName("current_assignment_date") val currentAssignmentDate: String? = null,
-    @SerialName("assignment_planned_date") val assignmentPlannedDate: String? = null,
-    @SerialName("planned_date") val plannedDate: String? = null,
-    @SerialName("scheduled_date") val scheduledDate: String? = null,
     @SerialName("due_at") val dueAt: String = "",
     @SerialName("window_start") val windowStart: String? = null,
     @SerialName("window_end") val windowEnd: String? = null,
@@ -172,6 +192,7 @@ data class CalendarEventDto(
     @SerialName("deferred_count") val deferredCount: Int = 0,
     @SerialName("review_count") val reviewCount: Int = 0,
     @SerialName("shed_labels") val shedLabels: List<String> = emptyList(),
+    @SerialName("shed_partition_labels") val shedPartitionLabels: List<String?> = emptyList(),
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     // Park-level drive progress (v4) — see [DriveSummaryDto]. Null until the backend ships it.
     @SerialName("drive_summary") val driveSummary: DriveSummaryDto? = null,
@@ -201,22 +222,12 @@ data class CalendarEventDto(
  */
 val CalendarEventDto.currentScheduleDate: String
     get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
         driveSummary?.currentScheduleDate,
         dueAt,
     ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 
 val DriveSummaryDto.currentScheduleDate: String
     get() = listOf(
-        effectiveScheduleDate,
-        currentAssignmentDate,
-        assignmentPlannedDate,
-        plannedDate,
-        scheduledDate,
         dueDate,
     ).firstOrNull { !it.isNullOrBlank() }.orEmpty()
 

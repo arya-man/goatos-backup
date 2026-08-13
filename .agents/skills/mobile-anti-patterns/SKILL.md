@@ -36,6 +36,9 @@ compute-on-read.
   never fetch/parse a day's events to draw the grid.
 - **A drive is a mix of SHEDS, never grouped by vaccine** (coverage-by-vaccine is a
   metric, not the grouping).
+- **Partition display (MANDATORY):** when a shed has partitions (`Castro 1` + `Castro 2`),
+  render the partition label, never collapse into parent. Full rule, worked examples,
+  and schema requirements: [`docs/decisions/operational-location-convention.md`](../../../docs/decisions/operational-location-convention.md).
 - Genuinely bounded (e.g. fixed 7-cell week loop) → `// mobile-guard:ignore: <reason>`.
 
 ## Compose lazy-list keys (machine: `make android-compose-lists-guard`)
@@ -50,11 +53,47 @@ domain object it shows.
 - **Always supply a `key`** on `items(<collection>)`/`itemsIndexed(<collection>)`;
   positional keys reuse remembered row state (checkbox/expand/scroll) on
   insert/reorder and can crash. The `items(<Int>)` count overload is exempt.
+- **Grouped rows must key at the rendered row grain.** If a ViewModel groups
+  backend rows into UI cards, group by the exact same identity that becomes
+  `ShedRow.id`/`uiKey`. Do not group by version/metadata fields such as
+  `sopVersionId`/`taskRowVersion` and then render a key that omits them; BT+SP,
+  split task rows, and weighing/feed assignment variants can then produce two
+  rendered rows with the same LazyColumn key.
 - Bounded exception → `// compose-guard:ignore: <reason>`.
 - Also watch (review, not yet machine-checked): missing `contentType` on
-  heterogeneous lists, `mutableStateOf` without `remember`, unstable inline lambdas
-  passed per item, and a nested `Modifier.verticalScroll` wrapping a `LazyColumn`
-  (infinite-constraint measure crash).
+  heterogeneous lists, `mutableStateOf` without `remember`, and unstable inline
+  lambdas passed per item.
+- **Machine-checked (`nested-scroll-in-lazy-items`):** a `Modifier.verticalScroll`
+  Column/Row, or another `LazyColumn`/`LazyRow`, nested directly inside a list's
+  `items()` row lambda — two scrollables on one axis (infinite-constraint /
+  double-scroll bug). Hoist the inner list to its own destination/sheet.
+
+## Phone-scale UI (machine: `make android-compose-lists-guard`; rulebook: `apps/goatos-android/docs/phone-scale-ui.md`)
+Real park cardinality is ~100 sheds x ~70-90 animals/shed (~7-8k rows/park). Three shipped
+recurrences of the same class:
+- **Unbounded rendering.** `<state-or-domain>.forEach { ... Composable ... }` inside a scrollable
+  Column/Row instead of a windowed `LazyColumn`/`LazyRow` with `items(..., key = ...)` and ~20-row
+  keyset paging (same cap as the fetch/pagination rule above — do not invent a different number).
+  Machine-checked (`column-foreach-unbounded`) but deliberately narrow: only flags a `.forEach`
+  chain containing a state/domain keyword (state/list/items/rows/data/records/sheds/animals/
+  operators/dates/goats) inside a `verticalScroll`/`horizontalScroll` container; a fixed literal
+  (`listOf(...).forEach`) or enum (`DayOfWeek.entries.forEach`) is never flagged.
+- **Chips over an unbounded dimension.** Sheds/animals/operators/dates need a **searchable
+  selector**, not a chip per option. Reference implementation: `FilterSelectorRow` +
+  `SearchablePickerDialog` in
+  `apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeightHistoryChartScreen.kt`.
+  Machine-checked in a narrow shape (`chip-row-unbounded-dimension`): a state/domain-keyword
+  `.forEach { ... FilterChip/AssistChip ... }`. A chip row built without `.forEach`, or fed through
+  a helper/param, is a false negative by design — still review-time via this skill.
+- **Spinner over rendered content.** A refresh must never replace already-rendered rows with a
+  full-screen spinner (see `docs/mobile/android-ui-quality.md` skeleton/shimmer rule below).
+  Machine-checked in a narrow shape (`spinner-replaces-cached-content`): a `when {}` branch guarded
+  by a bare loading flag rendering only `CircularProgressIndicator`, next to a sibling branch that
+  renders non-empty cached state. A plain `if (loading) {...} else {...}` chain is a false negative
+  by design; the vaccination-sheds screen additionally has a dedicated stricter check in
+  `check-android-ui-foundations.mjs`.
+- Bounded exception → `// compose-guard:ignore: <reason>` (same convention as the lazy-key rules
+  above; one guard script covers both).
 
 ## Room SSOT / offline-first (banned: network-only screen reads)
 - Every READ screen renders from **Room** (single source of truth); network refresh
@@ -91,6 +130,26 @@ eviction, or a DAO reading a whole table into memory, OOMs low-end phones.
 The mobile UI must NOT gate visibility by role (`role ==`); render the backend-composed
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
+
+Execution affordances follow the same rule. When a backend permission means
+"execute" (`task.execute`, `weighing.execute`, or a future vertical execute
+permission), mobile should learn that from `/app/bootstrap.feature_flags` or a
+backend action key, not from role-label code. Concretely:
+- `vaccination_execute=true` means a Vaccination shed card can open Scan -> Submit.
+- `weighing_execute=true` means `/weighing` renders the field execution UI and
+  assignment cards can open the weighing scan/capture route.
+- `false` means render display/review/monitor surfaces only.
+
+Current director split:
+- `pc_director` is Preventive Care Director: Vaccination only.
+- `growth_director` is Growth Director: Weighing only.
+- Operators are park-scoped and module-scoped; never infer execution from the
+  `operator` role alone.
+
+Do not add helpers like `is<Vertical>LeadershipRole(roleLabel)` to choose scan vs
+display screens. If a new feature needs a component switch that the fixed Android
+nav graph cannot infer from route alone, add a backend-owned feature flag derived
+from the permission table and pin it with a backend bootstrap test.
 
 Status and row action are part of that same contract. Android and admin-web must render
 backend `workState`, `sopStatus`, `proofStatus`, `verificationStatus`, counts, summaries, and

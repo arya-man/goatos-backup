@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -92,7 +93,10 @@ func (s *Storage) PrepareUpload(_ context.Context, proof domain.Artifact, expire
 }
 
 func (s *Storage) PrepareDownload(_ context.Context, proof domain.Artifact, expires time.Duration) (string, error) {
-	query := map[string]string{}
+	query := map[string]string{
+		"response-content-disposition": "inline",
+		"response-content-type":        contentTypeOrDefault(proof.MimeType),
+	}
 	if generation := generationFromProof(proof); generation != "" {
 		query["generation"] = generation
 	}
@@ -147,8 +151,56 @@ func (s *Storage) FinalizeUpload(ctx context.Context, proof domain.Artifact, in 
 	}, nil
 }
 
+// StatObject issues ONE signed HEAD for the object. It is only ever called for a single item at
+// verdict time (an irreversible approve), never per row of a queue page — see ports.ObjectStatter.
+func (s *Storage) StatObject(ctx context.Context, proof domain.Artifact) error {
+	signed, err := s.signedURL("HEAD", proof.ObjectKey, s.now().UTC().Add(2*time.Minute), nil, nil)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, signed, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return errors.New("gcs proof object stat failed")
+	}
+	return nil
+}
+
 func (s *Storage) Store(context.Context, domain.Artifact, io.Reader, string) (domain.StoredObject, error) {
 	return domain.StoredObject{}, ports.ErrUnsupported
+}
+
+func (s *Storage) Delete(ctx context.Context, proof domain.Artifact) error {
+	signed, err := s.signedURL("DELETE", proof.ObjectKey, s.now().UTC().Add(2*time.Minute), nil, nil)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, signed, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return errors.New("gcs proof object delete failed")
+	}
+	return nil
 }
 
 func (s *Storage) signedURL(method, objectKey string, expiresAt time.Time, headers map[string]string, extraQuery map[string]string) (string, error) {

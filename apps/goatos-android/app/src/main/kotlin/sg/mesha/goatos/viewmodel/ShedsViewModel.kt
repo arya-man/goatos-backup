@@ -13,13 +13,19 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.sheds.ShedDayTab
 import sg.mesha.goatos.feature.sheds.CarryVaccine
 import sg.mesha.goatos.feature.sheds.DayCarry
@@ -27,6 +33,9 @@ import sg.mesha.goatos.feature.sheds.ProtocolAdherenceSummary
 import sg.mesha.goatos.feature.sheds.ShedParkFilter
 import sg.mesha.goatos.feature.sheds.ShedRow
 import sg.mesha.goatos.feature.sheds.ShedStatus
+import sg.mesha.goatos.feature.sheds.ShedStatusChip
+import sg.mesha.goatos.feature.sheds.ShedStatusChipKey
+import sg.mesha.goatos.feature.sheds.ShedStatusTone
 import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsUiState
 import sg.mesha.goatos.feature.sheds.VaccineGroup
@@ -44,6 +53,7 @@ import javax.inject.Inject
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
 private const val OPEN_ONLY_QUERY = false
+private const val CALENDAR_PARK_ARG = "parkId"
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
@@ -64,6 +74,8 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val crashReporter: CrashReporter,
+    private val analytics: AnalyticsPort,
+    private val bootstrapRepository: BootstrapRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -75,8 +87,16 @@ class ShedsViewModel @Inject constructor(
             ?.let(::parseExecutionDate)
             ?.takeIf { it >= workWindow.firstDay && it <= workWindow.lastDay }
             ?: workWindow.today
+    private val initialParkId: String? = savedStateHandle.get<String>(CALENDAR_PARK_ARG)?.takeIf { it.isNotBlank() }
     private val _selectedDay = MutableStateFlow(initialDay)
-    private val _selectedParkId = MutableStateFlow<String?>(null)
+    // Seeded from the drive card's parkId nav arg (CALENDAR_PARK_ARG) so drilling into a
+    // specific park's drive card scopes the shed list to that park from the first load.
+    // Previously this always started at null, so the drill silently rendered every park's
+    // sheds (the API is correct — it returns the full cross-park set by design; scoping is
+    // the client's job) regardless of which park's card was tapped, for every role that uses
+    // this shared route (CEO, Director, Park Head, operator).
+    private val _selectedParkId = MutableStateFlow<String?>(initialParkId)
+    private val _leadershipMode = MutableStateFlow(false)
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -100,20 +120,33 @@ class ShedsViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    // Set the first time a fetch COMPLETES, whatever it returned. lastSyncedAt cannot serve this
+    // -- an empty result never sets it -- and isRefreshing flips on every later refresh, so both
+    // made the screen either wedge on a spinner or yank already-drawn content away mid-refresh.
+    private val _hasLoadedOnce = MutableStateFlow(false)
     private val transientState = combine(
         _selectedDay,
-        _isRefreshing,
-        _isOffline,
-        _isLoadingMore,
-    ) { selectedDay, isRefreshing, isOffline, isLoadingMore ->
-        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore)
+        combine(_isRefreshing, _isOffline, _isLoadingMore, _leadershipMode, _hasLoadedOnce) { r, o, l, m, h ->
+            TransientFlags(r, o, l, m, h)
+        }
+    ) { selectedDay, flags ->
+        ShedsTransientState(selectedDay, flags.isRefreshing, flags.isOffline, flags.isLoadingMore, flags.leadershipMode, flags.hasLoadedOnce)
     }
 
-    // Combines observed resource with transient flags; lifecycle-aware
+    // Combines observed resource with transient flags; lifecycle-aware.
+    //
+    // _selectedParkId is a FIRST-CLASS SOURCE here, not a `.value` read inside the block. Read
+    // imperatively it was invisible to the combine, so the state only rebuilt when
+    // observedResource emitted -- and observedResource is a StateFlow, which conflates equal
+    // values. Clearing the park back to "all parks" re-queried and got back the SAME rows, the
+    // StateFlow suppressed the duplicate emission, the combine never re-ran, and the UI kept
+    // showing the park the user had just cleared. The widen-back control looked dead. State that
+    // depends on a value must observe that value.
     val state: StateFlow<ShedsUiState> = combine(
         observedResource,
         transientState,
-    ) { resource, transient ->
+        _selectedParkId,
+    ) { resource, transient, selectedParkId ->
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         val isInitialLoading = dto == null && !resource.hasData && resource.error == null && !transient.isOffline
@@ -139,12 +172,19 @@ class ShedsViewModel @Inject constructor(
             }
         base.copy(
             hostedFromCalendar = calendarHosted,
+            leadershipMode = transient.leadershipMode,
+            // Live selection, not the nav-arg seed: selectPark() updates _selectedParkId (which
+            // re-triggers observedResource via flatMapLatest), so this must track the same value
+            // or the "pinned park" chip / widen-to-all-parks affordance would freeze on the park
+            // the user drilled in from, even after they clear it back to all parks.
+            selectedParkId = selectedParkId,
             isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
             isLoadingMore = transient.isLoadingMore,
             hasMore = !dto?.nextCursor.isNullOrBlank(),
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
             isOffline = transient.isOffline,
+            hasLoadedOnce = transient.hasLoadedOnce,
         )
     }.stateIn(
         viewModelScope,
@@ -153,7 +193,67 @@ class ShedsViewModel @Inject constructor(
     )
 
     init {
+        loadLeadershipMode()
         refresh()
+        trackEmptyRoster()
+        trackScreenViewed()
+    }
+
+    /**
+     * Fires ONCE, the first time [state] leaves the initial-loading moment — the screen-view
+     * signal that was entirely missing before: a CEO/CXO/Director landing on this shared
+     * leadership-oversight + operator-worklist screen emitted nothing beyond `bootstrap_loaded`,
+     * so "did the CEO ever open the Vaccination Overview" was unanswerable from analytics.
+     */
+    private var screenViewedTracked = false
+
+    private fun trackScreenViewed() {
+        viewModelScope.launch {
+            combine(state, _leadershipMode) { uiState, leadershipMode ->
+                !uiState.isInitialLoading to leadershipMode
+            }
+                .distinctUntilChanged()
+                .collect { (readyToRender, leadershipMode) ->
+                    if (readyToRender && !screenViewedTracked) {
+                        screenViewedTracked = true
+                        analytics.track(
+                            AnalyticsEvents.VACCINATION_SHEDS_VIEWED,
+                            mapOf(
+                                AnalyticsEvents.Params.KIND to
+                                    if (leadershipMode) "leadership" else "operator",
+                            ),
+                        )
+                    }
+                }
+        }
+    }
+
+    /**
+     * Answers "did this operator ever land on an empty shed list" — before this, an empty roster
+     * (no sheds assigned, or a drive-free day) rendered a silent empty-state card with nothing in
+     * telemetry to distinguish it from a still-loading or offline screen.
+     */
+    private fun trackEmptyRoster() {
+        viewModelScope.launch {
+            state
+                .map { it.rows.isEmpty() && !it.isInitialLoading && !it.isOffline }
+                .distinctUntilChanged()
+                .collect { isEmpty ->
+                    if (isEmpty) {
+                        analytics.track(
+                            AnalyticsEvents.SHEDS_EMPTY_ROSTER,
+                            mapOf(AnalyticsEvents.Params.KIND to if (calendarHosted) "calendar_drive" else "vaccination"),
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun loadLeadershipMode() {
+        viewModelScope.launch {
+            val role = runCatching { bootstrapRepository.operatorProfile()?.primaryRoleHint }.getOrNull()
+            _leadershipMode.value = role.isLeadershipShedsRole()
+        }
     }
 
     /** Network side of stale-while-revalidate: upserts Room on success (the [observeRows]
@@ -161,18 +261,54 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        val result = repo.refreshRows(
-            parkId = _selectedParkId.value,
-            asOf = workWindow.asOf,
-            dueBefore = workWindow.dueBefore,
-            openOnly = OPEN_ONLY_QUERY,
-            limit = PAGE_LIMIT,
-            includeFilterOptions = true,
-        )
-        _isRefreshing.value = false
-        _isOffline.value = result.isFailure
-        result.exceptionOrNull()?.let {
-            crashReporter.recordException(it, "vaccination sheds refresh failed")
+        // NOTE: hasLoadedOnce is reset at the SCOPE CHANGE call site (selectPark, below), not
+        // here -- see VerifyQueueViewModel's onEvent handlers for the same fix and rationale
+        // (a reset done only inside refresh() left a window where a recomposition could show
+        // the OLD park's confident answer as if it belonged to the new one). `day` is NOT part
+        // of the network scope: selectDay never calls refresh() -- the fetched window already
+        // spans the whole 7-day strip and a day switch only re-filters that same cached data
+        // client-side, so there is no new read for a day change to reset a marker in front of.
+        try {
+            // INSIDE the try: a throw from analytics here would skip the finally that sets
+            // hasLoadedOnce, leaving the screen permanently blank with a frozen spinner.
+            analytics.track(AnalyticsEvents.VACCINATION_REFRESH_ATTEMPTED)
+            val result = repo.refreshRows(
+                parkId = _selectedParkId.value,
+                asOf = workWindow.asOf,
+                dueBefore = workWindow.dueBefore,
+                openOnly = OPEN_ONLY_QUERY,
+                limit = PAGE_LIMIT,
+                includeFilterOptions = true,
+            )
+            _isOffline.value = result.isFailure
+            if (result.isSuccess) {
+                analytics.track(AnalyticsEvents.VACCINATION_REFRESH_SUCCEEDED)
+            }
+            result.exceptionOrNull()?.let {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_REFRESH_FAILED,
+                    mapOf(AnalyticsEvents.Params.REASON to (it::class.simpleName ?: "unknown")),
+                )
+                crashReporter.recordException(it, "vaccination sheds refresh failed")
+            }
+        } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+            // A repository throw must not escape viewModelScope.launch and crash the app --
+            // same defect shape fixed in SessionViewModel's dev-session bring-up and in
+            // VerifyQueueViewModel.refresh() (see the catch there). Record it and resolve to
+            // an honest offline state instead of propagating; hasLoadedOnce still flips in
+            // `finally` below so the screen never wedges on the skeleton.
+            runCatching { crashReporter.recordException(t, "vaccination sheds refresh failed") }
+            _isOffline.value = true
+        } finally {
+            _isRefreshing.value = false
+            // In FINALLY, not after the result: a throw on the way here would otherwise leave the
+            // flag false forever and wedge the screen on a spinner over a blank list.
+            _hasLoadedOnce.value = true
         }
     }
 
@@ -180,6 +316,7 @@ class ShedsViewModel @Inject constructor(
         val cursor = nextCursor ?: return@launch
         if (_isLoadingMore.value) return@launch
         _isLoadingMore.value = true
+        analytics.track(AnalyticsEvents.VACCINATION_LOAD_MORE_ATTEMPTED)
         val result = repo.appendRows(
             cursor = cursor,
             parkId = _selectedParkId.value,
@@ -191,7 +328,14 @@ class ShedsViewModel @Inject constructor(
         )
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
+        if (result.isSuccess) {
+            analytics.track(AnalyticsEvents.VACCINATION_LOAD_MORE_SUCCEEDED)
+        }
         result.exceptionOrNull()?.let {
+            analytics.track(
+                AnalyticsEvents.VACCINATION_LOAD_MORE_FAILED,
+                mapOf(AnalyticsEvents.Params.REASON to (it::class.simpleName ?: "unknown")),
+            )
             crashReporter.recordException(it, "vaccination sheds append failed")
         }
     }
@@ -204,7 +348,24 @@ class ShedsViewModel @Inject constructor(
             is ShedsEvent.SelectPark -> selectPark(event.parkId)
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
             ShedsEvent.Back -> Unit // navigation — handled by the nav host.
+            is ShedsEvent.OpenBlocked -> trackOpenBlocked(event)
         }
+    }
+
+    /**
+     * Answers "was this tap actually blocked, and why" — before this, every one of these gates
+     * (no permission, shed owned by another operator, scheduled for a future day, already
+     * submitted) only ever showed a Toast: the operator saw a dead end and nothing recorded which
+     * gate it was.
+     */
+    private fun trackOpenBlocked(event: ShedsEvent.OpenBlocked) {
+        analytics.track(
+            AnalyticsEvents.VACCINATION_OPEN_BLOCKED,
+            buildMap {
+                put(AnalyticsEvents.Params.REASON, event.reason)
+                event.shedId?.let { put(AnalyticsEvents.Params.SHED_ID, it) }
+            },
+        )
     }
 
     private fun selectDay(dateKey: String) {
@@ -213,6 +374,10 @@ class ShedsViewModel @Inject constructor(
         // including yesterday, must be selectable.
         if (date < workWindow.firstDay || date > workWindow.lastDay) return
         _selectedDay.value = date
+        analytics.track(
+            AnalyticsEvents.VACCINATION_DAY_SELECTED,
+            mapOf(AnalyticsEvents.Params.DIMENSION to "day"),
+        )
     }
 
     private fun selectPark(parkId: String?) {
@@ -220,6 +385,15 @@ class ShedsViewModel @Inject constructor(
         if (_selectedParkId.value == normalized) return
         nextCursor = null
         _selectedParkId.value = normalized
+        analytics.track(
+            AnalyticsEvents.VACCINATION_PARK_FILTER_APPLIED,
+            mapOf(
+                AnalyticsEvents.Params.DIMENSION to "park",
+                AnalyticsEvents.Params.ACTION to if (normalized != null) "set" else "cleared",
+            ),
+        )
+        // Reset HERE, at the scope change, not inside refresh() -- see refresh()'s NOTE above.
+        _hasLoadedOnce.value = false
         refresh()
     }
 
@@ -232,36 +406,61 @@ class ShedsViewModel @Inject constructor(
             when {
                 !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
-                // Today folds in the deep backlog (due strictly before the visible yesterday
-                // tab) plus today's own open/review work; completed rows stay on their actual
-                // scheduled day so finished shed cards do not disappear or flood today's list.
-                selectedDay == workWindow.today ->
-                    dueDate.isEqual(workWindow.today) ||
-                        (dueDate.isBefore(workWindow.firstDay) && row.hasOpenOrReviewWork())
+                // Today folds in the deep backlog (due on or before today), INCLUDING rows the
+                // operator already finished. A completed shed must stay visible until the drive
+                // itself closes -- and "closed" is not a flag the client tracks; it is simply the
+                // moment the backend stops returning the row at all (it falls outside
+                // workWindow.asOf/dueBefore, the same window this whole list is already scoped
+                // to). As long as the API keeps sending the row, the drive is still active and the
+                // card stays on today's list; the day it silently drops out of `rows` upstream is
+                // the day the operator stops seeing it. Previously this branch additionally
+                // required `hasOpenOrReviewWork()` for backlog rows, which hid every completed
+                // shed the moment its own due date rolled past today -- exactly the maintainer-
+                // reported defect where 3 of 4 finished sheds vanished mid-drive.
+                selectedDay == workWindow.today -> !dueDate.isAfter(workWindow.today)
                 else -> dueDate == selectedDay
             }
         }
-        val shedRows = rowsForSelectedDay.groupBy { it.executionIdentity() }.map { (identity, group) ->
+        // Group by the exact key rendered by Compose. Do not group by metadata that is not also
+        // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
+        // (for example BT + SP rows, or a task row version/sop version split) but must remain one
+        // UI card with one LazyColumn key.
+        val shedRows = rowsForSelectedDay.groupBy { it.executionCardId() }.map { (cardId, group) ->
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
-            val status = shedStatusFor(group)
-            val counts = executionCounts(group)
-            val vaccineGroups = group.groupBy { humanizeVaccineLabel(it.driveName.orEmpty()) }
-                .filterKeys { it.isNotBlank() }
+            val status = shedStatusForRows(group)
+            val counts = executionCardCounts(group)
+            val vaccineGroups = group.flatMap { row ->
+                row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
+                    .map { humanizeVaccineLabel(it) }
+                    .filter { it.isNotBlank() }
+                    .map { label -> label to row }
+            }
+                .groupBy({ it.first }, { it.second })
                 .map { (label, driveRows) ->
-                    val driveCounts = executionCounts(driveRows)
+                    val driveCounts = executionCardCounts(driveRows)
+                    val driveDone = effectiveCardDoneCount(driveRows)
                     VaccineGroup(
                         label = label,
-                        countLabel = "${driveCounts.done}/${driveCounts.target}",
-                        full = driveCounts.open == 0,
+                        countLabel = "$driveDone/${driveCounts.target}",
+                        full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
                     )
                 }
+            val effectiveDone = effectiveCardDoneCount(group)
             ShedRow(
-                id = identity.cardId,
-                name = first.shedName,
+                id = cardId,
+                // The shed CARD TITLE. It must carry the backend-composed operational location,
+                // or a partitioned shed shows its bare name and every partition of that shed
+                // reads identically on the operator's list ("Mandela 2" three times instead of
+                // "Mandela 2 - Part 3"). Falls back to shedName for older API responses.
+                name = first.operationalLocationDisplay.ifBlank { operationalLocationLabel(first.shedName, first.partitionLabel ?: first.partition) },
+                parkId = first.parkId,
+                parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),
                 physicalShed = first.physicalShed.ifBlank { first.shedName },
                 partition = first.partition,
+                partitionLabel = first.partitionLabel
+                    ?: first.partition.takeIf { executionPartitionKey(it) != "whole" },
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
@@ -269,19 +468,28 @@ class ShedsViewModel @Inject constructor(
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
                 statusLabel = group.reviewAwareStatusLabel(status),
+                statusChips = group.statusChips(status),
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
                 due = counts.open.toString(),
-                done = counts.done.toString(),
-                progressLabel = percentLabel(counts.done, counts.target),
-                progressFraction = fraction(counts.done, counts.target),
-                shedId = identity.shedId,
-                driveId = identity.driveId,
-                batchId = identity.batchId,
-                taskId = identity.taskId,
-                sopVersionId = identity.sopVersionId,
-                taskRowVersion = identity.taskRowVersion,
+                done = effectiveDone.toString(),
+                // Verifier-side count, kept separate from `done` (see effectiveDoneCount's
+                // doc) so a card never reads "5 DONE" while only 2 have actually cleared review.
+                accepted = group.maxOfOrNull { it.acceptedAnimalCount() }?.coerceAtLeast(0).orZero().toString(),
+                progressLabel = percentLabel(effectiveDone, counts.target),
+                progressFraction = redoAwareFraction(
+                    effectiveDone,
+                    counts.target,
+                    needsRedo = group.any { it.needsRedo() },
+                ),
+                shedId = first.shedId,
+                driveId = first.driveId,
+                batchId = first.batchId,
+                taskId = first.sopTaskId,
+                sopVersionId = first.sopVersionId,
+                taskRowVersion = first.sopTaskRowVersion,
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
+                canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->
@@ -290,10 +498,15 @@ class ShedsViewModel @Inject constructor(
                 .thenBy { it.name.lowercase() }
         )
         val totals = executionCounts(rowsForSelectedDay)
-        val visibleWindowTotals = executionCounts(adherenceWindowRows(weekRows, rowsForSelectedDay, selectedDay))
+        val totalsEffectiveDone = effectiveDoneCount(rowsForSelectedDay)
+        val pageComplete = nextCursor.isNullOrBlank()
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
+        val operationalLocationCount = rowsForSelectedDay
+            .map { it.shedId to executionPartitionKey(it.partitionLabel ?: it.partition) }
+            .distinct()
+            .size
         val carry = carrySummary?.carryByDay?.firstOrNull { it.date == selectedKey }?.let { day ->
             DayCarry(
                 totalRemaining = day.totalRemaining,
@@ -313,14 +526,14 @@ class ShedsViewModel @Inject constructor(
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
-            shedCount = rowsForSelectedDay.map { it.shedId }.distinct().size,
-            dueCount = totals.open,
-            doneCount = totals.done,
-            shedCountLabel = "${shedRows.size} sheds",
-            dueLabel = "${totals.open} open",
-            dayProgressLabel = percentLabel(totals.done, totals.target),
-            dayProgressFraction = fraction(totals.done, totals.target),
-            daySummary = "${totals.done} / ${totals.target} done",
+            shedCount = operationalLocationCount,
+            dueCount = if (pageComplete) totals.open else 0,
+            doneCount = if (pageComplete) totalsEffectiveDone else 0,
+            shedCountLabel = "$operationalLocationCount sheds",
+            dueLabel = if (pageComplete) "${totals.open} open" else "More rows available",
+            dayProgressLabel = if (pageComplete) percentLabel(totalsEffectiveDone, totals.target) else "",
+            dayProgressFraction = if (pageComplete) fraction(totalsEffectiveDone, totals.target) else 0f,
+            daySummary = if (pageComplete) "$totalsEffectiveDone / ${totals.target} done" else "Load all rows for full-day totals",
             caption = if (shedRows.isEmpty()) {
                 if (selectedDay == workWindow.today) {
                     "No sheds scheduled today"
@@ -331,7 +544,7 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = protocolAdherenceSummary(visibleWindowTotals),
+            adherence = protocolAdherenceSummary(rowsForSelectedDay, totals, isComplete = pageComplete),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
@@ -361,20 +574,6 @@ class ShedsViewModel @Inject constructor(
             ?: selectedDay
     }
 
-    private fun shedStatusFor(rows: List<VaccinationExecutionRowDto>): ShedStatus {
-        val anyDelayed = rows.any { row ->
-            val work = row.workState.lowercase()
-            work.contains("overdue") ||
-                work.contains("missed") ||
-                work.contains("blocked") ||
-                row.severity.equals("critical", ignoreCase = true)
-        }
-        if (anyDelayed) return ShedStatus.DELAYED
-        val counts = executionCounts(rows)
-        val allDone = counts.target > 0 && counts.done >= counts.target
-        return if (allDone) ShedStatus.DONE else ShedStatus.PENDING
-    }
-
     private fun VaccinationExecutionRowDto.isDone(): Boolean {
         val work = workState.lowercase()
         return work.contains("completed") || work.contains("done")
@@ -385,28 +584,121 @@ class ShedsViewModel @Inject constructor(
 
     private fun fraction(done: Int, total: Int): Float =
         if (total > 0) done.toFloat() / total else 0f
+
+    /**
+     * A shed with work sent back must NEVER render a full bar, whatever the counts say.
+     *
+     * The honest count comes from the backend (`done=4 open=1` when one of five was rejected),
+     * and that already lands short of 100%. This is the second line of defence: if the backend
+     * ever reports done==target while a row is still flagged for redo, the operator would see a
+     * complete shed with outstanding work inside it -- the exact defect that made a rejected
+     * shed read as finished. Capping keeps the number honest AND the bar honest.
+     */
+    private fun redoAwareFraction(done: Int, total: Int, needsRedo: Boolean): Float {
+        val raw = fraction(done, total)
+        return if (needsRedo) raw.coerceAtMost(MAX_INCOMPLETE_FRACTION) else raw
+    }
 }
 
+private const val MAX_INCOMPLETE_FRACTION = 0.99f
+
 internal data class ExecutionCounts(val target: Int, val open: Int, val done: Int)
+
+private data class TransientFlags(
+    val isRefreshing: Boolean,
+    val isOffline: Boolean,
+    val isLoadingMore: Boolean,
+    val leadershipMode: Boolean,
+    val hasLoadedOnce: Boolean,
+)
 
 private data class ShedsTransientState(
     val selectedDay: LocalDate,
     val isRefreshing: Boolean,
     val isOffline: Boolean,
     val isLoadingMore: Boolean,
+    val leadershipMode: Boolean,
+    val hasLoadedOnce: Boolean = false,
 )
 
-internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? {
+internal fun String?.isLeadershipShedsRole(): Boolean {
+    val normalized = this?.lowercase(Locale.US)?.replace('-', '_') ?: return false
+    return normalized == "ceo" ||
+        normalized == "cxo" ||
+        normalized == "director" ||
+        normalized == "pc_director" ||
+        normalized.endsWith("_director")
+}
+
+internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? =
+    protocolAdherenceSummary(emptyList(), counts)
+
+internal fun protocolAdherenceSummary(
+    rows: List<VaccinationExecutionRowDto>,
+    counts: ExecutionCounts = executionCounts(rows),
+    isComplete: Boolean = true,
+): ProtocolAdherenceSummary? {
     if (counts.target <= 0 && counts.done <= 0 && counts.open <= 0) return null
+    val accepted = rows.sumOf { row -> row.acceptedAnimalCount() }
+    val review = rows.count { it.isVerificationPending() }
     return ProtocolAdherenceSummary(
         expectedCount = counts.target,
         submittedCount = counts.done,
-        acceptedCount = counts.done,
-        reviewItemCount = 0,
+        acceptedCount = accepted,
+        reviewItemCount = review,
+        overdueItemCount = rows.count { it.isOverdueWork() },
+        // Animals sent back are counted from the rows that carry a redo state, so a rejection is
+        // its own number on the CEO card instead of hiding in the gap between submitted and
+        // accepted.
+        sentBackCount = rows.filter { it.needsRedo() }.sumOf { it.openCount.coerceAtLeast(0) },
         deferredCount = 0,
-        acceptedPercent = if (counts.target > 0) (counts.done * 100 / counts.target).coerceIn(0, 100) else 0,
+        acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
+        isComplete = isComplete,
     )
 }
+
+internal fun shedStatusForRows(rows: List<VaccinationExecutionRowDto>): ShedStatus {
+    // Work the verifier SENT BACK is its own state, checked before the late/blocked family.
+    // It used to fall through to PENDING entirely, so a rejected shed rendered as a green
+    // "In progress" card with a full bar and the operator could not see there was anything to
+    // redo. Folding it into DELAYED fixed the visibility but said "Overdue", which is a
+    // different and wrong reason: the work is not late, it came back.
+    if (rows.any { it.needsRedo() }) return ShedStatus.SENT_BACK
+    val anyDelayed = rows.any { row ->
+        val work = row.workState.lowercase()
+        work.contains("overdue") ||
+            work.contains("missed") ||
+            work.contains("blocked") ||
+            row.severity.equals("critical", ignoreCase = true)
+    }
+    if (anyDelayed) return ShedStatus.DELAYED
+    val allFinalClosed = rows.isNotEmpty() && rows.all { it.isFinalClosed() }
+    return if (allFinalClosed) ShedStatus.DONE else ShedStatus.PENDING
+}
+
+/** True when the row's workState means the operator's submitted work was sent back and
+ * must be redone (verifier rejection, or the shed/task was deferred out of this window).
+ * Backend values: `rejected`, `deferred` (vaccinationexecution/domain/types.go). */
+internal fun VaccinationExecutionRowDto.needsRedo(): Boolean {
+    val work = workState.lowercase()
+    return work.contains("rejected") || work.contains("deferred")
+}
+
+/**
+ * The backend owns this count. `executionDisplayCounts` already excludes REJECTED completions
+ * from done, so a shed where 1 of 5 animals was sent back reports `done=4 open=1` — the four
+ * that stand, plus the one to redo.
+ *
+ * This must NOT re-apply that discount on the device. Zeroing the whole row's doneCount because
+ * the row carries a rejection wiped four accepted animals off the operator's card: it read
+ * `DONE 0` and an empty bar, telling him to redo the entire shed when only one animal came back.
+ * Correcting a backend-owned number twice is how a client and its server end up disagreeing.
+ */
+internal fun effectiveDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
+    rows.sumOf { row -> row.doneCount.coerceAtLeast(0) }
+
+private fun effectiveCardDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
+    rows.maxOfOrNull { row -> row.doneCount.coerceAtLeast(0) }.orZero()
 
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
@@ -416,6 +708,15 @@ internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionC
         open = rows.sumOf { it.openCount.coerceAtLeast(0) },
         done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
     )
+
+private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
+    ExecutionCounts(
+        target = rows.maxOfOrNull { it.targetCount.coerceAtLeast(0) }.orZero(),
+        open = rows.maxOfOrNull { it.openCount.coerceAtLeast(0) }.orZero(),
+        done = rows.maxOfOrNull { it.doneCount.coerceAtLeast(0) }.orZero(),
+    )
+
+private fun Int?.orZero(): Int = this ?: 0
 
 internal fun adherenceWindowRows(
     rows: List<VaccinationExecutionRowDto>,
@@ -436,17 +737,6 @@ private fun VaccinationExecutionRowDto.adherenceDriveKey(): String? =
         ?: driveId?.takeIf { it.isNotBlank() }
         ?: sopTaskId?.takeIf { it.isNotBlank() }
 
-private data class ExecutionIdentity(
-    val shedId: String,
-    val driveId: String?,
-    val batchId: String?,
-    val taskId: String?,
-    val sopVersionId: String?,
-    val taskRowVersion: Int?,
-) {
-    val cardId: String = executionCardId(shedId, taskId, batchId, driveId)
-}
-
 /**
  * A park-level vaccination task can legitimately span several sheds. Compose lazy-list keys
  * therefore cannot use task/batch/drive identity alone: every shed card needs its own stable key
@@ -457,9 +747,12 @@ internal fun executionCardId(
     taskId: String?,
     batchId: String?,
     driveId: String?,
+    partitionLabel: String? = null,
 ): String = buildString {
     append("shed:")
     append(shedId)
+    append("|partition:")
+    append(executionPartitionKey(partitionLabel))
     when {
         !taskId.isNullOrBlank() -> append("|task:").append(taskId)
         !batchId.isNullOrBlank() -> append("|batch:").append(batchId)
@@ -467,14 +760,20 @@ internal fun executionCardId(
     }
 }
 
-private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
-    shedId = shedId,
-    driveId = driveId,
-    batchId = batchId,
-    taskId = sopTaskId,
-    sopVersionId = sopVersionId,
-    taskRowVersion = sopTaskRowVersion,
-)
+internal fun VaccinationExecutionRowDto.executionCardId(): String =
+    executionCardId(
+        shedId = shedId,
+        taskId = sopTaskId,
+        batchId = batchId,
+        driveId = driveId,
+        partitionLabel = partitionLabel ?: partition,
+    )
+
+private fun executionPartitionKey(raw: String?): String {
+    val normalized = raw.orEmpty().trim().lowercase()
+        .replace(Regex("^part[\\s]+"), "")
+    return normalized.ifBlank { "whole" }
+}
 
 private fun List<ExecutionParkOptionDto>.toShedParkFilters(selectedParkId: String?): List<ShedParkFilter> =
     mapNotNull { option ->
@@ -491,6 +790,31 @@ private fun List<VaccinationExecutionRowDto>.reviewAwareStatusLabel(status: Shed
     return firstOrNull()?.workState.orEmpty().ifBlank { status.readable() }.readableState()
 }
 
+private fun List<VaccinationExecutionRowDto>.statusChips(status: ShedStatus): List<ShedStatusChip> {
+	val primary =
+		if (any { it.isVerificationPending() }) {
+			ShedStatusChip(ShedStatusChipKey.IN_REVIEW, ShedStatusTone.INFO)
+		} else {
+			ShedStatusChip(status.toChipKey(), status.toChipTone())
+		}
+	val overdue = ShedStatusChip(ShedStatusChipKey.OVERDUE, ShedStatusTone.DANGER)
+	return if (any { it.isOverdueWork() } && primary.key != overdue.key) listOf(primary, overdue) else listOf(primary)
+}
+
+private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
+    ShedStatus.DONE -> ShedStatusChipKey.DONE
+    ShedStatus.PENDING -> ShedStatusChipKey.IN_PROGRESS
+    ShedStatus.DELAYED -> ShedStatusChipKey.OVERDUE
+    ShedStatus.SENT_BACK -> ShedStatusChipKey.SENT_BACK
+}
+
+private fun ShedStatus.toChipTone(): ShedStatusTone = when (this) {
+    ShedStatus.DONE -> ShedStatusTone.OK
+    ShedStatus.PENDING -> ShedStatusTone.WARN
+    ShedStatus.DELAYED -> ShedStatusTone.DANGER
+    ShedStatus.SENT_BACK -> ShedStatusTone.DANGER
+}
+
 private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
     hasOpenOrReviewWork() || doneCount > 0
 
@@ -504,6 +828,43 @@ private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
         sopStatus.equals("needs_review", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)
 
+/**
+ * Overdue-ness is BACKEND-OWNED: `workState` already carries `overdue`/`missed`
+ * (vaccinationexecution/app/service.go compares dueAt to as_of and, crucially, returns
+ * verification_pending BEFORE it can ever return overdue). The local date comparison
+ * below is only a stale-cache safety net for rows served from Room whose workState was
+ * computed against an older as_of.
+ *
+ * That net must carry the same submission term the backend uses — and that the calendar
+ * `canonical_read.go` genuine_overdue predicate uses: work that has been SUBMITTED and is
+ * awaiting verification is not late. Dropping that term is what painted a red "Overdue"
+ * chip next to "In review" on already-submitted sheds after the IST midnight rollover.
+ */
+private fun VaccinationExecutionRowDto.isOverdueWork(): Boolean {
+    val work = workState.lowercase()
+    if (work.contains("overdue") || work.contains("missed")) return true
+    if (isFinalClosed() || isVerificationPending()) return false
+    val scheduleDate = currentScheduleDate
+        ?.takeIf { it.isNotBlank() }
+        ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?: return false
+    return scheduleDate.isBefore(LocalDate.now(ZoneId.of("Asia/Kolkata")))
+}
+
+private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =
+    sopStatus.equals("accepted", ignoreCase = true) ||
+        sopStatus.equals("closed", ignoreCase = true) ||
+        sopStatus.equals("completed", ignoreCase = true) ||
+        verificationStatus.equals("accepted", ignoreCase = true) ||
+        verificationStatus.equals("verified", ignoreCase = true) ||
+        workState.equals("accepted", ignoreCase = true) ||
+        workState.equals("closed", ignoreCase = true) ||
+        workState.equals("completed", ignoreCase = true)
+
+private fun VaccinationExecutionRowDto.acceptedAnimalCount(): Int =
+    acceptedCount?.coerceAtLeast(0)
+        ?: if (isAcceptedForProtocolSummary()) doneCount.coerceAtLeast(0) else 0
+
 private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatus.lowercase()) {
     "accepted", "closed", "completed" -> true
     else -> workState.equals("accepted", ignoreCase = true) ||
@@ -511,8 +872,27 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
         workState.equals("completed", ignoreCase = true)
 }
 
+/**
+ * True when tapping this shed may ONLY open its read-only record — i.e. there is nothing left
+ * for the operator to do here.
+ *
+ * `proofStatus=uploaded` is only "ready to finalize" and must stay open. A submitted/review record
+ * is different: once the backend says `sopStatus=submitted` or `verificationStatus=pending`, stale
+ * open counts must not reopen the scan/camera workflow. The only exception is an explicit redo
+ * state (`rejected`/`deferred`), where the verifier intentionally sent the animal back to the
+ * operator.
+ */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
-    isNotEmpty() && all { row -> row.sopStatus.isSubmissionTerminalStatus() }
+    isNotEmpty() &&
+        none { row -> row.needsRedo() } &&
+        all { row -> row.hasSubmittedRecord() }
+
+private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
+    sopStatus.isSubmissionTerminalStatus() ||
+        verificationStatus.equals("pending", ignoreCase = true) ||
+        verificationStatus.equals("accepted", ignoreCase = true) ||
+        verificationStatus.equals("verified", ignoreCase = true) ||
+        workState.equals("verification_pending", ignoreCase = true)
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true

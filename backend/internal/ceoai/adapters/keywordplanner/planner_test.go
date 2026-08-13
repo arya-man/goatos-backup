@@ -19,11 +19,12 @@ func plan(t *testing.T, text string) domain.Plan {
 
 func TestKPIRoutesToCube(t *testing.T) {
 	cases := map[string]struct{ tool string }{
-		"how many goats do we have":  {"active_animals"},
-		"which sheds are overdue":    {"vaccination_overdue"},
-		"vaccination adherence week": {"vaccination_compliance"},
-		"mortality this month":       {"mortality_rate"},
-		"what is due today":          {"vaccination_due"},
+		"how many goats do we have":       {"active_animals"},
+		"which sheds are overdue":         {"vaccination_overdue"},
+		"vaccination adherence week":      {"vaccination_compliance"},
+		"mortality this month":            {"mortality_rate"},
+		"what is due today":               {"vaccination_due"},
+		"how many animals missed vaccine": {"vaccination_overdue"},
 	}
 	for q, want := range cases {
 		pl := plan(t, q)
@@ -36,6 +37,31 @@ func TestKPIRoutesToCube(t *testing.T) {
 		}
 		if s.Route != domain.RouteCube {
 			t.Errorf("%q: route=%q want cube", q, s.Route)
+		}
+	}
+}
+
+func TestVaccinationBreakdownsCarryRequestedGroupBy(t *testing.T) {
+	cases := map[string]struct {
+		tool    string
+		groupBy string
+	}{
+		"what vaccinations are overdue by shed": {"vaccination_overdue", "shed_label"},
+		"what vaccinations are overdue by park": {"vaccination_overdue", "park_label"},
+		"chart vaccinations due today by shed":  {"vaccination_due", "shed_label"},
+		"chart vaccinations due today by park":  {"vaccination_due", "park_label"},
+	}
+	for q, want := range cases {
+		pl := plan(t, q)
+		if len(pl.SubQuestions) == 0 {
+			t.Fatalf("%q: no sub-questions", q)
+		}
+		s := pl.SubQuestions[0]
+		if s.ToolName != want.tool {
+			t.Errorf("%q: tool=%q want %q", q, s.ToolName, want.tool)
+		}
+		if gb, _ := s.Params["group_by"].(string); gb != want.groupBy {
+			t.Errorf("%q: group_by=%q want %q", q, gb, want.groupBy)
 		}
 	}
 }
@@ -84,7 +110,7 @@ func TestOperatorQuestionsCarryOperatorGroupBy(t *testing.T) {
 }
 
 // TestWhyBehindDecomposesIntoContributors proves a "why are we behind" question
-// decomposes into park + operator overdue breakdowns (grouped), not one number.
+// decomposes into shed + operator overdue breakdowns (grouped), not one number.
 func TestWhyBehindDecomposesIntoContributors(t *testing.T) {
 	pl := plan(t, "why are we behind on vaccination today")
 	if len(pl.SubQuestions) != 2 {
@@ -97,8 +123,8 @@ func TestWhyBehindDecomposesIntoContributors(t *testing.T) {
 		}
 		byTool[s.ToolName], _ = s.Params["group_by"].(string)
 	}
-	if byTool["vaccination_overdue"] != "park_label" {
-		t.Errorf("vaccination_overdue group_by=%q want park_label", byTool["vaccination_overdue"])
+	if byTool["vaccination_overdue"] != "shed_label" {
+		t.Errorf("vaccination_overdue group_by=%q want shed_label", byTool["vaccination_overdue"])
 	}
 	if byTool["operator_vaccination_overdue"] != "operator_label" {
 		t.Errorf("operator_vaccination_overdue group_by=%q want operator_label", byTool["operator_vaccination_overdue"])

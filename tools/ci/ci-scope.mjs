@@ -42,6 +42,11 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
   }
 
   for (const filePath of paths) {
+    if (matches(filePath, rules.ciCommonOnly)) {
+      reasons.push(`${filePath}: CI helper/tooling self-test coverage only`);
+      continue;
+    }
+
     if (matches(filePath, rules.forceFull)) {
       Object.assign(components, allComponents());
       reasons.push(`${filePath}: CI/shared tooling change forces full suite`);
@@ -71,7 +76,8 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
     && reasons.some((reason) => reason.includes("forces full suite"));
   const selectedJobs = ["common"];
   if (components.backend) selectedJobs.push("backend");
-  const queryPlans = components.backend;
+  const queryPlans = paths.some((filePath) => matches(filePath, rules.queryPlans))
+    || reasons.some((reason) => reason.includes("fans out to"));
   if (queryPlans) selectedJobs.push("query-plans");
   if (components.adminWeb) selectedJobs.push("admin-web");
   if (components.android) selectedJobs.push("android");
@@ -146,7 +152,7 @@ function selfTest() {
   };
   assert.deepEqual(pick(["backend/internal/api.go"]), {
     common: true, backend: true, adminWeb: false, android: false, full: false,
-    selectedJobs: ["common", "backend", "query-plans"],
+    selectedJobs: ["common", "backend"],
   });
   const obligationQueryChange = classifyPaths([
     "backend/internal/obligation/adapters/postgres/repository.go",
@@ -162,6 +168,14 @@ function selfTest() {
   assert.deepEqual(pick(["apps/goatos-android/app/build.gradle.kts"]), {
     common: true, backend: false, adminWeb: false, android: true, full: false,
     selectedJobs: ["common", "android"],
+  });
+  assert.deepEqual(pick(["tools/ci/land-main.sh"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
+  assert.deepEqual(pick(["backend/internal/permissions/routes.go"]), {
+    common: true, backend: true, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common", "backend"],
   });
   assert.deepEqual(pick(["contracts/openapi/app-api.yaml"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,

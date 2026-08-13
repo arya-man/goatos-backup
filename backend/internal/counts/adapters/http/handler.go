@@ -3,14 +3,20 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -18,6 +24,13 @@ import (
 type HerdRegisterService interface {
 	GetSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error)
 	GetBreakdown(ctx context.Context, req domain.CountsBreakdownQuery) (domain.CountsBreakdown, error)
+	GetMilkPreparation(ctx context.Context, req domain.MilkPreparationQuery) (domain.MilkPreparationPage, error)
+	SubmitMilkPreparation(ctx context.Context, req domain.MilkPreparationSubmission) (domain.MilkPreparationSubmissionResult, error)
+	ListMilkFeedingTasks(ctx context.Context, req domain.MilkFeedingQuery) (domain.MilkFeedingPage, error)
+	SubmitMilkFeeding(ctx context.Context, req domain.MilkFeedingSubmission) (domain.MilkFeedingSubmissionResult, error)
+	// ListAlerts serves the counts module's own lifecycle alerts feed, the twin of
+	// GET /app/weighing/alerts and GET /app/vaccination/alerts. See app/alerts.go.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 }
 
 type Handler struct {
@@ -32,6 +45,257 @@ func NewHandler(service HerdRegisterService, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-register/summary", h.GetSummary)
 	mux.HandleFunc("GET /counts/breakdown", h.GetBreakdown)
+	mux.HandleFunc("GET /counts/milk-preparation", h.GetMilkPreparation)
+	mux.HandleFunc("GET /app/counts/milk-preparation", h.GetMilkPreparation)
+	mux.HandleFunc("POST /app/counts/milk-preparation/submit", h.SubmitMilkPreparation)
+	mux.HandleFunc("GET /app/counts/milk-feeding/tasks", h.ListMilkFeedingTasks)
+	mux.HandleFunc("POST /app/counts/milk-feeding/tasks/{task_id}/submit", h.SubmitMilkFeeding)
+	mux.HandleFunc("GET /app/counts/alerts", h.ListAlerts)
+}
+
+// ListAlerts serves GET /app/counts/alerts -- the counts module's OWN alerts feed, the twin of
+// GET /app/weighing/alerts and GET /app/vaccination/alerts.
+//
+// WHY IT EXISTS: backend/internal/notificationbridge/verification_notify_consumer.go has been
+// queuing counts.proof.* / counts.record.closed notifications for the verifier, health_director
+// (COUNTS' documented owner), park_head and CEO since the shifting verification gate shipped, and
+// there was no route to read them back.
+//
+// SCOPE: the query filters on context->>'member_id' = the caller, so the feed is already "my own
+// alerts" and cannot leak another person's row. Park scope is therefore passed WIDE here (tenantWide
+// = true, parkIDs = nil) rather than re-deriving a capability park list -- see the identical note on
+// feeddirection's ListAlerts handler for the "recipient vs reader" defect this avoids. It matters
+// MORE here than anywhere else: health_director deliberately holds NEITHER counts.read NOR
+// counts.write (COUNTS IS AN OFF FEATURE, AGENTS.md), so any capability-derived park scope would
+// leave health_director with tenantWide=false and an empty park list -- exactly the same shape as
+// the verifier defect that inspired this rule -- and their Alerts tab would 200 with zero rows while
+// counts proofs sat addressed to them.
+func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	limit := domain.AlertPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_limit", "message": "limit must be a positive integer"}, nil)
+			return
+		}
+		limit = parsed
+	}
+	if limit > domain.MaxAlertPageSize {
+		limit = domain.MaxAlertPageSize
+	}
+
+	tenant := httpmiddleware.TenantIDFromContext(r.Context())
+	actor := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenant == "" || actor == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, map[string]string{"code": "actor_required", "message": "counts alerts require an authenticated caller"}, nil)
+		return
+	}
+
+	page, err := h.service.ListAlerts(
+		r.Context(), tenant, actor,
+		true, nil,
+		strings.TrimSpace(r.URL.Query().Get("cursor")), limit,
+	)
+	if err != nil {
+		if errors.Is(err, ports.ErrInvalidArgument) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_cursor", "message": "the paging cursor is not valid"}, nil)
+			return
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, map[string]string{"code": "internal_error", "message": "internal server error"}, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
+type submitMilkFeedingRequest struct {
+	ParkID      string                    `json:"park_id"`
+	FeedingDate string                    `json:"feeding_date"`
+	SessionNo   int                       `json:"session_no"`
+	Answers     domain.MilkFeedingAnswers `json:"answers"`
+	Proofs      domain.MilkFeedingProofs  `json:"proofs"`
+}
+
+func (h *Handler) ListMilkFeedingTasks(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	q := r.URL.Query()
+	day := time.Now().In(biztime.DefaultLocation())
+	if raw := strings.TrimSpace(q.Get("feeding_date")); raw != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+		if err != nil {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "feeding_date must be YYYY-MM-DD"}, nil)
+			return
+		}
+		day = parsed
+	}
+	limit, err := boundedIntParam(q, "limit", 20, 1, 20)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	offset, err := boundedIntParam(q, "offset", 0, 0, milkPreparationMaxOffset)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	var sessionNo *int
+	if raw := strings.TrimSpace(q.Get("session_no")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 || parsed > 4 {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_session", "message": "session_no must be between 1 and 4"}, nil)
+			return
+		}
+		sessionNo = &parsed
+	}
+	page, err := h.service.ListMilkFeedingTasks(r.Context(), domain.MilkFeedingQuery{TenantID: tenantID, ParkID: nullableString(q.Get("park_id")), FeedingDate: day, SessionNo: sessionNo, Limit: limit, Offset: offset})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "failed to load milk feeding actions", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
+}
+
+func (h *Handler) SubmitMilkFeeding(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenantID == "" || actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, map[string]string{"code": "missing_context", "message": "tenant and actor context are required"}, nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "idempotency_key_required", "message": "Idempotency-Key header is required"}, nil)
+		return
+	}
+	var body submitMilkFeedingRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_json", "message": "invalid request body"}, err)
+		return
+	}
+	day, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(body.FeedingDate), biztime.DefaultLocation())
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "feeding_date must be YYYY-MM-DD"}, nil)
+		return
+	}
+	submittedAt := time.Now().UTC() // india-date-guard:ignore: owner=goatos issue=GH-india-date scope=submission-absolute-instant-storage expiry=2026-12-31
+	result, err := h.service.SubmitMilkFeeding(r.Context(), domain.MilkFeedingSubmission{TenantID: tenantID, TaskID: strings.TrimSpace(r.PathValue("task_id")), ParkID: strings.TrimSpace(body.ParkID), FeedingDate: day, SessionNo: body.SessionNo, Answers: body.Answers, Proofs: body.Proofs, SubmittedBy: actorID, SubmittedAt: submittedAt, IdempotencyKey: key, TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	if err != nil {
+		status := http.StatusUnprocessableEntity
+		code := "invalid_milk_feeding"
+		if errors.Is(err, ports.ErrMilkFeedingNotFound) {
+			status = http.StatusNotFound
+			code = "task_not_found"
+		} else if errors.Is(err, ports.ErrIdempotencyConflict) {
+			status = http.StatusConflict
+			code = "idempotency_conflict"
+		} else if errors.Is(err, ports.ErrMilkFeedingPending) || errors.Is(err, ports.ErrMilkFeedingCompleted) {
+			status = http.StatusConflict
+			code = "task_not_actionable"
+		} else if errors.Is(err, ports.ErrMilkFeedingNotYetAvailable) {
+			status = http.StatusConflict
+			code = "task_not_yet_available"
+		}
+		httpresponse.WriteError(w, r, h.log, status, map[string]string{"code": code, "message": err.Error()}, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, result)
+}
+
+type submitMilkPreparationRequest struct {
+	ParkID          string                         `json:"park_id"`
+	PreparationDate string                         `json:"preparation_date"`
+	GoatMilkUsed    bool                           `json:"goat_milk_used"`
+	Answers         *domain.MilkPreparationAnswers `json:"answers"`
+	Proofs          domain.MilkPreparationProofs   `json:"proofs"`
+}
+
+// SubmitMilkPreparation accepts one farm-day attempt. It stores nothing as completed: success is
+// 202 pending_verification until the generic verifier approves the complete step-video package.
+func (h *Handler) SubmitMilkPreparation(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenantID == "" || actorID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, map[string]string{"code": "missing_context", "message": "tenant and actor context are required"}, nil)
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(key) < 8 || len(key) > 200 {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_idempotency_key", "message": "Idempotency-Key must be between 8 and 200 characters"}, nil)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var body submitMilkPreparationRequest
+	if err := decoder.Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_json", "message": "request body must match the milk preparation submission schema"}, nil)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_json", "message": "request body must contain one JSON object"}, nil)
+		return
+	}
+	preparationDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(body.PreparationDate), biztime.DefaultLocation())
+	if err != nil || strings.TrimSpace(body.ParkID) == "" || body.Answers == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_scope", "message": "park_id and preparation_date (YYYY-MM-DD) are required"}, nil)
+		return
+	}
+	submittedAt := time.Now().UTC() // india-date-guard:ignore: owner=goatos issue=GH-india-date scope=submission-absolute-instant-storage expiry=2026-12-31
+	result, err := h.service.SubmitMilkPreparation(r.Context(), domain.MilkPreparationSubmission{
+		TenantID: tenantID, ParkID: strings.TrimSpace(body.ParkID), PreparationDate: preparationDate,
+		GoatMilkUsed: body.GoatMilkUsed, Answers: *body.Answers, Proofs: body.Proofs, SubmittedBy: actorID,
+		SubmittedAt: submittedAt, IdempotencyKey: key,
+		TraceID: httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ports.ErrMilkPreparationProofs):
+			httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, map[string]string{"code": "proof_required", "message": err.Error()}, nil)
+		case errors.Is(err, ports.ErrMilkPreparationInvalidProof):
+			httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, map[string]string{"code": "invalid_proof", "message": err.Error()}, nil)
+		case errors.Is(err, ports.ErrMilkPreparationPending), errors.Is(err, ports.ErrMilkPreparationCompleted), errors.Is(err, ports.ErrIdempotencyConflict):
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict, map[string]string{"code": "state_conflict", "message": err.Error()}, nil)
+		default:
+			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, map[string]string{"code": "milk_preparation_submit_failed", "message": "milk preparation submission failed"}, err)
+		}
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusAccepted, result)
+}
+
+// GetMilkPreparation serves today's live-herd K1/K2/K3 milk preparation direction.
+func (h *Handler) GetMilkPreparation(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
+		return
+	}
+	query := r.URL.Query()
+	limit, err := boundedIntParam(query, "limit", milkPreparationDefaultLimit, 1, milkPreparationMaxLimit)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	offset, err := boundedIntParam(query, "offset", 0, 0, milkPreparationMaxOffset)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	page, err := h.service.GetMilkPreparation(r.Context(), domain.MilkPreparationQuery{
+		TenantID: tenantID,
+		ParkID:   nullableString(query.Get("park_id")),
+		Limit:    limit,
+		Offset:   offset,
+		AsOf:     time.Now(),
+	})
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "milk preparation direction", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 // GetSummary serves exact summary counts from the herd register summary projection.
@@ -95,6 +359,7 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		LifecycleStatus: nullableString(query.Get("lifecycle_status")),
 		ParkID:          nullableString(query.Get("park_id")),
 		ShedID:          nullableString(query.Get("shed_id")),
+		PartitionLabel:  nullableString(query.Get("partition_label")),
 		ManagementStage: nullableString(query.Get("management_stage")),
 		Breed:           nullableString(query.Get("breed")),
 		Sex:             nullableString(query.Get("sex")),
@@ -115,6 +380,9 @@ const (
 	countsBreakdownDefaultLimit = 10
 	countsBreakdownMaxLimit     = 100
 	countsBreakdownMaxOffset    = 5000
+	milkPreparationDefaultLimit = 10
+	milkPreparationMaxLimit     = 50
+	milkPreparationMaxOffset    = 5000
 )
 
 // boundedIntParam parses an optional integer query param. Absent or empty means the declared

@@ -6,8 +6,10 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import sg.mesha.goatos.core.permissions.areNotificationsEnabled
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -19,6 +21,7 @@ import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
@@ -32,6 +35,12 @@ import sg.mesha.goatos.core.data.DefaultAdherenceRepository
 import sg.mesha.goatos.core.data.DefaultBootstrapRepository
 import sg.mesha.goatos.core.data.DefaultCalendarRepository
 import sg.mesha.goatos.core.data.DefaultControlTowerRepository
+import sg.mesha.goatos.core.data.DefaultVaccinationAlertsRepository
+import sg.mesha.goatos.core.data.DefaultWeighingAlertsRepository
+import sg.mesha.goatos.core.data.VaccinationAlertsRepository
+import sg.mesha.goatos.core.data.WeighingAlertsRepository
+import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
 import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
@@ -40,10 +49,30 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.CountsRepository
 import sg.mesha.goatos.core.data.DefaultCountsApprovalRepository
+import sg.mesha.goatos.core.data.AwaitingRfidRepository
+import sg.mesha.goatos.core.data.DefaultAwaitingRfidRepository
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.DefaultCaptureDraftRepository
+import sg.mesha.goatos.core.data.DefaultShiftingPendingRepository
+import sg.mesha.goatos.core.data.DefaultWorkflowsRepository
+import sg.mesha.goatos.core.data.DefaultHealthRepository
+import sg.mesha.goatos.core.data.HealthRepository
+import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.DefaultCountsRepository
+import sg.mesha.goatos.core.data.DefaultMilkPreparationRepository
+import sg.mesha.goatos.core.data.MilkPreparationRepository
+import sg.mesha.goatos.core.data.DefaultMilkFeedingRepository
+import sg.mesha.goatos.core.data.MilkFeedingRepository
+import sg.mesha.goatos.core.data.DefaultFeedRepository
+import sg.mesha.goatos.core.data.FeedTransportRepository
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.DefaultRosterRepository
@@ -71,6 +100,9 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -78,6 +110,7 @@ import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.core.data.sync.LocalBackendConnectivityGate
+import sg.mesha.goatos.core.data.sync.MediaStoreGalleryProofSaver
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -86,6 +119,8 @@ import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.weighing.DefaultWeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
 import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
@@ -95,12 +130,19 @@ import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
+import sg.mesha.goatos.capture.DelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
+import sg.mesha.goatos.capture.AppProofMediaProcessor
+import sg.mesha.goatos.capture.AppProofLocationProvider
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.network.NetworkTelemetryReporter
+import sg.mesha.goatos.core.network.RequestMetadata
 import sg.mesha.goatos.core.network.TelemetryInterceptor
 import sg.mesha.goatos.rfid.BtHidScanSource
+import sg.mesha.goatos.rfid.DefaultRfidInputTransform
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
+import sg.mesha.goatos.rfid.RfidInputTransform
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
@@ -124,6 +166,14 @@ object AppModule {
         buildGoatDatabase(context)
 
     @Provides
+    @Singleton
+    fun provideWeighingExportFileWriter(
+        @ApplicationContext context: Context,
+        crashReporter: sg.mesha.goatos.core.analytics.CrashReporter,
+    ): sg.mesha.goatos.export.WeighingExportFileWriter =
+        sg.mesha.goatos.export.AndroidWeighingExportFileWriter(context, crashReporter)
+
+    @Provides
     fun provideBootstrapCacheDao(db: GoatDatabase): BootstrapCacheDao = db.bootstrapCacheDao()
 
     @Provides
@@ -139,6 +189,15 @@ object AppModule {
 
     @Provides
     fun provideControlTowerCacheDao(db: GoatDatabase): ControlTowerCacheDao = db.controlTowerCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideWeighingAlertsCacheDao(db: GoatDatabase): WeighingAlertsCacheDao = db.weighingAlertsCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideVaccinationAlertsCacheDao(db: GoatDatabase): VaccinationAlertsCacheDao =
+        db.vaccinationAlertsCacheDao()
 
     @Provides
     fun provideExecutionRowsCacheDao(db: GoatDatabase): ExecutionRowsCacheDao = db.executionRowsCacheDao()
@@ -187,6 +246,17 @@ object AppModule {
     fun provideCountsShiftingDestinationsCacheDao(db: GoatDatabase): CountsShiftingDestinationsCacheDao =
         db.countsShiftingDestinationsCacheDao()
 
+    // Feed read models. Like the Counts breakdown, each screen's paged rows are read through
+    // GoatDatabase directly by its RemoteMediator (it needs a transaction across the item +
+    // remote-key DAOs), so only the two fixed-size summary DAOs are injected here.
+    @Provides
+    fun provideFeedDirectionMetaCacheDao(db: GoatDatabase): FeedDirectionMetaCacheDao =
+        db.feedDirectionMetaCacheDao()
+
+    @Provides
+    fun provideFeedPackingMetaCacheDao(db: GoatDatabase): FeedPackingMetaCacheDao =
+        db.feedPackingMetaCacheDao()
+
     @Provides
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
 
@@ -230,7 +300,15 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppApi(sessionStore: SessionStore, networkTelemetryReporter: NetworkTelemetryReporter): AppApi =
+    fun provideRfidInputTransform(transform: DefaultRfidInputTransform): RfidInputTransform = transform
+
+    @Provides
+    @Singleton
+    fun provideAppApi(
+        sessionStore: SessionStore,
+        deviceStore: DeviceStore,
+        networkTelemetryReporter: NetworkTelemetryReporter,
+    ): AppApi =
         NetworkFactory.appApi(
             baseUrl = BuildConfig.API_BASE_URL,
             tokenProvider = {
@@ -248,12 +326,31 @@ object AppModule {
             },
             tenantIdProvider = { BuildConfig.TENANT_ID },
             localeProvider = { sessionStore.cachedLanguage() },
+            requestMetadataProvider = {
+                RequestMetadata(
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersionCode = BuildConfig.VERSION_CODE.toString(),
+                    buildType = BuildConfig.FLAVOR + if (BuildConfig.DEBUG) "Debug" else "Release",
+                    deviceId = deviceStore.appInstallIdSync(),
+                    platform = "android",
+                    osVersion = "Android ${Build.VERSION.RELEASE.orEmpty()}",
+                    sdkVersion = Build.VERSION.SDK_INT.toString(),
+                    deviceModel = listOf(Build.MANUFACTURER, Build.MODEL)
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString(" "),
+                )
+            },
             // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
-            // `enabled` mirrors TELEMETRY_ENABLED so a flavor without a confirmed Firebase
-            // project still gets traceparent propagation for backend correlation — only the
-            // Firebase Perf reporting half is gated (networkTelemetryReporter is already a Noop
-            // there; see TelemetryModule).
-            telemetryInterceptor = TelemetryInterceptor(enabled = BuildConfig.TELEMETRY_ENABLED, reporter = networkTelemetryReporter),
+            // Always ENABLED. The comment here previously described exactly this intent — "a
+            // flavor without a confirmed Firebase project still gets traceparent propagation
+            // for backend correlation, only the Firebase Perf reporting half is gated" — while
+            // the code passed TELEMETRY_ENABLED and so switched the WHOLE interceptor off,
+            // taking traceparent correlation and every API-failure report with it. Gating now
+            // lives where the comment always said it did: on the reporter's Firebase Perf
+            // delegate, inside TelemetryModule.
+            telemetryInterceptor = TelemetryInterceptor(enabled = true, reporter = networkTelemetryReporter),
         )
 
     @Provides
@@ -262,6 +359,7 @@ object AppModule {
         api: AppApi,
         cache: BootstrapCache,
         deviceStore: DeviceStore,
+        @ApplicationContext context: Context,
     ): BootstrapRepository =
         DefaultBootstrapRepository(
             api = api,
@@ -269,6 +367,10 @@ object AppModule {
             deviceStore = deviceStore,
             appVersion = BuildConfig.VERSION_NAME,
             osVersion = Build.VERSION.RELEASE.orEmpty(),
+            // Read at report time, not captured once: someone can switch notifications off in
+            // system settings long after this repository was constructed, and the heartbeat that
+            // follows must carry the CURRENT answer.
+            notificationsEnabled = { areNotificationsEnabled(context) },
         )
 
     @Provides
@@ -299,15 +401,98 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideMilkPreparationRepository(
+        api: AppApi,
+        breakdownMetaDao: CountsBreakdownMetaCacheDao,
+    ): MilkPreparationRepository = DefaultMilkPreparationRepository(api, breakdownMetaDao)
+
+    @Provides
+    @Singleton
+    fun provideMilkFeedingRepository(
+        api: AppApi,
+        breakdownMetaDao: CountsBreakdownMetaCacheDao,
+    ): MilkFeedingRepository = DefaultMilkFeedingRepository(api, breakdownMetaDao)
+
+    @Provides
+    @Singleton
     fun provideCountsApprovalRepository(
         api: AppApi,
         database: GoatDatabase,
     ): CountsApprovalRepository = DefaultCountsApprovalRepository(api, database)
 
+    /**
+     * The shared durable capture-draft store. Every capture screen writes its recorded proofs and
+     * submit key here so Back + re-entry cannot lose them (see CaptureEvidenceDraftEntity).
+     */
+    @Provides
+    @Singleton
+    fun provideCaptureDraftRepository(
+        database: GoatDatabase,
+    ): CaptureDraftRepository = DefaultCaptureDraftRepository(database)
+
+    @Provides
+    @Singleton
+    fun provideShiftingPendingRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): ShiftingPendingRepository = DefaultShiftingPendingRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideAwaitingRfidRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): AwaitingRfidRepository = DefaultAwaitingRfidRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideWorkflowsRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        outboxStore: OutboxStore,
+    ): WorkflowsRepository = DefaultWorkflowsRepository(api, database, outboxStore)
+
+    @Provides
+    @Singleton
+    fun provideHealthRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): HealthRepository = DefaultHealthRepository(api, database)
+
+    @Provides
+    @Singleton
+    fun provideFeedRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        directionMetaDao: FeedDirectionMetaCacheDao,
+        packingMetaDao: FeedPackingMetaCacheDao,
+    ): FeedRepository =
+        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao)
+
+    // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
+    // refresh). A process singleton, not persisted — the outbox is the durable command record.
+    @Provides
+    @Singleton
+    fun provideFeedCompletionLocalStore(): FeedCompletionLocalStore = FeedCompletionLocalStore()
+
+    @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
+
     @Provides
     @Singleton
     fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =
         DefaultControlTowerRepository(api, dao)
+
+    @Provides
+    @Singleton
+    fun provideWeighingAlertsRepository(api: AppApi, dao: WeighingAlertsCacheDao): WeighingAlertsRepository =
+        DefaultWeighingAlertsRepository(api, dao)
+
+    @Provides
+    @Singleton
+    fun provideVaccinationAlertsRepository(
+        api: AppApi,
+        dao: VaccinationAlertsCacheDao,
+    ): VaccinationAlertsRepository = DefaultVaccinationAlertsRepository(api, dao)
 
     @Provides
     @Singleton
@@ -347,6 +532,24 @@ object AppModule {
         dao: VerificationQueueCacheDao,
     ): VerificationRepository = DefaultVerificationRepository(api, dao)
 
+    @Provides
+    @Singleton
+    fun provideWeighingRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: SyncRepository,
+        appScope: CoroutineScope,
+    ): WeighingRepository = DefaultWeighingRepository(
+        api = api,
+        tenantId = BuildConfig.TENANT_ID,
+        rosterDao = database.weighingRosterDao(),
+        observationDao = database.weighingObservationDao(),
+        shedObservationDao = database.weighingShedObservationDao(),
+        database = database,
+        syncRepository = syncRepository,
+        appScope = appScope,
+    )
+
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
     // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
     // BtHidScanSource wraps the SAME RfidReaderPort singleton the shed-roster Scan screen
@@ -366,6 +569,14 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideDelegatingPhotoCaptureSource(): DelegatingPhotoCaptureSource = DelegatingPhotoCaptureSource()
+
+    @Provides
+    @Singleton
+    fun providePhotoCaptureSource(delegate: DelegatingPhotoCaptureSource): PhotoCaptureSource = delegate
+
+    @Provides
+    @Singleton
     fun provideScanCaptureRepository(
         dao: ScannedGoatDao,
         syncRepository: SyncRepository,
@@ -376,18 +587,27 @@ object AppModule {
     fun provideScanAttemptRepository(
         dao: RfidScanAttemptDao,
         syncRepository: SyncRepository,
-    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository)
+        appScope: CoroutineScope,
+    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository, appScope)
 
     @Provides
     @Singleton
     fun provideProofCaptureRepository(
+        @ApplicationContext context: Context,
         dao: ProofCaptureDao,
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
+        analytics: AnalyticsPort,
+        mediaProcessor: AppProofMediaProcessor,
+        locationProvider: AppProofLocationProvider,
     ): ProofCaptureRepository = DefaultProofCaptureRepository(
         dao = dao,
         syncRepository = syncRepository,
         appScope = appScope,
+        mediaProcessor = mediaProcessor,
+        locationProvider = locationProvider,
+        galleryProofSaver = MediaStoreGalleryProofSaver(context),
+        telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
 
     // --- Offline sync engine (outbox) --------------------------------------------------
@@ -413,14 +633,28 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun provideAppScope(crashReporter: CrashReporter): CoroutineScope {
+        val handler = CoroutineExceptionHandler { _, error ->
+            crashReporter.recordException(error, "app-scope background job failed")
+        }
+        return CoroutineScope(SupervisorJob() + Dispatchers.Default + handler)
+    }
+
+    /** Single binding for the active flavor's API base URL — see [ApiBaseUrl]. */
+    @Provides
+    @Singleton
+    @ApiBaseUrl
+    fun provideApiBaseUrl(): String = BuildConfig.API_BASE_URL
 
     @Provides
     @Singleton
-    fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
+    fun provideConnectivityGate(
+        @ApplicationContext context: Context,
+        @ApiBaseUrl apiBaseUrl: String,
+    ): ConnectivityGate =
         LocalBackendConnectivityGate(
             delegate = AndroidConnectivityGate(context),
-            apiBaseUrl = BuildConfig.API_BASE_URL,
+            apiBaseUrl = apiBaseUrl,
         )
 
     @Provides
@@ -451,6 +685,7 @@ object AppModule {
         outboxWiper: OutboxWiper,
         syncJobsCanceller: SyncJobsCanceller,
         pushLogoutCleanup: PushLogoutCleanup,
+        feedCompletionLocalStore: FeedCompletionLocalStore,
     ): LogoutCoordinator = LogoutCoordinator(
         api = api,
         deviceStore = deviceStore,
@@ -459,6 +694,7 @@ object AppModule {
         outboxWiper = outboxWiper,
         syncJobsCanceller = syncJobsCanceller,
         clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
+        feedCompletionLocalStore = feedCompletionLocalStore,
     )
 
     @Provides
@@ -468,11 +704,34 @@ object AppModule {
         api: AppApi,
         connectivityGate: ConnectivityGate,
         retryScheduler: SyncRetryScheduler,
+        database: GoatDatabase,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
         connectivityGate = connectivityGate,
         retryScheduler = retryScheduler,
+        scannedGoatDao = database.scannedGoatDao(),
+        weighingObservationDao = database.weighingObservationDao(),
+        weighingShedObservationDao = database.weighingShedObservationDao(),
+        telemetry = outboxTelemetry,
+    )
+
+    /**
+     * Queue-lifecycle visibility (W-23). Bound unconditionally — unlike the network reporter
+     * there is no vendor-gated variant to choose between: the logcat half must work on EVERY
+     * flavor (that is the half whose absence made a stuck upload undiagnosable on-device), and
+     * the Crashlytics/Analytics halves already degrade to no-ops when their seams are the
+     * Noop implementations.
+     */
+    @Provides
+    @Singleton
+    fun provideOutboxTelemetryReporter(
+        crashReporter: CrashReporter,
+        analytics: AnalyticsPort,
+    ): OutboxTelemetryReporter = FailureReportingOutboxTelemetryReporter(
+        crashReporter = crashReporter,
+        analytics = analytics,
     )
 
     // Drive/Photos-style background upload foreground service (MOB-002 §3,
@@ -492,17 +751,20 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSyncRepository(
+        @ApplicationContext context: Context,
         store: OutboxStore,
         engine: SyncEngine,
         connectivityGate: ConnectivityGate,
         appScope: CoroutineScope,
         foregroundSyncController: ForegroundSyncController,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncRepository = DefaultSyncRepository(
         store = store,
         engine = engine,
         connectivityGate = connectivityGate,
         appScope = appScope,
         foregroundSyncController = foregroundSyncController,
+        telemetry = outboxTelemetry,
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned
@@ -515,9 +777,18 @@ object AppModule {
         appScope: CoroutineScope,
         engine: SyncEngine,
         syncRepository: SyncRepository,
+        connectivityGate: ConnectivityGate,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
-        return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { online ->
+        return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
+            // Reconcile the RAW platform signal with the gate the rest of sync already uses.
+            // AndroidConnectivitySource reports the platform's VALIDATED-internet verdict, which
+            // is false on a device whose only route to the API is an adb-reverse loopback (device
+            // proof runs) or a network without validated internet. Pushing that straight through
+            // raised "You're offline — records save on this phone and sync when you reconnect" on
+            // a phone that was reaching the backend fine, on the same screen that had just
+            // rendered freshly fetched data.
+            val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
             if (online) appScope.launch { engine.drainOnce() }
         }

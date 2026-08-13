@@ -2,7 +2,10 @@ package sg.mesha.goatos.capture
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -26,28 +29,43 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaPrimaryButton
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
  * MANDATORY, blocking permission gate for the capture/submit surface
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
- * Bluetooth, notifications, and pre-Android-12 location when the RFID stack requires it.
- * There is no degraded operator capture path: if any required permission is denied,
- * [content] never composes.
+ * microphone, precise location, OS-applicable notifications, and Android-12+ Nearby Devices
+ * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`). Android 12+ requires
+ * the location dialog to request coarse alongside fine; fine remains mandatory
+ * for operator proof capture, so approximate-only grants keep the gate closed.
+ * There is no degraded operator capture path: if any required
+ * permission is denied, [content] never composes. Runtime notification permission exists
+ * only on Android 13+, so Android 12 must never include it in the all-granted check.
+ *
+ * The microphone is on that blocking list deliberately (2026-08-08): a proof clip without the
+ * operator's voice is a weaker proof, so audio is compulsory rather than best-effort — see
+ * InAppVideoRecorder's `withAudioEnabled`. `internal` rather than `private` so
+ * ProofAudioCaptureTest can assert the mic never falls back out of the mandatory set.
  */
-private val MANDATORY_CAPTURE_PERMISSIONS: List<String> = buildList {
+internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
+    mandatoryCapturePermissionsForSdk(Build.VERSION.SDK_INT)
+
+internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
-    add(Manifest.permission.POST_NOTIFICATIONS) // no-op pre-33; harmless to request always.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    add(Manifest.permission.RECORD_AUDIO)
+    add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    add(Manifest.permission.ACCESS_FINE_LOCATION)
+    if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    if (sdkInt >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
-    } else {
-        add(Manifest.permission.ACCESS_FINE_LOCATION) // Bluetooth dependency on pre-12.
+        add(Manifest.permission.BLUETOOTH_SCAN)
     }
 }
 
@@ -75,6 +93,12 @@ fun CaptureAccessGate(
         content()
         return
     }
+    val deniedPermissions = grantedSnapshot.filterValues { !it }.keys
+    val shouldOpenSettings = hasRequestedOnce &&
+        activity != null &&
+        deniedPermissions.any { permission ->
+            !activity.shouldShowRequestPermissionRationale(permission)
+        }
 
     Column(
         modifier = modifier
@@ -87,16 +111,15 @@ fun CaptureAccessGate(
         Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(16.dp))
         Text(
-            "Camera, RFID reader, and background upload access are required",
+            "Upload access is required",
             color = MeshaColors.Ink,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.headerTitle,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "A vaccination drive can't be scanned or proven without these. Grant the access below to continue.",
+            "Allow camera, microphone, and precise location to continue.",
             color = MeshaColors.Muted,
-            fontSize = 13.sp,
+            style = MeshaType.rowLabel,
         )
         Spacer(Modifier.height(20.dp))
         grantedSnapshot.forEach { (permission, granted) ->
@@ -104,31 +127,48 @@ fun CaptureAccessGate(
                 Text(
                     text = "${permissionLabel(permission)}: ${if (granted) "granted" else "needed"}",
                     color = if (granted) MeshaColors.Brand else MeshaColors.Warn,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                 )
             }
         }
         Spacer(Modifier.height(20.dp))
         MeshaPrimaryButton(
-            text = "Grant access",
+            text = if (shouldOpenSettings) "Open Settings" else "Grant access",
             enabled = true,
-            onClick = { launcher.launch(MANDATORY_CAPTURE_PERMISSIONS.toTypedArray()) },
+            onClick = {
+                if (shouldOpenSettings) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        },
+                    )
+                } else {
+                    launcher.launch(MANDATORY_CAPTURE_PERMISSIONS.toTypedArray())
+                }
+            },
         )
         if (hasRequestedOnce && !allGranted) {
             Spacer(Modifier.height(10.dp))
             Text(
-                "If a permission is permanently denied, open Settings to grant it.",
+                if (shouldOpenSettings) {
+                    "Enable the missing permissions in Settings, then return here."
+                } else {
+                    "If access is denied again, you may need to enable it from Settings."
+                },
                 color = MeshaColors.Faint,
-                fontSize = 11.5.sp,
+                style = MeshaType.eyebrow,
             )
         }
     }
 }
 
-private fun permissionLabel(permission: String): String = when (permission) {
+internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
-    Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth (RFID reader)"
-    Manifest.permission.ACCESS_FINE_LOCATION -> "Location (Bluetooth dependency)"
+    Manifest.permission.RECORD_AUDIO -> "Microphone"
+    Manifest.permission.ACCESS_COARSE_LOCATION -> "Approximate location"
+    Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth connect (RFID reader)"
+    Manifest.permission.BLUETOOTH_SCAN -> "Bluetooth scan (RFID reader)"
+    Manifest.permission.ACCESS_FINE_LOCATION -> "Precise location"
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
     else -> permission
 }

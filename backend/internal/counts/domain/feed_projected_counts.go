@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -22,76 +21,104 @@ import (
 // and is still used by the counts-source import and parity tooling. Nothing here
 // reads or writes those tables.
 
-// Feed shifting lead days: how long after a park head APPROVES a movement the
-// feed plan should treat the animals as already standing in the destination
-// shed. The animals have not moved yet -- this is the operational lead time the
-// feed team works to, so the destination shed's ration is ready when they
-// arrive rather than a day late.
+// Feed shifting projection timing.
 //
-// These two constants are the ONLY definition of the rule. The SQL does not
-// re-derive them: Repository.ProjectedShedCountsForFeed binds them as query
-// parameters, so the statement branches only on the literal priority string and
-// the business numbers cannot drift between Go and SQL.
-const (
-	// FeedShiftingHighPriorityLeadDays applies to priority = 'high' (governing-doc
-	// taxonomy, migration 000016). A high-priority movement is executed fast, so
-	// feed follows one day behind approval. This is the same fast lane the retired
-	// 'emergency' priority carried, and it is the priority the documented
-	// high-priority source-ration bridge keys on.
-	FeedShiftingHighPriorityLeadDays = 1
-	// FeedShiftingStandardLeadDays applies to priority = 'low' -- the standard
-	// two-day lead.
-	FeedShiftingStandardLeadDays = 2
-)
+// MAINTAINER DECISION (2026-07-27, SUPERSEDING the priority-based lead-day rule):
+// a shifting is a pending feed input the moment a park head AUTHORIZES it. There
+// is NO lead time and NO priority branch. An authorized-but-unexecuted movement --
+// normal or high priority alike -- counts toward EVERY feed day from its
+// authorization business date onward, and stops counting only once it is APPLIED
+// (verifier-approved), at which point the animals already sit in the destination
+// shed in the live `goats` table and the projection must not add them a second
+// time (see the adapter's event_status filter, which counts 'authorized' and
+// 'pending_verification' but never 'applied').
+//
+// The retired rule gave a normal movement a two-day lead and a high-priority one
+// a one-day lead. This farm completes a normal shifting the day after approval and
+// a high-priority one same-day, so the feed team wants the destination ration ready
+// as soon as the move is authorized rather than a configured number of days later:
+// tomorrow's feed, packed today, must reflect every move still pending now.
+//
+// These helpers are the pure-Go spec of the rule the adapter SQL implements. They
+// have no production caller of their own; the SQL is the production path. Keeping
+// them in lock-step with the SQL is what a domain unit test can prove without a DB.
 
-// FeedShiftingLeadDays returns the feed lead time for a shifting priority.
-//
-// Unknown/blank priorities fall back to the STANDARD lead rather than the fast
-// one. Falling back to the shorter lead would make an unrecognized priority pull
-// animals into the destination shed's ration a day early, which is the direction
-// that feeds the wrong shed; the longer lead merely delays a projection that a
-// later day picks up anyway.
-func FeedShiftingLeadDays(priority string) int {
-	if strings.EqualFold(strings.TrimSpace(priority), "high") {
-		return FeedShiftingHighPriorityLeadDays
-	}
-	return FeedShiftingStandardLeadDays
+// FeedShiftingEffectiveBusinessDate is the business date from which an authorized
+// shifting begins contributing to the destination shed's feed: the authorization
+// day itself, in Asia/Kolkata. Per AGENTS.md, UTC never defines a Goat OS business
+// day -- an approval stamped 2026-07-19T20:00:00Z is already 2026-07-20 in India.
+func FeedShiftingEffectiveBusinessDate(approvedAt time.Time) time.Time {
+	return biztime.BusinessDayStart(approvedAt)
 }
 
-// FeedEffectiveBusinessDate returns the business date on which an approved
-// shifting starts counting toward the destination shed's feed.
-//
-// approvedAt is an absolute instant; the returned value is a business-day start
-// in Asia/Kolkata. Per AGENTS.md, UTC never defines a Goat OS business day: an
-// approval stamped 2026-07-19T20:00:00Z is already 2026-07-20 in India, and a
-// UTC-derived date would feed the destination shed a day late.
-func FeedEffectiveBusinessDate(approvedAt time.Time, priority string) time.Time {
-	return biztime.BusinessDayStart(approvedAt).AddDate(0, 0, FeedShiftingLeadDays(priority))
-}
-
-// FeedShiftingCountsToward reports whether an approved-but-unexecuted shifting
+// FeedShiftingCountsToward reports whether an authorized-but-unexecuted shifting
 // contributes to the projected counts for feed day targetDate.
 //
-// The comparison is <=, not ==, and that is load-bearing. An OVERDUE movement --
-// one whose feed-effective date has passed without the movement being executed --
-// keeps contributing to every later day automatically. Under an == rule it would
-// silently drop out of the projection the day after it came due, and the
-// destination shed would quietly stop being fed for animals that are still on
-// their way. Overdue rows are surfaced, never dropped: see FeedShiftingIsOverdue.
-func FeedShiftingCountsToward(approvedAt time.Time, priority string, targetDate time.Time) bool {
-	effective := FeedEffectiveBusinessDate(approvedAt, priority)
+// The comparison is <=, so a movement counts on its authorization day and every
+// day after until it is executed. That <= is load-bearing: an OVERDUE movement --
+// one still unexecuted long after it was authorized -- keeps contributing rather
+// than silently dropping out and quietly de-feeding a destination shed whose
+// animals are still expected. Overdue rows are surfaced, never dropped: see
+// FeedShiftingIsOverdue.
+func FeedShiftingCountsToward(approvedAt time.Time, targetDate time.Time) bool {
+	effective := FeedShiftingEffectiveBusinessDate(approvedAt)
 	target := biztime.BusinessDayStart(targetDate)
 	return !effective.After(target)
 }
 
-// FeedShiftingIsOverdue reports whether a contributing shifting came due for
-// feed BEFORE the target day and still has not been executed. The UI surfaces
-// these so an operator can see that a movement the feed plan already assumes
-// has not physically happened.
-func FeedShiftingIsOverdue(approvedAt time.Time, priority string, targetDate time.Time) bool {
-	effective := FeedEffectiveBusinessDate(approvedAt, priority)
-	target := biztime.BusinessDayStart(targetDate)
-	return effective.Before(target)
+// FeedShiftingRaisedEffectiveBusinessDate is the feed-effective business date of a movement that has
+// been RAISED but NOT YET APPROVED.
+//
+// MAINTAINER DECISION (2026-08-10, SUPERSEDING the approval half of the 2026-07-27 rule above): a
+// raised movement counts toward the feed sheet before a park head has authorized it. Approval is no
+// longer what starts the feed clock; only a REJECTION stops it.
+//
+// The problem it fixes: a low-priority movement raised at 09:00 is due TOMORROW, but tomorrow's
+// normal sheet was issued at 07:00 THIS MORNING and is already being packed. Waiting for approval
+// meant the destination pen was packed for the head count it had at breakfast, so ten animals
+// arriving tomorrow had no feed at all. Under-feeding animals that really arrive is worse than
+// over-packing for a movement the park head later rejects -- and a rejected movement stops counting
+// the moment it is rejected, because only authorization_state='pending' contributes.
+//
+// The date is the ACTIONS lead time, NOT the raise day. This is the one place the two rules
+// deliberately meet: an unapproved movement has no authorization instant to anchor on, and the
+// honest answer to "when do these animals eat here" is the day they are expected to walk --
+// ShiftingActionsDueFrom, i.e. low priority raised before 13:30 IST -> tomorrow, at or after 13:30
+// -> the day after. Anchoring on the raise DAY instead would feed the destination from tomorrow for
+// a 13:45 raise whose animals do not move until the day after, which is the same over-feeding bug
+// one day earlier.
+//
+// An APPROVED movement keeps the 2026-07-27 rule unchanged (effective = the authorization business
+// date, no lead, no priority branch). The two are not merged: this one answers "how many mouths will
+// be here" for work nobody has authorized yet, that one for work that is already authorized.
+func FeedShiftingRaisedEffectiveBusinessDate(priority string, raisedAt time.Time) time.Time {
+	return biztime.BusinessDayStart(ShiftingActionsDueFrom(priority, raisedAt))
+}
+
+// FeedShiftingRaisedCountsToward reports whether a raised-but-unapproved shifting contributes to the
+// projected counts for feed day targetDate. Same <= as the authorized rule: once a movement is due it
+// keeps counting until it is executed or rejected, so an unapproved movement sitting in the park
+// head's queue for days does not silently stop feeding a destination whose animals are still coming.
+func FeedShiftingRaisedCountsToward(priority string, raisedAt time.Time, targetDate time.Time) bool {
+	effective := FeedShiftingRaisedEffectiveBusinessDate(priority, raisedAt)
+	return !effective.After(biztime.BusinessDayStart(targetDate))
+}
+
+// FeedShiftingIsOverdue reports whether an authorized-but-unexecuted shifting has
+// been pending SINCE BEFORE the packing day and still has not physically happened.
+//
+// Feed for day D is packed on D-1, so the packing day is targetDate - 1 business
+// day. A movement authorized ON the packing day or later is expected to be executed
+// during that same packing day and is NOT overdue; only one authorized on an EARLIER
+// day -- pending across at least one full cycle -- is flagged. That keeps the signal
+// meaningful instead of lighting up for every freshly authorized move (which under
+// a zero lead would otherwise all read as "assumed but not yet physical"). An overdue
+// movement is by construction still counting, since its effective date precedes the
+// packing day, which precedes the feed day.
+func FeedShiftingIsOverdue(approvedAt time.Time, targetDate time.Time) bool {
+	effective := FeedShiftingEffectiveBusinessDate(approvedAt)
+	packingDay := biztime.BusinessDayStart(targetDate).AddDate(0, 0, -1)
+	return effective.Before(packingDay)
 }
 
 // FeedProjectedCountQuery filters and pages the live-herd feed projection.
@@ -141,12 +168,13 @@ type FeedProjectedCountQuery struct {
 }
 
 // FeedProjectedCountRow is one projected shed grain:
-// park x shed x management stage x breed x sex.
+// park x shed x partition x management stage x breed x sex.
 type FeedProjectedCountRow struct {
 	ParkID          *string `json:"park_id"`
 	ParkLabel       string  `json:"park_label"`
 	ShedID          *string `json:"shed_id"`
 	ShedLabel       string  `json:"shed_label"`
+	PartitionLabel  string  `json:"partition_label"`
 	ManagementStage string  `json:"management_stage"`
 	Breed           string  `json:"breed"`
 	Sex             string  `json:"sex"`
@@ -165,8 +193,9 @@ type FeedProjectedCountRow struct {
 	// more animals than the source grain holds, which is a real data problem the
 	// operator has to see rather than an arithmetic result to round away.
 	Clamped bool `json:"clamped"`
-	// OverduePending is true when at least one contributing movement came due
-	// before the target date and still has not been executed.
+	// OverduePending is true when at least one contributing movement was
+	// authorized before the packing day (feed day - 1) and still has not been
+	// executed -- i.e. it has been pending across at least one full cycle.
 	OverduePending bool `json:"overdue_pending"`
 	// OverdueShiftingEventIDs names those movements so the UI can link to them.
 	OverdueShiftingEventIDs []string `json:"overdue_shifting_event_ids"`

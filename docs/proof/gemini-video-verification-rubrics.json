@@ -1,0 +1,897 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goatos.mesha.sg/schemas/proof/gemini-video-verification-rubrics.schema.json",
+  "title": "Goat OS Gemini Proof Media Verification Registry",
+  "version": "2026-08-12.2",
+  "model_role": "advisory_ai_verifier",
+  "authority_boundary": "Gemini output is advisory evidence only. Human Verifier approval or rejection remains authoritative.",
+  "coverage_note": "This registry covers active verifier tabs plus known proof/media producers from Goat OS product architecture. New producers must add a category before sending media to Gemini.",
+  "prompt_contract": {
+    "system_instruction": "You are an advisory proof-media verifier for Goat OS. Verify only what the supplied media can prove for the requested category. Return JSON only. If evidence is incomplete, dark, shaky, occluded, cropped, ambiguous, still-image insufficient for an action, or missing required app metadata, use needs_human_review with precise reasons. Never invent weight, shed identity, feed quantity, person identity, count, or action completion.",
+    "user_instruction_template": "Audit this proof media for category {{category}}. Compare visible evidence against supplied metadata and app claim. Return JSON matching output_schema. Focus on whether the operational action is actually proven and why the feature requires this proof.",
+    "app_claim_rule": "Fields in app_claim are backend/task context for comparison. They are not automatically visual requirements. Gemini must only require a field to be visible when that category's verify list explicitly asks for visible text, label, display, count, tag, or identity proof.",
+    "minimum_input": [
+      "verification_item_id",
+      "category",
+      "media",
+      "captured_at",
+      "tenant_id",
+      "park_id",
+      "shed_id",
+      "operator_id",
+      "app_claim"
+    ],
+    "common_verifier_item_properties": {
+      "verification_item_id": "string",
+      "category": "string",
+      "vertical": "string",
+      "module": "string",
+      "status": "pending|approved|rejected|rework|other",
+      "row_version": "number|string",
+      "captured_at": "timestamp",
+      "media": "array<media>",
+      "source": "object",
+      "subject_label": "string|null",
+      "subject_note": "string|null",
+      "context_rows": "array|null",
+      "operator_id": "string|null",
+      "operator_name": "string|null",
+      "park_id": "string|null",
+      "park_label": "string|null",
+      "shed_id": "string|null",
+      "shed_label": "string|null",
+      "op_location_label": "string|null",
+      "verdict": "object|null"
+    },
+    "common_media_properties": {
+      "proof_id": "string",
+      "download_url": "signed_url",
+      "label": "string|null",
+      "answer": "string|null",
+      "mime_type": "string|null",
+      "duration_ms": "number|null"
+    },
+    "recommended_model_settings": {
+      "temperature": 0,
+      "response_mime_type": "application/json"
+    }
+  },
+  "verdict_policy": {
+    "allowed_verdicts": [
+      "pass",
+      "fail",
+      "needs_human_review"
+    ],
+    "pass": "Critical action is visible, category is correct, and app claim is supported within tolerance.",
+    "fail": "Visible evidence contradicts the app claim, proves wrong category, or proves required action did not happen properly.",
+    "needs_human_review": "Evidence is insufficient, dark, shaky, occluded, cropped, ambiguous, low-confidence, or missing required metadata for comparison.",
+    "confidence_thresholds": {
+      "strong": 0.85,
+      "human_review_below": 0.65
+    }
+  },
+  "shared_checks": [
+    {
+      "id": "category_match",
+      "question": "Does the media match the expected verification category?"
+    },
+    {
+      "id": "media_quality",
+      "question": "Is the media clear enough to verify the required action or state?"
+    },
+    {
+      "id": "metadata_sufficiency",
+      "question": "Is supplied app metadata sufficient for claim comparison?"
+    },
+    {
+      "id": "authority_boundary",
+      "question": "Does the output avoid making operational decisions outside the verifier role?"
+    }
+  ],
+  "categories": {
+    "vaccination_proof": {
+      "status": "active",
+      "aliases": [
+        "vaccination"
+      ],
+      "module": "Vaccination",
+      "page": "Vaccination",
+      "media": [
+        "video",
+        "image_optional"
+      ],
+      "purpose": "Prove the vaccination/injection action was actually performed on a goat after the app already opened camera from the scanned/task context.",
+      "required_app_claim": {
+        "task_id": "string|null",
+        "capture_context": "task_selected_before_camera|unknown",
+        "expected_action": "injection|oral_dose|spray|topical|other",
+        "route_site_expected": "string|null"
+      },
+      "verify": [
+        "goat or target body area visible enough for action review",
+        "syringe/needle/applicator visible when expected_action requires it",
+        "restraint adequate",
+        "administration contact/injection moment visible",
+        "clip continuity proves dose not setup only",
+        "route/site plausible only when supplied as a visual requirement"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "goat_not_visible",
+        "instrument_not_visible",
+        "administration_contact_not_visible",
+        "setup_only_no_dose",
+        "action_hidden",
+        "route_site_contradiction"
+      ]
+    },
+    "weighing_proof": {
+      "status": "active",
+      "aliases": [
+        "weighing"
+      ],
+      "module": "Weighing",
+      "page": "Weighing",
+      "media": [
+        "video",
+        "image_optional"
+      ],
+      "purpose": "Prove the measured value is real and matches the operator-entered number.",
+      "required_app_claim": {
+        "weighing_mode": "individual_animal|lump_sum|feed|container|other",
+        "operator_entered_weight": "number",
+        "unit": "kg",
+        "tolerance_kg": "number",
+        "tare_expected": "boolean",
+        "tare_or_container_weight": "number|null"
+      },
+      "verify": [
+        "goat/subject/load is on scale/platform",
+        "scale display visible",
+        "numeric reading readable",
+        "reading stable",
+        "visible reading matches app value within tolerance",
+        "no hand/foot/body/rope pressure affecting scale",
+        "tare/gross/net supported when applicable"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "subject_not_on_scale",
+        "display_not_visible",
+        "reading_unreadable",
+        "reading_unstable",
+        "weight_mismatch",
+        "tamper_or_pressure_visible",
+        "tare_rule_contradiction"
+      ]
+    },
+    "birth_evidence": {
+      "status": "active",
+      "module": "Counts",
+      "page": "Birth",
+      "media": [
+        "video"
+      ],
+      "purpose": "Prove one mother or child birth workflow task was actually performed with live-camera evidence.",
+      "required_app_claim": {
+        "workflow_id": "string",
+        "subject_type": "mother|kid",
+        "subject_goat_id": "string",
+        "birth_event_id": "string",
+        "action_key": "string",
+        "action_title": "string",
+        "operator_answer": "string|null"
+      },
+      "verify": [
+        "mother/kid subject visible",
+        "specific action_title visibly performed",
+        "operator answer not contradicted",
+        "live-camera proof usable",
+        "for tag task RFID/tag visible",
+        "for kid weight scale/reading visible",
+        "for colostrum/milk feeding actual feeding visible"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "subject_not_visible",
+        "task_action_not_visible",
+        "operator_answer_contradicted",
+        "tag_or_weight_unreadable",
+        "static_or_unrelated_clip"
+      ]
+    },
+    "death_evidence": {
+      "status": "active",
+      "module": "Counts",
+      "page": "Death",
+      "media": [
+        "video",
+        "video_bundle"
+      ],
+      "purpose": "Prove the ordered death video and post-mortem video are acceptable evidence after admin acceptance.",
+      "required_app_claim": {
+        "workflow_id": "string",
+        "goat_id": "string",
+        "proof_sequence": "death_video|post_mortem_video|bundle",
+        "expected_video_count": 2
+      },
+      "verify": [
+        "reported animal visible",
+        "death condition supported, not merely resting ambiguously",
+        "post-mortem evidence visible",
+        "both videos present and distinguishable for bundle review",
+        "animal/location context avoids wrong-animal review"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "goat_not_visible",
+        "death_condition_not_supported",
+        "post_mortem_not_visible",
+        "ordered_pair_incomplete",
+        "wrong_or_ambiguous_animal",
+        "clip_too_dark_or_cropped"
+      ]
+    },
+    "shifting_move": {
+      "status": "active",
+      "aliases": [
+        "shifting"
+      ],
+      "module": "Counts",
+      "page": "Shifting",
+      "media": [
+        "video",
+        "image_optional"
+      ],
+      "purpose": "Prove directed movement happened between claimed source and destination and the visible count/cohort is plausible.",
+      "required_app_claim": {
+        "shifting_event_id": "string",
+        "source_location_id": "string",
+        "destination_location_id": "string",
+        "subject_type": "goat|cohort|shed_group",
+        "subject_ids": "array|null",
+        "claimed_count": "number|null",
+        "movement_type": "normal|quarantine|icu|pregnant|lactating|warmup|other"
+      },
+      "verify": [
+        "source/destination context visible",
+        "moved animals/cohort visible",
+        "movement/loading/unloading/arrival/final placement visible",
+        "destination supports claim",
+        "visible count plausible when claimed",
+        "high-risk movement handled safely without obvious mixing risk"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "no_movement_or_arrival_visible",
+        "animals_not_visible",
+        "source_destination_context_missing",
+        "destination_contradicts_claim",
+        "visible_count_contradicts_claim",
+        "unsafe_high_risk_handling_visible"
+      ]
+    },
+    "milk_preparation": {
+      "status": "active",
+      "aliases": [
+        "milk_prep"
+      ],
+      "module": "Milk",
+      "page": "Milk Prep",
+      "media": [
+        "video",
+        "image_optional"
+      ],
+      "purpose": "Prove milk/colostrum preparation was done for the claimed subject/session with the right material and hygiene.",
+      "required_app_claim": {
+        "workflow_id": "string|null",
+        "subject_id": "string|null",
+        "session_label": "string",
+        "claimed_volume": "number|null",
+        "unit": "ml|l|null",
+        "prep_material": "colostrum|milk|ors|other"
+      },
+      "verify": [
+        "milk/colostrum/ORS material visible",
+        "preparation container visible",
+        "claimed subject/session context supplied",
+        "quantity plausible if visible",
+        "hygiene not obviously unsafe",
+        "not reused/unrelated footage"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "prep_material_not_visible",
+        "container_not_visible",
+        "quantity_contradicts_claim",
+        "unsafe_hygiene_visible",
+        "unrelated_clip"
+      ]
+    },
+    "milk_feeding": {
+      "status": "active",
+      "module": "Milk",
+      "page": "Milk Feeding",
+      "media": [
+        "video"
+      ],
+      "purpose": "Prove the claimed kid/subject actually received milk/colostrum/ORS feeding.",
+      "required_app_claim": {
+        "workflow_id": "string|null",
+        "subject_id": "string",
+        "session_label": "string",
+        "claimed_volume": "number|null",
+        "unit": "ml|l|null"
+      },
+      "verify": [
+        "kid/subject visible",
+        "feeding vessel/udder/bottle visible",
+        "actual feeding/suckling/contact visible",
+        "session timing/subject context supports claim",
+        "volume plausible if visible"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "subject_not_visible",
+        "feeding_not_visible",
+        "vessel_or_udder_not_visible",
+        "wrong_or_ambiguous_subject",
+        "volume_contradicts_claim"
+      ]
+    },
+    "feed_distribution": {
+      "status": "active",
+      "module": "Feed",
+      "page": "Feed Distribution",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove feed was distributed to the claimed shed/pen/trough and not merely shown elsewhere.",
+      "required_app_claim": {
+        "target_location_id": "string",
+        "feed_type": "string|null",
+        "claimed_quantity": "number|null",
+        "unit": "kg|bags|null",
+        "session": "morning|afternoon|other"
+      },
+      "verify": [
+        "shed/pen/trough context visible",
+        "feed visible in trough/container",
+        "operator distribution or completed distribution visible",
+        "animals/context match target",
+        "quantity plausible if claimed",
+        "trough not empty when claim says fed"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "no_feed_visible",
+        "target_context_missing",
+        "distribution_not_visible",
+        "empty_trough_after_claim",
+        "quantity_contradicts_claim"
+      ]
+    },
+    "feed_packing": {
+      "status": "active",
+      "module": "Feed",
+      "page": "Feed Packing",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove feed was packed/prepared for the claimed direction before transport/distribution.",
+      "required_app_claim": {
+        "feed_type": "string|null",
+        "claimed_quantity": "number|null",
+        "unit": "kg|bags|null",
+        "batch_or_session": "string|null"
+      },
+      "verify": [
+        "feed bags/container/material visible",
+        "packing action or final packed state visible",
+        "quantity/count plausible",
+        "label/batch/session visible when required",
+        "not an unrelated trough/distribution-only clip"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "feed_material_not_visible",
+        "packing_not_visible",
+        "quantity_contradicts_claim",
+        "batch_or_label_missing_when_required"
+      ]
+    },
+    "feed_transport": {
+      "status": "active",
+      "module": "Feed",
+      "page": "Feed Transport",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove packed feed moved from packing point to target location or handoff point.",
+      "required_app_claim": {
+        "source_location_id": "string|null",
+        "destination_location_id": "string",
+        "claimed_quantity": "number|null",
+        "unit": "kg|bags|null"
+      },
+      "verify": [
+        "packed feed visible",
+        "transport/loading/unloading/handoff visible",
+        "destination or vehicle/cart context supports claim",
+        "quantity plausible",
+        "not only feed already in trough without transport proof"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "packed_feed_not_visible",
+        "transport_or_handoff_not_visible",
+        "destination_context_missing",
+        "quantity_contradicts_claim"
+      ]
+    },
+    "health_adults": {
+      "status": "active",
+      "module": "Health",
+      "page": "Adults",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove adult health diagnosis/treatment/follow-up evidence for the claimed animal/action.",
+      "required_app_claim": {
+        "goat_id": "string|null",
+        "rfid": "string|null",
+        "health_action": "diagnosis|treatment|follow_up|medicine|quarantine|icu|closeout|other",
+        "operator_answer": "string|null",
+        "medicine_or_symptom": "string|null"
+      },
+      "verify": [
+        "adult animal visible",
+        "claimed symptom/treatment/follow-up action visible",
+        "medicine/instrument visible when treatment claimed",
+        "operator answer not contradicted",
+        "condition severity/lameness/wound/sign visible when diagnosis claimed",
+        "route/site plausible when supplied"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "animal_not_visible",
+        "claimed_health_action_not_visible",
+        "medicine_or_instrument_missing",
+        "operator_answer_contradicted",
+        "wrong_or_ambiguous_animal"
+      ]
+    },
+    "health_kids": {
+      "status": "active",
+      "module": "Health",
+      "page": "Kids",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove kid health diagnosis/treatment/follow-up evidence for the claimed animal/action.",
+      "required_app_claim": {
+        "goat_id": "string|null",
+        "rfid": "string|null",
+        "health_action": "diagnosis|treatment|follow_up|medicine|quarantine|icu|closeout|other",
+        "operator_answer": "string|null",
+        "medicine_or_symptom": "string|null"
+      },
+      "verify": [
+        "kid visible",
+        "claimed symptom/treatment/follow-up action visible",
+        "medicine/instrument visible when treatment claimed",
+        "operator answer not contradicted",
+        "condition/feeding/standing/alertness visible when relevant",
+        "safe handling visible"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "kid_not_visible",
+        "claimed_health_action_not_visible",
+        "medicine_or_instrument_missing",
+        "operator_answer_contradicted",
+        "unsafe_handling_visible"
+      ]
+    },
+    "procurement_load": {
+      "status": "future_known",
+      "module": "Procurement",
+      "page": "Load/Source",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove source loading, animal identity/count, health/source evidence, or holding-farm vaccination evidence for procurement.",
+      "required_app_claim": {
+        "load_id": "string",
+        "source_party": "string|null",
+        "claimed_count": "number|null",
+        "proof_stage": "source_entry|health_check|hf_vaccination|loading|other"
+      },
+      "verify": [
+        "animals/load context visible",
+        "claimed stage visible",
+        "count plausible",
+        "source/truck/location context supports claim",
+        "health/vaccination proof visible when claimed"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "load_context_missing",
+        "animals_not_visible",
+        "stage_action_not_visible",
+        "count_contradicts_claim"
+      ]
+    },
+    "transit_handoff": {
+      "status": "future_known",
+      "module": "Procurement",
+      "page": "Transit",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove transit handoff, truck loading/unloading, or custody transfer evidence.",
+      "required_app_claim": {
+        "load_id": "string",
+        "from_location_id": "string|null",
+        "to_location_id": "string|null",
+        "claimed_count": "number|null"
+      },
+      "verify": [
+        "vehicle/load visible",
+        "handoff/loading/unloading visible",
+        "animals or sealed cargo/feed/material visible as claimed",
+        "location/custody context supports claim",
+        "count plausible"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "vehicle_or_load_missing",
+        "handoff_not_visible",
+        "location_context_missing",
+        "count_contradicts_claim"
+      ]
+    },
+    "arrival_intake": {
+      "status": "future_known",
+      "module": "Procurement",
+      "page": "Arrival",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove arrival intake, accepted/rejected animals, discrepancy, health, or ownership evidence.",
+      "required_app_claim": {
+        "load_id": "string",
+        "arrival_location_id": "string",
+        "claimed_count": "number|null",
+        "review_stage": "arrival|intake|rejection|discrepancy|health|ownership"
+      },
+      "verify": [
+        "arrival location/context visible",
+        "animals visible",
+        "review stage visible",
+        "accepted/rejected/discrepancy evidence supports claim",
+        "count plausible"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "arrival_context_missing",
+        "animals_not_visible",
+        "review_stage_not_visible",
+        "count_contradicts_claim"
+      ]
+    },
+    "dispatch_exit": {
+      "status": "future_known",
+      "module": "Sales/Dispatch",
+      "page": "Dispatch/Exit",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove sale/dispatch/exit loading, animal identity, readiness, and handoff evidence.",
+      "required_app_claim": {
+        "dispatch_id": "string|null",
+        "goat_ids": "array|null",
+        "claimed_count": "number|null",
+        "destination": "string|null"
+      },
+      "verify": [
+        "animals visible",
+        "dispatch/loading/handoff visible",
+        "vehicle/destination context supports claim",
+        "identity tags visible when required",
+        "count plausible",
+        "animal not visibly unfit/dead when claimed dispatch-ready"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "animals_not_visible",
+        "dispatch_not_visible",
+        "identity_unreadable_when_required",
+        "count_contradicts_claim",
+        "visible_unfit_animal"
+      ]
+    },
+    "attendance_checkin": {
+      "status": "future_known",
+      "module": "Workforce",
+      "page": "Attendance",
+      "media": [
+        "image",
+        "video_optional"
+      ],
+      "purpose": "Prove operator attendance/check-in/location/shift evidence.",
+      "required_app_claim": {
+        "workforce_member_id": "string",
+        "shift_id": "string|null",
+        "location_id": "string|null",
+        "captured_at": "string"
+      },
+      "verify": [
+        "person/selfie or required attendance evidence visible",
+        "location/shift context supports claim when visible",
+        "timestamp metadata supplied",
+        "not a reused/static unrelated image",
+        "face/person match must be human-reviewed unless a separate identity model is approved"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "person_not_visible",
+        "location_context_missing_when_required",
+        "reused_or_unrelated_media",
+        "timestamp_missing"
+      ]
+    },
+    "breeding_pregnancy": {
+      "status": "future_known",
+      "module": "Breeding",
+      "page": "Breeding/Pregnancy",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove breeding, heat, pregnancy, ultrasound, kidding-prep, or reproductive treatment evidence.",
+      "required_app_claim": {
+        "goat_id": "string|null",
+        "action": "heat|breeding|pregnancy_check|ultrasound|kidding_prep|reproductive_treatment|other",
+        "operator_answer": "string|null"
+      },
+      "verify": [
+        "animal visible",
+        "claimed reproductive action/evidence visible",
+        "instrument/screen visible for ultrasound or treatment",
+        "operator answer not contradicted",
+        "identity/context sufficient"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "animal_not_visible",
+        "claimed_reproductive_action_not_visible",
+        "instrument_or_screen_missing",
+        "operator_answer_contradicted"
+      ]
+    },
+    "abortion_evidence": {
+      "status": "future_known",
+      "module": "Counts/Breeding",
+      "page": "Abortion",
+      "media": [
+        "video",
+        "image"
+      ],
+      "purpose": "Prove abortion/miscarriage evidence and mother condition for review.",
+      "required_app_claim": {
+        "mother_goat_id": "string|null",
+        "event_id": "string|null",
+        "operator_answer": "string|null"
+      },
+      "verify": [
+        "mother visible when required",
+        "abortion/event evidence visible enough for human review",
+        "location/context supports claim",
+        "operator answer not contradicted",
+        "clip is not generic birth/death footage"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "mother_not_visible",
+        "event_evidence_not_visible",
+        "operator_answer_contradicted",
+        "ambiguous_birth_death_or_abortion"
+      ]
+    },
+    "inventory_stock_proof": {
+      "status": "future_known",
+      "module": "Inventory",
+      "page": "Stock",
+      "media": [
+        "image",
+        "video_optional"
+      ],
+      "purpose": "Prove feed/medicine/vaccine/equipment stock, batch, expiry, or cold-chain evidence.",
+      "required_app_claim": {
+        "item_type": "feed|medicine|vaccine|equipment|other",
+        "batch_or_lot": "string|null",
+        "expiry_date": "string|null",
+        "quantity": "number|null",
+        "unit": "string|null"
+      },
+      "verify": [
+        "item visible",
+        "label/batch/lot visible when required",
+        "expiry visible when required",
+        "quantity/count plausible",
+        "cold-chain/container visible when required"
+      ],
+      "fail_reasons": [
+        "wrong_category",
+        "item_not_visible",
+        "batch_or_lot_missing",
+        "expiry_missing_when_required",
+        "quantity_contradicts_claim",
+        "cold_chain_not_visible_when_required"
+      ]
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "verification_item_id",
+      "category",
+      "verdict",
+      "confidence",
+      "purpose_checked",
+      "summary",
+      "observations",
+      "claim_comparison",
+      "issues",
+      "evidence_timestamps",
+      "human_review_recommended"
+    ],
+    "properties": {
+      "verification_item_id": {
+        "type": "string"
+      },
+      "category": {
+        "enum": [
+          "vaccination_proof",
+          "weighing_proof",
+          "birth_evidence",
+          "death_evidence",
+          "shifting_move",
+          "milk_preparation",
+          "milk_feeding",
+          "feed_distribution",
+          "feed_packing",
+          "feed_transport",
+          "health_adults",
+          "health_kids",
+          "procurement_load",
+          "transit_handoff",
+          "arrival_intake",
+          "dispatch_exit",
+          "attendance_checkin",
+          "breeding_pregnancy",
+          "abortion_evidence",
+          "inventory_stock_proof"
+        ]
+      },
+      "verdict": {
+        "enum": [
+          "pass",
+          "fail",
+          "needs_human_review"
+        ]
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "purpose_checked": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "observations": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "claim_comparison": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "boolean",
+            "number",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "evidence_timestamps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "time_sec",
+            "evidence"
+          ],
+          "properties": {
+            "time_sec": {
+              "type": "number",
+              "minimum": 0
+            },
+            "evidence": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "human_review_recommended": {
+        "type": "boolean"
+      }
+    }
+  },
+  "sample_sets": {
+    "feed_direction_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/b3b54976-a8ef-3d1e-ba75-450af95240cb.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/b48ed443-0dff-3f4f-98b9-847894561469.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/9bc969a4-695b-34a1-8ed3-aeee39071ce9.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/1b03f3a1-f177-3718-a30b-2b184ca97ca7.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/e925ee49-e84a-3277-a909-c58c4c89c9f0.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/a6d5db78-8ba1-3687-97d1-060a8ec89071.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/16696cd7-023c-3158-a373-4fdf5bd74c57.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/6bf58af2-6b4d-39f5-a77e-26a826ca57cc.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/1d4010df-57c2-3f7a-b1d8-efbd8f8bf96b.mp4",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/legacy/slack/feed/2026/08/12/06b0e6c5-2236-3e21-9244-05769e555119.mp4"
+    ],
+    "weighing_visual_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/23b9a345-f726-40c3-a860-99af20d01023",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/62baa5b0-90b9-40fe-84bf-f21daf564e0d",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/b479ee27-9146-4221-a7ba-9987ea1d57db",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/8f2ee9d1-dac0-4e46-ab9a-d3a48bb7340e",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/cfdc129d-6f2e-46ee-9242-f893f46af02b",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/bfcba31f-f29d-44d0-9b9d-13a071c06885",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/5943f157-0474-49cb-a112-81b0889f4499",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/91d83ad1-a565-4e89-b502-170470f12fb8",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/7cd7da96-958c-4032-8d98-8361c5da361d",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/717c12a2-12da-46e2-ba79-c0f412d9840c"
+    ],
+    "vaccination_visual_top10_goatos_stg_2026_08_12": [
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/447100b8-7929-4d52-a811-1366a20c09be",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/6a5b94b1-2de6-4b15-b1b2-dc5c64214cfc",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/754162d8-b575-4c65-b9b8-b7d30c917673",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/7896bb34-9f98-4ef3-9de6-0df75f1a2e24",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/75222140-9476-4e8a-b692-f79163bd953f",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/458e9254-f6d1-4fd3-a60e-61a7545902f5",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/4ffb3dbc-51b1-4eeb-815a-5a0646652c1e",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/c7fa5853-3b0f-4d3d-888e-fc85a38e16d1",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/c24d7556-6ef4-4a40-b86a-49205ac3a764",
+      "gs://goatos-stg-media/00000000-0000-4000-8000-000000000001/2026/08/12/37c087f7-379d-4fb9-b949-954e43d4856b"
+    ]
+  }
+}

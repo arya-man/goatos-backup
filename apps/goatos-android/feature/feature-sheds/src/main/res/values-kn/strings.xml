@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">ರಿಫ್ರೆಶ್</string>
     <string name="sheds_title">ಲಸಿಕಾ ಶೆಡ್‌ಗಳು</string>
+    <string name="sheds_park_pinned_fmt">ಪಾರ್ಕ್: %1$s</string>
+    <string name="sheds_park_pinned_clear_description">ಎಲ್ಲಾ ಪಾರ್ಕ್‌ಗಳನ್ನು ತೋರಿಸಿ</string>
     <string name="sheds_count_fmt">%1$d ಶೆಡ್‌ಗಳು</string>
     <string name="sheds_due_fmt">%1$d ತೆರೆದಿವೆ</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d ಮುಗಿದಿದೆ</string>
@@ -14,7 +19,17 @@
     <string name="sheds_num_cell_in_shed">ಗುರಿ</string>
     <string name="sheds_num_cell_due">ಬಾಕಿ</string>
     <string name="sheds_num_cell_done">ಮುಗಿದಿದೆ</string>
+    <string name="sheds_num_cell_accepted">ಅಂಗೀಕರಿಸಲಾಗಿದೆ</string>
     <string name="sheds_partition_fmt">ಭಾಗ %1$s</string>
+
+    <string name="sheds_status_done">ಮುಗಿದಿದೆ</string>
+    <string name="sheds_status_in_progress">ಪ್ರಗತಿಯಲ್ಲಿದೆ</string>
+    <string name="sheds_status_in_review">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="sheds_status_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="sheds_status_open">ತೆರೆದಿದೆ</string>
+    <string name="sheds_status_overdue">ಅವಧಿ ಮೀರಿದೆ</string>
+    <string name="sheds_status_sent_back">ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
+    <string name="sheds_status_complete">ಪೂರ್ಣಗೊಂಡಿದೆ</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">ಸಿಬ್ಬಂದಿ ಪರಿವರ್ತನೆಗಳು · ಈ ಡ್ರೈವ್ ಅನುಸೂಚಿತವಾದ ನಂತರ</string>

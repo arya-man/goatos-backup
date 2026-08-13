@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ParkScopeAmbiguousError } from "../../lib/api/park-scope.ts";
+import { OperatorAssignmentConfigNotFoundError, ParkScopeAmbiguousError } from "../../lib/api/park-scope.ts";
 import { loadVaccinationOperatorsScreen } from "./vaccination-operators-scope.ts";
 
 // BUG-019 (completion). The screen's park scope is BACKEND-owned. Three states must
@@ -15,7 +15,7 @@ import { loadVaccinationOperatorsScreen } from "./vaccination-operators-scope.ts
 const PARK_A = "20000000-0000-4000-8000-00000000000a";
 const PARK_B = "20000000-0000-4000-8000-00000000000b";
 
-function fakeApi({ config, ambiguousParks, capThrows }) {
+function fakeApi({ config, ambiguousParks, capThrows, configNotFound }) {
   const calls = { configParkIds: [], positionScopeIds: [] };
   return {
     calls,
@@ -23,6 +23,9 @@ function fakeApi({ config, ambiguousParks, capThrows }) {
       calls.configParkIds.push(parkId);
       if (ambiguousParks && !parkId) {
         throw new ParkScopeAmbiguousError("pick a park", ambiguousParks);
+      }
+      if (configNotFound) {
+        throw new OperatorAssignmentConfigNotFoundError();
       }
       return { data: { ...config, parkId: parkId ?? config.parkId } };
     },
@@ -74,6 +77,26 @@ test("(c) after a park is chosen every downstream read is scoped to it", async (
   assert.equal(result.parkId, PARK_B);
   assert.deepEqual(api.calls.configParkIds, [PARK_B]);
   assert.deepEqual(api.calls.positionScopeIds, [PARK_B], "the roster (and the KPI/preview/dropdown it feeds) must be park-scoped");
+});
+
+test("a chosen park with no authored assignment config still renders real scoped HRMS data", async () => {
+  const api = fakeApi({ config: CONFIG, configNotFound: true });
+  const result = await loadVaccinationOperatorsScreen(api, PARK_B);
+  assert.equal(result.state, "ready");
+  assert.equal(result.parkId, PARK_B);
+  assert.equal(result.config, null, "missing authored config must not be replaced with fake config data");
+  assert.deepEqual(api.calls.configParkIds, [PARK_B]);
+  assert.deepEqual(api.calls.positionScopeIds, [PARK_B], "roster data must still load for the chosen park");
+  assert.equal(result.positions.length, 1);
+});
+
+test("an unscoped actor with no authored assignment config is still a hard failure", async () => {
+  const api = fakeApi({ config: CONFIG, configNotFound: true });
+  await assert.rejects(
+    () => loadVaccinationOperatorsScreen(api),
+    /No operator assignment config authored/,
+    "without a chosen or resolved park, the frontend must not invent a park",
+  );
 });
 
 test("a failed capacity-config load surfaces an error and does NOT fake 200/rowVersion-0", async () => {

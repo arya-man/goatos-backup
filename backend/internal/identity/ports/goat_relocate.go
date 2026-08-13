@@ -23,27 +23,31 @@ type RelocateGoatsCommand struct {
 
 	// P1 follow-up #1: Expected source park and shed. If supplied, the relocate fails closed
 	// if any animal's current location differs, preventing stale location overwrites.
-	FromParkID *string
-	FromShedID *string
+	FromParkID         *string
+	FromShedID         *string
+	FromPartitionLabel *string
 
 	ToParkID string
 	ToShedID string
 
-	// DestinationTag is the management_stage the moved animals ADOPT at the destination shed:
-	// shifting a goat into a shed makes it JOIN that shed's operational cohort (a pregnant shed ⇒
-	// pregnant; K0 → K1 ⇒ it grew up). The adapter resolves the EFFECTIVE tag as follows
-	// (maintainer decision 2026-07-19, homogeneous sheds):
-	//
-	//   - OCCUPIED destination shed: the tag is DERIVED from the single distinct management_stage its
-	//     existing live animals already carry. DestinationTag is then optional; if supplied it must
-	//     AGREE with the derived tag (a disagreement is ErrDestinationTagConflict — a shed cannot
-	//     hold two cohorts).
-	//   - EMPTY destination shed: there is nothing to derive from, so DestinationTag is REQUIRED
-	//     (absent ⇒ ErrDestinationTagRequired) and is validated against the tenant's active
-	//     management-stage vocabulary.
-	//
-	// Never silently keeps the old tag, and never leaves management_stage stale. Empty string means
-	// "not supplied".
+	// DestinationPartitionLabel is the raw partition label ('1', 'Part 3') within ToShedID this move
+	// targets, or nil for a genuinely non-partitioned destination shed. OperationalLocation = park +
+	// physical shed + optional partition (see backend/internal/platform/oploc); ToShedID always
+	// stays the PARENT physical shed, never a partition-bearing alias, and this field carries the
+	// partition half separately. Applied to every moved goat's goat_shed_partitions row in the SAME
+	// transaction as the shed_id write, whether or not the shed itself also changed.
+	DestinationPartitionLabel *string
+
+	// DestinationShedName is the destination physical shed's display name, needed to compose the
+	// operator-facing operational-location label (oploc.OperationalLocation.Display) stored as
+	// goat_shed_partitions.source_shed_name. Required whenever a caller wants that column populated
+	// with a real display string; an empty value falls back to the shed id so the write still
+	// satisfies the non-blank source_shed_name constraint.
+	DestinationShedName string
+
+	// DestinationTag is the raise-time selected management_stage. Sheds may contain mixed stages;
+	// residents and shed_profiles never override it. Empty means preserve each goat's current stage.
+	// This field changes management_stage only; it never creates pregnancy or lactation facts.
 	DestinationTag string
 
 	// Reason is recorded on every goat_location_history row written by this command.

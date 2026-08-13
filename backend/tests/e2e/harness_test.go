@@ -112,6 +112,13 @@ func (d e2eProofDownloader) DownloadURL(ctx context.Context, tenantID, proofID s
 	return "http://stub-proof-url/" + proofID, nil
 }
 
+// EnsureObjectAvailable satisfies the verdict-time evidence gate (verification/ports.
+// EvidenceAvailabilityChecker via proofmedia.ObjectAvailabilityChecker). This stub stands for
+// "the object is present", which is the state every e2e verification flow assumes.
+func (d e2eProofDownloader) EnsureObjectAvailable(ctx context.Context, tenantID, proofID string) error {
+	return nil
+}
+
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and
 // wires the repositories/services each story needs. The container is removed via t.Cleanup.
 func NewFixture(t *testing.T) *Fixture {
@@ -488,13 +495,18 @@ type GoatSpec struct {
 	Health             string // default "healthy"
 	Stage              string // default "K1"
 	Species            string // default "goat"
+	Breed              string
 	ReproductiveStatus string
 	BreedingDate       *time.Time
 	OriginType         string
 	EntryDate          *time.Time
 	DOB                *time.Time
-	NoDOB              bool // when true, dob is stored NULL (missing-DOB defer stories)
-	NoEntryDate        bool // when true, entry_date is NULL (missing-entry-date defer stories; use procured origin)
+	// AgeBand is the animal's kid/adult classification at INTAKE ('kid'/'adult'; empty stores NULL).
+	// It belongs on the initial insert, not a later UPDATE: a story that changes a goat's band must
+	// do it through the production identity path, and e2e-kernel-integrity enforces that.
+	AgeBand     string
+	NoDOB       bool // when true, dob is stored NULL (missing-DOB defer stories)
+	NoEntryDate bool // when true, entry_date is NULL (missing-entry-date defer stories; use procured origin)
 }
 
 // SeedGoat inserts one goat row directly (goats are owned by the identity module, exactly like the
@@ -526,13 +538,14 @@ func (f *Fixture) SeedGoat(spec GoatSpec) {
 	if spec.ReproductiveStatus != "" {
 		repro = &spec.ReproductiveStatus
 	}
+	ageBand := nullIfEmpty(spec.AgeBand)
 	if spec.NoDOB {
 		f.exec("goat "+spec.GoatID,
-			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, NULL, $10, $11::date, $12, $13::date)`,
-			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage,
-			repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, breed, custodian_party_id, sex,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, 'female', COALESCE($8::uuid, $9::uuid), $9, $8, $10, NULL, $11, $12::date, $13, $14::date, $15)`,
+			spec.GoatID, fxTenant, lifecycle, health, species, spec.Breed, fxParty, shedID, fxPark, stage,
+			repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate, ageBand)
 		return
 	}
 	if spec.NoEntryDate {
@@ -541,19 +554,19 @@ func (f *Fixture) SeedGoat(spec GoatSpec) {
 			origin = "procured"
 		}
 		f.exec("goat "+spec.GoatID,
-			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, NULL)`,
-			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
-			repro, spec.BreedingDate, origin)
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, breed, custodian_party_id, sex,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, 'female', COALESCE($8::uuid, $9::uuid), $9, $8, $10, $11::date, $12, $13::date, $14, NULL, $15)`,
+			spec.GoatID, fxTenant, lifecycle, health, species, spec.Breed, fxParty, shedID, fxPark, stage, spec.DOB,
+			repro, spec.BreedingDate, origin, ageBand)
 		return
 	}
 	f.exec("goat "+spec.GoatID,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-		    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-		 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, $14::date)`,
-		spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
-		repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, breed, custodian_party_id, sex,
+		    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'female', COALESCE($8::uuid, $9::uuid), $9, $8, $10, $11::date, $12, $13::date, $14, $15::date, $16)`,
+		spec.GoatID, fxTenant, lifecycle, health, species, spec.Breed, fxParty, shedID, fxPark, stage, spec.DOB,
+		repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate, ageBand)
 }
 
 func nullIfEmpty(s string) *string {

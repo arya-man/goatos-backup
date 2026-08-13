@@ -6,12 +6,18 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FanOutAnalytics
 import sg.mesha.goatos.core.analytics.FirebaseAnalyticsAdapter
+import sg.mesha.goatos.core.analytics.LogcatAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.NoopAnalytics
+import sg.mesha.goatos.core.network.AppApi
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
@@ -37,14 +43,27 @@ object AnalyticsModule {
         @ApplicationContext context: Context,
         crashReporter: CrashReporter,
         analyticsContext: AnalyticsContext,
-    ): AnalyticsPort =
-        if (BuildConfig.TELEMETRY_ENABLED) {
-            FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext)
+        appApi: Provider<AppApi>,
+        appScope: CoroutineScope,
+    ): AnalyticsPort {
+        val sink: AnalyticsPort = if (BuildConfig.TELEMETRY_ENABLED) {
+            FanOutAnalytics(
+                FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext),
+                BackendAnalyticsAdapter(appApi, appScope, analyticsContext),
+            )
         } else {
             NoopAnalytics()
         }
+        // Debug builds mirror every analytics event to logcat (tag GoatOSAnalytics), which is the
+        // durable proof path for real-phone E2E when Firebase delivery is delayed or unavailable.
+        return if (BuildConfig.DEBUG) LogcatAnalyticsAdapter(sink, analyticsContext) else sink
+    }
 
     @Provides
     @Singleton
-    fun provideAnalyticsContext(): AnalyticsContext = AnalyticsContext(flavor = BuildConfig.FLAVOR)
+    fun provideAnalyticsContext(): AnalyticsContext =
+        AnalyticsContext(flavor = BuildConfig.FLAVOR).apply {
+            appVersionName = BuildConfig.VERSION_NAME
+            appVersionCode = BuildConfig.VERSION_CODE.toString()
+        }
 }

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -28,6 +29,7 @@ const (
 	testGoatID   = "33333333-3333-4333-8333-333333333333"
 	testParkID   = "44444444-4444-4444-8444-444444444444"
 	testShedID   = "55555555-5555-4555-8555-555555555555"
+	testMotherID = "66666666-6666-4666-8666-666666666666"
 )
 
 // The three submit routes now RECORD a pending approval request instead of APPLYING the event
@@ -63,6 +65,7 @@ type fakeShiftingRepo struct {
 	// does in Postgres. That is what lets a test prove the handler fails closed instead of
 	// substituting a placeholder impact.
 	destinations   domain.ShiftingDestinationCatalog
+	breeds         []domain.CountsBreakdownSeriesPoint
 	goatFacts      map[string]domain.GoatShiftingFact
 	goatFactsCalls int
 }
@@ -101,6 +104,10 @@ func (f *fakeShiftingRepo) ShiftingDestinationCatalog(_ context.Context, _ strin
 	return f.destinations, nil
 }
 
+func (f *fakeShiftingRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.CountsBreakdownSeriesPoint, error) {
+	return f.breeds, nil
+}
+
 // GoatShiftingFacts mirrors the real query's behaviour for a missing animal: it returns FEWER rows
 // than requested rather than an error, so the service's own "did every id resolve" check is what
 // gets exercised.
@@ -125,16 +132,18 @@ type fakeApprovalWorkflow struct {
 	requestByKey     map[string]domain.ApprovalRequest
 	fingerprintByKey map[string]string
 
-	submits        int
-	submitsByType  map[string]int
-	lastSubmission domain.ApprovalRequestSubmission
+	submits           int
+	submitsByType     map[string]int
+	lastSubmission    domain.ApprovalRequestSubmission
+	birthResultsByKey map[string]domain.BirthSubmissionResult
 }
 
 func newFakeApprovalWorkflow() *fakeApprovalWorkflow {
 	return &fakeApprovalWorkflow{
-		requestByKey:     map[string]domain.ApprovalRequest{},
-		fingerprintByKey: map[string]string{},
-		submitsByType:    map[string]int{},
+		requestByKey:      map[string]domain.ApprovalRequest{},
+		fingerprintByKey:  map[string]string{},
+		submitsByType:     map[string]int{},
+		birthResultsByKey: map[string]domain.BirthSubmissionResult{},
 	}
 }
 
@@ -168,6 +177,35 @@ func (f *fakeApprovalWorkflow) SubmitRequest(_ context.Context, in domain.Approv
 	return request, false, nil
 }
 
+func (f *fakeApprovalWorkflow) SubmitBirthRequest(_ context.Context, in domain.ApprovalRequestSubmission, commands []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error) {
+	request, replay, err := f.SubmitRequest(context.Background(), in)
+	if err != nil {
+		return domain.BirthSubmissionResult{}, err
+	}
+	if replay {
+		result := f.birthResultsByKey[in.IdempotencyKey]
+		result.Replayed = true
+		return result, nil
+	}
+	children := make([]domain.BirthChildResult, 0, len(commands))
+	for i, command := range commands {
+		temporaryIdentifier := ""
+		for _, identifier := range command.Identifiers {
+			if identifier.IdentifierType == "temporary_tag" {
+				temporaryIdentifier = identifier.IdentifierValue
+			}
+		}
+		children = append(children, domain.BirthChildResult{
+			GoatID:              fmt.Sprintf("00000000-0000-4000-8000-%012d", i+101),
+			TemporaryIdentifier: temporaryIdentifier,
+			ChildOrdinal:        i + 1,
+		})
+	}
+	result := domain.BirthSubmissionResult{Approval: request, Children: children}
+	f.birthResultsByKey[in.IdempotencyKey] = result
+	return result, nil
+}
+
 // ListPending and Decide exist only to satisfy ApprovalWorkflow so RegisterApprovals can be wired
 // alongside RegisterAppWrites. These tests cover the SUBMIT half of the workflow; the decision half
 // is exercised against the real service.
@@ -191,6 +229,9 @@ func (f *fakeApprovalWorkflow) Decide(_ context.Context, _ countsapp.DecisionInp
 // validateCriticalDeathExit. A fake that accepted any body would let a regression that widened the
 // dead+died pairing pass every test except one.
 type fakeGoatValidator struct {
+	// creates and deaths run the REAL identity validation. Keeping a rubber-stamp create fake here
+	// previously let incomplete birth payloads enter the approval queue in tests and production.
+	creates GoatLifecycleValidator
 	// deaths runs the REAL identity validation for PrepareCriticalDeathExit.
 	deaths GoatLifecycleValidator
 
@@ -200,6 +241,10 @@ type fakeGoatValidator struct {
 	lastCreate       identityapp.CreateAdminGoatInput
 	lastDeath        identityapp.ExitGoatInput
 	lastDeathCommand identityports.ExitGoatCommand
+
+	lastTempList identityapp.ListTemporaryTaggedGoatsInput
+	tempItems    []identitydomain.TemporaryTaggedGoat
+	tempNext     *string
 }
 
 func newFakeGoatValidator() *fakeGoatValidator {
@@ -207,19 +252,24 @@ func newFakeGoatValidator() *fakeGoatValidator {
 }
 
 func newFakeGoatValidatorWithRepo(repo *stubIdentityRepo) *fakeGoatValidator {
-	return &fakeGoatValidator{deaths: identityapp.NewService(repo)}
+	service := identityapp.NewService(repo)
+	return &fakeGoatValidator{creates: service, deaths: service}
 }
 
 // PrepareCreateAdminGoat records the payload the handler forwarded. It keeps the missing-key
 // rejection the old fake had: the client Idempotency-Key must reach the owning module, because that
 // key is what makes the operator's retry collapse rather than raise a second birth request.
-func (f *fakeGoatValidator) PrepareCreateAdminGoat(_ context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error) {
+func (f *fakeGoatValidator) PrepareCreateAdminGoat(ctx context.Context, in identityapp.CreateAdminGoatInput) (identityports.CreateAdminGoatCommand, error) {
 	if in.IdempotencyKey == "" {
 		return identityports.CreateAdminGoatCommand{}, identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
 	}
 	f.prepareCreates++
 	f.lastCreate = in
-	return identityports.CreateAdminGoatCommand{TenantID: in.TenantID}, nil
+	return f.creates.PrepareCreateAdminGoat(ctx, in)
+}
+
+func (f *fakeGoatValidator) BirthProvisionalPrefix(context.Context, string, string) (string, error) {
+	return "CBE", nil
 }
 
 // PrepareCriticalDeathExit records the payload and then runs the REAL guardrail. The returned
@@ -239,6 +289,22 @@ func (f *fakeGoatValidator) PrepareCriticalDeathExit(ctx context.Context, in ide
 	return cmd, nil
 }
 
+func (f *fakeGoatValidator) PromoteTemporaryIdentifier(_ context.Context, in identityapp.PromoteTemporaryIdentifierInput) (*identitydomain.AdminGoatResponse, error) {
+	if in.IdempotencyKey == "" {
+		return nil, identityapp.BadRequest("missing_idempotency_key", "Idempotency-Key header is required")
+	}
+	return &identitydomain.AdminGoatResponse{Goat: identitydomain.GoatSummary{GoatID: in.GoatID}}, nil
+}
+
+func (f *fakeGoatValidator) ListTemporaryTaggedGoats(_ context.Context, in identityapp.ListTemporaryTaggedGoatsInput) (*identitydomain.TemporaryTaggedGoatsResult, error) {
+	f.lastTempList = in
+	items := f.tempItems
+	if items == nil {
+		items = []identitydomain.TemporaryTaggedGoat{}
+	}
+	return &identitydomain.TemporaryTaggedGoatsResult{Items: items, NextCursor: f.tempNext, TraceID: in.TraceID}, nil
+}
+
 // stubIdentityRepo satisfies identity's repository port. ExitGoat is deliberately implemented and
 // counted even though the submit path must never reach it: a non-zero call count is the alarm that
 // someone re-wired an apply into a submit route.
@@ -249,6 +315,10 @@ type stubIdentityRepo struct {
 	lastExit identityports.ExitGoatCommand
 }
 
+func (s *stubIdentityRepo) BirthProvisionalPrefix(context.Context, string, string) (string, error) {
+	return "CBE", nil
+}
+
 func (s *stubIdentityRepo) ExitGoat(_ context.Context, cmd identityports.ExitGoatCommand) (*identityports.AdminGoatMutationResult, error) {
 	s.calls++
 	s.lastExit = cmd
@@ -256,6 +326,24 @@ func (s *stubIdentityRepo) ExitGoat(_ context.Context, cmd identityports.ExitGoa
 		Goat:             identitydomain.GoatSummary{GoatID: cmd.GoatID, LifecycleStatus: "dead"},
 		GenerationStatus: "complete",
 	}, nil
+}
+
+func (s *stubIdentityRepo) ValidateAdminGoatCreate(_ context.Context, cmd identityports.ValidateAdminGoatCreateCommand) (identityports.AdminGoatCreateValidation, error) {
+	validation := identityports.AdminGoatCreateValidation{
+		CustodianPartyID: testActorID,
+		ParkID:           testParkID,
+		ShedID:           testShedID,
+	}
+	if cmd.BirthDamRef != nil {
+		motherID := testMotherID
+		validation.DamGoatID = &motherID
+	}
+	return validation, nil
+}
+
+func (s *stubIdentityRepo) CreateAdminGoat(_ context.Context, _ identityports.CreateAdminGoatCommand) (*identityports.AdminGoatMutationResult, error) {
+	s.calls++
+	return nil, fmt.Errorf("CreateAdminGoat must not run from an app submit route")
 }
 
 // goatCreator and goatExiter reproduce the method set of the DELETED GoatLifecycleWriter. They are
@@ -347,9 +435,121 @@ func birthBody(identifier string) map[string]any {
 		"entry_date":          "2026-07-01",
 		"park_id":             testParkID,
 		"shed_id":             testShedID,
+		"breed":               "beetal",
+		"dam_id":              "RFID-MOTHER-001",
+		"litter_size":         1,
 		"evidence_refs": []map[string]any{
 			{"evidence_type": "media", "evidence_id": "birth-proof-1"},
 		},
+	}
+}
+
+// birthBodyAutoProvisional is what the phone actually sends after the 2026-07-27 split: NO
+// animal_identifier_1 and NO temporary_identifier, because the operator no longer scans an RFID at
+// birth and the server mints the provisional tag.
+func birthBodyAutoProvisional() map[string]any {
+	body := birthBody("unused")
+	delete(body, "animal_identifier_1")
+	return body
+}
+
+// A birth is not valid until it carries the three facts that make the permanent
+// mother/child relationship unambiguous. The phone supplies the mother's RFID in
+// dam_id; identity resolves that value to the canonical mother goat before the
+// request can enter the approval queue.
+func TestRecordBirthEventRequiresBreedMotherAndLitterSize(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+	}{
+		{name: "breed", field: "breed"},
+		{name: "mother RFID", field: "dam_id"},
+		{name: "litter size", field: "litter_size"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := newFakeGoatValidator()
+			approvals := newFakeApprovalWorkflow()
+			mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+			body := birthBodyAutoProvisional()
+			body["breed"] = "beetal"
+			body["dam_id"] = "RFID-MOTHER-001"
+			body["litter_size"] = 2
+			delete(body, tc.field)
+
+			rec := post(t, mux, appBirthEventRoute, "birth-missing-"+strings.ReplaceAll(tc.field, "_", "-"), body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400 when %s is missing", rec.Code, rec.Body.String(), tc.field)
+			}
+			if approvals.submits != 0 {
+				t.Fatalf("submits=%d, want 0: an incomplete birth must never reach approval", approvals.submits)
+			}
+		})
+	}
+}
+
+// TestRecordBirthEventAutoProvisionalTagIsDeterministicAcrossRetries is the offline-retry
+// regression for the server-minted provisional tag.
+//
+// The Android write path is the offline outbox: it retries the SAME Idempotency-Key until it gets a
+// response, so a lost 202 is the normal case, not an edge case. The provisional tag is injected into
+// the body BEFORE the body is marshalled, and that same body feeds the request fingerprint — so a
+// randomly regenerated tag makes the fingerprint differ on every retry, the approval store reports
+// ErrIdempotencyConflict, and the handler answers 409 forever. The birth is already queued
+// server-side, so the operator's outbox entry wedges permanently on a birth that did record.
+//
+// The tag must therefore be derived deterministically from the client key: a retry has to rebuild a
+// byte-identical body and replay cleanly.
+func TestRecordBirthEventAutoProvisionalTagIsDeterministicAcrossRetries(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	first := post(t, mux, appBirthEventRoute, "birth-key-auto-1", birthBodyAutoProvisional())
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("first status=%d body=%s, want 202", first.Code, first.Body.String())
+	}
+	firstForwarded := append([]byte(nil), validator.lastCreate.RawBody...)
+	if !bytes.Contains(firstForwarded, []byte(`"temporary_identifier"`)) {
+		t.Fatalf("server must mint a provisional tag when none is supplied: %s", firstForwarded)
+	}
+
+	second := post(t, mux, appBirthEventRoute, "birth-key-auto-1", birthBodyAutoProvisional())
+	if second.Code != http.StatusAccepted {
+		t.Fatalf("offline retry status=%d body=%s, want 202 — the outbox entry is wedged on a birth "+
+			"that already recorded", second.Code, second.Body.String())
+	}
+	if !bytes.Equal(firstForwarded, validator.lastCreate.RawBody) {
+		t.Fatalf("provisional tag is not deterministic across retries:\n%s\n%s",
+			firstForwarded, validator.lastCreate.RawBody)
+	}
+	if approvals.submits != 1 {
+		t.Fatalf("submits=%d after an offline retry, want 1 (no duplicate pending birth)", approvals.submits)
+	}
+	var body appApprovalSubmitResponse
+	decodeBody(t, second, &body)
+	if !body.IdempotentReplay {
+		t.Fatal("offline retry must report idempotent_replay=true")
+	}
+}
+
+// Two different births must not collide onto one provisional tag just because the derivation is
+// deterministic — the key, not a constant, is what varies.
+func TestRecordBirthEventAutoProvisionalTagsDifferPerClientKey(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	if rec := post(t, mux, appBirthEventRoute, "birth-key-auto-a", birthBodyAutoProvisional()); rec.Code != http.StatusAccepted {
+		t.Fatalf("first status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	tagA := append([]byte(nil), validator.lastCreate.RawBody...)
+
+	if rec := post(t, mux, appBirthEventRoute, "birth-key-auto-b", birthBodyAutoProvisional()); rec.Code != http.StatusAccepted {
+		t.Fatalf("second status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	if bytes.Equal(tagA, validator.lastCreate.RawBody) {
+		t.Fatalf("two distinct births share one provisional tag:\n%s", tagA)
 	}
 }
 
@@ -665,14 +865,74 @@ func TestRecordBirthEventForcesOriginTypeBirth(t *testing.T) {
 	if stored["origin_type"] != "birth" {
 		t.Fatalf("stored origin_type=%v, want birth (the app route must not be able to park a procured animal in the queue)", stored["origin_type"])
 	}
+	if stored["dam_id"] != testMotherID {
+		t.Fatalf("stored dam_id=%v, want canonical mother goat id %s", stored["dam_id"], testMotherID)
+	}
+	if stored["litter_size"] != float64(1) {
+		t.Fatalf("stored litter_size=%v, want 1", stored["litter_size"])
+	}
 	if validator.lastCreate.TenantID != testTenantID || validator.lastCreate.ActorID != testActorID {
 		t.Fatalf("tenant/actor not propagated: %+v", validator.lastCreate)
 	}
-	if validator.lastCreate.IdempotencyKey != "birth-key-0001" {
-		t.Fatalf("idempotency key=%q, want birth-key-0001", validator.lastCreate.IdempotencyKey)
+	if validator.lastCreate.IdempotencyKey != "birth-key-0001:child:1" {
+		t.Fatalf("idempotency key=%q, want the stable first-child key", validator.lastCreate.IdempotencyKey)
 	}
 	if approvals.lastSubmission.RaisedByUserID != testActorID {
 		t.Fatalf("raised_by=%q, want %q (an approver has to know who reported the birth)", approvals.lastSubmission.RaisedByUserID, testActorID)
+	}
+}
+
+// TestRecordBirthEventPinsNewbornStageToK0 pins the maintainer decision of 2026-08-13: a newborn is
+// K0 and goes to whatever shed the raising request names.
+//
+// The stage must be pinned in BOTH bodies for the same reason origin_type is. The validated body is
+// what identity checks now; the STORED payload is what identity replays at approval, days later. If
+// the stage were absent from the stored payload, the create would fall back to reading the
+// destination shed's shed_profiles row and fail closed on an unprofiled shed -- which is exactly the
+// 500 that blocked every birth into the mixed-cohort kid sheds (Yashoda, Mandela 1).
+func TestRecordBirthEventPinsNewbornStageToK0(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	rec := post(t, mux, appBirthEventRoute, "birth-key-k0-01", birthBody("KID-K0"))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+
+	var validated map[string]any
+	if err := json.Unmarshal(validator.lastCreate.RawBody, &validated); err != nil {
+		t.Fatalf("validated body is not JSON: %v", err)
+	}
+	if validated["management_stage"] != newbornManagementStage {
+		t.Fatalf("validated management_stage=%v, want %s", validated["management_stage"], newbornManagementStage)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(approvals.lastSubmission.Payload, &stored); err != nil {
+		t.Fatalf("stored payload is not JSON: %v", err)
+	}
+	if stored["management_stage"] != newbornManagementStage {
+		t.Fatalf("stored management_stage=%v, want %s (the approval replay must not fall back to the shed profile)",
+			stored["management_stage"], newbornManagementStage)
+	}
+}
+
+// A stage the client did supply, disagreeing with the pin, is REJECTED rather than silently
+// rewritten -- the validate-or-reject rule, same shape as the origin_type test below.
+func TestRecordBirthEventRejectsConflictingManagementStage(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	body := birthBody("KID-K0-BAD")
+	body["management_stage"] = "Non-Pregnant"
+	rec := post(t, mux, appBirthEventRoute, "birth-key-k0-02", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if validator.prepareCreates != 0 || approvals.submits != 0 {
+		t.Fatalf("prepareCreates=%d submits=%d, want 0/0 (a rejected stage must not reach the queue)",
+			validator.prepareCreates, approvals.submits)
 	}
 }
 
@@ -741,7 +1001,9 @@ func TestRecordBirthEventSameKeyDifferentPayloadIsRejected(t *testing.T) {
 	if rec := post(t, mux, appBirthEventRoute, "birth-key-0004", birthBody("KID-004")); rec.Code != http.StatusAccepted {
 		t.Fatalf("first status=%d body=%s, want 202", rec.Code, rec.Body.String())
 	}
-	rec := post(t, mux, appBirthEventRoute, "birth-key-0004", birthBody("KID-999"))
+	changed := birthBody("KID-004")
+	changed["breed"] = "sirohi"
+	rec := post(t, mux, appBirthEventRoute, "birth-key-0004", changed)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s, want 409", rec.Code, rec.Body.String())
 	}
@@ -750,7 +1012,7 @@ func TestRecordBirthEventSameKeyDifferentPayloadIsRejected(t *testing.T) {
 	if approvals.submits != 1 {
 		t.Fatalf("submits=%d, want 1", approvals.submits)
 	}
-	if stored := approvals.requestByKey["app-counts-birth:birth-key-0004"]; !bytes.Contains(stored.Payload, []byte("KID-004")) {
+	if stored := approvals.requestByKey["app-counts-birth:birth-key-0004"]; !bytes.Contains(stored.Payload, []byte("beetal")) {
 		t.Fatalf("stored payload was replaced by the conflicting submission: %s", stored.Payload)
 	}
 }
@@ -800,6 +1062,49 @@ func TestSubmitBirthEventCreatesPendingRequestAndAppliesNothing(t *testing.T) {
 		field := handlerType.Field(i)
 		if field.Type.Implements(creator) || field.Type.Implements(exiter) {
 			t.Fatalf("AppWriteHandler.%s can apply a goat lifecycle write; submit routes must only record a pending request", field.Name)
+		}
+	}
+}
+
+// A litter is one operator submission but N canonical children. The submit response must hand the
+// phone every created child immediately so the Birth work list can open one workflow per kid; the
+// separate web approval remains pending and only controls herd-count eligibility.
+func TestRecordTwinBirthCreatesTwoDistinctProvisionalChildrenImmediately(t *testing.T) {
+	validator := newFakeGoatValidator()
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, validator)
+
+	body := birthBody("")
+	delete(body, "temporary_identifier")
+	body["litter_size"] = 2
+	rec := post(t, mux, appBirthEventRoute, "birth-twins-immediate-children", body)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Status   string `json:"status"`
+		Children []struct {
+			GoatID              string `json:"goat_id"`
+			TemporaryIdentifier string `json:"temporary_identifier"`
+		} `json:"children"`
+	}
+	decodeBody(t, rec, &got)
+	if got.Status != domain.ApprovalStatusPending {
+		t.Fatalf("approval status=%q, want pending", got.Status)
+	}
+	if len(got.Children) != 2 {
+		t.Fatalf("children=%d body=%s, want two canonical kids from one twin submission", len(got.Children), rec.Body.String())
+	}
+	if got.Children[0].GoatID == "" || got.Children[1].GoatID == "" || got.Children[0].GoatID == got.Children[1].GoatID {
+		t.Fatalf("children must have distinct canonical goat ids: %+v", got.Children)
+	}
+	if got.Children[0].TemporaryIdentifier == "" || got.Children[1].TemporaryIdentifier == "" ||
+		got.Children[0].TemporaryIdentifier == got.Children[1].TemporaryIdentifier {
+		t.Fatalf("children must have distinct provisional identifiers: %+v", got.Children)
+	}
+	for _, child := range got.Children {
+		if !strings.HasPrefix(child.TemporaryIdentifier, "CBE-") || len(child.TemporaryIdentifier) != len("CBE-12345") {
+			t.Fatalf("temporary_identifier=%q, want CBE- plus five digits", child.TemporaryIdentifier)
 		}
 	}
 }
@@ -1115,6 +1420,108 @@ const (
 	testSourceShedID = "77777777-7777-4777-8777-777777777788"
 )
 
+// TestRecordShiftingEventAdoptsDestinationShedStage drives the REAL raise path (HTTP handler ->
+// resolution -> stored event + approval payload) for the maintainer's 2026-08-03 rule: the operator
+// sends NO stage, and the movement adopts the destination shed's cohort by itself.
+//
+// Asserting on repo.lastEvent AND on the approval payload matters because they are what the two
+// downstream gates read: the stored snapshot is what the completion transaction applies, and the
+// payload is what the park head approves. A resolution that reached only one of them would apply a
+// stage nobody approved.
+func TestRecordShiftingEventAdoptsDestinationShedStage(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		shedStages    []string
+		vocabulary    []string
+		wantStageMode string
+		wantTarget    string
+	}{
+		{
+			name:          "clean single-cohort shed hands over its tag",
+			shedStages:    []string{"Non-Pregnant"},
+			vocabulary:    []string{"Mother", "Non-Pregnant", "Buck"},
+			wantStageMode: "destination_stage",
+			wantTarget:    "Non-Pregnant",
+		},
+		{
+			name:          "flushing destination keeps the animal's current stage",
+			shedStages:    []string{"Flushing"},
+			vocabulary:    []string{"Mother", "Non-Pregnant", "Flushing"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "mixed destination keeps the animal's current stage",
+			shedStages:    []string{"Mother", "Pregnant"},
+			vocabulary:    []string{"Mother", "Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "empty destination keeps the animal's current stage",
+			shedStages:    nil,
+			vocabulary:    []string{"Mother", "Non-Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "cohort absent from the stage vocabulary keeps the current stage",
+			shedStages:    []string{"ICU-Kid"},
+			vocabulary:    []string{"Mother", "Non-Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newFakeShiftingRepo()
+			repo.destinations = domain.ShiftingDestinationCatalog{
+				Parks: []domain.ShiftingDestinationPark{{
+					ParkID: testParkID,
+					Name:   "Channapatna",
+					Sheds: []domain.ShiftingDestinationShed{{
+						ShedID:           testShedID,
+						Name:             "Gandhi 1",
+						ManagementStages: tc.shedStages,
+					}},
+				}},
+				ManagementStages: tc.vocabulary,
+			}
+			repo.goatFacts = map[string]domain.GoatShiftingFact{
+				testGoatID: {
+					GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
+				},
+			}
+			approvals := newFakeApprovalWorkflow()
+			mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+			res := post(t, mux, appShiftingEventRoute, "shift-stage-"+tc.name, shiftingBodyNoImpacts(testGoatID))
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+			}
+
+			if got := repo.lastEvent.ManagementStageMode; got != tc.wantStageMode {
+				t.Fatalf("stored management_stage_mode=%q, want %q", got, tc.wantStageMode)
+			}
+			if got := repo.lastEvent.TargetManagementStage; got != tc.wantTarget {
+				t.Fatalf("stored target_management_stage=%q, want %q", got, tc.wantTarget)
+			}
+
+			var payload struct {
+				ManagementStageMode   string `json:"management_stage_mode"`
+				TargetManagementStage string `json:"target_management_stage"`
+			}
+			if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
+				t.Fatalf("decode approval payload: %v", err)
+			}
+			if payload.ManagementStageMode != tc.wantStageMode || payload.TargetManagementStage != tc.wantTarget {
+				t.Fatalf("approval payload mode=%q target=%q, want mode=%q target=%q -- the park head must approve the SAME stage the completion will apply",
+					payload.ManagementStageMode, payload.TargetManagementStage, tc.wantStageMode, tc.wantTarget)
+			}
+		})
+	}
+}
+
 // TestRecordShiftingEventStoresDerivedSourceParkAndShed is the regression for the blank-source bug.
 //
 // The simplified Shifting screen stopped sending source_park_id / source_shed_id -- correctly, the
@@ -1268,23 +1675,26 @@ func TestRecordShiftingEventKeepsAnExplicitlySuppliedSource(t *testing.T) {
 	}
 }
 
-// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers the two degrade paths: a
-// multi-animal movement has no single truthful origin, and an animal with no recorded placement has
-// none to read. Both must leave the source absent rather than storing an invented or blank value.
+// TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable covers an animal with no recorded
+// placement: there is no source to read, so the write leaves the source absent rather than storing
+// an invented or blank value. A mixed multi-animal origin is different: it is rejected below because
+// collapsing sibling partitions into a parent-shed source weakens the stale-movement guard.
 func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 	const otherGoatID = "33333333-3333-4333-8333-333333333334"
 	cases := []struct {
-		name    string
-		facts   map[string]domain.GoatShiftingFact
-		goatIDs []string
-		body    map[string]any
+		name       string
+		facts      map[string]domain.GoatShiftingFact
+		goatIDs    []string
+		body       map[string]any
+		wantStatus int
 	}{
 		{
 			name: "animal has no recorded placement",
 			facts: map[string]domain.GoatShiftingFact{
 				testGoatID: {GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi"},
 			},
-			goatIDs: []string{testGoatID},
+			goatIDs:    []string{testGoatID},
+			wantStatus: http.StatusOK,
 		},
 		{
 			name: "two animals have no single origin",
@@ -1298,7 +1708,8 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 					ParkID: strPtrTest(testSourceParkID), ShedID: strPtrTest("11111111-1111-4111-8111-111111111111"),
 				},
 			},
-			goatIDs: []string{testGoatID, otherGoatID},
+			goatIDs:    []string{testGoatID, otherGoatID},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1318,8 +1729,11 @@ func TestRecordShiftingEventLeavesSourceAbsentWhenNotDerivable(t *testing.T) {
 			}
 
 			res := post(t, mux, appShiftingEventRoute, fmt.Sprintf("shift-source-absent-%d", i), body)
-			if res.Code != http.StatusOK {
-				t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+			if res.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s, want %d", res.Code, res.Body.String(), tc.wantStatus)
+			}
+			if tc.wantStatus != http.StatusOK {
+				return
 			}
 			if repo.lastEvent.SourceParkID != nil || repo.lastEvent.SourceShedID != nil {
 				t.Fatalf("source = %v/%v, want both nil -- an unresolvable origin must stay absent, never a blank or invented stored fact",
@@ -1553,6 +1967,33 @@ func TestRecordShiftingEventFailsClosedWhenTheAnimalDoesNotResolve(t *testing.T)
 	}
 }
 
+// TestRecordShiftingEventRejectsDeadAnimalBeforeRecording reproduces the CBE dead-RFID submit.
+// The goat exists, so the response is a specific eligibility error rather than a misleading 404;
+// critically, neither the movement nor its approval request may be written.
+func TestRecordShiftingEventRejectsDeadAnimalBeforeRecording(t *testing.T) {
+	exitedAt := time.Date(2026, 7, 28, 4, 28, 14, 0, time.UTC)
+	repo := newFakeShiftingRepo()
+	repo.goatFacts = map[string]domain.GoatShiftingFact{testGoatID: {
+		GoatID: testGoatID, LifecycleStatus: "dead", ExitedAt: &exitedAt,
+		BreedKey: "sirohi", BreedLabel: "Sirohi",
+	}}
+	approvals := newFakeApprovalWorkflow()
+	mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+	rec := post(t, mux, appShiftingEventRoute, "shift-dead-goat-1", shiftingBodyNoImpacts(testGoatID))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s, want 422", rec.Code, rec.Body.String())
+	}
+	var envelope identitydomain.ErrorEnvelope
+	decodeBody(t, rec, &envelope)
+	if envelope.Code != "goat_not_shiftable" {
+		t.Fatalf("code=%q, want goat_not_shiftable", envelope.Code)
+	}
+	if repo.inserts != 0 || approvals.submits != 0 {
+		t.Fatalf("inserts=%d submits=%d, want 0/0 for an ineligible animal", repo.inserts, approvals.submits)
+	}
+}
+
 // TestListShiftingDestinationsGroupsShedsUnderTheirPark is the disambiguation proof.
 //
 // Shed names REPEAT across parks -- "Castro 1" exists under both Coimbatore and Channapatna -- so a
@@ -1616,6 +2057,41 @@ func TestListShiftingDestinationsGroupsShedsUnderTheirPark(t *testing.T) {
 	}
 	if cpt.Sheds[0].ShedID != "shed-cpt-castro1" {
 		t.Fatalf("Channapatna's Castro 1 = %q, want shed-cpt-castro1", cpt.Sheds[0].ShedID)
+	}
+}
+
+// TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface pins the fix for the operator
+// birth form's breed picker. The picker's vocabulary used to come from the Counts Breakdown breed
+// facet, which is gated on CountsRead -- a permission a field operator does not hold -- so the fetch
+// 403'd and the picker rendered permanently empty/disabled. This route serves the identical
+// vocabulary on the CountsWrite surface. The test asserts the operator-reachable route returns the
+// breeds with key/label/count intact, and that an empty herd serializes as [] rather than null.
+func TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	repo.breeds = []domain.CountsBreakdownSeriesPoint{
+		{Key: "Beetal", Label: "Beetal", Count: 420},
+		{Key: "Sirohi", Label: "Sirohi", Count: 51},
+	}
+	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
+
+	rec := get(t, mux, appBirthBreedsRoute)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got appBirthBreedsResponse
+	decodeBody(t, rec, &got)
+	if len(got.Breeds) != 2 {
+		t.Fatalf("len(breeds)=%d, want 2", len(got.Breeds))
+	}
+	if got.Breeds[0].Key != "Beetal" || got.Breeds[0].Label != "Beetal" || got.Breeds[0].Count != 420 {
+		t.Fatalf("first breed = %+v, want {Beetal Beetal 420}", got.Breeds[0])
+	}
+
+	empty := newFakeShiftingRepo()
+	emptyMux := newTestServer(t, countsapp.NewService(empty), newFakeApprovalWorkflow(), newFakeGoatValidator())
+	emptyRec := get(t, emptyMux, appBirthBreedsRoute)
+	if !strings.Contains(emptyRec.Body.String(), `"breeds":[]`) {
+		t.Fatalf("body=%s, want an empty herd to serialize as \"breeds\":[]", emptyRec.Body.String())
 	}
 }
 
@@ -1752,4 +2228,117 @@ func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
 	if normalized.GoatIDs[0] != testGoatID {
 		t.Errorf("goat ID mismatch: got %s, want %s", normalized.GoatIDs[0], testGoatID)
 	}
+}
+
+// TestShiftingEventRequestRejectsClientSuppliedStage pins the contract change (maintainer decision
+// 2026-08-03): the raiser no longer chooses the destination stage, so the two fields that carried
+// that choice are GONE from the request rather than accepted-and-ignored.
+//
+// Accepting them silently would be the worse failure: a stale client would keep sending a stage
+// the server no longer honours, and the next author reading the payload would reasonably assume the
+// operator's choice was still being applied. decodeStrictJSON rejects unknown fields, so this
+// asserts the request is refused outright.
+func TestShiftingEventRequestRejectsClientSuppliedStage(t *testing.T) {
+	for _, field := range []string{"management_stage_mode", "target_management_stage"} {
+		t.Run(field, func(t *testing.T) {
+			body := []byte(`{"destination_park_id":"` + testParkID + `","destination_shed_id":"` + testShedID +
+				`","goat_ids":["` + testGoatID + `"],"` + field + `":"select_stage"}`)
+			var req appShiftingEventRequest
+			if err := decodeStrictJSON(body, &req, "RecordShiftingEventRequest"); err == nil {
+				t.Fatalf("client-supplied %s was accepted; it must be rejected as an unknown field", field)
+			}
+		})
+	}
+}
+
+// TestNormalizeShiftingEventRequestNoLongerDemandsAStageChoice is the other half: with the fields
+// removed, a request that names only a destination and its animals is COMPLETE. The stage is
+// resolved server-side from the destination shed, so there is nothing left for the operator to
+// answer and nothing to reject.
+func TestNormalizeShiftingEventRequestNoLongerDemandsAStageChoice(t *testing.T) {
+	req := appShiftingEventRequest{
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{testGoatID},
+	}
+	if _, err := normalizeShiftingEventRequest(req); err != nil {
+		t.Fatalf("a request with no stage choice must be accepted, got %v", err)
+	}
+}
+
+// TestNormalizeShiftingEventRequest_Comment pins the optional raise note (maintainer decision
+// 2026-07-31). The note is read by the approving park head and by the verifier reviewing the
+// evidence, so its handling has to be exact in three ways: blank must normalize to ABSENT (one
+// representation of "wrote nothing", which also keeps the request fingerprint stable across a
+// resubmission where the operator typed and then cleared the box), a real note must survive
+// verbatim apart from surrounding whitespace, and an over-long note must be REJECTED rather than
+// truncated — quietly cutting an operator's words changes what the decision-maker reads.
+func TestNormalizeShiftingEventRequest_Comment(t *testing.T) {
+	base := func(comment *string) appShiftingEventRequest {
+		return appShiftingEventRequest{
+			DestinationParkID: testParkID,
+			DestinationShedID: testShedID,
+			GoatIDs:           []string{testGoatID},
+			Comment:           comment,
+		}
+	}
+
+	t.Run("absent stays absent", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment != nil {
+			t.Fatalf("comment = %q, want nil", *out.Comment)
+		}
+	})
+
+	t.Run("whitespace-only normalizes to absent", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest("   \n\t ")))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment != nil {
+			t.Fatalf("comment = %q, want nil for a blank note", *out.Comment)
+		}
+	})
+
+	t.Run("a real note is kept, trimmed", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest("  Shed roof leaking after rain  ")))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out.Comment == nil || *out.Comment != "Shed roof leaking after rain" {
+			t.Fatalf("comment = %v, want the trimmed note", out.Comment)
+		}
+	})
+
+	t.Run("at the bound is accepted", func(t *testing.T) {
+		out, err := normalizeShiftingEventRequest(base(strPtrTest(strings.Repeat("a", maxShiftingCommentRunes))))
+		if err != nil {
+			t.Fatalf("a comment of exactly the limit must be accepted, got: %v", err)
+		}
+		if out.Comment == nil || len(*out.Comment) != maxShiftingCommentRunes {
+			t.Fatalf("comment length = %v, want %d", out.Comment, maxShiftingCommentRunes)
+		}
+	})
+
+	t.Run("over the bound is rejected, never truncated", func(t *testing.T) {
+		_, err := normalizeShiftingEventRequest(base(strPtrTest(strings.Repeat("a", maxShiftingCommentRunes+1))))
+		if err == nil {
+			t.Fatal("expected an over-long comment to be rejected")
+		}
+	})
+
+	// The bound is RUNES, matching Postgres char_length() in the column CHECK. Counting bytes
+	// would reject a Kannada or Telugu note less than a third of the documented length.
+	t.Run("multi-byte characters are counted as characters", func(t *testing.T) {
+		note := strings.Repeat("ಹ", maxShiftingCommentRunes)
+		if len(note) <= maxShiftingCommentRunes {
+			t.Fatalf("fixture is not multi-byte: %d bytes for %d runes", len(note), maxShiftingCommentRunes)
+		}
+		if _, err := normalizeShiftingEventRequest(base(strPtrTest(note))); err != nil {
+			t.Fatalf("a %d-character Kannada note must be accepted, got: %v", maxShiftingCommentRunes, err)
+		}
+	})
 }

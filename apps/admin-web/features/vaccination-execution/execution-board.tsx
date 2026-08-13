@@ -82,15 +82,16 @@ function physicalShedName(row: VaccinationExecutionRow): string {
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
-  const partition = (row.partition || "").trim();
-  return partition && partition !== "whole" ? partition : row.shedName;
+  return row.operational_location_display || row.shedName;
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {
   const byKey = new Map<string, PhysicalShedGroup>();
   for (const row of rows) {
     const physicalShed = physicalShedName(row);
-    const key = `${row.parkId}|${physicalShed}`;
+    // Key by shed_id only (no partition), so partitions group under one physical shed.
+    // Display = parent shed name; individual partitions shown per-row via partitionLabel().
+    const key = `${row.parkId}|${row.shedId}`;
     let group = byKey.get(key);
     if (!group) {
       group = { key, physicalShed, rows: [], animals: 0, severity: "ok", operators: [] };
@@ -153,10 +154,11 @@ function executionDriveLabel(row: VaccinationExecutionRow): string {
 }
 
 function executionActionTitle(pageContract: AdminUiPageContract, row: VaccinationExecutionRow): string {
-  if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${row.shedName}`;
-  if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${row.shedName}`;
-  if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${row.shedName}`;
-  return `${executionDriveLabel(row)} — ${row.shedName}`;
+  const location = partitionLabel(row);
+  if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${location}`;
+  if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${location}`;
+  if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${location}`;
+  return `${executionDriveLabel(row)} — ${location}`;
 }
 
 function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
@@ -450,15 +452,18 @@ export async function VaccinationExecutionBoard({
                         {shedGroup.operators.length ? ` · ${shedGroup.operators.join(", ")}` : ""}
                       </span>
                     </div>
-                    {shedGroup.rows.map((row, idx) => (
-                      <ExecutionRow
-                        key={`${row.shedId}-${row.driveId ?? idx}`}
-                        row={row}
-                        drawerHref={hrefWith({ shed_event: shedEventId(row) })}
-                        pageContract={pageContract}
-                        labels={labels}
-                      />
-                    ))}
+                    {shedGroup.rows.map((row, idx) => {
+                      const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`;
+                      return (
+                        <ExecutionRow
+                          key={partitionAwareKey}
+                          row={row}
+                          drawerHref={hrefWith({ shed_event: shedEventId(row) })}
+                          pageContract={pageContract}
+                          labels={labels}
+                        />
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -512,12 +517,17 @@ export async function VaccinationExecutionBoard({
 }
 
 function shedEventId(row: VaccinationExecutionRow): string {
-  return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
+  return `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? "drive"}|${row.animalStage}`;
 }
 
 function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typeof parseScope>, pageContract: AdminUiPageContract): LocalOverlayDrawerItem {
   const driveLabel = executionDriveLabel(row);
-  const detailHref = scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`, scope, { mode: "park", park: row.parkId });
+  const detailHref = scopeHref(
+    `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`,
+    scope,
+    { mode: "park", park: row.parkId },
+    { partition_label: row.partition_label ?? undefined },
+  );
   const actionCenterHref = scopeHref("/action-center", scope, {}, { state: row.workState });
   return {
     id: shedEventId(row),
@@ -533,7 +543,8 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.shed")}</div>
-              <div className="v">{row.shedName}</div>
+              <div className="v">{/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
+              {partitionLabel(row)}</div>
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.owner_assist")}</div>
@@ -550,7 +561,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
               </div>
             </div>
           </div>
-          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} pageContract={pageContract} />
+          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${partitionLabel(row)}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
             <ShedEventActions pageContract={pageContract} />
           </div>

@@ -198,11 +198,14 @@ func TestOrgTierPermissionsDoNotLeakBeyondKnownPermissions(t *testing.T) {
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationReview: {}, VerificationAct: {},
 		CountsWrite: {},
+		// Approvals moved onto the org tiers (maintainer decision 2026-07-21).
+		CountsApproveAccess: {}, CountsApproveLifecycle: {}, CountsApproveShifting: {},
 	}
 	for tier, perms := range tierPermissions {
 		for permission := range perms {

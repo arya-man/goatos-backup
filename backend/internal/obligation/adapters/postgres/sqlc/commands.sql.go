@@ -516,6 +516,32 @@ func (q *Queries) ReopenDeferredObligationForKeyWithDue(ctx context.Context, arg
 	return i, err
 }
 
+const reopenObligation = `-- name: ReopenObligation :execrows
+UPDATE obligation_instances
+SET status = 'due', completed_at = NULL, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1
+  AND obligation_id = $2
+  AND status = 'completed'
+`
+
+type ReopenObligationParams struct {
+	TenantID     pgtype.UUID
+	ObligationID pgtype.UUID
+}
+
+// Verification rejection reopens a completion's obligation back to outstanding work (maintainer
+// state-model: the obligation axis reopens on rejection, mirroring MarkObligationCompleted's close
+// on record). Only a genuinely-completed row is reopened -- an obligation waived/canceled/superseded
+// by an unrelated process is never resurrected by a stale reject replay. completed_at is cleared so
+// IsCompleted/read models agree the obligation is open again.
+func (q *Queries) ReopenObligation(ctx context.Context, arg ReopenObligationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reopenObligation, arg.TenantID, arg.ObligationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const rescheduleOpenObligationByID = `-- name: RescheduleOpenObligationByID :one
 UPDATE obligation_instances oi
 SET due_at = $1,

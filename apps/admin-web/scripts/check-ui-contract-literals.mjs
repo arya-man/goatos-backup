@@ -26,7 +26,7 @@ const SKIP_PATH_PARTS = [
   "features/procurement/work-state.ts",
   "features/process-integrity/process-integrity.ts",
   "features/vaccination-execution/work-state.ts",
-  "features/verification-review/",  // /verification is new; no backend page contract yet (Verification module ships on a parallel branch) — documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "features/approvals/",  // /approvals is new (maintainer decision 2026-07-21); no backend page contract yet — documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/ceo-ai/",  // leadership CEO/CXO assistant chrome (sidebar/feedback/mode-footer/state copy); no backend AdminWebPageContract exists for the floating assistant yet — backend-owned starters/title/subtitle already flow via CEOAIChatCopy; the remaining local literals are the documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/ceo-ai-admin/",  // ADMIN/ENGINEERING-only assistant step-trace debug surface (ceo_internal gate enforced server-side); internal diagnostic tool, not a leadership product screen and not in backend nav — no AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
 ];
@@ -45,6 +45,7 @@ const ALLOW_LINE = [
   /\bdata-\w+\s*=\s*["']/,  // data-* attributes
   /\bkey\s*=\s*["']/,  // React key attributes
   /\bnoun\s*=\s*["']/,  // technical parameters like noun="animal"
+  /\.displayName\s*=\s*["']/,  // React component displayName assignments (technical identifiers for DevTools)
 ];
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;

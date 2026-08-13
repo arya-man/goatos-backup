@@ -5,18 +5,24 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEventsVerification
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.DeadControlWatchdog
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
@@ -30,9 +36,11 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
+import sg.mesha.goatos.feature.verify.VerifyDetailEntryUiState
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
+import sg.mesha.goatos.feature.verify.VerifyTone
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 import javax.inject.Inject
 
@@ -44,9 +52,24 @@ private data class VerifyDetailFlags(
     val errorMessage: String? = null,
     val awaitingBackendDecision: Boolean = false,
     val autoCloseAfterDecision: Boolean = false,
+    /** Proof ids whose player actually failed to load on this screen. A signed URL string is NOT
+     *  evidence that the video exists — the object behind it can be gone while the link still
+     *  resolves — so a real playback failure is the honest client-side "she cannot see this". */
+    val unplayableProofIds: Set<String> = emptySet(),
+    /** True while a verdict submission is resolving. refresh() is launched as a background
+     *  coroutine, so a gap exists between when waitForBackendDecision returns and when the
+     *  background refresh completes. During this window, observedGroup may emit empty (the
+     *  decided item no longer matches pending filter), but the empty state is not a final answer.
+     *  This flag stays true until the refetch delivers the decided item with its new status. */
+    val isDecisionResolving: Boolean = false,
 )
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
+
+/** Upper bound on how long the screen holds its skeleton waiting for the refetch to return the
+ *  decided item. Generous enough for a slow round trip, short enough that a refetch which never
+ *  arrives degrades to the ordinary empty state instead of a permanent skeleton. */
+private const val DECIDED_ITEM_DELIVERY_TIMEOUT_MS = 10_000L
 
 /**
  * The standalone Verifier section's detail state holder (context/architecture/
@@ -77,56 +100,200 @@ class VerifyDetailViewModel @Inject constructor(
     private val isActionMode: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
     private val parkId: String? = savedStateHandle.get<String>("parkId")
     private val shedId: String? = savedStateHandle.get<String>("shedId")
+    private val status: String? = savedStateHandle.get<String>("status")
+    private val businessDate: String? = savedStateHandle.get<String>("businessDate")
+    private val missed: Boolean = savedStateHandle.get<Boolean>("missed") ?: false
+
+    /**
+     * Status to re-query the queue with when resolving THIS item.
+     *
+     * The backend silently defaults a blank/absent status to `pending`
+     * (verification/app/service.go: `if params.Status == "" && !params.IncludeAllStatuses`), and the
+     * nav route does not forward the queue's selected status. So opening an ALREADY-APPROVED item
+     * from the "Approved" filter re-queried with no status, got back only pending rows, found
+     * nothing, and rendered "No video attached to this item" -- on an item whose media was intact
+     * at every layer (verified: the queue endpoint returns full media arrays with download_url for
+     * every approved item). Pending items only worked because the accidental default matched.
+     *
+     * "all" is the backend's documented explicit no-filter sentinel (handler.go `statusAll`). The
+     * detail screen resolves ONE item by group key out of whatever page it fetches, so it must
+     * never inherit the queue's ambient "pending" default.
+     */
+    private val effectiveStatus: String = status?.takeIf { it.isNotBlank() } ?: "all"
 
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
     private var trackedItemOpened = false
+
+    // Item ids for which [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] has already
+    // fired with EVIDENCE_UNAVAILABLE this screen visit — the entry map is recomputed on every
+    // Room emission, so without this the event would fire once per recomposition/emission
+    // instead of once per genuine transition into "stuck" state.
+    private val trackedEvidenceUnavailableItemIds = mutableSetOf<String>() // mobile-guard:ignore: bounded by this screen's item set (single shed/queue scope), cleared with the ViewModel on screen exit
+
+    // Dead-control watchdog for the play/pause control (docs/observability/
+    // TELEMETRY_GUARDRAILS.md): one per proof id so two clips in the same shed group never share
+    // (and falsely clear) each other's pending watchdog. Cancelled in [onCleared] so a screen exit
+    // never fires a report against a torn-down ViewModel.
+    private val playWatchdogs = mutableMapOf<String, DeadControlWatchdog>()
+
+    private fun playWatchdogFor(proofId: String): DeadControlWatchdog =
+        playWatchdogs.getOrPut(proofId) {
+            AnalyticsFunnels.newVerifyVideoPlayWatchdog(analytics, crashReporter, viewModelScope)
+        }
     private val observedQueue: Flow<Resource<VerificationQueueResponseDto>> =
         if (isActionMode) {
             repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
         } else {
-            repo.observeQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+            repo.observeQueue(
+                category = category,
+                status = effectiveStatus,
+                businessDate = businessDate,
+                missed = missed,
+                parkId = parkId,
+                shedId = shedId,
+                limit = VERIFY_DETAIL_PAGE_SIZE,
+            )
         }
 
-    // Cache-first: the tapped row's category scope Room cache already holds this item's full
+    // Cache-first: the tapped row's category scope Room cache already holds this GROUP's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
-    private val observedItem: StateFlow<VerificationQueueItem?> =
+    //
+    // The route's `itemId` arg is really a GROUP key: the backend now emits one
+    // verification_item PER GOAT (source_ref_type=vaccination_goat), and every per-goat item
+    // produced from one shed submission shares one `source.submissionId`. That is the grouping
+    // key here — with the item's OWN itemId as the fallback for a legacy bundled item
+    // (ref_type=sop_submission, several clips under one verdict) or any item with no siblings,
+    // so a lone item still resolves to a group of exactly itself.
+    /**
+     * Flips once the observed queue has actually ANSWERED -- i.e. carried data. The empty state is
+     * a definitive claim, so it must wait for an answer; before that the screen shows a skeleton
+     * instead of flashing "No video attached to this item".
+     *
+     * This used to flip on the first emission "whatever it contained", which is the bug: a Resource
+     * in flight carries data = null, and every refresh emits one. So the flag went true on a
+     * NON-answer and stayed true forever after.
+     */
+    private val _hasLoadedOnce = MutableStateFlow(false)
+
+    /**
+     * The group this screen renders, latched against in-flight emissions.
+     *
+     * `resource.data` is null while a load is in flight, and `.orEmpty()` turned that into an EMPTY
+     * GROUP -- indistinguishable, downstream, from "this item genuinely has no video". Combined with
+     * hasLoadedOnce being true, the screen drew its definitive "No video attached to this item"
+     * state on every single refresh: on open, on each resume (RefreshOnResume re-fetches every time
+     * the screen is shown), and after each verdict. That is the flicker on the weighing proof screen
+     * AND the jittery load -- one cause, reported as two symptoms.
+     *
+     * A load in flight is not an answer, so it does not change what is on screen: the previous group
+     * is held until a resource actually carries data. An answer that genuinely contains no matching
+     * item still yields an empty group, so a real "gone" still renders and still auto-closes.
+     */
+    private val observedGroup: StateFlow<List<VerificationQueueItem>> =
         observedQueue
-            .map { resource -> resource.data?.items?.firstOrNull { it.itemId == itemId } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .onEach { resource -> if (resource.data != null) _hasLoadedOnce.value = true }
+            .scan(emptyList<VerificationQueueItem>()) { previous, resource ->
+                val answered = resource.data ?: return@scan previous
+                val matching = answered.items.filter { it.verificationGroupKey() == itemId }
+                if (
+                    matching.isEmpty() &&
+                    previous.isNotEmpty() &&
+                    !_flags.value.isDecisionResolving &&
+                    !_flags.value.autoCloseAfterDecision
+                ) {
+                    previous
+                } else {
+                    matching
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<VerifyDetailUiState> = combine(
-        observedItem,
+        observedGroup,
         _flags,
-    ) { item, flags ->
-        item.toUiState(flags = flags)
+        _hasLoadedOnce,
+    ) { items, flags, hasLoadedOnce ->
+        items.toUiState(flags = flags).copy(hasLoadedOnce = hasLoadedOnce, isDecisionResolving = flags.isDecisionResolving)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
         viewModelScope.launch {
-            observedItem.collect { item ->
-                if (!trackedItemOpened && item != null) {
+            observedGroup.collect { items ->
+                val first = items.firstOrNull()
+                if (!trackedItemOpened && first != null) {
                     trackedItemOpened = true
                     AnalyticsFunnels.trackVerifyItemOpened(
                         analytics = analytics,
                         itemId = itemId,
-                        category = item.category.ifBlank { category.orEmpty() },
+                        category = first.category.ifBlank { category.orEmpty() },
                     )
                 }
             }
         }
+        viewModelScope.launch {
+            state.collect { current -> trackDecisionUnavailable(current.entries) }
+        }
         refresh()
+    }
+
+    /**
+     * Emits [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] the FIRST time each entry
+     * in this group is observed with [VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE] —
+     * i.e. Approve is rendered disabled because the evidence could not be confirmed watchable.
+     * This is a real operator-facing dead end (see [VerifyDetailViewModel] class doc / R50-017),
+     * not merely a loading placeholder, so it must be visible in analytics.
+     */
+    private fun trackDecisionUnavailable(entries: List<VerifyDetailEntryUiState>) {
+        entries
+            .filter { it.decisionUnavailableReason == VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE }
+            .forEach { entry ->
+                if (trackedEvidenceUnavailableItemIds.add(entry.itemId)) {
+                    runCatching {
+                        analytics.track(
+                            AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE,
+                            mapOf(
+                                AnalyticsFunnels.Params.ITEM_ID to entry.itemId,
+                                AnalyticsEventsVerification.Params.REASON to
+                                    VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE.name,
+                            ),
+                        )
+                    }
+                }
+            }
     }
 
     fun onEvent(event: VerifyDetailEvent) {
         when (event) {
-            VerifyDetailEvent.Close -> Unit // navigation — handled by the nav host.
+            VerifyDetailEvent.Close -> trackClosed()
             VerifyDetailEvent.Refresh -> refresh()
-            VerifyDetailEvent.Approve -> submitVerdict(VerificationDecision.APPROVED, reason = null)
-            is VerifyDetailEvent.Reject -> submitVerdict(VerificationDecision.REJECTED, reason = event.reason)
+            is VerifyDetailEvent.Approve ->
+                submitVerdict(event.itemId ?: itemId, VerificationDecision.APPROVED, reason = null)
+            is VerifyDetailEvent.Reject ->
+                submitVerdict(event.itemId ?: itemId, VerificationDecision.REJECTED, reason = event.reason)
             is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
+            is VerifyDetailEvent.RejectDialogOpened -> AnalyticsFunnels.trackVerifyRejectDialogOpened(analytics, event.itemId)
+            is VerifyDetailEvent.RejectDialogCancelled -> AnalyticsFunnels.trackVerifyRejectDialogCancelled(analytics, event.itemId)
+            is VerifyDetailEvent.RejectBlockedEmptyReason ->
+                AnalyticsFunnels.trackVerifyRejectBlockedEmptyReason(analytics, event.itemId)
+            is VerifyDetailEvent.ApproveDialogOpened -> AnalyticsFunnels.trackVerifyApproveDialogOpened(analytics, event.itemId)
+            is VerifyDetailEvent.ApproveDialogCancelled -> AnalyticsFunnels.trackVerifyApproveDialogCancelled(analytics, event.itemId)
         }
+    }
+
+    /** Fires once per screen exit (nav host calls this before popping back). [reason] is
+     *  `fully_decided` when every entry in this group is terminal, `abandoned` otherwise — the
+     *  signal that distinguishes a shed the verifier finished from one she walked away from
+     *  mid-review. */
+    private fun trackClosed() {
+        val entries = state.value.entries
+        val reason = if (entries.isNotEmpty() && entries.none { it.statusTone == VerifyTone.PENDING }) {
+            "fully_decided"
+        } else {
+            "abandoned"
+        }
+        AnalyticsFunnels.trackVerifyItemClosed(analytics, itemId, reason)
     }
 
     private fun refresh() = viewModelScope.launch {
@@ -134,21 +301,39 @@ class VerifyDetailViewModel @Inject constructor(
         val result = if (isActionMode) {
             repo.refreshActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
         } else {
-            repo.refreshQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
+            repo.refreshQueue(
+                category = category,
+                status = effectiveStatus,
+                businessDate = businessDate,
+                missed = missed,
+                parkId = parkId,
+                shedId = shedId,
+                limit = VERIFY_DETAIL_PAGE_SIZE,
+            )
         }
         _flags.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
     }
 
-    private fun submitVerdict(decision: String, reason: String?) = viewModelScope.launch {
+    /**
+     * [targetItemId] is the ONE animal's item this verdict decides. Every other item sharing
+     * this shed's group stays exactly as it was — no shared verdict, no shared enable/disable
+     * state, matching [SyncRepository.enqueueVerificationVerdict]'s own per-item_id outbox key.
+     */
+    private fun submitVerdict(targetItemId: String, decision: String, reason: String?) = viewModelScope.launch {
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
+        val targetEntry = state.value.entries.firstOrNull { it.itemId == targetItemId }
+        // Same belt-and-braces shape for the irreversible side: an approve can never be enqueued
+        // from a screen state where THIS animal's evidence is not watchable, whatever produced
+        // the event — a sibling animal's healthy evidence must never let this one through.
+        if (decision == VerificationDecision.APPROVED && targetEntry?.isApproveEnabled != true) return@launch
 
-        val rowVersion = observedItem.value?.rowVersion ?: 1
-        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
-        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision, totalWatchTimeMs())
+        val rowVersion = observedGroup.value.firstOrNull { it.itemId == targetItemId }?.rowVersion ?: 1
+        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null, isDecisionResolving = true) }
+        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, targetItemId, decision, totalWatchTimeMs())
         val result = syncRepo.enqueueVerificationVerdict(
-            itemId = itemId,
+            itemId = targetItemId,
             decision = decision,
             reason = reason,
             rowVersion = rowVersion,
@@ -156,10 +341,26 @@ class VerifyDetailViewModel @Inject constructor(
         when (result) {
             is AppResult.Ok -> {
                 _flags.update { it.copy(awaitingBackendDecision = true) }
-                val waitError = waitForBackendDecision(result.value)
+                val waitError = waitForBackendDecision(targetItemId, result.value)
                 if (waitError == null) {
-                    _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = true) }
-                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision, totalWatchTimeMs())
+                    // Auto-close the SCREEN only once every animal in this group has a terminal
+                    // verdict — a single legacy/bundled item (group of one) closes immediately,
+                    // same as before; a multi-animal shed keeps the verifier here to work through
+                    // the rest, exactly the fix this task exists for (one reject must not evict
+                    // her from the shed's other, still-pending, animals).
+                    val stillPending = observedGroup.value.any { it.status == VerificationStatus.PENDING }
+                    // isDecisionResolving deliberately stays TRUE here. refresh() is launched, not
+                    // awaited, so the queue re-emission lands AFTER this point: the decided item
+                    // stops matching the observed query and the group goes momentarily empty. That
+                    // is the window that flashed "No video attached to this item" -- clearing the
+                    // flag here (as isSubmitting does) closes a window that was already shut.
+                    // awaitDecidedItemDelivered below clears it once the refetch actually returns
+                    // the item, or after a bounded wait so the screen can never latch.
+                    _flags.update {
+                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = !stillPending)
+                    }
+                    awaitDecidedItemDelivered(targetItemId)
+                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
                     watchTimeByProof.clear()
                 } else {
                     _flags.update {
@@ -167,16 +368,17 @@ class VerifyDetailViewModel @Inject constructor(
                             isSubmitting = false,
                             awaitingBackendDecision = false,
                             errorMessage = waitError,
+                            isDecisionResolving = false,
                         )
                     }
                 }
             }
             is AppResult.Err -> {
-                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message) }
+                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message, isDecisionResolving = false) }
                 result.cause?.let { error ->
                     runCatching { crashReporter.recordException(error, "verification verdict enqueue failed") }
                 }
-                AnalyticsFunnels.trackVerifyVerdictFailed(analytics, itemId, decision, result.message)
+                AnalyticsFunnels.trackVerifyVerdictFailed(analytics, targetItemId, decision, result.message)
                 watchTimeByProof.clear()
             }
         }
@@ -184,6 +386,18 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun trackVideoPlayback(event: VerifyDetailEvent.VideoPlayback) {
         when (event.action) {
+            VideoPlaybackAction.PLAY_INTENT -> {
+                val props = mapOf(
+                    AnalyticsFunnels.Params.ITEM_ID to itemId,
+                    AnalyticsFunnels.Params.PROOF_ID to event.proofSubject,
+                    AnalyticsFunnels.Params.PLAYER_STATE to (event.playerState ?: "unknown"),
+                    AnalyticsFunnels.Params.ARMED to (event.armed?.toString() ?: "unknown"),
+                    AnalyticsFunnels.Params.TARGET_ACTION to (event.targetAction ?: "unknown"),
+                )
+                playWatchdogFor(event.proofSubject)
+                    .armIntent(props, AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS)
+            }
+            VideoPlaybackAction.PLAY_OUTCOME -> playWatchdogFor(event.proofSubject).disarm()
             VideoPlaybackAction.PLAY_STARTED ->
                 AnalyticsFunnels.trackVerifyVideoPlayStarted(
                     analytics = analytics,
@@ -210,15 +424,59 @@ class VerifyDetailViewModel @Inject constructor(
             }
             VideoPlaybackAction.PLAYBACK_ERROR -> {
                 val reason = event.reason ?: "unknown"
-                runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
+                playWatchdogFor(event.proofSubject).disarm()
+                // The player told us the truth the URL could not: this proof will not play. Approve
+                // must go dead for this item; Reject/rework stays open (see toUiState).
+                _flags.update { it.copy(unplayableProofIds = it.unplayableProofIds + event.proofSubject) }
+                if (!reason.isExpectedVerificationPlaybackState()) {
+                    runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
+                }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
+            VideoPlaybackAction.FULLSCREEN_OPENED ->
+                AnalyticsFunnels.trackVerifyVideoFullscreenOpened(analytics, itemId, event.proofSubject)
+            VideoPlaybackAction.FULLSCREEN_EXITED ->
+                AnalyticsFunnels.trackVerifyVideoFullscreenExited(analytics, itemId, event.proofSubject)
         }
     }
 
     private fun totalWatchTimeMs(): Long = watchTimeByProof.values.sum()
 
-    private suspend fun waitForBackendDecision(outboxItemId: String): String? {
+    override fun onCleared() {
+        super.onCleared()
+        // Screen exit is not a dead control — cancel every pending watchdog so leaving mid-play
+        // never fires a false-positive report against this now-cleared ViewModel.
+        playWatchdogs.values.forEach { it.cancel() }
+        playWatchdogs.clear()
+    }
+
+    /**
+     * Holds [VerifyDetailFlags.isDecisionResolving] until the refetch has DELIVERED the decided
+     * item, then clears it.
+     *
+     * The verdict path calls refresh() without awaiting it, so the queue re-emission arrives after
+     * submitVerdict has already finished. Between the verdict landing and that emission the group
+     * filters to empty, and the screen drew its definitive "No video attached to this item" state
+     * into that gap -- the flash a verifier sees right after tapping Approve. Two earlier attempts
+     * keyed the guard on isSubmitting (and on a rename of it) and both cleared at the same instant,
+     * i.e. before the gap they were meant to cover, which is why the flash survived them.
+     *
+     * Waits for the item to REAPPEAR carrying a terminal status. Bounded: on timeout the flag is
+     * cleared anyway, so a refetch that never delivers leaves the screen showing its ordinary empty
+     * state rather than a skeleton forever.
+     */
+    private suspend fun awaitDecidedItemDelivered(targetItemId: String) {
+        runCatching {
+            withTimeout(DECIDED_ITEM_DELIVERY_TIMEOUT_MS) {
+                observedGroup.first { items ->
+                    items.any { it.itemId == targetItemId && it.status != VerificationStatus.PENDING }
+                }
+            }
+        }
+        _flags.update { it.copy(isDecisionResolving = false) }
+    }
+
+    private suspend fun waitForBackendDecision(targetItemId: String, outboxItemId: String): String? {
         repeat(30) {
             syncRepo.triggerDrain()
             delay(250)
@@ -228,7 +486,7 @@ class VerifyDetailViewModel @Inject constructor(
                     when {
                         item?.status == SyncItemStatus.SUCCEEDED -> {
                             if (!isActionMode) {
-                                repo.markVerificationItemDecidedLocally(itemId)
+                                repo.markVerificationItemDecidedLocally(targetItemId)
                             }
                             refresh()
                             return null
@@ -241,10 +499,10 @@ class VerifyDetailViewModel @Inject constructor(
             }
             val result = if (isActionMode) repo.refreshActionQueue(category = category) else repo.refreshQueue(category = category)
             _flags.update { flags -> flags.copy(isOffline = result.isFailure) }
-            val current = observedItem.value
+            val current = observedGroup.value.firstOrNull { it.itemId == targetItemId }
             if (current == null || current.status != VerificationStatus.PENDING) {
                 if (!isActionMode) {
-                    repo.markVerificationItemDecidedLocally(itemId)
+                    repo.markVerificationItemDecidedLocally(targetItemId)
                 }
                 return null
             }
@@ -253,8 +511,59 @@ class VerifyDetailViewModel @Inject constructor(
         return "Decision saved locally; waiting for backend sync."
     }
 
-    private fun VerificationQueueItem?.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
-        if (this == null) {
+    private fun VerificationQueueItem.toEntry(flags: VerifyDetailFlags): VerifyDetailEntryUiState {
+        val effectiveStatus = status
+        // What "evidence available" honestly means on this screen:
+        //  - the server resolved a link for EVERY media_ref (any() would have passed an item whose
+        //    second proof silently vanished), and
+        //  - no proof on this screen has actually failed to play.
+        // downloadUrl.isNotBlank() alone proves nothing: the string is present even when the stored
+        // object is gone, which is exactly how Approve stayed enabled over evidence that no longer
+        // existed. The backend runs the authoritative existence check at verdict time; this is the
+        // honest client half of it.
+        val everyProofLinked = media.isNotEmpty() && media.all { it.downloadUrl.isNotBlank() }
+        // Scoped to THIS animal's own proof ids only — a sibling animal's playback failure must
+        // never gate this one's Approve.
+        val nothingFailedToPlay = media.none { flags.unplayableProofIds.contains(it.proofId) }
+        val evidenceIsWatchable = evidenceAvailable && everyProofLinked && nothingFailedToPlay
+        val isOpen = !isActionMode && effectiveStatus == VerificationStatus.PENDING
+        // Approve needs watchable evidence. Reject/rework must stay available on an open item even
+        // when the video will not load — that is the only correct move left, and blocking it would
+        // strand the verifier.
+        val canApprove = isOpen && evidenceIsWatchable
+        val canReject = isOpen
+        return VerifyDetailEntryUiState(
+            itemId = itemId,
+            subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
+            media = media.map {
+                VerifyMediaItem(
+                    signedUrl = absoluteDownloadUrl(it.downloadUrl),
+                    mimeType = it.mimeType ?: "",
+                    proofSubject = it.proofId,
+                    taskTitle = it.label?.takeIf(String::isNotBlank),
+                    answer = it.answer?.takeIf(String::isNotBlank),
+                )
+            },
+            statusTone = statusTone(effectiveStatus),
+            rowVersion = rowVersion,
+            verdictReason = verdictReason,
+            // R50-017: the backend now fails evidence resolution closed instead of silently
+            // omitting media, so a verdict with no resolvable evidence must stay disabled even
+            // though the item itself is still PENDING.
+            isApproveEnabled = canApprove,
+            isRejectEnabled = canReject,
+            decisionUnavailableReason = when {
+                isActionMode || canApprove -> VerifyDecisionUnavailableReason.NONE
+                isOpen -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
+                else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
+            },
+            isSubmitting = false,
+        )
+    }
+
+    private fun List<VerificationQueueItem>.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
+        val first = firstOrNull()
+        if (first == null) {
             return VerifyDetailUiState(
                 itemId = itemId,
                 isCloseMode = isActionMode,
@@ -262,44 +571,44 @@ class VerifyDetailViewModel @Inject constructor(
                 isOffline = flags.isOffline,
                 isSubmitting = flags.isSubmitting,
                 errorMessage = flags.errorMessage,
-                isDecisionEnabled = false,
+                isApproveEnabled = false,
+                isRejectEnabled = false,
                 autoCloseAfterDecision = flags.autoCloseAfterDecision,
+                entries = emptyList(),
+                isGroupFullyDecided = false,
             )
         }
-        val effectiveStatus = status
-        val playableEvidenceAvailable = evidenceAvailable && media.any { it.downloadUrl.isNotBlank() }
-        val canDecide = !isActionMode && effectiveStatus == VerificationStatus.PENDING && playableEvidenceAvailable
+        // rowVersion order is stable regardless of refresh re-ordering, matching the queue's own
+        // shed-card ordering: subject label (falls back to the item's own display order otherwise).
+        val entries = sortedBy { it.subjectLabel ?: it.itemId }.map { it.toEntry(flags) }
+        // Server-confirmed only: every entry in this group carries a status that is no longer
+        // PENDING in the Room-observed queue snapshot — never a locally-guessed "must be done"
+        // before the backend's own read confirms it.
+        val isGroupFullyDecided = entries.isNotEmpty() && entries.none { it.statusTone == VerifyTone.PENDING }
+        val singleEntry = entries.singleOrNull()
         return VerifyDetailUiState(
             itemId = itemId,
-            categoryLabel = humanizeCategory(category),
-            media = media.map {
-                VerifyMediaItem(
-                    signedUrl = absoluteDownloadUrl(it.downloadUrl),
-                    mimeType = it.mimeType ?: "",
-                    proofSubject = it.proofId,
-                )
-            },
-            context = buildContext(this),
-            statusTone = statusTone(effectiveStatus),
-            rowVersion = rowVersion,
+            category = first.category,
+            categoryLabel = humanizeCategory(first.category),
+            subjectLabel = first.subjectLabel?.takeIf { it.isNotBlank() },
+            media = singleEntry?.media.orEmpty(),
+            context = buildContext(first),
+            statusTone = singleEntry?.statusTone ?: statusTone(first.status),
+            rowVersion = singleEntry?.rowVersion ?: first.rowVersion,
             isCloseMode = isActionMode,
             isCloseEnabled = false,
-            verdictReason = verdictReason,
-            // R50-017: the backend now fails evidence resolution closed instead of silently
-            // omitting media, so a verdict with no resolvable evidence must stay disabled even
-            // though the item itself is still PENDING.
-            isDecisionEnabled = canDecide,
-            decisionUnavailableReason = when {
-                isActionMode || canDecide -> VerifyDecisionUnavailableReason.NONE
-                effectiveStatus == VerificationStatus.PENDING -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
-                else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
-            },
+            verdictReason = singleEntry?.verdictReason,
+            isApproveEnabled = singleEntry?.isApproveEnabled ?: false,
+            isRejectEnabled = singleEntry?.isRejectEnabled ?: false,
+            decisionUnavailableReason = singleEntry?.decisionUnavailableReason ?: VerifyDecisionUnavailableReason.NONE,
             isSubmitting = flags.isSubmitting,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = null,
             isOffline = flags.isOffline,
             errorMessage = flags.errorMessage,
             autoCloseAfterDecision = flags.autoCloseAfterDecision,
+            entries = entries,
+            isGroupFullyDecided = isGroupFullyDecided,
         )
     }
 
@@ -317,6 +626,35 @@ class VerifyDetailViewModel @Inject constructor(
             item.parkLabel?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
             item.operatorName?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
             item.capturedAt.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
-        )
+            // Last, and only when present: the operator's reason for raising this work, so the
+            // reviewer reads it beside the video instead of judging the evidence without it.
+            item.subjectNote?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.RAISED_NOTE, it) },
+        ) + backendContextRows(item)
     }
+
+    /**
+     * The producing module's "what was expected" rows -- for a feed packing proof, the frozen ration
+     * for that pen-session and the head count it was computed from.
+     *
+     * Rendered VERBATIM and in the producer's order. Deliberately not switched on by label and not
+     * merged into the fixed rows above: producers add rows whenever they have something to state, so
+     * a client-side table of known labels would silently drop everything it had not been taught. A
+     * row missing either half is dropped -- a label with no value states nothing and reads as a bug.
+     */
+    private fun backendContextRows(item: VerificationQueueItem): List<VerifyContextRow> =
+        item.contextRows.mapNotNull { row ->
+            val label = row.label.trim()
+            val value = row.value.trim()
+            if (label.isEmpty() || value.isEmpty()) return@mapNotNull null
+            VerifyContextRow(kind = VerifyContextKind.RAISED_NOTE, value = value, backendLabel = label)
+        }
+}
+
+private fun String.isExpectedVerificationPlaybackState(): Boolean {
+    val normalized = lowercase()
+    return "source error" in normalized ||
+        "behind live window" in normalized ||
+        "cleartext http traffic" in normalized ||
+        "response code: 404" in normalized ||
+        "response code: 410" in normalized
 }

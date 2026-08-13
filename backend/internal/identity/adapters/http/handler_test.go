@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
@@ -80,6 +81,71 @@ func TestSearchGoatsForwardsTableFilters(t *testing.T) {
 	assertPtr("park_id", repo.searchParams.ParkID, "30000000-0000-4000-8000-000000000001")
 	assertPtr("location_id", repo.searchParams.LocationID, "40000000-0000-4000-8000-000000000001")
 	assertPtr("status", repo.searchParams.Status, "alive")
+}
+
+func TestSearchGoatsEnforcesGoatReadParkScope(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		parkA    = "30000000-0000-4000-8000-00000000000a"
+		parkB    = "30000000-0000-4000-8000-00000000000b"
+	)
+	parkAGrant := permissions.ActiveGrant{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: parkA}
+
+	request := func(repo *handlerRepo, rawQuery string, grants []permissions.ActiveGrant) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=20&"+rawQuery, nil)
+		ctx := httpmiddleware.WithTenantID(req.Context(), tenantID)
+		ctx = httpmiddleware.WithAuthGrants(ctx, grants)
+		rec := httptest.NewRecorder()
+		NewHandler(app.NewService(repo)).SearchGoats(rec, req.WithContext(ctx))
+		return rec
+	}
+
+	t.Run("omitted park defaults to the operator's authorized park", func(t *testing.T) {
+		repo := &handlerRepo{}
+		rec := request(repo, "q=TAG-1", []permissions.ActiveGrant{parkAGrant})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if repo.searchParams == nil || repo.searchParams.ParkID == nil || *repo.searchParams.ParkID != parkA {
+			t.Fatalf("park_id=%v, want authorized park %q", repo.searchParams, parkA)
+		}
+	})
+
+	t.Run("foreign park is forbidden before the repository read", func(t *testing.T) {
+		repo := &handlerRepo{}
+		rec := request(repo, "q=TAG-1&park_id="+parkB, []permissions.ActiveGrant{parkAGrant})
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if repo.searchParams != nil {
+			t.Fatal("repository must not be queried for a forbidden park")
+		}
+	})
+
+	t.Run("unrelated tenant grant does not bypass goat scope", func(t *testing.T) {
+		repo := &handlerRepo{}
+		grants := []permissions.ActiveGrant{
+			parkAGrant,
+			{Role: "unrelated_role", ScopeType: "tenant", ScopeID: tenantID},
+		}
+		rec := request(repo, "q=TAG-1&park_id="+parkB, grants)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("CEO can search any park", func(t *testing.T) {
+		repo := &handlerRepo{}
+		grants := []permissions.ActiveGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}}
+		rec := request(repo, "q=TAG-1&park_id="+parkB, grants)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if repo.searchParams == nil || repo.searchParams.ParkID == nil || *repo.searchParams.ParkID != parkB {
+			t.Fatalf("park_id=%v, want CEO-requested park %q", repo.searchParams, parkB)
+		}
+	})
 }
 
 // TestSearchGoatsRejectsUnknownQueryParameters is the regression for the most dangerous shape of
@@ -526,6 +592,10 @@ func (r *handlerRepo) SearchGoats(_ context.Context, params ports.SearchGoatsPar
 	return []domain.GoatSummary{handlerPassport().Summary}, nil, nil
 }
 
+func (handlerRepo) ListTemporaryTaggedGoats(context.Context, ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	return nil, nil, nil
+}
+
 func (handlerRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
 	return nil, nil
 }
@@ -567,6 +637,15 @@ func (h handlerRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoa
 		Identifiers: []domain.GoatIdentifier{identifierResponseFixture(cmd.IdentifierID, "animal_identifier_1", "A1-1900", "retired")},
 		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000102", "retire_identifier", "identifier_retired"),
 		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
+func (h handlerRepo) PromoteTemporaryIdentifier(_ context.Context, cmd ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	return &ports.AdminGoatMutationResult{
+		Goat:        handlerPassport().Summary,
+		Identifiers: []domain.GoatIdentifier{identifierResponseFixture("70000000-0000-4000-8000-000000000103", "animal_identifier_1", cmd.PermanentValue, "active")},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000103", "attach_identifier", "identifier_attached"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000103", EventType: "goat.identifier.added"}},
 	}, nil
 }
 
@@ -620,6 +699,14 @@ func (h handlerRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveG
 		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000205", "reproductive_goat", "goat_reproductive_changed"),
 		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000205", EventType: "goat.reproductive.changed"}},
 	}, nil
+}
+
+func (h handlerRepo) PreviewReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStagePreview, error) {
+	return &ports.ReclassifyShedStagePreview{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Changing: 1}, nil
+}
+
+func (h handlerRepo) ReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStageResult, error) {
+	return &ports.ReclassifyShedStageResult{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Reclassified: 1}, nil
 }
 
 func (h handlerRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
@@ -678,7 +765,7 @@ func handlerPassport() *domain.GoatPassport {
 			AnimalIdentifier1: strPtr("A1-G-000001"),
 			AnimalIdentifier2: strPtr("A2-G-000001"),
 			LifecycleStatus:   "alive",
-			LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+			LocationPath:      domain.LocationPath{OperationalLocationDisplay: "Synthetic CBE"},
 			Warnings:          []domain.Warning{},
 		},
 		Identifiers:  []domain.GoatIdentifier{},

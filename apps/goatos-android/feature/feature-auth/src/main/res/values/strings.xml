@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings for login screen; telemetry wired in LoginScreen.kt and SessionViewModel.kt
+
   Login (v-login) chrome strings. Translations are ported verbatim from the mock's TXT
   dictionary in mock/vaccination-mobile-mock.html (keys noted per string) so the app and
   the mock never drift. Two strings intentionally have NO locale variants: the brand mark
@@ -47,4 +49,17 @@
     <string name="perm_status_granted">Granted</string>
     <string name="perm_status_needed">Needed</string>
     <string name="perm_status_open_settings">Open Settings</string>
+
+    <!-- Mandatory role-based permission gate (RoleBasedPermissionGate.kt).
+         Non-dismissible dialog shown after bootstrap. Operators require camera, BLE, and notifications.
+         All roles require notifications. Farm language: explain consequences and navigate to settings if needed. -->
+    <string name="mandatory_permissions_title">Grant permissions to continue</string>
+    <string name="mandatory_permissions_body">This phone needs these permissions before you can start work. The app will not work without them.</string>
+    <string name="mandatory_permissions_why">Camera records proof videos for each animal. Notifications tell you when work is due. Nearby devices connects your RFID reader.</string>
+    <string name="mandatory_permissions_grant">Grant permissions</string>
+    <string name="mandatory_permissions_settings">Open settings</string>
+    <string name="mandatory_permissions_settings_help">Your phone will not ask again. Open the settings app below. Find Mesha, tap Permissions, and enable the required permissions. Return to this app when done.</string>
+    <string name="mandatory_permissions_retry_help">Your phone can still ask. Tap the button above and choose Allow — work cannot start until every permission below is on.</string>
+    <string name="perm_label_location">Location</string>
+    <string name="perm_rationale_location">Shows which park and shed the work was done in.</string>
 </resources>

@@ -3,13 +3,16 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
@@ -117,11 +120,130 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 	}
 }
 
+func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
+	const parkA = "86000000-0000-4000-8000-000000000701"
+	svc := &fakeHTTPProofService{
+		proofs: []domain.Artifact{{
+			ProofID:     httpTestProof,
+			TenantID:    httpTestTenant,
+			ProofType:   "video",
+			SubjectType: "shed",
+			UploadState: "completed",
+			MimeType:    "video/mp4",
+			Metadata:    map[string]any{"client_task_key": "feed-dist:shed:whole:1:morning:2026-08-13", "field_key": "feed_distribution_video"},
+			CreatedAt:   time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC),
+		}},
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/uploads?scope_type=shed&scope_id=30000000-0000-4000-8000-000000000001&client_task_key=feed-dist:shed:whole:1:morning:2026-08-13&field_key=feed_distribution_video", nil)
+	ctx := httpmiddleware.WithTenantID(req.Context(), httpTestTenant)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role:      permissions.RoleOperator,
+		ScopeType: "park",
+		ScopeID:   parkA,
+	}})
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.listQuery.ClientTaskKey == "" || svc.listQuery.FieldKey != "feed_distribution_video" {
+		t.Fatalf("list query = %#v", svc.listQuery)
+	}
+	if svc.listQuery.AllAuthorizedParks {
+		t.Fatalf("park-scoped operator was treated as tenant-wide: %#v", svc.listQuery)
+	}
+	if len(svc.listQuery.AuthorizedParkIDs) != 1 || svc.listQuery.AuthorizedParkIDs[0] != parkA {
+		t.Fatalf("authorized parks = %v, want [%s]", svc.listQuery.AuthorizedParkIDs, parkA)
+	}
+	var got listUploadedProofsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Proofs) != 1 || got.Proofs[0].ProofID != httpTestProof {
+		t.Fatalf("proofs = %#v", got.Proofs)
+	}
+}
+
+// A stored object that has gone missing/unreadable is a KNOWN terminal failure class, not an
+// unexpected server fault: the client must be told to stop retrying and render "evidence
+// unavailable" instead of hammering the route (the 2026-08-02 incident produced ~5 retries per
+// proof because the route answered 500 internal_error).
+func TestSignedDownloadMissingObjectIsTerminalGone(t *testing.T) {
+	svc := &fakeHTTPProofService{verify: true, openErr: fmt.Errorf("open /media/x: %w", fs.ErrNotExist)}
+	mux := http.NewServeMux()
+	RegisterSigned(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download/signed?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d body=%s, want 410", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if got["code"] != "proof_object_missing" {
+		t.Fatalf("code=%v, want proof_object_missing", got["code"])
+	}
+	if got["retryable"] != false {
+		t.Fatalf("retryable=%v, want false for a missing stored object", got["retryable"])
+	}
+	msg, _ := got["message"].(string)
+	if !strings.Contains(msg, "no longer") && !strings.Contains(msg, "not retrievable") {
+		t.Fatalf("message=%q, want an actionable evidence-unavailable message", msg)
+	}
+}
+
+// The unsigned sibling route shares respondErr, so it must classify identically; an unreadable
+// (permission-denied) object is the same terminal class as a missing one.
+func TestUnsignedDownloadMissingObjectIsTerminalGone(t *testing.T) {
+	svc := &fakeHTTPProofService{verify: true, openErr: fmt.Errorf("open /media/x: %w", fs.ErrPermission)}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d body=%s, want 410", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSignedDownloadPresentObjectStillStreams200(t *testing.T) {
+	svc := &fakeHTTPProofService{
+		verify: true,
+		proof:  domain.Artifact{ProofID: httpTestProof, TenantID: httpTestTenant, MimeType: "video/mp4"},
+		reader: newReadSeekCloser("proof-video-bytes"),
+	}
+	mux := http.NewServeMux()
+	RegisterSigned(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download/signed?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "proof-video-bytes" {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 type fakeHTTPProofService struct {
 	verify      bool
 	proof       domain.Artifact
 	target      domain.UploadTarget
 	reader      ports.ReadSeekCloser
+	proofs      []domain.Artifact
+	listQuery   domain.ListUploadedProofsQuery
+	openErr     error
 	openTenant  string
 	storeTenant string
 }
@@ -145,12 +267,24 @@ func (s *fakeHTTPProofService) StoreUpload(_ context.Context, tenantID, _ string
 	}, nil
 }
 
+func (s *fakeHTTPProofService) ListUploadedProofs(_ context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error) {
+	s.listQuery = query
+	return s.proofs, nil
+}
+
 func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (string, error) {
 	return "", nil
 }
 
+func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string, string) error {
+	return nil
+}
+
 func (s *fakeHTTPProofService) OpenLocalDownload(_ context.Context, tenantID, _ string) (domain.Artifact, ports.ReadSeekCloser, error) {
 	s.openTenant = tenantID
+	if s.openErr != nil {
+		return domain.Artifact{}, nil, s.openErr
+	}
 	return s.proof, s.reader, nil
 }
 

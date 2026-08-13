@@ -143,6 +143,36 @@ func TestSweepSessionDriveCapacityNotResetOnRefresh(t *testing.T) {
 	}
 }
 
+func TestSweepSessionDriveCapacityDeduplicatesAnimalAcrossCompatibleVaccineLanes(t *testing.T) {
+	date := time.Date(2027, 7, 24, 0, 0, 0, 0, time.UTC)
+	session := NewSweepSession()
+	first := session.claimDriveCapacity("park-1", date, "sheep-1", 1)
+	duplicate := session.claimDriveCapacity("park-1", date, "sheep-1", 1)
+	if got := session.driveCapacityUsed("park-1", date); got != 1 {
+		t.Fatalf("animal capacity = %d, want 1 for two vaccine lanes on the same sheep", got)
+	}
+	session.releaseDriveCapacityClaims([]driveCapacityReservation{duplicate})
+	if got := session.driveCapacityUsed("park-1", date); got != 1 {
+		t.Fatalf("duplicate claim release changed capacity to %d, want 1", got)
+	}
+	session.releaseDriveCapacityClaims([]driveCapacityReservation{first})
+}
+
+func TestSheepPoxBlueTongueComboIsSymmetric(t *testing.T) {
+	day := time.Date(2027, 7, 24, 0, 0, 0, 0, time.UTC)
+	session := NewSweepSession()
+	session.rememberPlannedVaccine("sheep-1", day, RuleVaccineIdentity{VaccineCode: "SHEEP_POX", VaccineType: "live"})
+	if !session.sameDayCompatibleWithPlannedVaccines("sheep-1", RuleVaccineIdentity{VaccineCode: "BLUE_TONGUE", VaccineType: "killed"}, day) {
+		t.Fatal("Blue Tongue must remain compatible when Sheep Pox was planned first")
+	}
+
+	reverse := NewSweepSession()
+	reverse.rememberPlannedVaccine("sheep-1", day, RuleVaccineIdentity{VaccineCode: "BLUE_TONGUE", VaccineType: "killed"})
+	if !reverse.sameDayCompatibleWithPlannedVaccines("sheep-1", RuleVaccineIdentity{VaccineCode: "SHEEP_POX", VaccineType: "live"}, day) {
+		t.Fatal("Sheep Pox must remain compatible when Blue Tongue was planned first")
+	}
+}
+
 // TestSweepSessionDriveCapacityMultipleParkDates verifies capacity is tracked independently per
 // park/date combination, and reset only happens once per unique key in a session.
 func TestSweepSessionDriveCapacityMultipleParkDates(t *testing.T) {

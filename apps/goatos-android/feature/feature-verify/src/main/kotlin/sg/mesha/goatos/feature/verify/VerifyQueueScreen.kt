@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
@@ -19,12 +20,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +47,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
@@ -42,12 +59,18 @@ import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 // telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
 // VerifyQueueViewModel (:app), which owns every side effect this screen triggers.
 /**
- * The standalone Verifier section's queue (context/architecture/verifier-app-and-flow.md): a
- * verifier who opens the app sees ONLY this — a category-filtered queue of pending media to
+ * The verifier-only workspace's reusable queue (context/architecture/verifier-app-and-flow.md):
+ * every backend-composed drawer module opens this category-filtered queue of pending media to
  * verify. Row tap drills into [VerifyDetailScreen] (video playback + approve/reject). No
  * capture, no ops, no roster, no config — this + the detail screen are the entire section.
  */
@@ -65,8 +88,23 @@ data class VerificationQueueRow(
     val categoryLabel: String,
     val title: String,
     val subtitle: String,
+    val scopeType: VerifyScopeType = VerifyScopeType.OTHER,
+    // Stable shed identity for grouping/keying. shedLabel is display copy ONLY -- shed names
+    // repeat across parks (two Castro, two Gandhi, two Yashoda), so grouping or keying rows by
+    // shedLabel text can silently merge two different parks' sheds under one header.
+    val shedId: String? = null,
+    val partitionLabel: String? = null,
+    val shedLabel: String = "",
+    val animalLabel: String = "",
+    val weightLabel: String = "",
+    val mediaCountLabel: String = "",
+    val parkLabel: String = "",
+    val operatorLabel: String = "",
+    val capturedAtLabel: String = "",
     val statusTone: VerifyTone,
 )
+
+enum class VerifyScopeType { INDIVIDUAL, LUMP_SUM, OTHER }
 
 data class VerifyDriveClosure(
     val batchId: String,
@@ -84,26 +122,37 @@ data class VerifyDriveClosure(
     val ready: Boolean,
 )
 
-/** A category filter chip. [value] is the raw category key sent to the backend
- *  (`null` = every category this verifier is assigned, [label] then `null` so the Screen
- *  substitutes the localized "All" chrome string — the one label here that is NOT backend
- *  data); a non-null [value] always carries a non-null [label]. Built by the ViewModel from
- *  the distinct categories the backend has actually returned for this verifier — never a
- *  client-hardcoded category enum (categories are a plug-and-play registry per
- *  verification-module-design.md §2.3). */
+/** One backend-defined page tab. [value] is the disjoint raw category filter and [label] is
+ *  backend-owned display copy from the verification registry. */
 data class VerifyCategoryOption(val value: String?, val label: String?)
+
+/** One backend-defined disjoint secondary tab at verification-item grain. */
+data class VerifyStatusOption(val value: String, val label: String)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
-enum class VerifyModuleTab { VACCINATION, COUNTS, FEED_DIRECTION }
+enum class VerifyModuleTab { VACCINATION, WEIGHING }
 
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
-    val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
+    /** Backend-owned module identity + display label for this queue's chrome. Blank when the
+     *  category has no module to name -- never substituted with a client-invented one. */
+    val moduleKey: String = "",
+    val moduleLabel: String = "",
+    /** Null when the queue's category has no dedicated chrome here (counts, feed) or could not
+     *  be resolved at all -- never coerced to a module the verifier did not ask for. */
+    val selectedModule: VerifyModuleTab? = null,
+    val isUnsupportedModule: Boolean = false,
     val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
+    val statusOptions: List<VerifyStatusOption> = emptyList(),
+    val selectedStatus: String = "pending",
+    val selectedBusinessDate: String = "",
+    val businessTimezone: String = "Asia/Kolkata",
+    val missedOnly: Boolean = false,
+    val hasMissed: Boolean = false,
     val parkOptions: List<VerifyLocationFilterOption> = emptyList(),
     val selectedParkId: String? = null,
     val shedOptions: List<VerifyLocationFilterOption> = emptyList(),
@@ -115,6 +164,16 @@ data class VerifyQueueUiState(
     // Keyset pagination (~20/page) — see docs/decisions/mobile-data-fetch-anti-patterns.md.
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    /** True once a fetch has COMPLETED, whatever it returned. Guards the empty state so it is
+     *  never drawn before an answer exists, and never yanked away by a later refresh. */
+    val hasLoadedOnce: Boolean = false,
+    /** True when a completed fetch failed and there is nothing cached to draw. This is the
+     *  fact; [queueError] is only the backend's wording for it, which may be absent. */
+    val queueFailed: Boolean = false,
+    /** The BACKEND's explanation of the failure, when the envelope carried one. Null means
+     *  the server did not say -- the screen supplies translated fallback copy, because a
+     *  literal here could never be translated. */
+    val queueError: String? = null,
     val driveClosures: List<VerifyDriveClosure> = emptyList(),
     val closingBatchId: String? = null,
     val closeErrorBatchId: String? = null,
@@ -123,16 +182,22 @@ data class VerifyQueueUiState(
 
 sealed interface VerifyQueueEvent {
     data class SelectCategory(val category: String?) : VerifyQueueEvent
+    data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
     data class SelectPark(val parkId: String?) : VerifyQueueEvent
     data class SelectShed(val shedId: String?) : VerifyQueueEvent
+    data class SelectStatus(val status: String) : VerifyQueueEvent
+    data class SelectBusinessDate(val businessDate: String) : VerifyQueueEvent
+    data object ToggleMissed : VerifyQueueEvent
     /** [category] is the tapped row's OWN category (never the queue's filter selection) — the
      *  nav host threads it into the detail route so that screen re-observes the exact same Room
      *  cache scope this row came from, with no extra network call. */
     data class OpenItem(val itemId: String, val category: String) : VerifyQueueEvent
     data object Refresh : VerifyQueueEvent
     data object LoadMore : VerifyQueueEvent
-    data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
     data class CloseDrive(val batchId: String) : VerifyQueueEvent
+    /** ONE summary per screen exit, never per scroll frame — see
+     *  `AnalyticsEvents.VERIFY_QUEUE_SCROLL_SUMMARY`. */
+    data class ScrollSummary(val maxScrollIndex: Int, val rowCount: Int) : VerifyQueueEvent
 }
 
 @Composable
@@ -143,9 +208,10 @@ fun VerifyQueueScreen(
 ) {
     RefreshOnResume { onEvent(VerifyQueueEvent.Refresh) }
     val listState = rememberLazyListState()
-    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedModule) {
+    var selectedWeighingScope by remember { mutableStateOf<VerifyScopeType?>(null) }
+    var datePickerOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size, state.selectedCategory) {
         if (
-            state.selectedModule != VerifyModuleTab.VACCINATION ||
             !state.hasMore ||
             state.isLoadingMore ||
             state.rows.isEmpty()
@@ -159,38 +225,98 @@ fun VerifyQueueScreen(
                 }
             }
     }
+    // Scroll depth is THROTTLED to one summary per screen exit — an event per scroll frame would
+    // drown the funnel and drain the battery. Track only the deepest index reached in memory,
+    // then flush it once on dispose (nav-away, process death excepted).
+    var maxScrollIndexSeen by remember { mutableStateOf(0) }
+    val latestRowCount by rememberUpdatedState(state.rows.size)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex > maxScrollIndexSeen) maxScrollIndexSeen = lastVisibleIndex
+            }
+    }
+    DisposableEffect(Unit) {
+        onDispose { onEvent(VerifyQueueEvent.ScrollSummary(maxScrollIndexSeen, latestRowCount)) }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MeshaColors.PageBg),
     ) {
-        QueueHeader(state = state, onRefresh = { onEvent(VerifyQueueEvent.Refresh) })
-        if (!state.isActionQueue) {
-            ModuleTabs(
-                selected = state.selectedModule,
-                onSelect = { onEvent(VerifyQueueEvent.SelectModule(it)) },
-            )
-        }
-        if (state.categoryOptions.size > 1) {
+        QueueHeader(
+            state = state,
+            onRefresh = { onEvent(VerifyQueueEvent.Refresh) },
+            onMissed = { onEvent(VerifyQueueEvent.ToggleMissed) },
+        )
+        // The category options ARE the verifier's modules (Vaccination, Weighing, ...). When the
+        // shell already carries them in the drawer, repeating them as a chip row inside the body
+        // is the same list twice, and the two can disagree about what is selected. Same shape as
+        // the "You" placement rule: 2+ modules -> drawer owns the module switch; exactly one
+        // module -> no drawer exists, so the chips stay as the only way to see the scope.
+        //
+        // Shell-owned read-only signal: true ONLY when chrome is EXPANDED (2+ modules) and this
+        // is an exact L0 root -- precisely "the drawer is on screen and lists these modules".
+        // Drawer ACCESS stays with the shell; a feature reading LocalDrawerOpener directly is
+        // blocked by make android-navigation-stack-guard.
+        val drawerCarriesModules = LocalDrawerCarriesModules.current
+        if (shouldShowCategoryFilter(drawerCarriesModules, state.categoryOptions.size)) {
             CategoryFilterRow(
                 options = state.categoryOptions,
                 selected = state.selectedCategory,
                 onSelect = { onEvent(VerifyQueueEvent.SelectCategory(it)) },
             )
         }
+        if (!state.isActionQueue && state.statusOptions.isNotEmpty()) {
+            StatusFilterRow(
+                options = state.statusOptions,
+                selected = state.selectedStatus,
+                onSelect = { onEvent(VerifyQueueEvent.SelectStatus(it)) },
+            )
+            BusinessDateRow(
+                businessDate = state.selectedBusinessDate,
+                businessTimezone = state.businessTimezone,
+                missedOnly = state.missedOnly,
+                onPrevious = {
+                    state.selectedBusinessDate.toLocalDateOrNull()?.minusDays(1)?.let {
+                        onEvent(VerifyQueueEvent.SelectBusinessDate(it.toString()))
+                    }
+                },
+                onNext = {
+                    val today = LocalDate.now(ZoneId.of(state.businessTimezone))
+                    state.selectedBusinessDate.toLocalDateOrNull()?.plusDays(1)?.takeIf { !it.isAfter(today) }?.let {
+                        onEvent(VerifyQueueEvent.SelectBusinessDate(it.toString()))
+                    }
+                },
+                onOpenCalendar = { datePickerOpen = true },
+            )
+        }
+        if (state.moduleKey == "weighing") {
+            WeighingScopeTabs(
+                rows = state.rows,
+                selected = selectedWeighingScope,
+                onSelect = { selectedWeighingScope = it },
+            )
+        }
+        // A chip row is only honest while the whole set fits on a phone. A real park has many
+        // sheds, so past CHIP_ROW_MAX_OPTIONS the row becomes a horizontal scroll the verifier
+        // must drag through to discover what exists -- and the selected chip can sit off-screen.
+        // Past that size the same options are offered as a SEARCHABLE picker instead.
         if (state.parkOptions.size > 1) {
-            LocationFilterRow(
+            LocationFilter(
                 options = state.parkOptions,
                 selected = state.selectedParkId,
                 onSelect = { onEvent(VerifyQueueEvent.SelectPark(it)) },
+                pickerTitle = stringResource(R.string.verify_filter_park_title),
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
         if (state.shedOptions.size > 1) {
-            LocationFilterRow(
+            LocationFilter(
                 options = state.shedOptions,
                 selected = state.selectedShedId,
                 onSelect = { onEvent(VerifyQueueEvent.SelectShed(it)) },
+                pickerTitle = stringResource(R.string.verify_filter_shed_title),
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
@@ -209,29 +335,85 @@ fun VerifyQueueScreen(
                     )
                 }
             }
-            if (state.selectedModule != VerifyModuleTab.VACCINATION) {
+            // NOTHING READ YET is not the same as NOTHING TO DO. A freshly navigated screen starts
+            // with an empty state flow and its refresh has not necessarily begun, so requiring
+            // isRefreshing here left a window where the confident "Queue clear" rendered before a
+            // single row had been read -- then the real rows landed a frame later. That swap is
+            // the flicker seen on every screen entered from the drawer. Until this queue has
+            // synced once, the honest render is the skeleton.
+            if (state.rows.isEmpty() && !state.hasLoadedOnce) {
+                // NOTHING is drawn here. Loading is told by the spinning refresh icon in the app
+                // bar, not by a shimmer that flashes in and straight back out on every
+                // navigation -- and "Queue clear" would be a confident answer before a single
+                // row has been read, which then flips to content. That flip IS the flicker.
+            } else if (state.isUnsupportedModule) {
+                // An empty "all caught up" here would be a lie: nothing was read at all.
                 item {
                     EmptyState(
-                        title = stringResource(R.string.verify_module_under_construction),
-                        subtitle = stringResource(R.string.verify_module_under_construction_subtitle),
+                        title = stringResource(R.string.verify_queue_unsupported_module),
+                        subtitle = stringResource(R.string.verify_queue_unsupported_module_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Neutral,
                     )
                 }
-            } else if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
-                item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
+            } else if (state.rows.isEmpty() && state.queueFailed) {
+                // A completed fetch failed with nothing cached. This must NOT be "Queue clear":
+                // a verifier read that as all-caught-up while 52 proofs sat pending behind a 403.
+                // Prefer the backend's own explanation ("verifier is not assigned to this
+                // module"); fall back to translated copy only when the server did not say.
+                item {
+                    EmptyState(
+                        title = stringResource(R.string.verify_queue_load_failed),
+                        subtitle = state.queueError
+                            ?: stringResource(R.string.verify_queue_load_failed_subtitle),
+                        icon = MeshaIcons.Video,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
             } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
                         title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty else R.string.verify_queue_empty),
-                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_subtitle),
+                        subtitle = stringResource(if (state.isActionQueue) R.string.verify_action_queue_empty_subtitle else R.string.verify_queue_empty_date_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Positive,
                     )
                 }
             } else {
-                items(state.rows, key = { it.id }) { row ->
-                    QueueRowCard(row = row, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                if (state.moduleKey == "weighing") {
+                    val visibleRows = if (selectedWeighingScope != null) {
+                        state.rows.filter { it.scopeType == selectedWeighingScope }
+                    } else {
+                        state.rows
+                    }
+                    // Group by stable shedId + partitionLabel when both are present -- two
+                    // partitions of the same shed share the same shedId but must render as
+                    // separate groups (e.g. "Godel 1 - Part 1" and "Godel 1 - Part 3" are
+                    // different rows, not merged under one header). Rows without a shedId
+                    // (legacy/non-shed items) fall back to the old label key.
+                    val shedGroups = visibleRows.groupBy {
+                        if (it.shedId != null) {
+                            val key = it.shedId + (it.partitionLabel?.let { "::$it" } ?: "")
+                            key
+                        } else {
+                            it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
+                        }
+                    }
+                    shedGroups.forEach { (groupKey, rows) ->
+                        val shedLabel = rows.first().shedLabel.ifBlank {
+                            rows.first().title.ifBlank { rows.first().categoryLabel }
+                        }
+                        item(key = "shed-$groupKey") {
+                            ShedGroupHeader(shedLabel = shedLabel, rows = rows)
+                        }
+                        items(rows, key = { it.id }) { row ->
+                            QueueRowCard(row = row, hierarchical = true, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                        }
+                    }
+                } else {
+                    items(state.rows, key = { it.id }) { row ->
+                        QueueRowCard(row = row, hierarchical = false, onClick = { onEvent(VerifyQueueEvent.OpenItem(row.id, row.category)) })
+                    }
                 }
                 if (state.isLoadingMore) {
                     item {
@@ -241,6 +423,29 @@ fun VerifyQueueScreen(
             }
             item { Spacer(Modifier.size(24.dp)) }
         }
+    }
+    if (datePickerOpen) {
+        val selectedMillis = state.selectedBusinessDate.toLocalDateOrNull()
+            ?.atStartOfDay(ZoneOffset.UTC)
+            ?.toInstant()
+            ?.toEpochMilli()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = selectedMillis)
+        DatePickerDialog(
+            onDismissRequest = { datePickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        val selected = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                        val today = LocalDate.now(ZoneId.of(state.businessTimezone))
+                        if (!selected.isAfter(today)) onEvent(VerifyQueueEvent.SelectBusinessDate(selected.toString()))
+                    }
+                    datePickerOpen = false
+                }) { Text(stringResource(android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { datePickerOpen = false }) { Text(stringResource(android.R.string.cancel)) }
+            },
+        ) { DatePicker(state = pickerState) }
     }
 }
 
@@ -336,30 +541,129 @@ private fun DriveCloseCard(
 }
 
 @Composable
-private fun ModuleTabs(
-    selected: VerifyModuleTab,
-    onSelect: (VerifyModuleTab) -> Unit,
+private fun WeighingScopeTabs(
+    rows: List<VerificationQueueRow>,
+    selected: VerifyScopeType?,
+    onSelect: (VerifyScopeType?) -> Unit,
 ) {
-    val tabs = listOf(
-        VerifyModuleTab.VACCINATION to stringResource(R.string.verify_module_vaccination),
-        VerifyModuleTab.COUNTS to stringResource(R.string.verify_module_counts),
-        VerifyModuleTab.FEED_DIRECTION to stringResource(R.string.verify_module_feed_direction),
-    )
+    val individualCount = rows.count { it.scopeType == VerifyScopeType.INDIVIDUAL }
+    val lumpSumCount = rows.count { it.scopeType == VerifyScopeType.LUMP_SUM }
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 10.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
     ) {
-        items(tabs, key = { it.first.name }) { (tab, label) ->
-            CategoryChip(label = label, selected = tab == selected, onClick = { onSelect(tab) })
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_all),
+                selected = selected == null,
+                onClick = { onSelect(null) },
+            )
+        }
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_individual, individualCount),
+                selected = selected == VerifyScopeType.INDIVIDUAL,
+                onClick = { onSelect(VerifyScopeType.INDIVIDUAL) },
+            )
+        }
+        item {
+            CategoryChip(
+                label = stringResource(R.string.verify_scope_lumpsum, lumpSumCount),
+                selected = selected == VerifyScopeType.LUMP_SUM,
+                onClick = { onSelect(VerifyScopeType.LUMP_SUM) },
+            )
         }
     }
 }
 
 @Composable
-private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
+private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>) {
+    val videoCount = rows.sumOf { row ->
+        row.mediaCountLabel.substringBefore(' ').toIntOrNull() ?: 0
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = shedLabel,
+                color = MeshaColors.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W800,
+            )
+            Text(
+                text = stringResource(R.string.verify_shed_group_summary, rows.size, videoCount),
+                color = MeshaColors.Faint,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier.padding(top = 1.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .height(1.dp)
+                .weight(1f)
+                .background(MeshaColors.Hair),
+        )
+    }
+}
+
+/**
+ * Pure title resolver for [QueueHeader], extracted so the title-is-the-module invariant can be
+ * unit-tested without a Compose runtime (see VerifyQueueTitleTest). Bug this guards: the app bar
+ * used to show a hardcoded "Video verification" string regardless of which module the nav bar
+ * was on -- the one thing that actually changes between taps was invisible. Callers resolve the
+ * string-resource values with [stringResource] and pass them in; this function contains only the
+ * selection logic.
+ */
+internal fun verifyQueueTitle(
+    state: VerifyQueueUiState,
+    actionQueueTitle: String,
+    vaccinationLabel: String,
+    weighingLabel: String,
+    genericFallback: String,
+): String = when {
+    state.isActionQueue -> actionQueueTitle
+    state.moduleLabel.isNotBlank() -> state.moduleLabel
+    state.selectedModule == VerifyModuleTab.VACCINATION -> vaccinationLabel
+    state.selectedModule == VerifyModuleTab.WEIGHING -> weighingLabel
+    // Blank only while the module is still resolving -- the generic title used to flash
+    // for a few frames on every cold start and then swap, which is the same
+    // draw-a-wrong-answer-first defect as the shimmer. Once a fetch has completed and the
+    // module STILL has no label (an unrecognised category from a newer backend), a blank
+    // app bar is worse than a generic one, so fall back rather than sit headerless.
+    state.hasLoadedOnce -> genericFallback
+    else -> ""
+}
+
+@Composable
+// The eyebrow is the BACKEND's own module label (filterOptions.moduleLabel), not a client
+// string table keyed off a guessed module: it is blank exactly when there is no module to name,
+// which is the case main's client-side `when` existed to protect (a Counts verifier must never
+// read "VACCINATION"), and it satisfies the backend-owns-visible-copy rule at the same time.
+private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMissed: () -> Unit) {
     MeshaScreenHeader(
-        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
+        eyebrow = null,
+        // The title is the MODULE the nav bar is on -- Counts, Vaccination, Weighing. A verifier
+        // only ever verifies videos, so "Video verification" spent the most prominent line
+        // restating the job (and wrapped to two lines doing it) while the one thing that actually
+        // changes between taps -- which module you are looking at -- was demoted to an eyebrow.
+        // Always the module the nav bar is on. The backend-owned label is preferred, but on a cold
+        // start the queue's filter options have not loaded yet and it is blank -- which used to
+        // fall straight through to a fixed "Video verification", the one fact a verifier already
+        // knows, wrapped over two lines. Fall back to the module this queue IS before falling back
+        // to that generic string.
+        title = verifyQueueTitle(
+            state = state,
+            actionQueueTitle = stringResource(R.string.verify_action_queue_title),
+            vaccinationLabel = stringResource(R.string.verify_module_vaccination),
+            weighingLabel = stringResource(R.string.verify_module_weighing),
+            genericFallback = stringResource(R.string.verify_queue_title),
+        ),
         below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
@@ -370,6 +674,31 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
             )
         },
         actions = {
+            if (!state.isActionQueue) {
+                Box {
+                    IconButton(onClick = onMissed) {
+                        Icon(
+                            // A FILTER, not a second Alerts entry. It wore the Bell -- the exact
+                            // glyph the Alerts tab uses in the bottom bar -- so the app bar read
+                            // as a duplicate way into Alerts. Missed means overdue, so it takes
+                            // the clock.
+                            imageVector = MeshaIcons.Clock,
+                            contentDescription = stringResource(R.string.verify_missed_open),
+                            tint = if (state.missedOnly) MeshaColors.Brand else MeshaColors.Muted,
+                        )
+                    }
+                    if (state.hasMissed) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 8.dp, end = 8.dp)
+                                .size(9.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(MeshaColors.Danger),
+                        )
+                    }
+                }
+            }
             SyncIconButton(
                 isSyncing = state.isRefreshing,
                 onSync = onRefresh,
@@ -378,6 +707,70 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
         },
     )
 }
+
+@Composable
+private fun StatusFilterRow(
+    options: List<VerifyStatusOption>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        items(options, key = { it.value }) { option ->
+            CategoryChip(label = option.label, selected = option.value == selected, onClick = { onSelect(option.value) })
+        }
+    }
+}
+
+@Composable
+private fun BusinessDateRow(
+    businessDate: String,
+    businessTimezone: String,
+    missedOnly: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onOpenCalendar: () -> Unit,
+) {
+    val selected = businessDate.toLocalDateOrNull()
+    val today = LocalDate.now(ZoneId.of(businessTimezone))
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onPrevious, enabled = !missedOnly) {
+            Icon(MeshaIcons.ChevronLeft, contentDescription = stringResource(R.string.verify_date_previous), tint = MeshaColors.Muted)
+        }
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (missedOnly) MeshaColors.WarnX else MeshaColors.Surf2)
+                .border(1.dp, if (missedOnly) MeshaColors.Warn else MeshaColors.Hair, RoundedCornerShape(12.dp))
+                .clickable(onClick = onOpenCalendar)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(MeshaIcons.Calendar, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.size(7.dp))
+            Text(
+                text = if (missedOnly) stringResource(R.string.verify_missed_before_today) else selected?.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)).orEmpty(),
+                color = MeshaColors.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W700,
+            )
+        }
+        IconButton(onClick = onNext, enabled = !missedOnly && selected != null && selected.isBefore(today)) {
+            Icon(MeshaIcons.Chevron, contentDescription = stringResource(R.string.verify_date_next), tint = MeshaColors.Muted)
+        }
+    }
+}
+
+private fun String.toLocalDateOrNull(): LocalDate? = runCatching { LocalDate.parse(this) }.getOrNull()
 
 @Composable
 private fun CategoryFilterRow(
@@ -443,7 +836,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
+private fun QueueRowCard(row: VerificationQueueRow, hierarchical: Boolean, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -472,13 +865,20 @@ private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = row.title,
+                    text = if (hierarchical) row.animalLabel.ifBlank { row.title }.ifBlank { row.shedLabel } else row.title,
                     color = MeshaColors.Ink,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.W700,
                 )
                 Text(
-                    text = row.subtitle,
+                    text = if (hierarchical) {
+                        listOf(row.weightLabel, row.mediaCountLabel, row.operatorLabel)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                            .ifBlank { row.subtitle }
+                    } else {
+                        row.subtitle
+                    },
                     color = MeshaColors.Muted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp),
@@ -487,13 +887,19 @@ private fun QueueRowCard(row: VerificationQueueRow, onClick: () -> Unit) {
             StatusPill(tone = row.statusTone)
         }
         Text(
-            text = row.categoryLabel,
+            text = if (hierarchical) row.scopeType.label() else row.categoryLabel,
             color = MeshaColors.Faint,
             fontSize = 11.sp,
             fontWeight = FontWeight.W700,
             modifier = Modifier.padding(top = 10.dp),
         )
     }
+}
+
+private fun VerifyScopeType.label(): String = when (this) {
+    VerifyScopeType.INDIVIDUAL -> "Individual"
+    VerifyScopeType.LUMP_SUM -> "Lump-sum"
+    VerifyScopeType.OTHER -> "Evidence"
 }
 
 /** Resolves the LOCALIZED status label for [tone] — the pill text is never a hardcoded
@@ -534,5 +940,169 @@ private fun InlineLoadingFooter() {
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
+    }
+}
+
+/**
+ * Whether the in-body module chip row should render.
+ *
+ * The chips duplicate the drawer's module list for any verifier with 2+ modules, so they are
+ * suppressed there and the drawer owns the switch. A single-module verifier has no drawer, so the
+ * row stays. Extracted so the rule is assertable without a screenshot.
+ */
+/**
+ * The page filter (Feed Direction / Feed Packing / Feed Transport) shows whenever the module has a
+ * REAL CHOICE to make — two or more registered evidence pages — and is hidden otherwise.
+ *
+ * It used to be hidden from anyone whose drawer carries modules, on the reasoning that the drawer
+ * already scopes the queue. That held only while every module registered exactly ONE category. Feed
+ * registers three, so a verifier with a drawer had no way to reach feed packing or feed transport at
+ * all: the drawer picks the MODULE, and nothing picked the page (reported 2026-08-09 — three packing
+ * videos pending and unreachable).
+ *
+ * The alternative tried first — one bottom-bar tab per page — was rejected: the bar is module
+ * chrome, not a queue filter, and all three tabs resolved to the same /verify base route, so the
+ * shell read every one as selected and swallowed the taps. Narrowing a list belongs in a filter on
+ * the list (maintainer decision 2026-08-09).
+ *
+ * `drawerCarriesModules` is deliberately no longer read: a single-page module shows no filter either
+ * way, so the drawer tells us nothing the option count does not.
+ */
+internal fun shouldShowCategoryFilter(drawerCarriesModules: Boolean, optionCount: Int): Boolean =
+    optionCount > 1
+
+/** Above this many options a chip row stops being scannable on a phone and becomes a drag. */
+internal const val CHIP_ROW_MAX_OPTIONS = 6
+
+/** True when the option set should be offered as a searchable picker instead of a chip row. */
+internal fun shouldUseSearchablePicker(optionCount: Int): Boolean = optionCount > CHIP_ROW_MAX_OPTIONS
+
+/** Case-insensitive contains filter for the picker's search field. */
+internal fun filterLocationOptions(
+    options: List<VerifyLocationFilterOption>,
+    query: String,
+): List<VerifyLocationFilterOption> {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return options
+    return options.filter { it.label.contains(trimmed, ignoreCase = true) }
+}
+
+/**
+ * Park/shed filter. Small sets stay as chips (one glance, one tap). Large sets become a
+ * searchable bottom sheet, because a park can hold many sheds and a horizontal chip row hides
+ * most of them off-screen.
+ */
+@Composable
+private fun LocationFilter(
+    options: List<VerifyLocationFilterOption>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    pickerTitle: String,
+    modifier: Modifier = Modifier,
+) {
+    if (!shouldUseSearchablePicker(options.size)) {
+        LocationFilterRow(options = options, selected = selected, onSelect = onSelect, modifier = modifier)
+        return
+    }
+    var pickerOpen by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.value == selected }?.label
+        ?: options.firstOrNull { it.value == null }?.label
+        ?: pickerTitle
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(10.dp))
+            .clickable { pickerOpen = true }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = selectedLabel, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+        Text(
+            text = stringResource(R.string.verify_filter_change),
+            color = MeshaColors.BrandD,
+            style = MeshaType.cta,
+        )
+    }
+    if (pickerOpen) {
+        LocationPickerSheet(
+            title = pickerTitle,
+            options = options,
+            selected = selected,
+            onSelect = {
+                onSelect(it)
+                pickerOpen = false
+            },
+            onDismiss = { pickerOpen = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LocationPickerSheet(
+    title: String,
+    options: List<VerifyLocationFilterOption>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = filterLocationOptions(options, query)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MeshaColors.PageBg) {
+        Text(
+            text = title,
+            color = MeshaColors.Ink,
+            style = MeshaType.screenTitle,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            placeholder = { Text(stringResource(R.string.verify_filter_search_hint)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        if (visible.isEmpty()) {
+            Text(
+                text = stringResource(R.string.verify_filter_no_matches),
+                color = MeshaColors.Muted,
+                style = MeshaType.body,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            items(visible, key = { it.value ?: "__all__" }) { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(option.value) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = option.label,
+                        color = if (option.value == selected) MeshaColors.BrandD else MeshaColors.Ink,
+                        style = MeshaType.body,
+                    )
+                    if (option.value == selected) {
+                        Icon(
+                            imageVector = MeshaIcons.CheckCircle,
+                            contentDescription = null,
+                            tint = MeshaColors.BrandD,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }

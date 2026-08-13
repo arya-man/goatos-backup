@@ -56,6 +56,12 @@ type Repository interface {
 	// MarkInProgress writer that this Repository no longer exposes.
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 
+	// ReopenObligation reverses MarkCompleted: a verification rejection sends a completed obligation
+	// back to 'due' (maintainer state-model -- obligation reopens on rejection, closes on record).
+	// Idempotent: only a currently-'completed' row is touched, so a stale replay or an obligation
+	// already moved on to some other terminal status is left alone. Returns false (no-op) otherwise.
+	ReopenObligation(ctx context.Context, tenantID, obligationID string) (bool, error)
+
 	// MarkMissedBefore marks open obligations whose deadline/window has crossed as missed and
 	// writes one 'missed' event per transition. Idempotent and batch-limited for sweepers.
 	MarkMissedBefore(ctx context.Context, tenantID string, missedBefore time.Time, limit int32) (int, error)

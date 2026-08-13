@@ -1,8 +1,10 @@
 package sg.mesha.goatos.feature.submit
 
+// telemetry:exempt Stateless reusable form-rendering library; telemetry wired in host screens/ViewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,16 +35,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -136,10 +142,10 @@ fun FormRunner(
 ) {
     Column(modifier.fillMaxWidth().background(MeshaColors.Bg)) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp)) {
-            Text(state.title, color = MeshaColors.Ink, fontSize = 20.sp, fontWeight = FontWeight.W800)
+            Text(state.title, color = MeshaColors.Ink, style = MeshaType.screenTitle)
             if (state.subtitle.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
-                Text(state.subtitle, color = MeshaColors.Muted, fontSize = 12.5.sp)
+                Text(state.subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
             }
         }
         LazyColumn(
@@ -207,7 +213,7 @@ private fun FieldCard(
         // `.proofbox span`) — showing it again here would duplicate the same description.
         if (field.kind != FieldKindUi.VIDEO_PROOF) {
             field.helpText.takeIf { !it.isNullOrBlank() }?.let {
-                Text(it, color = MeshaColors.Faint, fontSize = 11.5.sp)
+                Text(it, color = MeshaColors.Faint, style = MeshaType.caption)
             }
         }
         when (field.kind) {
@@ -221,20 +227,20 @@ private fun FieldCard(
             FieldKindUi.UNKNOWN -> Text(
                 "Unsupported field — update the app to record this.",
                 color = MeshaColors.Faint,
-                fontSize = 12.sp,
+                style = MeshaType.cardSubtitle,
             )
         }
-        field.error?.let { Text(it, color = MeshaColors.Danger, fontSize = 11.5.sp) }
+        field.error?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
     }
 }
 
 @Composable
 private fun FieldLabel(label: String, required: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = MeshaColors.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+        Text(label, color = MeshaColors.Ink, style = MeshaType.listTitle)
         if (required) {
             Spacer(Modifier.size(4.dp))
-            Text("*", color = MeshaColors.Danger, fontSize = 13.5.sp, fontWeight = FontWeight.W800)
+            Text("*", color = MeshaColors.Danger, style = MeshaType.listTitle)
         }
     }
 }
@@ -272,8 +278,7 @@ private fun BooleanChoice(text: String, selected: Boolean, onClick: () -> Unit, 
         Text(
             text,
             color = if (selected) MeshaColors.BrandD else MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
         )
     }
 }
@@ -299,14 +304,15 @@ private fun TextControl(field: FormFieldUi, numeric: Boolean, onText: (String, S
 }
 
 /** Operational vaccination timestamps are explicitly acknowledged by the operator. The wire
- * value is RFC 3339 with an offset; the visible value follows the device locale/time zone. */
+ * value is RFC 3339 with an offset; the visible value is rendered in IST (Asia/Kolkata) — the
+ * repo's business-day timezone — never the device's local zone (NEW-7). */
 @Composable
 private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit) {
     val displayValue = remember(field.text, Locale.getDefault()) {
         field.text.takeIf(String::isNotBlank)?.let { raw ->
             runCatching {
                 OffsetDateTime.parse(raw)
-                    .atZoneSameInstant(ZoneId.systemDefault())
+                    .atZoneSameInstant(ZoneId.of("Asia/Kolkata"))
                     .format(
                         DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
                             .withLocale(Locale.getDefault()),
@@ -319,7 +325,7 @@ private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit
         icon = MeshaIcons.Calendar,
         done = displayValue != null,
         onClick = {
-            onText(field.key, OffsetDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+            onText(field.key, OffsetDateTime.now(ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
         },
     )
 }
@@ -348,7 +354,7 @@ private fun PickerControl(field: FormFieldUi, onPick: (String, String) -> Unit) 
                         Column {
                             Text(option.label)
                             option.disabledReason?.takeIf(String::isNotBlank)?.let { reason ->
-                                Text(reason, color = MeshaColors.Faint, fontSize = 10.sp)
+                                Text(reason, color = MeshaColors.Faint, style = MeshaType.overline)
                             }
                         }
                     },
@@ -401,19 +407,27 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
         Text(
             text = when {
                 field.scanning -> "Scanning… tap to stop"
-                hasScans -> "${field.scannedCount} scanned · last ${field.latestScanAtMs?.let(::formatTimeOnly).orEmpty()} · tap to add more"
+                // Drop the "last <time>" segment entirely when no scan time is known. An
+                // `.orEmpty()` here left an empty slot between two separators ("11 scanned ·
+                // last  · tap to add more"), which reads to the operator as a missing value.
+                hasScans -> listOfNotNull(
+                    "${field.scannedCount} scanned",
+                    field.latestScanAtMs?.let { "last ${formatTimeOnly(it)}" },
+                    "tap to add more",
+                ).joinToString(" · ")
                 else -> "Tap to scan goats"
             },
             color = MeshaColors.Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.bodyStrong,
         )
     }
 }
 
+/** Last-scan timestamp is a business (SOP scan) event, so it renders in IST (Asia/Kolkata), not
+ * the device's local zone (NEW-7). */
 private fun formatTimeOnly(epochMs: Long): String =
     java.time.Instant.ofEpochMilli(epochMs)
-        .atZone(ZoneId.systemDefault())
+        .atZone(ZoneId.of("Asia/Kolkata"))
         .format(DateTimeFormatter.ofPattern("h:mm a"))
 
 /** Mock-faithful `.proofbox` (mock/vaccination-mobile-mock.html): dashed 1.5dp border box with a
@@ -445,11 +459,10 @@ private fun ProofBoxControl(
                 Text(
                     text = proofCaptureTitle(field),
                     color = MeshaColors.Ink,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.listTitle,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(text = proofCaptureHint(field), color = MeshaColors.Muted, fontSize = 11.sp)
+                Text(text = proofCaptureHint(field), color = MeshaColors.Muted, style = MeshaType.caption)
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProofActionButton("Record", Modifier.weight(1f)) { onCaptureVideo(field.key, "in_app_camera") }
@@ -486,6 +499,7 @@ private fun proofCaptureHint(field: FormFieldUi): String {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProofItemRow(
     fieldKey: String,
@@ -494,6 +508,8 @@ private fun ProofItemRow(
     onRemoveProof: (String, String) -> Unit,
     onRetryProof: (String, String) -> Unit,
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     Row(
         Modifier
             .fillMaxWidth()
@@ -510,9 +526,19 @@ private fun ProofItemRow(
                     value = item.caption,
                     onValueChange = { onCaption(fieldKey, item.id, it) },
                     singleLine = true,
-                    placeholder = { Text("Describe this video", fontSize = 12.sp) },
-                    textStyle = MeshaType.cardSubtitle.copy(fontSize = 12.5.sp),
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Describe this video", style = MeshaType.cardSubtitle) },
+                    textStyle = MeshaType.cardSubtitle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bringIntoViewRequester(bringIntoViewRequester)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                scope.launch {
+                                    delay(250)
+                                    bringIntoViewRequester.bringIntoView()
+                                }
+                            }
+                        },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MeshaColors.Ink,
                         unfocusedTextColor = MeshaColors.Ink,
@@ -524,9 +550,9 @@ private fun ProofItemRow(
                     ),
                 )
             } else {
-                Text(item.label, color = MeshaColors.Ink, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
+                Text(item.label, color = MeshaColors.Ink, style = MeshaType.cta)
             }
-            Text(syncStatusLabel(item.syncStatus), color = syncStatusColor(item.syncStatus), fontSize = 10.5.sp)
+            Text(syncStatusLabel(item.syncStatus), color = syncStatusColor(item.syncStatus), style = MeshaType.overline)
         }
         if (item.editableCaption) {
             IconButton(
@@ -568,7 +594,7 @@ private fun ProofActionButton(text: String, modifier: Modifier = Modifier, onCli
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = MeshaColors.BrandD, fontSize = 12.5.sp, fontWeight = FontWeight.W800)
+        Text(text, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
     }
 }
 
@@ -601,7 +627,7 @@ private fun ActionControl(text: String, icon: androidx.compose.ui.graphics.vecto
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(icon, contentDescription = null, tint = leadingTint, modifier = Modifier.size(18.dp))
-        Text(text, color = labelColor, fontSize = 13.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Text(text, color = labelColor, style = MeshaType.cta, modifier = Modifier.weight(1f))
         Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
             if (done) {
                 Icon(MeshaIcons.Check, contentDescription = "Done", tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
@@ -615,7 +641,7 @@ private fun SubmitBar(state: FormRunnerState, onSubmit: () -> Unit) {
     val enabled = state.blockedReason == null
     Column(Modifier.fillMaxWidth().padding(20.dp)) {
         state.blockedReason?.let {
-            Text(it, color = MeshaColors.Warn, fontSize = 11.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(it, color = MeshaColors.Warn, style = MeshaType.caption, modifier = Modifier.padding(bottom = 8.dp))
         }
         Box(
             Modifier
@@ -629,8 +655,7 @@ private fun SubmitBar(state: FormRunnerState, onSubmit: () -> Unit) {
             Text(
                 state.submitLabel,
                 color = if (enabled) MeshaColors.Bg else MeshaColors.Faint,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.button,
             )
         }
     }

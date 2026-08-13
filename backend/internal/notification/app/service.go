@@ -3,6 +3,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -131,20 +133,63 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	}
 
 	var nextAttempt *time.Time
+	// Two different permanent failures. A dead DEVICE justifies suppressing that recipient's other
+	// queued pushes. A bad ADDRESS does not say anything about any device -- and because the
+	// calendar path binds a role name into recipient_ref, suppressing on it would kill every
+	// queued push for that role across the tenant, permanently.
 	invalidRecipient := errors.Is(err, ports.ErrInvalidRecipient)
-	if invalidRecipient {
-		s.suppressInvalidRecipient(ctx, request, err, now)
-	}
-	if !invalidRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
+	unusableRecipient := errors.Is(err, ports.ErrRecipientUnusable)
+	// ErrChannelNotConfigured stays excluded from the backoff/retry schedule -- deliberately, and
+	// reconsidered for this fix, not just carried forward. The case against scheduling backoff
+	// retries for it: a missing channel config is TENANT-WIDE and STATIC until an operator changes
+	// it. Every queued/failed row on that channel fails identically on every retry until the fix
+	// ships, so scheduling exponential backoff burns MaxAttempts (and the worker's time budget)
+	// re-discovering the same static fact 5 times per message, for every message, at increasing
+	// delay -- pure waste, and it also DELAYS the terminal "this needs a human" signal by however
+	// long the backoff schedule takes to exhaust, which is exactly backwards: a config gap should
+	// surface FAST, not slowly.
+	//
+	// The case against fast-exhaust (recorded so the tradeoff is visible, not silently assumed):
+	// fast-exhaust means a config fix does nothing on its own -- every row already parked at
+	// 'exhausted' needs a second, distinct signal to move again. That gap is real and is exactly
+	// why this fix exists: cmd/notification-requeue (backed by
+	// ports.RequeueRepository.RequeueExhausted) is the explicit, operator-driven remedy. An
+	// automatic self-heal (e.g. "un-exhaust everything the instant the config check passes") was
+	// considered and rejected: it would silently resurrect rows whose subject may no longer be
+	// relevant (see RequeueExhausted's verification_item relevance check) with no human in the
+	// loop and no scoping, which is worse than the current silent death this fix is closing.
+	// Fast-exhaust + a mandatory, scoped, human-run requeue keeps a person in the loop for the one
+	// step (deciding a fixed channel + a bounded time window is safe to resurrect) that a machine
+	// should not decide alone.
+	if !invalidRecipient && !unusableRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
 	}
 	if markErr := s.repo.MarkFailed(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), sanitizeError(err), nextAttempt, now); markErr != nil {
 		return fmt.Errorf("mark notification failed: %w", markErr)
 	}
+	if invalidRecipient {
+		s.suppressInvalidRecipient(ctx, request, err, now)
+	}
 	if nextAttempt == nil {
 		result.ExhaustedCount++
 		kmetrics.RecordNotifyExhausted(ctx, request.Channel)
+		// EXHAUSTED must be loud, not swallowed: a config gap (ErrChannelNotConfigured) exhausts on
+		// the FIRST attempt with no retry scheduled (see the guard above), so this is often the ONLY
+		// place this failure is ever surfaced outside the notification_requests row itself. Without
+		// this line, an operator/park-head/verifier notification can silently vanish with nothing in
+		// the logs beyond a metric counter -- exactly the "operator says nothing happened" failure
+		// this system exists to prevent.
+		s.log.WarnContext(ctx, "notification_exhausted",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("tenant_id", request.TenantID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("channel", request.Channel),
+			slog.String("notification_type", request.NotificationType),
+			slog.String("recipient_ref", request.RecipientRef),
+			slog.Int("delivery_attempts", request.DeliveryAttempts+1),
+			slog.String("error", sanitizeError(err)),
+		)
 	} else {
 		result.FailedCount++
 		kmetrics.RecordNotifyFailure(ctx, request.Channel)
@@ -161,11 +206,17 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 	if !ok {
 		return
 	}
+	// An FCM registration token is a bearer-style push credential: anyone holding it can send
+	// to that device. Livestock identifiers are safe to log in this repo, secrets are not, and a
+	// push token sits on the secret side of that line -- so the token is fingerprinted, never
+	// logged whole. The fingerprint is still enough to correlate repeated failures for one device.
+	tokenFingerprint := fingerprintRecipientRef(recipientRef)
 	suppressed, err := repo.SuppressInvalidRecipient(ctx, request.TenantID, recipientRef, sanitizeError(sendErr), now)
 	if err != nil {
 		s.log.WarnContext(ctx, "notification_invalid_recipient_suppress_failed",
 			slog.String("notification_request_id", request.NotificationRequestID),
 			slog.String("channel", request.Channel),
+			slog.String("device_token_fp", tokenFingerprint),
 			slog.String("error", err.Error()),
 		)
 		return
@@ -173,7 +224,8 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 	s.log.InfoContext(ctx, "notification_invalid_recipient_suppressed",
 		slog.String("notification_request_id", request.NotificationRequestID),
 		slog.String("channel", request.Channel),
-		slog.Int("suppressed_rows", suppressed),
+		slog.String("device_token_fp", tokenFingerprint),
+		slog.Int("suppressed_notification_requests", suppressed),
 	)
 }
 
@@ -251,4 +303,16 @@ func sanitizeError(err error) string {
 		return msg[:maxErrorLength]
 	}
 	return msg
+}
+
+// fingerprintRecipientRef renders a stable, non-reversible short fingerprint of a push
+// recipient reference so logs can correlate one device across failures without ever
+// carrying the credential itself.
+func fingerprintRecipientRef(recipientRef string) string {
+	recipientRef = strings.TrimSpace(recipientRef)
+	if recipientRef == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(recipientRef))
+	return hex.EncodeToString(sum[:8])
 }

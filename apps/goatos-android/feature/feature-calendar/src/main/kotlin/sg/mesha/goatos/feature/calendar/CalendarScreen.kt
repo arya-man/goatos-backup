@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -65,11 +64,13 @@ import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.CoverageBanner
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.calendar.R
 
 /**
@@ -343,7 +344,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     onEvent: (CalendarEvent) -> Unit,
 ) {
     item {
-        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() }) 82.dp else 68.dp
+        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() || it.bucketCount > 0 }) 82.dp else 68.dp
         Row(
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -367,7 +368,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
-            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) })
+            EventCard(
+                item = item,
+                onClick = {
+                    onEvent(
+                        CalendarEvent.TapItem(
+                            itemId = item.id,
+                            target = item.target,
+                            dateKey = item.dateKey,
+                            parkId = item.parkId,
+                        ),
+                    )
+                },
+            )
         }
         if (state.weekLoadingMore) {
             item {
@@ -411,9 +424,10 @@ private fun WeekDayCell(
             fontWeight = FontWeight.W800,
             modifier = Modifier.padding(top = 4.dp),
         )
-        if (day.dueCountLabel.isNotEmpty()) {
+        val bucketLabel = localizedWeekBucketLabel(day)
+        if (bucketLabel.isNotEmpty()) {
             Text(
-                text = day.dueCountLabel,
+                text = bucketLabel,
                 color = if (on) MeshaColors.OnBrand else MeshaColors.Muted,
                 fontSize = 9.5.sp,
                 fontWeight = FontWeight.W600,
@@ -432,6 +446,17 @@ private fun WeekDayCell(
             )
         }
     }
+}
+
+@Composable
+private fun localizedWeekBucketLabel(day: CalendarWeekDay): String {
+    if (day.bucketCount <= 0) return day.dueCountLabel
+    val label = when (day.bucketKey) {
+        "overdue" -> R.string.calendar_drive_overdue
+        "deferred" -> R.string.calendar_drive_deferred
+        else -> R.string.calendar_drive_due
+    }
+    return stringResource(label, day.bucketCount)
 }
 
 @Composable
@@ -501,18 +526,31 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.size(8.dp))
-            Text(
-                // Park-level drives (v4) get the fixed "Vaccination drive · <park>" chrome
-                // (localized here); everything else keeps the backend-supplied item.title.
-                text = if (drive != null) {
-                    stringResource(R.string.calendar_drive_title, drive.parkName)
-                } else {
-                    item.title
-                },
-                color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W700,
-            )
+            Column {
+                Text(
+                    // The drive's OWN name is what distinguishes one multi-day drive from the next.
+                    // The fixed "Vaccination drive · <park>" chrome is only a fallback: rendering it
+                    // for every row made every day of every drive read as the same untitled card.
+                    text = drive?.driveName?.takeIf { it.isNotBlank() }
+                        ?: if (drive != null) {
+                            stringResource(R.string.calendar_drive_title, drive.parkName)
+                        } else {
+                            item.title
+                        },
+                    color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.W700,
+                )
+                // Park stays visible even when the drive name replaced the chrome above.
+                drive?.parkName?.takeIf { it.isNotBlank() && drive.driveName.isNotBlank() }?.let { park ->
+                    Text(
+                        text = park,
+                        color = MeshaColors.Muted,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
         }
         // For drive rows the backend populates subtitle/summaryPrimary/summarySecondary with the
         // same sheds/vaccines/scheduled-dose metrics the option-A ring card now shows, so suppress
@@ -585,8 +623,12 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                     )
                 }
                 if (showScheduleContext && item.shedLabels.isNotEmpty()) {
+                    val displayLabels = item.shedLabels.mapIndexed { i, label ->
+                        val partitionLabel = if (i < item.shedPartitionLabels.size) item.shedPartitionLabels[i] else null
+                        operationalLocationLabel(label, partitionLabel)
+                    }
                     Text(
-                        text = item.shedLabels.joinToString(" · "),
+                        text = displayLabels.joinToString(" · "),
                         color = MeshaColors.Muted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.W600,
@@ -627,19 +669,34 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
     Column(modifier.fillMaxWidth()) {
         if (summary.vaccineLabels.isNotEmpty()) {
             Text(
-                text = stringResource(R.string.calendar_drive_vaccines_fmt, summary.vaccineLabels.size),
+                text = summary.vaccineLabels.joinToString(" · "),
                 color = MeshaColors.Muted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W600,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.size(6.dp))
+        }
+        if (summary.locations.isNotEmpty()) {
+            Text(
+                text = summary.locations.joinToString(" · ") { it.operationalLocationDisplay },
+                color = MeshaColors.Brand2,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.W600,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (summary.vaccineLabels.isNotEmpty() || summary.locations.isNotEmpty()) {
             Spacer(Modifier.size(10.dp))
         }
         // Coverage ring + headline prefer the DISTINCT-ANIMAL grain (a goat due for several vaccines
         // the same day is one animal, completed only when all its drive obligations are), but fall back
         // to the dose counts when a legacy cache / mixed-version response lacks animal counts (CDR-R1),
         // labelled accordingly. Round (not truncate) to match web. due/overdue/deferred chips stay doses.
-        val coverage = driveCoverage(summary.completedAnimals, summary.totalAnimals, summary.completedCount, summary.totalCount)
-        val pct = driveCoveragePct(coverage.completed, coverage.total)
+        val coverage = driveVisibleProgress(summary)
+        val pct = drivePctFor(summary, coverage)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -671,6 +728,17 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                     fontWeight = FontWeight.W600,
                     modifier = Modifier.padding(top = 3.dp),
                 )
+                // The counts above are THIS DAY's slice. A drive runs over several days, so the
+                // whole-drive herd total is the only number that answers "how big is this drive"
+                // -- the backend already sends it and the card simply dropped it on the floor.
+                summary.driveTotal?.takeIf { it > 0 }?.let { total ->
+                    Text(
+                        text = stringResource(R.string.calendar_drive_total_animals, total),
+                        color = MeshaColors.Faint,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
         }
         val chips = driveStatusChips(summary)
@@ -935,7 +1003,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             EventCard(
                 item = item,
                 showScheduleContext = true,
-                onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
+                onClick = {
+                    onEvent(
+                        CalendarEvent.TapItem(
+                            itemId = item.id,
+                            target = item.target,
+                            dateKey = item.dateKey,
+                            parkId = item.parkId,
+                        ),
+                    )
+                },
             )
         }
 
@@ -955,7 +1032,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 EventCard(
                     item = item,
                     showScheduleContext = true,
-                    onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target, item.dateKey)) },
+                    onClick = {
+                        onEvent(
+                            CalendarEvent.TapItem(
+                                itemId = item.id,
+                                target = item.target,
+                                dateKey = item.dateKey,
+                                parkId = item.parkId,
+                            ),
+                        )
+                    },
                 )
             }
         }
@@ -1030,8 +1116,30 @@ private fun MonthFilterSheet(
             ),
         )
     }
-    val shedOptions = options.sheds.filter { option ->
+    // Same shed name can exist in more than one park (two Castro, two Gandhi, two Yashoda
+    // sheds). When no park filter narrows the list, disambiguate DISPLAY ONLY by appending the
+    // park name for any label that repeats -- selection still carries the real shed id
+    // (option.value), so this never changes what filter is applied, only what the chip reads.
+    val shedOptionsForPark = options.sheds.filter { option ->
         draft.parkId == null || option.parentValue == draft.parkId
+    }
+    val shedOptions = if (draft.parkId == null) {
+        val labelCounts = shedOptionsForPark.groupingBy { it.label }.eachCount()
+        val parkNameByValue = options.parks.associate { it.value to it.label }
+        shedOptionsForPark.map { option ->
+            if ((labelCounts[option.label] ?: 0) > 1) {
+                val parkName = option.parentValue?.let { parkNameByValue[it] }
+                if (!parkName.isNullOrBlank()) {
+                    option.copy(label = "${option.label} (${parkName})")
+                } else {
+                    option
+                }
+            } else {
+                option
+            }
+        }
+    } else {
+        shedOptionsForPark
     }
 
     ModalBottomSheet(
@@ -1077,7 +1185,7 @@ private fun MonthFilterSheet(
                     options = options.parks,
                     selectedValue = draft.parkId,
                     onSelect = { parkId ->
-                        val currentShedStillValid = parkId == null || options.sheds.any {
+                        val currentShedStillValid = parkId != null && options.sheds.any {
                             it.value == draft.shedId && it.parentValue == parkId
                         }
                         draft = draft.copy(
@@ -1152,21 +1260,53 @@ private fun FilterChoiceSection(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (includeAll) {
                 item(key = "all") {
-                    FilterChip(
+                    CalendarFilterChip(
                         selected = selectedValue == null,
                         onClick = { onSelect(null) },
-                        label = { Text(stringResource(R.string.calendar_filter_all)) },
+                        label = stringResource(R.string.calendar_filter_all),
                     )
                 }
             }
             items(options, key = { it.value }) { option ->
-                FilterChip(
+                CalendarFilterChip(
                     selected = selectedValue == option.value,
                     onClick = { onSelect(option.value) },
-                    label = { Text(option.label, maxLines = 1) },
+                    label = option.label,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CalendarFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val background = if (selected) MeshaColors.Brand else MeshaColors.Surf
+    val border = if (selected) MeshaColors.Brand else MeshaColors.Hair
+    val foreground = if (selected) MeshaColors.PageBg else MeshaColors.Ink
+
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(shape)
+            .background(background)
+            .border(1.dp, border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = foreground,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W800,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1293,15 +1433,17 @@ private fun InlineLoadingFooter() {
 
 /**
  * Status chip for the redesigned drive card: a colored dot (9×9px, rounded) + label.
- * Color and label are derived from the chip key (completed/due/overdue/deferred).
+ * Color and label are derived from the chip key (completed/submitted/due/overdue/deferred).
  */
 @Composable
 private fun StatusChip(chip: sg.mesha.goatos.feature.calendar.StatusChip) {
     val (dotColor, labelStringRes) = when (chip.key) {
         "completed" -> MeshaColors.Brand to R.string.calendar_drive_done
+        "submitted" -> MeshaColors.Warn to R.string.calendar_drive_submitted
         "due" -> MeshaColors.Warn to R.string.calendar_drive_due
         "overdue" -> MeshaColors.Danger to R.string.calendar_drive_overdue
         "deferred" -> MeshaColors.Purple to R.string.calendar_drive_deferred
+        "rejected" -> MeshaColors.Danger to R.string.calendar_drive_rejected
         else -> MeshaColors.Muted to R.string.calendar_drive_due
     }
     Row(

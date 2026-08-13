@@ -273,7 +273,7 @@ sweeper: collect due obligation_instances for a (scope, protocol, window)
    → at batch close: stock consume/release (§6); batch → completed
 ```
 
-Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. Preventive Care approved catch-up uses the same canonical obligation/batch path as other campaign work. No new task engine.
+Assignment uses `workforce_member_capabilities` (e.g. `vaccination.execute` scoped to the shed's park). Verification uses `proof.verify`. Routine adult blank-history catch-up is generated automatically and uses the same canonical obligation/batch path as other campaign work; genuinely exceptional manual campaigns use that path too. No new task engine.
 
 ---
 

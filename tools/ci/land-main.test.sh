@@ -86,7 +86,7 @@ count=0
 count=\$((count + 1))
 printf '%s\n' "\$count" >"$tmp/reuse-ci-count"
 sha="\$(git rev-parse HEAD)"
-node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "\$sha" --mode all
+node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "\$sha" --mode all --base "\$(git rev-parse origin/main)" --screenshots skipped
 if [ "\$count" -eq 1 ]; then
   printf 'reuse race\n' >"$tmp/reuse-publisher/reuse-race.txt"
   git -C "$tmp/reuse-publisher" add reuse-race.txt
@@ -107,6 +107,33 @@ test "$(cat "$tmp/reuse-ci-count")" = "1"
 git -C "$tmp/reuse-candidate" merge-base --is-ancestor origin/main HEAD
 test -f "$tmp/reuse-candidate/reuse-candidate.txt"
 test -f "$tmp/reuse-candidate/reuse-race.txt"
+
+git clone "$tmp/origin.git" "$tmp/bypass-candidate" >/dev/null 2>&1
+git -C "$tmp/bypass-candidate" config user.name "GoatOS Test"
+git -C "$tmp/bypass-candidate" config user.email "goatos-test@example.invalid"
+git -C "$tmp/bypass-candidate" switch -c bypass-feature >/dev/null
+printf 'bypass candidate\n' >"$tmp/bypass-candidate/bypass-candidate.txt"
+git -C "$tmp/bypass-candidate" add bypass-candidate.txt
+git -C "$tmp/bypass-candidate" commit -m bypass-candidate >/dev/null
+
+cat >"$tmp/fake-ci-should-not-run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "bypass self-test: CI command unexpectedly ran" >&2
+exit 99
+EOF
+chmod +x "$tmp/fake-ci-should-not-run.sh"
+
+if (
+  cd "$tmp/bypass-candidate"
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_BYPASS_LOCAL_CI=1 \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/fake-ci-should-not-run.sh" \
+    bash "$script"
+) >"$tmp/bypass.out" 2>&1; then
+  echo "land-main self-test: GOATOS_BYPASS_LOCAL_CI should have been rejected" >&2
+  exit 1
+fi
+grep -q "GOATOS_BYPASS_LOCAL_CI is not supported" "$tmp/bypass.out"
 
 printf 'dirty\n' >>"$tmp/candidate/candidate.txt"
 if (

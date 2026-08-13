@@ -7,12 +7,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.common.OutboxTelemetryEvent
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxWritePhase
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -29,6 +33,8 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -70,6 +76,13 @@ import java.util.UUID
 interface SyncRepository {
     fun observeStatus(): StateFlow<SyncStatus>
 
+    /**
+     * Active, locally durable Health reports that do not have backend-created treatment sessions
+     * yet. Lightweight fakes default to an empty stream; production projects these directly from
+     * Room's outbox so an offline report remains visible after navigation or process recreation.
+     */
+    fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> = flowOf(emptyList())
+
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
      *  the item's status changes, never emitting null (item not found = no emission). */
@@ -92,6 +105,7 @@ interface SyncRepository {
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String = "whole",
         request: ScanCaptureRequestDto,
     ): AppResult<String> = AppResult.Err("scan capture sync is not configured")
 
@@ -233,6 +247,216 @@ interface SyncRepository {
         idempotencyKey: String,
     ): AppResult<String> = AppResult.Err("counts approval sync is not configured")
 
+    suspend fun enqueueWeighingAnimalObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing animal observation sync is not configured")
+
+    suspend fun enqueueWeighingShedObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing shed observation sync is not configured")
+
+    /**
+     * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
+     * the write that RELOCATES the animals.
+     *
+     * [groupKey] is the shifting event id, so two actions on the SAME movement drain strictly
+     * oldest-first and never race; different movements drain concurrently.
+     *
+     * [idempotencyKey] must be a STABLE key the caller derived once and persisted
+     * (`SavedStateHandle`), never a timestamp-suffixed one. This is a must-not-double-apply write:
+     * a fresh key on resend would relocate the herd twice. Under the stable key the backend returns
+     * the original relocation with `idempotent_replay=true`.
+     *
+     * [destinationTag] is normally null (the server derives the destination cohort). The optional
+     * video is NOT sent here — it goes through [enqueueProofUpload] against the destination shed.
+     */
+    suspend fun enqueueShiftingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        destinationTag: String? = null,
+        proofOutboxItemId: String,
+        feedPackingProofOutboxItemId: String? = null,
+        feedGivenProofOutboxItemId: String? = null,
+        feedConfigFingerprint: String? = null,
+    ): AppResult<String> = AppResult.Err("shifting completion sync is not configured")
+
+    /**
+     * Enqueue a feed-direction shed-session completion. [groupKey] is the shed-session key so two
+     * completions of the same shed-session drain strictly oldest-first. The optional video is a
+     * SEPARATE [enqueueProofUpload], not carried here.
+     */
+    suspend fun enqueueFeedDirectionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): AppResult<String> = AppResult.Err("feed completion sync is not configured")
+
+    /**
+     * Enqueue a verifier-GATED feed-DISTRIBUTION completion
+     * (`POST /feed-direction/distribution/complete`, docs/decisions/feed-distribution-verification.md).
+     * BOTH proofs are MANDATORY and passed by REFERENCE to their PROOF_UPLOAD outbox rows
+     * ([feedWeightProofOutboxItemId] = feed-weight photo, [distributionProofOutboxItemId] =
+     * feed-distribution video, [waterProofOutboxItemId] = water
+     * photo/video): the dispatcher resolves each uploaded proof_id and sends the pair, exactly like
+     * [enqueueShiftingComplete] resolves its mandatory evidence set. All three writes MUST share the
+     * same [groupKey] (the shed-session) so the two proofs drain strictly before this completion.
+     * [idempotencyKey] must be a STABLE caller-persisted key so a resend re-enqueues the SAME
+     * verification item instead of completing twice. This is SEPARATE from
+     * [enqueueFeedDirectionComplete] (the untouched packing path).
+     */
+    suspend fun enqueueFeedDistributionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        distributionProofOutboxItemId: String,
+        feedWeightProofOutboxItemId: String,
+        waterProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("feed distribution completion sync is not configured")
+
+    /**
+     * Enqueue a verifier-GATED feed-PACKING completion (`POST /feed-direction/packing/complete`).
+     * Simpler than [enqueueFeedDistributionComplete]: a SINGLE proof is MANDATORY and passed by
+     * REFERENCE to its PROOF_UPLOAD outbox row ([packingProofOutboxItemId]): the dispatcher resolves
+     * the uploaded proof_id and sends it, exactly like [enqueueShiftingComplete] resolves its single
+     * mandatory video. Both writes MUST share the same [groupKey] (the shed-session) so the proof
+     * drains strictly before this completion. [idempotencyKey] must be a STABLE caller-persisted key
+     * so a resend re-enqueues the SAME verification item instead of completing twice. This is
+     * SEPARATE from both [enqueueFeedDirectionComplete] (the untouched instant packing path) and
+     * [enqueueFeedDistributionComplete] (the two-proof distribution path).
+     */
+    suspend fun enqueueFeedPackingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        packingProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("feed packing completion sync is not configured")
+
+    suspend fun enqueueMilkPreparationSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String,
+        preparationDate: String,
+        goatMilkUsed: Boolean,
+        answers: MilkPreparationAnswersPayload,
+        proofOutboxItemIds: Map<String, String>,
+    ): AppResult<String> = AppResult.Err("milk preparation sync is not configured")
+
+    suspend fun enqueueMilkFeedingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        parkId: String,
+        feedingDate: String,
+        sessionNo: Int,
+        answers: sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto,
+        cleanBottlesProofOutboxItemId: String,
+        mixingAndFillingProofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("milk feeding sync is not configured")
+
+    suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = AppResult.Err("feed transport sync is not configured")
+
+    /**
+     * Enqueues a Counts identifier PROMOTE (`POST /app/counts/goats/{goat_id}/promote-identifier`).
+     * Assigns [permanentIdentifier] to the temporary-tagged goat [groupKey], atomically retiring its
+     * temp tag. The caller derives a STABLE [idempotencyKey] from the goat id (never a timestamp-
+     * suffixed one) — a fresh key on resend would attempt a second retag. Under the stable key the
+     * backend returns the original promotion with `idempotent_replay=true`. [rowVersion] is the goat's
+     * optimistic-concurrency token from the awaiting-RFID row, so a stale in-hand record is rejected.
+     */
+    suspend fun enqueuePromoteIdentifier(
+        groupKey: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String? = null,
+    ): AppResult<String> = AppResult.Err("identifier promotion sync is not configured")
+
+    /**
+     * Enqueues a Shifting EXECUTION cancel (`POST /app/counts/shifting-events/{id}/cancel`). Retires
+     * an authorized movement; moves nothing. [reason] is REQUIRED server-side. Same group-key +
+     * stable-key contract as [enqueueShiftingComplete].
+     */
+    suspend fun enqueueShiftingCancel(
+        groupKey: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<String> = AppResult.Err("shifting cancel sync is not configured")
+
+    /**
+     * Enqueues a birth/death workflow-action ANSWER
+     * (`POST /app/workflows/{workflow_id}/actions/{action_id}/answer`,
+     * docs/decisions/birth-death-workflows.md). [groupKey] is the WORKFLOW id so two actions on
+     * the same workflow drain strictly oldest-first. [idempotencyKey] must be a STABLE per-action
+     * key the caller derived once and persisted — the backend rejects a NEW key against an
+     * already-completed action, so a fresh key on resend would surface a spurious conflict instead
+     * of collapsing onto the original answer.
+     */
+    suspend fun enqueueWorkflowActionAnswer(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        answerValue: String,
+        proofOutboxItemId: String? = null,
+    ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
+
+    /**
+     * Enqueues a birth/death workflow-action COMPLETE
+     * (`POST /app/workflows/{workflow_id}/actions/{action_id}/complete`). For a `requires_video`
+     * action the MANDATORY video is passed by REFERENCE to its PROOF_UPLOAD outbox row
+     * ([proofOutboxItemId], enqueued on the SAME [groupKey] so it drains first); the dispatcher
+     * resolves the uploaded proof_id and sends it as `proof_ref`, exactly like
+     * [enqueueShiftingComplete]. Null for non-video completions. Same stable-key contract as
+     * [enqueueWorkflowActionAnswer].
+     */
+    suspend fun enqueueWorkflowActionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        proofOutboxItemId: String? = null,
+    ): AppResult<String> = AppResult.Err("workflow action sync is not configured")
+
+    /** Opens a Health disease course. The goat is the ordering group and the caller persists one
+     * idempotency key for the draft so a retry cannot create a duplicate disease episode. */
+    suspend fun enqueueHealthCaseOpen(
+        goatId: String,
+        diseaseKey: String,
+        ageBand: String,
+        startDate: String,
+        idempotencyKey: String,
+        goatDisplayId: String = "",
+        diseaseName: String = "",
+    ): AppResult<String> = AppResult.Err("health case sync is not configured")
+
+    /** Enqueues one Health session completion. The session id is both the ordering group and the
+     * stable idempotency identity, preventing duplicate medicine administration rows on retry. */
+    suspend fun enqueueHealthTreatmentComplete(
+        healthSessionId: String,
+        idempotencyKey: String,
+        proofRef: String = "",
+    ): AppResult<String> = AppResult.Err("health treatment sync is not configured")
+
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
      *  retry affordance. */
@@ -252,6 +476,12 @@ interface SyncRepository {
             is AppResult.Ok -> AppResult.Ok(true)
             is AppResult.Err -> r
         }
+
+    /** Deletes a server-side proof that has already synced but has not been attached to a
+     *  submitted record. Used by proof X/remove; callers should keep the local row visible if this
+     *  returns Err so the app never hides backend media. */
+    suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> =
+        AppResult.Err("Uploaded proof delete is not available.")
 
     /** Deletes a terminal FAILED row by idempotency key so a corrected payload can be rebuilt
      *  after process recreation. Never removes QUEUED, IN_FLIGHT, or SUCCEEDED writes. */
@@ -274,6 +504,8 @@ interface SyncRepository {
     suspend fun triggerDrain()
 }
 
+private class IdempotencyKeyConflict : Exception("Idempotency key already belongs to a different queued write.")
+
 class DefaultSyncRepository(
     private val store: OutboxStore,
     private val engine: SyncEngine,
@@ -291,6 +523,11 @@ class DefaultSyncRepository(
      *  closed mid-upload. [ForegroundSyncController.Noop] by default so every existing/test
      *  construction of this class keeps compiling unchanged. */
     private val foregroundSyncController: ForegroundSyncController = ForegroundSyncController.Noop,
+    /** Queue-lifecycle visibility (see [OutboxTelemetryReporter]). This half covers the ONE
+     *  transition [SyncEngine] cannot see — the moment a write becomes durable but has not yet
+     *  been attempted, which is exactly the state a never-draining queue is stuck in.
+     *  [OutboxTelemetryReporter.Noop] by default so existing/test constructions keep compiling. */
+    private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
 ) : SyncRepository {
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
@@ -325,15 +562,27 @@ class DefaultSyncRepository(
                 try {
                     kotlinx.coroutines.delay(10 * 60 * 1000L) // 10 minutes
                     store.pruneSucceeded(succeededRetentionMs, clock())
+                } catch (e: CancellationException) {
+                    // Scope shutdown, not a failure: rethrow so the coroutine actually cancels
+                    // instead of this loop spinning forever inside a dead scope.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue — a prune failure should not crash the app
-                    // (logging is deferred; in production, log via observability layer)
+                    // A prune failure is survivable -- the rows stay and the next tick retries --
+                    // but it is NOT nothing: an outbox that never prunes grows without bound and
+                    // the first symptom is a slow app with no explanation. Recorded, never
+                    // silenced; the marker this replaced kept the guard quiet and told nobody.
+                    android.util.Log.w("GoatOsOutbox", "outbox_prune_failed retained=$succeededRetentionMs", e)
                 }
             }
         }
     }
 
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
+
+    override fun observePendingHealthCaseOpens(): Flow<List<PendingHealthCaseOpen>> =
+        store.observeActive()
+            .map { rows -> projectPendingHealthCaseOpens(rows, syncJson) }
+            .distinctUntilChanged()
 
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> =
         store.observeById(itemId)
@@ -362,12 +611,15 @@ class DefaultSyncRepository(
         taskId: String,
         groupKey: String,
         idempotencyKey: String,
+        partitionKey: String,
         request: ScanCaptureRequestDto,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SCAN_CAPTURE,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(ScanCapturePayload(taskId = taskId, request = request)),
+        payloadJson = syncJson.encodeToString(
+            ScanCapturePayload(taskId = taskId, partitionKey = partitionKey, request = request),
+        ),
     )
 
     override suspend fun enqueueScanAttempt(
@@ -400,14 +652,17 @@ class DefaultSyncRepository(
         request: ProofUploadRequestDto,
         localFilePath: String,
         durationMs: Long?,
-    ): AppResult<String> = enqueue(
-        opType = OutboxOpType.PROOF_UPLOAD,
-        groupKey = groupKey,
-        idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(
-            ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
-        ),
-    )
+    ): AppResult<String> {
+        val result = enqueue(
+            opType = OutboxOpType.PROOF_UPLOAD,
+            groupKey = groupKey,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
+            ),
+        )
+        return result
+    }
 
     override suspend fun enqueueVerifyTask(
         taskId: String,
@@ -554,6 +809,204 @@ class DefaultSyncRepository(
         ),
     )
 
+    override suspend fun enqueueWeighingAnimalObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingAnimalObservationRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_ANIMAL_OBSERVATION,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(WeighingAnimalObservationPayload(campaignId = campaignId, request = request)),
+    )
+
+    override suspend fun enqueueWeighingShedObservation(
+        campaignId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingShedObservationRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_SHED_OBSERVATION,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(WeighingShedObservationPayload(campaignId = campaignId, request = request)),
+    )
+
+    override suspend fun enqueueShiftingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        destinationTag: String?,
+        proofOutboxItemId: String,
+        feedPackingProofOutboxItemId: String?,
+        feedGivenProofOutboxItemId: String?,
+        feedConfigFingerprint: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SHIFTING_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            ShiftingCompletePayload(
+                shiftingEventId = groupKey,
+                destinationTag = destinationTag?.trim()?.ifBlank { null },
+                proofOutboxItemId = proofOutboxItemId,
+                feedPackingProofOutboxItemId = feedPackingProofOutboxItemId,
+                feedGivenProofOutboxItemId = feedGivenProofOutboxItemId,
+                feedConfigFingerprint = feedConfigFingerprint,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueShiftingCancel(
+        groupKey: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.SHIFTING_CANCEL,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            ShiftingCancelPayload(shiftingEventId = groupKey, reason = reason),
+        ),
+    )
+
+    override suspend fun enqueueFeedDirectionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_DIRECTION_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedDirectionCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                sessionNo = sessionNo,
+                targetDate = targetDate.trim(),
+                workflow = workflow.trim(),
+            ),
+        ),
+    )
+
+    override suspend fun enqueueFeedDistributionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        distributionProofOutboxItemId: String,
+        feedWeightProofOutboxItemId: String,
+        waterProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_DISTRIBUTION_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedDistributionCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                partitionLabel = partitionLabel?.trim()?.ifBlank { null },
+                sessionNo = sessionNo,
+                targetDate = targetDate.trim(),
+                workflow = workflow.trim(),
+                distributionProofOutboxItemId = distributionProofOutboxItemId,
+                feedWeightProofOutboxItemId = feedWeightProofOutboxItemId,
+                waterProofOutboxItemId = waterProofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueFeedPackingComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+        packingProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.FEED_PACKING_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            FeedPackingCompletePayload(
+                parkId = parkId?.trim()?.ifBlank { null },
+                shedId = shedId.trim(),
+                partitionLabel = partitionLabel?.trim()?.ifBlank { null },
+                sessionNo = sessionNo,
+                targetDate = targetDate.trim(),
+                workflow = workflow.trim(),
+                packingProofOutboxItemId = packingProofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueMilkPreparationSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        parkId: String,
+        preparationDate: String,
+        goatMilkUsed: Boolean,
+        answers: MilkPreparationAnswersPayload,
+        proofOutboxItemIds: Map<String, String>,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.MILK_PREPARATION_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            MilkPreparationSubmitPayload(parkId.trim(), preparationDate.trim(), goatMilkUsed, answers, proofOutboxItemIds),
+        ),
+    )
+
+    override suspend fun enqueueMilkFeedingSubmit(
+        groupKey: String,
+        idempotencyKey: String,
+        taskId: String,
+        parkId: String,
+        feedingDate: String,
+        sessionNo: Int,
+        answers: sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto,
+        cleanBottlesProofOutboxItemId: String,
+        mixingAndFillingProofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.MILK_FEEDING_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(MilkFeedingSubmitPayload(taskId, parkId, feedingDate, sessionNo, answers, cleanBottlesProofOutboxItemId, mixingAndFillingProofOutboxItemId)),
+    )
+
+    override suspend fun enqueueFeedTransportSubmit(groupKey:String,idempotencyKey:String,taskId:String,proofOutboxItemId:String):AppResult<String> = enqueue(opType=OutboxOpType.FEED_TRANSPORT_SUBMIT,groupKey=groupKey,idempotencyKey=idempotencyKey,payloadJson=syncJson.encodeToString(FeedTransportSubmitPayload(taskId,proofOutboxItemId)))
+
+    override suspend fun enqueuePromoteIdentifier(
+        groupKey: String,
+        idempotencyKey: String,
+        permanentIdentifier: String,
+        rowVersion: Int,
+        secondaryIdentifier: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.COUNTS_PROMOTE_IDENTIFIER,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            PromoteIdentifierPayload(
+                goatId = groupKey,
+                permanentIdentifier = permanentIdentifier.trim(),
+                animalIdentifier2 = secondaryIdentifier?.trim()?.ifBlank { null },
+                rowVersion = rowVersion,
+            ),
+        ),
+    )
+
     private suspend fun enqueue(
         opType: OutboxOpType,
         groupKey: String,
@@ -576,6 +1029,8 @@ class DefaultSyncRepository(
             // Never swallow cancellation into an Err — that breaks structured concurrency
             // (a torn-down caller scope must see its own cancellation, not a fake failure).
             throw cancellation
+        } catch (e: IdempotencyKeyConflict) {
+            AppResult.Err(e.message ?: "Idempotency key already belongs to a different queued write.")
         } catch (e: Throwable) {
             AppResult.Err("Couldn't queue the write: ${e.message}", e)
         }
@@ -624,6 +1079,20 @@ class DefaultSyncRepository(
                 existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint)
             } ?: throw e
         }
+        // Only a genuinely NEW row is announced. An idempotent replay returns above without
+        // reporting, so the enqueue count stays a count of distinct writes rather than of taps.
+        // Telemetry is diagnostics, never control flow — a broken reporter cannot fail a write.
+        runCatching {
+            telemetry.onOutboxWrite(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.ENQUEUED,
+                    opType = opType.name,
+                    itemId = id,
+                    attempt = 0,
+                    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                ),
+            )
+        }
         return id
     }
 
@@ -640,8 +1109,85 @@ class DefaultSyncRepository(
             existing.groupKey == groupKey &&
             existing.payloadJson == payloadJson
         if (fingerprintMatches || legacyPayloadMatches) return existing.id
-        throw IllegalStateException("Idempotency key already belongs to a different queued write.")
+        throw IdempotencyKeyConflict()
     }
+
+    override suspend fun enqueueWorkflowActionAnswer(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        answerValue: String,
+        proofOutboxItemId: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WORKFLOW_ACTION_ANSWER,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WorkflowActionAnswerPayload(
+                workflowId = workflowId,
+                actionId = actionId,
+                answerValue = answerValue,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueWorkflowActionComplete(
+        groupKey: String,
+        idempotencyKey: String,
+        workflowId: String,
+        actionId: String,
+        proofOutboxItemId: String?,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WORKFLOW_ACTION_COMPLETE,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WorkflowActionCompletePayload(
+                workflowId = workflowId,
+                actionId = actionId,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueHealthTreatmentComplete(
+        healthSessionId: String,
+        idempotencyKey: String,
+        proofRef: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_TREATMENT_COMPLETE,
+        groupKey = healthSessionId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofRef = proofRef),
+        ),
+    )
+
+    override suspend fun enqueueHealthCaseOpen(
+        goatId: String,
+        diseaseKey: String,
+        ageBand: String,
+        startDate: String,
+        idempotencyKey: String,
+        goatDisplayId: String,
+        diseaseName: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_CASE_OPEN,
+        groupKey = goatId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthCaseOpenPayload(
+                goatId = goatId,
+                diseaseKey = diseaseKey,
+                ageBand = ageBand,
+                startDate = startDate,
+                goatDisplayId = goatDisplayId,
+                diseaseName = diseaseName,
+            ),
+        ),
+    )
 
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
         try {
@@ -680,6 +1226,17 @@ class DefaultSyncRepository(
             throw cancellation
         } catch (e: Throwable) {
             AppResult.Err("Couldn't cancel outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun deleteUploadedProof(proofId: String): AppResult<Unit> = withContext(dispatchers.io) {
+        try {
+            engine.deleteProof(proofId)
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't delete uploaded proof: ${e.message}", e)
         }
     }
 
@@ -733,7 +1290,48 @@ class DefaultSyncRepository(
 }
 
 private fun requestFingerprint(opType: OutboxOpType, groupKey: String, payloadJson: String): String {
-    val envelope = "${opType.name}\u0000$groupKey\u0000$payloadJson"
+    val fingerprintPayload = canonicalOutboxFingerprintPayload(opType, payloadJson, syncJson)
+    val envelope = "${opType.name}\u0000$groupKey\u0000$fingerprintPayload"
     val bytes = MessageDigest.getInstance("SHA-256").digest(envelope.toByteArray(Charsets.UTF_8))
     return bytes.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }
 }
+
+/** UI-only Health labels must not change the identity of the canonical case-open command. */
+internal fun canonicalOutboxFingerprintPayload(
+    opType: OutboxOpType,
+    payloadJson: String,
+    json: kotlinx.serialization.json.Json,
+): String {
+    if (opType != OutboxOpType.HEALTH_CASE_OPEN) return payloadJson
+    return runCatching {
+        val payload = json.decodeFromString<HealthCaseOpenPayload>(payloadJson)
+        json.encodeToString(payload.copy(goatDisplayId = "", diseaseName = ""))
+    }.getOrDefault(payloadJson)
+}
+
+/** Pure projection used by the production outbox-backed Health pending-report read path. */
+internal fun projectPendingHealthCaseOpens(
+    rows: List<OutboxEntity>,
+    json: kotlinx.serialization.json.Json,
+): List<PendingHealthCaseOpen> = rows.asSequence()
+    .filter { it.opType == OutboxOpType.HEALTH_CASE_OPEN.name }
+    .mapNotNull { row ->
+        val payload = runCatching { json.decodeFromString<HealthCaseOpenPayload>(row.payloadJson) }
+            .getOrNull() ?: return@mapNotNull null
+        val status = runCatching { SyncItemStatus.valueOf(row.status) }
+            .getOrNull() ?: return@mapNotNull null
+        PendingHealthCaseOpen(
+            outboxItemId = row.id,
+            goatId = payload.goatId,
+            goatDisplayId = payload.goatDisplayId.ifBlank { payload.goatId },
+            diseaseKey = payload.diseaseKey,
+            diseaseName = payload.diseaseName.ifBlank {
+                payload.diseaseKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+            },
+            ageBand = payload.ageBand,
+            startDate = payload.startDate,
+            syncStatus = status,
+            lastError = row.lastError,
+        )
+    }
+    .toList()

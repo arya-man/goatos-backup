@@ -16,14 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
  * The one screen header every destination renders — a port of the mock's `.vhead`
@@ -117,23 +116,19 @@ fun MeshaScreenHeader(
                 Text(
                     text = eyebrow,
                     color = eyebrowColor,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.W700,
-                    letterSpacing = 0.6.sp,
+                    style = MeshaType.overline,
                 )
             }
             Text(
                 text = title,
                 color = titleColor,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.screenTitle,
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     text = subtitle,
                     color = MeshaColors.Muted,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.W600,
+                    style = MeshaType.caption,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }

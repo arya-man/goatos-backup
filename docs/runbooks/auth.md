@@ -95,14 +95,17 @@ the real IdP for JWKS verification. Firebase is auth only for Goat OS bring-up:
 do not use Firebase Hosting or Firebase App Hosting, and do not introduce an
 external OIDC provider or static dev JWKS.
 
-Admin-web login uses Google Identity Services for the browser account chooser,
-then exchanges the returned Google ID token with Firebase Auth using
-`signInWithCredential`. Do not use Firebase `signInWithPopup` or
+Admin-web login uses Google Identity Services redirect mode for the browser
+account chooser, then exchanges the returned Google ID token with Firebase Auth
+using `signInWithCredential`. Do not use Firebase `signInWithPopup` or
 `signInWithRedirect` for this dashboard: both send the browser through
 `goatos-dev.firebaseapp.com/__/auth/handler`, which has timed out in live dev
-testing. Keep `auto_select=false` and `hd=mesha.sg`; do not enable One Tap for
+testing. Keep `auto_select=false`, `button_auto_select=false`, `hd=mesha.sg`,
+and `ux_mode=redirect`; do not enable One Tap or the GSI popup button flow for
 this internal dashboard without proving account-picker behavior on
-`https://dev.dashboard.mesha.sg`.
+`https://dev.dashboard.mesha.sg`. The redirect callback must validate Google's
+CSRF token and keep any posted Google credential short-lived and httpOnly until
+the browser exchanges it with Firebase.
 
 Admin-web also supports Firebase email/password sign-in and password-reset
 email from the same login page. This is still Firebase Auth, not a Goat OS
@@ -727,6 +730,14 @@ roll), NOT a backend deploy and NOT a Firebase/token problem — the 403 only fi
 once the token already verified. After a new secret version, roll a fresh
 `goatos-api-stg` revision so the env-var secret ref is re-read. Full RCA:
 `docs/runbooks/incidents/2026-07-25-jyothi-verifier-stg-login-403.md`.
+
+2026-08-05 repeat incident: Natheswar/Eshwar (`natheswar7@gmail.com`) had a
+valid Firebase password user and active CBE park-scoped backend operator grant,
+but still hit `403 email_not_allowed` until the same allowlist secret was updated
+and `goatos-api-stg` was rolled. The exact add-user checklist, including
+Firebase Auth, App Distribution, backend grant, allowlist secret, Cloud Run
+revision roll, and `/app/bootstrap` verification, lives in
+`docs/runbooks/stg-operator-login-credentials.md`.
 
 Verifier note: `verifier` module access currently comes from the
 `preventive_care` department binding (same as operators, but with NO vaccination

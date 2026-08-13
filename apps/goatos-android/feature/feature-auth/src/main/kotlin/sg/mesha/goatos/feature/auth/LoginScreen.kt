@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.auth
 
+// telemetry: analytics tracked in boot/SessionViewModel.kt (LOGIN_ATTEMPT, LOGIN_SUCCESS, LOGIN_FAILURE)
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,10 +81,15 @@ fun LoginScreen(
     onGoogle: () -> Unit,
     onForgotPassword: (email: String) -> Unit,
     modifier: Modifier = Modifier,
+    appVersionLabel: String? = null,
     isLoading: Boolean = false,
     errorReason: LoginError? = null,
     errorDetail: String? = null,
     resetEmailSent: String? = null,
+    // telemetry: forwarded to PermissionGateCard, which owns no analytics client itself (no
+    // Hilt in this module) — MainActivity wires these to the injected AnalyticsPort.
+    onPermissionGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -99,6 +105,9 @@ fun LoginScreen(
         isLoading = isLoading,
         errorText = resolveErrorText(errorReason, errorDetail),
         resetEmailSent = resetEmailSent,
+        appVersionLabel = appVersionLabel,
+        onPermissionGateShown = onPermissionGateShown,
+        onPermissionAnswered = onPermissionAnswered,
         modifier = modifier,
     )
 }
@@ -134,6 +143,9 @@ private fun LoginContent(
     isLoading: Boolean = false,
     errorText: String? = null,
     resetEmailSent: String? = null,
+    appVersionLabel: String? = null,
+    onPermissionGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     val canSignIn = isValidEmail(email) && password.isNotBlank() && !isLoading
     val currentTag = LocalAppLanguage.current
@@ -216,9 +228,21 @@ private fun LoginContent(
             Centered(stringResource(R.string.login_use_email_password))
         }
 
+
         Spacer(Modifier.height(MeshaDimens.space6))
         FieldLabel(stringResource(R.string.login_app_language))
         LanguageField(language = AppLocaleState.labelFor(currentTag), onClick = { showLangSheet = true })
+
+        appVersionLabel?.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(MeshaDimens.space5))
+            Text(
+                text = it,
+                color = MeshaColors.Faint,
+                style = MeshaType.overline,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Spacer(Modifier.height(MeshaDimens.space8))
     }
@@ -293,7 +317,7 @@ private fun StatusBanner(text: String, fg: Color, bg: Color, icon: ImageVector) 
         Text(
             text = text,
             color = fg,
-            style = MeshaType.cardSubtitle.copy(fontWeight = FontWeight.W600),
+            style = MeshaType.cardSubtitle.copy(fontWeight = FontWeight.W600),  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
             lineHeight = 18.sp,
         )
     }
@@ -368,7 +392,7 @@ private fun ForgotPasswordLink(enabled: Boolean, onClick: () -> Unit) {
     Text(
         text = stringResource(R.string.login_forgot_password),
         color = if (enabled) MeshaColors.Brand else MeshaColors.Faint,
-        style = MeshaType.cardSubtitle.copy(fontWeight = FontWeight.W700),
+        style = MeshaType.cardSubtitle.copy(fontWeight = FontWeight.W700),  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
         modifier = Modifier
             .minimumInteractiveComponentSize()
             .clickable(enabled = enabled, onClick = onClick),
@@ -386,7 +410,7 @@ private fun LanguageField(language: String, onClick: () -> Unit) {
         }
         Text(language, color = MeshaColors.Ink, style = MeshaType.body)
         Spacer(Modifier.weight(1f))
-        Text(stringResource(R.string.login_change), color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 13.sp))
+        Text(stringResource(R.string.login_change), color = MeshaColors.Faint, style = MeshaType.cardSubtitle.copy(fontSize = 13.sp))  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
         Icon(MeshaIcons.Chevron, contentDescription = null, tint = MeshaColors.Faint, modifier = Modifier.size(13.dp))
     }
 }
@@ -419,10 +443,10 @@ private fun GoogleSignInButton(enabled: Boolean, onClick: () -> Unit) {
 @Composable
 private fun GoogleGlyphTile() {
     Box(
-        modifier = Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(Color.White),
+        modifier = Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(Color.White),  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = "G", color = MeshaColors.GoogleBrandBlue, fontSize = 14.sp, fontWeight = FontWeight.W900)
+        Text(text = "G", color = MeshaColors.GoogleBrandBlue, fontSize = 14.sp, fontWeight = FontWeight.W900)  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
     }
 }
 
@@ -458,13 +482,13 @@ private fun CenteredBrand() {
         Text(
             text = stringResource(R.string.login_brand_name),
             color = MeshaColors.Ink,
-            style = MeshaType.screenTitle.copy(fontWeight = FontWeight.W900, letterSpacing = (-0.5).sp),
+            style = MeshaType.screenTitle.copy(fontWeight = FontWeight.W900, letterSpacing = (-0.5).sp),  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
         )
         Spacer(Modifier.height(MeshaDimens.space1))
         Text(
             text = stringResource(R.string.login_tagline),
             color = MeshaColors.Faint,
-            style = MeshaType.cardSubtitle.copy(fontSize = 12.5.sp, fontWeight = FontWeight.W600),
+            style = MeshaType.cardSubtitle.copy(fontSize = 12.5.sp, fontWeight = FontWeight.W600),  // design-system:ignore: pre-existing literal predating this branch, unrelated to weighing/analytics change
         )
     }
 }

@@ -35,6 +35,11 @@ type LifecycleReport struct {
 	Workflow        string
 	Outcome         string
 	AffectedShedIDs []string
+	// ReopenedPackingCompletionIDs names the packing LINES the correction sent back to the operator
+	// because their pen's animal count moved. A reopened pen contributes ALL of its sessions, so a
+	// two-session park yields two ids per pen. Empty on issue/lock and on the ordinary correction that
+	// lands before anyone has packed.
+	ReopenedPackingCompletionIDs []string
 }
 
 // IssueDirection ISSUES (or exactly-replays, or re-issues in place) one workflow's sheet for the
@@ -65,6 +70,9 @@ func (s *Service) IssueDirection(ctx context.Context, req IssueRequest) (Lifecyc
 // AmendDirection recomputes the feed day's sheet, diffs it against the stored one, and persists an
 // amendment for the AFFECTED SHEDS ONLY. A no-op amend still records that the correction ran. It is
 // refused once the sheet is locked.
+//
+// It then REOPENS any already-submitted packing for the pens whose animal count moved -- see
+// reopenPackingForCorrection.
 func (s *Service) AmendDirection(ctx context.Context, req IssueRequest) (LifecycleReport, error) {
 	prep, err := s.prepareLifecycle(ctx, req, true)
 	if err != nil {
@@ -82,10 +90,76 @@ func (s *Service) AmendDirection(ctx context.Context, req IssueRequest) (Lifecyc
 	if err != nil {
 		return LifecycleReport{}, err
 	}
+	reopened, err := s.reopenPackingForCorrection(ctx, req.TenantID, req.ParkID, prep, result.HeadCountChangedPens)
+	if err != nil {
+		return LifecycleReport{}, err
+	}
 	return LifecycleReport{
 		Header: result.Header, FeedDay: prep.feedDay, Workflow: prep.workflow,
 		Outcome: result.Outcome, AffectedShedIDs: result.AffectedShedIDs,
+		ReopenedPackingCompletionIDs: reopened,
 	}, nil
+}
+
+// packingReopenedReason is the operator-facing sentence stored on a pen reopened by the afternoon
+// correction. Backend owns the copy (the golden frontend rule), and it says the farm thing: animals
+// moved, the quantities changed, pack again and film it again. It names no table, job or window.
+const packingReopenedReason = "Animals moved in or out of this pen, so the feed quantities changed. Pack the new amounts and record a new video."
+
+// reopenPackingForCorrection throws away the packing videos of pens the correction re-counted.
+//
+// MAINTAINER DECISION 2026-08-10. A low-priority movement raised in the morning is due tomorrow, and
+// tomorrow's normal sheet was issued at 07:00 and is already being packed. The afternoon correction
+// now recomputes it including movements nobody has approved yet -- but a pen whose bag was packed
+// and filmed at 09:00 was packed for the old head count, and nothing was telling the packer. The
+// video is reverted and the card comes back with the new numbers.
+//
+// TWO NARROWINGS, both load-bearing:
+//
+//   - EXPERIMENT IS EXEMPT. Experiment rations are authored as absolute kg per pen, so a head-count
+//     change moves no quantity there; reopening one would discard a perfectly good video for a sheet
+//     that did not change.
+//   - HEAD COUNT ONLY, per pen. AffectedShedIDs would also fire for a relabelled ration group or a
+//     re-authored gram rate, and it is shed-wide -- reopening Castro - 1 and Castro - 3 because
+//     Castro - 2 gained animals. Making an operator refilm is expensive, so it is spent only where
+//     the number of mouths actually moved.
+//
+// BOTH OF A PEN'S SESSIONS COME BACK. Head count scales the morning and the evening ration alike, so
+// a pen that gained animals has two videos that now prove the wrong quantity, not one. The pens named
+// here carry no session and the store applies no session predicate; see
+// ports.ReopenPackingForFeedChange.
+//
+// A session nobody has packed yet reopens nothing: the store finds no submitted row and the operator
+// simply sees the corrected numbers on a card that was still pending. A pen with the morning packed
+// and the evening not yet touched therefore reopens exactly one row, which is correct -- there is
+// only one video to take back.
+func (s *Service) reopenPackingForCorrection(
+	ctx context.Context,
+	tenantID, parkID string,
+	prep lifecyclePrep,
+	pens []domain.PenKey,
+) ([]string, error) {
+	if s.packing == nil || len(pens) == 0 || prep.workflow != domain.WorkflowNormal {
+		return nil, nil
+	}
+	result, err := s.packing.ReopenPackingForFeedChange(ctx, ports.ReopenPackingParams{
+		TenantID:   tenantID,
+		ParkID:     parkID,
+		TargetDate: prep.feedDayTime,
+		Workflow:   prep.workflow,
+		Pens:       pens,
+		Reason:     packingReopenedReason,
+		// ActorID is deliberately EMPTY. The correction is a scheduled system transition with no human
+		// behind it, and audit_log.actor_id is a UUID -- putting the generated_by provenance string
+		// ("goatos-api") there is not a shortened actor, it is `invalid input syntax for type uuid`,
+		// which aborts the audit INSERT and therefore the whole reopen transaction. Every pen that
+		// should have gone back to its packer would have stayed marked done instead. The system-ness
+		// is carried by ActorType, which the adapter already stamps as "system".
+	})
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: reopen packing after correction: %w", err)
+	}
+	return result.ReopenedCompletionIDs, nil
 }
 
 // LockDirection LOCKS the feed day's sheet: no further change, later changes roll to the next feed
@@ -182,9 +256,10 @@ func (s *Service) prepareLifecycle(ctx context.Context, req IssueRequest, genera
 // ---------------------------------------------------------------------------
 
 // servePreview serves one page of feed direction rows for a feed day. When an issued/amended/locked
-// sheet exists it returns the FROZEN stored rows (issued always wins). When NOTHING is issued it does
-// NOT show an empty wall: it GENERATES the full scope on demand and returns it as a `preview`
-// lifecycle (maintainer decision 2026-07-20 -- see LifecycleStatePreview).
+// sheet exists it returns the FROZEN stored rows (issued always wins). When nothing is issued the
+// DISPATCH GATE decides: before the workflow's clock the day has no rows at all, and at/after it the
+// first read freezes the sheet and serves it frozen. See lifecycle_gate.go (maintainer decision
+// 2026-08-08, superseding the 2026-07-20 always-generate preview).
 func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
 	if s.issues == nil {
 		return domain.PreviewPage{}, fmt.Errorf("feeddirection: issue store is required to serve issued sheets")
@@ -195,12 +270,47 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		return domain.PreviewPage{}, err
 	}
 	if !served {
-		return s.servePreviewGenerated(ctx, q, feedDay)
+		gate, err := s.gateOrFreeze(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PreviewPage{}, err
+		}
+		if !gate.frozeAny {
+			// Nothing is due yet (or the day is outside the generation horizon): no rows, and a
+			// lifecycle that says when the sheet arrives.
+			return domain.PreviewPage{
+				Items:      []domain.DirectionRow{},
+				Summary:    emptyPreviewSummary(),
+				Lifecycle:  gate.emptyLifecycle,
+				TargetDate: feedDay,
+				Limit:      q.Limit,
+				Offset:     q.Offset,
+			}, nil
+		}
+		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PreviewPage{}, err
+		}
+		if !served {
+			return domain.PreviewPage{}, fmt.Errorf("feeddirection: froze the %s sheet for %s but no stored rows came back", q.Workflow, feedDay)
+		}
+		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
 	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
 	// generated rows.
 	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.SessionNo)
+	// Stamp LifecycleStatus/Completed and apply the status filter over the WHOLE scope BEFORE paging, so
+	// the page and the summary describe the same status set and pagination stays correct.
+	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	// ONE ROW PER OPERATIONAL LOCATION. The stored rows stay at the ration grain -- servePacking reads
+	// the same frozen rows and must keep packing exactly the bag it packs today -- so the fold happens
+	// here, on the direction read, after stamping and before paging. Summarizing the collapsed rows
+	// keeps the summary describing precisely what the sheet shows.
+	scopeRows = domain.CollapseDirectionRowsByLocation(scopeRows)
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -228,17 +338,70 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		return domain.PackingPage{}, err
 	}
 	if !served {
-		return s.servePackingGenerated(ctx, q, feedDay)
+		// Packing has no gate of its own: it freezes with the direction sheet it reads. Normal
+		// packing therefore freezes at 07:00 and experiment at 14:00, from the same clock.
+		gate, err := s.gateOrFreeze(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PackingPage{}, err
+		}
+		if !gate.frozeAny {
+			return domain.PackingPage{
+				Items:      []domain.PackingRow{},
+				Summary:    emptyPackingSummary(),
+				Lifecycle:  gate.emptyLifecycle,
+				TargetDate: feedDay,
+				Limit:      q.Limit,
+				Offset:     q.Offset,
+			}, nil
+		}
+		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PackingPage{}, err
+		}
+		if !served {
+			return domain.PackingPage{}, fmt.Errorf("feeddirection: froze the %s sheet for %s but no stored rows came back", q.Workflow, feedDay)
+		}
+		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
+
+	// Narrow the frozen scope to the requested SESSION before paging and summarizing, so the page and
+	// its summary describe the same set of bags. Zero means every session.
+	//
+	// The shed argument is deliberately empty: the packing worklist has no shed filter, only the
+	// direction preview does.
+	//
+	// This line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain removed the session
+	// from the query entirely) and restoring the query parameter without restoring this filter is a
+	// contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and because the
+	// session is part of the client's cache key those two bags were then cached AS session 1. The
+	// generated/draft paths never showed it, because there the session narrows generation itself --
+	// only this frozen path, the one a packer actually reads, ignored it.
+	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
+
+	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
+	// its summary describe the same status set and pagination stays correct.
+	//
+	// The PACKING stamper, not the direction one: they key identically (shed, pen, session, workflow)
+	// but the packing status map's value carries the rework reason as well as the bucket.
+	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRowsForPacking(scopeRows, statusMap, q.Status)
 
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
 	items := domain.DistinctFeedItems(scopeRows)
 
+	// scopeRows are already status-filtered; stamp the built packing rows for display (no further
+	// filter — statusFilter "").
+	scopePacking := stampAndFilterPackingRows(domain.BuildPackingRows(scopeRows, items), statusMap, "")
+	pagePacking := stampAndFilterPackingRows(domain.BuildPackingRows(pageRows, items), statusMap, "")
+
 	return domain.PackingPage{
-		Items:      domain.BuildPackingRows(pageRows, items),
-		Summary:    domain.SummarizePacking(domain.BuildPackingRows(scopeRows, items), items),
+		Items:      pagePacking,
+		Summary:    domain.SummarizePacking(scopePacking, items),
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,
@@ -318,6 +481,16 @@ func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQue
 		return domain.PreviewPage{}, err
 	}
 
+	// Stamp + status-filter over the whole scope before paging (same contract as the served path).
+	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PreviewPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRows(scopeRows, statusMap, q.Status)
+	// One row per operational location -- see the note on the served-issue path above. This is the
+	// only other direction read, and packing is deliberately not folded.
+	scopeRows = domain.CollapseDirectionRowsByLocation(scopeRows)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
@@ -352,6 +525,7 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		tenantID:   q.TenantID,
 		parkID:     q.ParkID,
 		targetDate: q.TargetDate,
+		sessionNo:  q.SessionNo,
 		limit:      MaxShedPageLimit,
 	})
 	if err != nil {
@@ -366,14 +540,22 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		return domain.PackingPage{}, err
 	}
 
+	// Filter DirectionRows by packing status before the shed paging, then stamp the built rows. The
+	// packing-keyed stamper, for the reason given in servePacking.
+	statusMap, err := s.packingStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
+	if err != nil {
+		return domain.PackingPage{}, err
+	}
+	scopeRows = stampAndFilterDirectionRowsForPacking(scopeRows, statusMap, q.Status)
+
 	shedOrder := shedOrderOf(scopeRows)
 	pageSheds, hasMore := sliceStringPage(shedOrder, q.Limit, q.Offset)
 	pageRows := rowsForShedIDs(scopeRows, pageSheds)
 	items := domain.DistinctFeedItems(scopeRows)
 
 	return domain.PackingPage{
-		Items:      domain.BuildPackingRows(pageRows, items),
-		Summary:    domain.SummarizePacking(domain.BuildPackingRows(scopeRows, items), items),
+		Items:      stampAndFilterPackingRows(domain.BuildPackingRows(pageRows, items), statusMap, ""),
+		Summary:    domain.SummarizePacking(stampAndFilterPackingRows(domain.BuildPackingRows(scopeRows, items), statusMap, ""), items),
 		Lifecycle:  lifecycle,
 		TargetDate: feedDay,
 		Limit:      q.Limit,
@@ -407,10 +589,10 @@ func (s *Service) previewLifecycle(ctx context.Context, tenantID, parkID, feedDa
 //
 // The window is exactly two business days: "today" is being fed (packed yesterday) and "tomorrow" is
 // being packed now. The projected shed count that drives a sheet -- live herd + approved-but-
-// unexecuted shiftings (emergency +1 day, normal +2 days) -- is only meaningful across those two
-// days. Beyond tomorrow the counts depend on shiftings not yet approved; before today the herd is no
-// longer what it was. Generating outside the window would silently freeze today's herd onto the
-// wrong day, which is fabrication.
+// unexecuted shiftings (counted from the day each is authorized; maintainer decision 2026-07-27) --
+// is only meaningful across those two days. Beyond tomorrow the counts depend on shiftings not yet
+// approved; before today the herd is no longer what it was. Generating outside the window would
+// silently freeze today's herd onto the wrong day, which is fabrication.
 //
 // "today"/"tomorrow" come from the injected clock (s.now(), in Asia/Kolkata), NOT SQL now(), so a
 // pinned-clock test is deterministic. Business-date strings compare correctly with ==.
@@ -433,7 +615,10 @@ func (s *Service) beyondHorizonLifecycle(feedDay string) domain.Lifecycle {
 	today, tomorrow := s.feedHorizon()
 	var msg string
 	if feedDay < today {
-		msg = fmt.Sprintf("%s is before today (%s); feed counts are only projected for today and tomorrow (through %s), so a feed sheet for a past day cannot be produced from current counts", feedDay, today, tomorrow)
+		// A deliberately-browsed past day: no sheet was ever issued for it, and a past day cannot be
+		// regenerated from current counts (the herd is no longer what it was). This is an honest
+		// "nothing to show", not an error.
+		msg = fmt.Sprintf("no feed sheet was issued for %s; a past day cannot be regenerated from current counts", feedDay)
 	} else {
 		msg = fmt.Sprintf("counts are only projected through %s; a feed sheet for %s cannot be produced yet", tomorrow, feedDay)
 	}

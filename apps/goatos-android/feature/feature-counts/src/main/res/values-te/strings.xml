@@ -35,9 +35,18 @@
     <string name="counts_mode_death">మరణం</string>
     <string name="counts_submit_birth">జననం నమోదు చేయండి</string>
     <string name="counts_submit_death">మరణం నమోదు చేయండి</string>
+    <string name="counts_record_another_birth">మరో జననం నమోదు చేయండి</string>
+    <string name="counts_record_another_death">మరో మరణం నమోదు చేయండి</string>
     <string name="counts_death_guardrail_note">మరణాన్ని రక్షిత మరణ మార్గం ద్వారా నమోదు చేస్తారు మరియు ఇది జంతువు యొక్క ఓపెన్ టీకా పనిని స్వయంచాలకంగా రద్దు చేస్తుంది.</string>
 
     <!-- Shifting screen -->
+    <string name="counts_shifting_actions_title">తరలింపు</string>
+    <string name="counts_shifting_actions_subtitle">చర్యలు</string>
+    <string name="counts_shifting_previous_actions_open">గత రోజుల తరలింపు చర్యలను చూపండి</string>
+    <string name="counts_shifting_previous_actions_title">గత రోజుల తరలింపు చర్యలు</string>
+    <string name="counts_shifting_previous_actions_count">%1$d తరలింపు చర్యలు</string>
+    <string name="counts_shifting_previous_actions_empty">గత రోజుల తరలింపు చర్యలు లేవు.</string>
+    <string name="counts_shifting_raise">తరలింపును నమోదు చేయండి</string>
     <string name="counts_shifting_title">తరలింపును నమోదు చేయండి</string>
     <string name="counts_shifting_subtitle">ఒక జంతువును మరో షెడ్‌కు తరలించండి</string>
     <string name="counts_submit_shifting">తరలింపును సృష్టించండి</string>
@@ -80,28 +89,49 @@
     <string name="counts_group_current_location">ప్రస్తుత స్థానం</string>
     <string name="counts_group_priority">ప్రాధాన్యత</string>
     <string name="counts_group_category">వర్గం</string>
+    <string name="counts_group_comment">వ్యాఖ్య</string>
+    <string name="counts_field_comment">ఈ జంతువును ఎందుకు తరలిస్తున్నారు?</string>
+    <string name="counts_hint_comment">ఐచ్ఛికం. ఈ తరలింపును ఆమోదించే ఫారం హెడ్ మరియు మీ వీడియోను తనిఖీ చేసే సమీక్షకుడు దీన్ని చదువుతారు.</string>
 
     <!-- Field labels -->
     <string name="counts_field_tag1">జంతువు గుర్తింపుదారు 1</string>
-    <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2</string>
+    <string name="counts_field_tag2">జంతువు గుర్తింపుదారు 2 (ఐచ్ఛికం)</string>
+    <string name="counts_hint_tag2">రెండవ శాశ్వత RFID. నవజాతకు ఒకే ట్యాగ్ ఉంటే ఖాళీగా వదిలేయండి.</string>
+    <string name="counts_field_temp_tag">తాత్కాలిక ట్యాగ్</string>
+    <!-- Bluetooth RFID scan toggle on the permanent-identifier fields -->
+    <string name="counts_rfid_scan_start">బ్లూటూత్ రీడర్‌తో ఈ RFID స్కాన్ చేయండి</string>
+    <string name="counts_rfid_scan_stop">స్కాన్ ఆపండి</string>
+    <string name="counts_rfid_scan_listening">స్కాన్ అవుతోంది… రీడర్‌ను ట్యాగ్ దగ్గర పట్టుకోండి, లేదా ఆపడానికి ట్యాప్ చేయండి</string>
+    <string name="counts_rfid_promote_scan_hint">బ్లూటూత్ రీడర్‌తో శాశ్వత చెవి ట్యాగ్ స్కాన్ చేయండి, లేదా టైప్ చేయండి.</string>
+    <string name="counts_id_kind_permanent">శాశ్వత RFID</string>
+    <string name="counts_id_kind_temporary">తాత్కాలిక ట్యాగ్</string>
     <string name="counts_field_breed">జాతి</string>
+    <string name="counts_field_breed_required">జాతి *</string>
     <string name="counts_field_dob">పుట్టిన తేదీ (YYYY-MM-DD)</string>
-    <string name="counts_field_entry_date">ప్రవేశ తేదీ (YYYY-MM-DD)</string>
+    <string name="counts_field_entry_date">నమోదు తేదీ (YYYY-MM-DD)</string>
     <string name="counts_field_park">పార్క్</string>
     <string name="counts_field_farm">ఫారం</string>
     <string name="counts_field_current_location">ప్రస్తుత స్థానం</string>
     <string name="counts_field_shed">షెడ్</string>
     <string name="counts_field_dam">తల్లి</string>
     <string name="counts_field_dam_optional">తల్లి (ఐచ్ఛికం)</string>
+    <string name="counts_field_mother_rfid">తల్లి RFID</string>
+    <string name="counts_mother_rfid_hint">తల్లి శాశ్వత RFIDని స్కాన్ చేయండి లేదా టైప్ చేయండి.</string>
+    <string name="counts_field_litter_size">ఎన్ని పిల్లలు పుట్టాయి? *</string>
+    <string name="counts_litter_single">1</string>
+    <string name="counts_litter_twins">కవలలు</string>
+    <string name="counts_litter_triplets">ముగ్గురు పిల్లలు</string>
     <string name="counts_field_sex">లింగం</string>
     <string name="counts_field_status">స్థితి</string>
     <string name="counts_field_goat">మేక</string>
-    <string name="counts_field_row_version">రికార్డ్ వెర్షన్</string>
     <string name="counts_field_reason">కారణం</string>
     <string name="counts_field_animal_lookup">RFID ద్వారా వెతకండి</string>
     <string name="counts_select_farm">ఒక ఫారంను ఎంచుకోండి</string>
     <string name="counts_select_farm_first">ముందుగా ఒక ఫారంను ఎంచుకోండి</string>
+    <string name="counts_select_animal_first">ముందుగా ఒక జంతువును ఎంచుకోండి</string>
+    <string name="counts_shifting_farm_locked">జంతువు ప్రస్తుత స్థానం నుండి స్వయంచాలకంగా ఎంచుకోబడింది</string>
     <string name="counts_select_shed">ఒక షెడ్‌ను ఎంచుకోండి</string>
+    <string name="counts_select_breed">ఒక జాతిని ఎంచుకోండి</string>
     <string name="counts_location_unknown">నమోదు చేయలేదు</string>
 
     <!-- Animal picker (shifting) -->
@@ -116,8 +146,7 @@
     <string name="counts_sex_male">మగ</string>
 
     <!-- Hints -->
-    <string name="counts_hint_dob">ప్రవేశ తేదీ తర్వాత ఉండకూడదు.</string>
-    <string name="counts_hint_row_version">జంతువు యొక్క ప్రస్తుత రికార్డ్ వెర్షన్.</string>
+    <string name="counts_hint_dob">భవిష్యత్ తేదీ కావద్దు.</string>
     <string name="counts_hint_reason">3 మరియు 500 అక్షరాల మధ్య.</string>
     <string name="counts_hint_animal_lookup">ఈ తరలింపును ఆమోదిస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే తరలిస్తారు.</string>
     <string name="counts_hint_death_lookup">మరణాన్ని నమోదు చేస్తే మీరు ఇక్కడ ఎంచుకున్న ఖచ్చితమైన జంతువునే నిష్క్రమిస్తుంది.</string>
@@ -137,4 +166,60 @@
     <string name="counts_shifting_from">నుండి</string>
     <string name="counts_shifting_to">కు</string>
     <string name="counts_more_fields">మరిన్ని వివరాలు</string>
+
+    <!-- Birth / Death workflow module -->
+    <string name="counts_workflow_birth_title">జననం</string>
+    <string name="counts_workflow_death_title">మరణం</string>
+    <string name="counts_workflow_colostrum_title">జున్నుపాలు</string>
+    <string name="counts_workflow_open_fmt">%1$d తెరిచి ఉన్నాయి</string>
+    <string name="counts_workflow_add_birth">జననం జోడించండి</string>
+    <string name="counts_workflow_add_death">మరణం జోడించండి</string>
+    <string name="counts_workflow_today">ఈరోజు</string>
+    <string name="counts_workflow_past_note">గత రోజు చూపబడుతోంది. పూర్తయిన పని చదవడానికి మాత్రమే.</string>
+    <string name="counts_workflow_group_overdue">ఆలస్యమైంది</string>
+    <string name="counts_workflow_group_due">ఈరోజు బాకీ</string>
+    <string name="counts_workflow_group_in_review">సమీక్షలో</string>
+    <string name="counts_workflow_group_completed">పూర్తయింది</string>
+    <string name="counts_workflow_submitted">సమర్పించబడింది</string>
+    <string name="counts_birth_pending_header">ఆమోదం పెండింగ్‌లో ఉంది</string>
+    <string name="counts_workflow_chip_all">అన్నీ</string>
+    <string name="counts_workflow_chip_overdue">ఆలస్యం</string>
+    <string name="counts_workflow_previous_overdue_open">గత రోజుల ఆలస్యమైన పనిని చూపండి</string>
+    <string name="counts_workflow_previous_overdue_title">గత రోజుల నుంచి ఆలస్యమైనవి</string>
+    <string name="counts_workflow_previous_overdue_count">%1$d పెండింగ్ పనులు</string>
+    <string name="counts_workflow_previous_overdue_empty">గత రోజుల నుంచి ఆలస్యమైన పని లేదు.</string>
+    <string name="counts_workflow_chip_due">బాకీ</string>
+    <string name="counts_workflow_chip_completed">పూర్తి</string>
+    <string name="counts_workflow_chip_awaiting_video">వీడియో పెండింగ్</string>
+    <string name="counts_workflow_empty">ఈ రోజుకు ఫాలో-అప్ ఏమీ లేదు.</string>
+    <string name="counts_workflow_empty_offline">పని జాబితా లోడ్ కాలేదు. ఆన్\u200cలైన్ అయ్యాక కనిపిస్తుంది.</string>
+    <string name="counts_workflow_detail_title">చర్యలు</string>
+    <string name="counts_workflow_not_found">ఈ రికార్డ్ అందుబాటులో లేదు. వెనక్కి వెళ్లి జాబితాను రిఫ్రెష్ చేయండి.</string>
+    <string name="counts_workflow_progress_fmt">%1$d / %2$d పూర్తయింది</string>
+    <string name="counts_workflow_sect_overdue">ఆలస్యమైంది</string>
+    <string name="counts_workflow_sect_scheduled">షెడ్యూల్ అయింది</string>
+    <string name="counts_workflow_sect_completed">పూర్తయింది</string>
+    <string name="counts_workflow_sect_verification">ధృవీకరణ</string>
+    <string name="counts_workflow_sect_sessions">కొలొస్ట్రమ్ సెషన్లు</string>
+    <string name="counts_workflow_tag_video">వీడియో</string>
+    <string name="counts_workflow_answered_fmt">సమాధానం %1$s</string>
+    <string name="counts_workflow_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="counts_workflow_recording">రికార్డ్ అవుతోంది…</string>
+    <string name="counts_workflow_pick_video">అప్\u200cలోడ్</string>
+    <string name="counts_workflow_mark_done">పూర్తయిందని గుర్తించండి</string>
+    <string name="counts_workflow_submit">సమర్పించండి</string>
+    <string name="counts_add_birth_subtitle">నవజాత శిశువును నమోదు చేయండి</string>
+    <string name="counts_group_born">జననం</string>
+    <string name="counts_add_birth_tag_note">పిల్లకు తాత్కాలిక ట్యాగ్ ఆటోమేటిక్\u200cగా వస్తుంది. శాశ్వత RFIDని తర్వాత \"పిల్లకు ట్యాగ్ వేయండి\" దశ ద్వారా వేయండి.</string>
+    <string name="counts_add_birth_more">＋ వివరాలు జోడించండి (జాతి)</string>
+    <string name="counts_field_time_of_birth">జనన సమయం (HH:MM)</string>
+    <string name="counts_add_birth_dob_hint">జనన తేదీ — ఈరోజు. జననాలు జరిగినప్పుడే నమోదు చేస్తారు.</string>
+    <string name="counts_add_birth_time_hint">ఇప్పటి సమయంతో నింపబడింది — మార్చడానికి ట్యాప్ చేయండి.</string>
+    <string name="counts_add_birth_workflow_note">సమర్పించిన వెంటనే ప్రతి పిల్ల తన జనన పనులతో సృష్టించబడుతుంది. వెబ్ ఆమోదం పిల్లలను మంద లెక్కల్లో మాత్రమే చేరుస్తుంది.</string>
+    <string name="counts_add_death_subtitle">చనిపోయిన జంతువును కనుగొనండి</string>
+    <string name="counts_workflow_recorded">రికార్డ్ అయింది</string>
+    <string name="counts_workflow_rerecord_video">వీడియోను మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="counts_workflow_weight_kg">బరువు (కిలోలు)</string>
+    <string name="counts_workflow_weight_continue">వీడియో రికార్డ్ చేయడానికి కొనసాగండి</string>
+    <string name="counts_shifting_videos_label">రికార్డ్ చేసిన వీడియోలు</string>
 </resources>

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/locations/domain"
@@ -47,7 +48,7 @@ func (s *Service) ResolveSourceLabel(ctx context.Context, input ResolveSourceLab
 	}
 	evidenceJSON, err := sourceLabelEvidenceJSON(sourceContext, sourceLabel, normalized, input.EvidenceJSON)
 	if err != nil {
-		return nil, BadRequest("invalid_evidence", "evidence must be a JSON object")
+		return nil, fmt.Errorf("resolve source label: evidence json processing failed: %w", err)
 	}
 	evidenceHash := strings.TrimSpace(input.EvidenceHash)
 	if evidenceHash == "" {

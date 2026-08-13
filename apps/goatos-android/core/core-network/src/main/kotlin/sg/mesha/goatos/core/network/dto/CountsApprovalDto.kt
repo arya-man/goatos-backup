@@ -37,8 +37,31 @@ data class CountsApprovalListItemDto(
     @SerialName("status") val status: String = "",
     @SerialName("raised_by_user_id") val raisedByUserId: String = "",
     @SerialName("raised_at") val raisedAt: String = "",
+    /**
+     * BACKEND-OWNED DISPLAY COPY. Render verbatim; never compose a label from [raisedByUserId] or
+     * from [summary].
+     *
+     * Both fields were added 2026-08-05 with the mobile Approvals module, to close a copy-firewall
+     * defect: this screen used to render "Raised by 7f3a91c2-4d18-…" and build its own
+     * "12 animal(s) · to shed 0b4e-…" line from the payload, because the phone has no name source
+     * for a user id or a shed id. The backend now resolves those ids and authors both lines, so the
+     * phone and admin-web cannot drift on what the same row says.
+     *
+     * Either may be absent (nothing resolvable). When absent the UI DROPS that line — it must never
+     * fall back to the id.
+     */
+    @SerialName("raised_by_name") val raisedByName: String? = null,
+    @SerialName("summary_line") val summaryLine: String? = null,
     @SerialName("shifting_event_id") val shiftingEventId: String? = null,
     @SerialName("subject_goat_id") val subjectGoatId: String? = null,
+    /**
+     * Present only for a death request whose animal resolves to a real park/shed. Same
+     * BACKEND-OWNED park/shed/partition fact already folded into [summaryLine] (this queue card
+     * renders [summaryLine] verbatim and needs no separate rendering of this field today); declared
+     * so the DTO stays contract-true and a future structured death card can use it directly instead
+     * of parsing [summaryLine].
+     */
+    @SerialName("subject_animal_location") val subjectAnimalLocation: String? = null,
     @SerialName("summary") val summary: JsonElement? = null,
     @SerialName("decided_by_user_id") val decidedByUserId: String? = null,
     @SerialName("decided_at") val decidedAt: String? = null,

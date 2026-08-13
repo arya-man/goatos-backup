@@ -29,12 +29,20 @@ function findingsForFiles(files, readText) {
   return findings;
 }
 
+function existingFiles(files, fileExists) {
+  return files.filter((file) => fileExists(file));
+}
+
 function adminWebSourceFiles() {
   const out = execFileSync("git", ["ls-files", "apps/admin-web"], { cwd: repo, encoding: "utf8" });
-  return out
+  const tracked = out
     .split("\n")
     .map((s) => s.trim())
     .filter((file) => /\.(?:ts|tsx|js|jsx|mjs)$/.test(file));
+  // `git ls-files` keeps index entries for working-tree deletions until commit. Contract migrations
+  // legitimately delete local-copy files, so guards must skip the absent path instead of crashing
+  // before they can inspect the remaining source tree.
+  return existingFiles(tracked, (file) => existsSync(resolve(repo, file)));
 }
 
 function selfTest() {
@@ -53,6 +61,10 @@ function selfTest() {
   );
   if (good.length !== 0) {
     throw new Error(`self-test: expected clean fixtures, got ${JSON.stringify(good)}`);
+  }
+  const present = existingFiles(["kept.tsx", "deleted.tsx"], (file) => file === "kept.tsx");
+  if (present.length !== 1 || present[0] !== "kept.tsx") {
+    throw new Error(`self-test: expected deleted tracked files to be skipped, got ${JSON.stringify(present)}`);
   }
   console.log("admin-web-prefetch guard: self-test passed");
 }

@@ -91,6 +91,13 @@ GoatOS implication:
 - RFID/source-tag evidence can help imports, but target Animal ID 1/2 values
   are globally single-use for life. Do not reintroduce park-scoped tag reuse or
   source-tag review states into accepted GoatOS herd animals.
+- Confirmed birth exception (maintainer 2026-07-28): a newborn is canonical at
+  birth submission but may start under one system-generated park-coded
+  provisional identifier (`CBE-#####` or `CPT-#####`). The later **Tag the kid**
+  action promotes the permanent RFID and retires the provisional identifier;
+  it does not create or replace the goat record. A litter submission creates
+  one canonical record per child immediately, while separate web approval only
+  controls herd-count eligibility.
 
 ## Digestive And Feed-Safety Rules
 

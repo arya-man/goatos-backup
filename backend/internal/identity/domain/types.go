@@ -32,7 +32,12 @@ type Warning struct {
 }
 
 type LocationPath struct {
-	Display    string  `json:"display"`
+	// The `display` alias was RETIRED on 2026-08-06. This type used to ship the same string twice --
+	// a required `display` and an optional `operational_location_display` -- which is how one name
+	// gets updated and the other silently does not. That exact failure had already happened one
+	// endpoint over: the shifting destinations handler emitted `display` while the contract and the
+	// Android DTO expected `operational_location_display`, so clients deserialized "" with no error.
+	// OperationalLocationDisplay below is now the single name on every surface.
 	FarmID     *string `json:"farm_id"`
 	FarmCode   *string `json:"farm_code,omitempty"`
 	FarmName   *string `json:"farm_name,omitempty"`
@@ -45,6 +50,19 @@ type LocationPath struct {
 	CohortID   *string `json:"cohort_id"`
 	CohortCode *string `json:"cohort_code,omitempty"`
 	CohortName *string `json:"cohort_name,omitempty"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3") for ShedID, nil when the
+	// shed is not partitioned or the animal has no shed. Never the "whole" sentinel.
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	// SourceShedName is the original partition-bearing name the row was normalized from
+	// ("Castro 1"), kept for traceability only -- it is not a display field.
+	SourceShedName *string `json:"source_shed_name,omitempty"`
+	// OperationalLocationDisplay is the operational location for this animal: bare shed/park name
+	// when it is not partitioned, "<shed> - <partition>" when it is. Composed via
+	// oploc.OperationalLocation.Display() so it can never render the "whole" sentinel.
+	//
+	// Required, not omitempty: this replaced the former required `display` field, and a location
+	// label that can vanish from the payload is how a screen silently renders blank.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 type EvidenceRef struct {
@@ -127,6 +145,28 @@ type GoatSearchResult struct {
 	TraceID    string        `json:"trace_id"`
 }
 
+// TemporaryTaggedGoat is one row of the operator "Awaiting RFID" list: a goat that still carries an
+// active temporary tag and is waiting to be promoted to a permanent RFID. It is a deliberately
+// narrow projection (not a full GoatSummary): the promote screen needs only enough to identify the
+// animal, show the temp tag being replaced, and send an optimistic-concurrency-safe promote.
+type TemporaryTaggedGoat struct {
+	GoatID string `json:"goat_id"`
+	// DisplayID doubles as the keyset cursor: the list is ordered by display_id.
+	DisplayID string `json:"display_id"`
+	// TemporaryIdentifier is the active temporary tag value being retired on promotion.
+	TemporaryIdentifier string `json:"temporary_identifier"`
+	// LocationDisplay is the animal's own shed (then park) name, matching the search read's shape.
+	LocationDisplay string `json:"location_display"`
+	// RowVersion is echoed back verbatim in the promote call so a stale in-hand row is rejected.
+	RowVersion int32 `json:"row_version"`
+}
+
+type TemporaryTaggedGoatsResult struct {
+	Items      []TemporaryTaggedGoat `json:"items"`
+	NextCursor *string               `json:"next_cursor"`
+	TraceID    string                `json:"trace_id"`
+}
+
 type ResolveIdentifierResult struct {
 	ResolutionState string        `json:"resolution_state"`
 	GoatSummary     *GoatSummary  `json:"goat_summary"`
@@ -165,27 +205,44 @@ type IdempotencyMeta struct {
 type AdminGoatCreateRequest struct {
 	AnimalIdentifier1 *string `json:"animal_identifier_1,omitempty"`
 	AnimalIdentifier2 *string `json:"animal_identifier_2,omitempty"`
-	Species           string  `json:"species"`
-	FarmID            *string `json:"farm_id,omitempty"`
-	FarmCode          *string `json:"farm_code,omitempty"`
-	ParkID            *string `json:"park_id,omitempty"`
-	ParkCode          *string `json:"park_code,omitempty"`
-	ShedID            *string `json:"shed_id,omitempty"`
-	ShedCode          *string `json:"shed_code,omitempty"`
-	Breed             *string `json:"breed,omitempty"`
-	Sex               string  `json:"sex"`
-	DOB               *string `json:"dob,omitempty"`
-	DOBEstimated      *bool   `json:"dob_estimated,omitempty"`
-	OriginType        string  `json:"origin_type"`
-	EntryDate         string  `json:"entry_date"`
-	ManagementStage   *string `json:"management_stage,omitempty"`
-	HealthStatus      *string `json:"health_status,omitempty"`
+	// TemporaryIdentifier is a provisional tag for a newborn created before its permanent RFID is
+	// available. Exactly one of animal_identifier_1 or temporary_identifier must be present; a
+	// temp-only goat carries no active animal_identifier_1 and is promoted later.
+	TemporaryIdentifier *string `json:"temporary_identifier,omitempty"`
+	Species             string  `json:"species"`
+	// TimeOfBirth is the operator-recorded birth time (HH:MM, 24h, IST wall clock). Optional; stored
+	// as goats.time_of_birth and carried on the goat.created payload so the birth follow-up workflow
+	// opener can anchor EVENT+offset steps. Absent = unknown (readers fall back to 07:00 IST).
+	TimeOfBirth *string `json:"time_of_birth,omitempty"`
+	FarmID      *string `json:"farm_id,omitempty"`
+	FarmCode    *string `json:"farm_code,omitempty"`
+	ParkID      *string `json:"park_id,omitempty"`
+	ParkCode    *string `json:"park_code,omitempty"`
+	ShedID      *string `json:"shed_id,omitempty"`
+	ShedCode    *string `json:"shed_code,omitempty"`
+	// PartitionLabel is the pen within ShedID this animal is placed into ('1', 'Part 3'). Admin
+	// single-create and bulk import require it when the resolved shed has active catalog partitions;
+	// a genuinely non-partitioned shed leaves it nil. The repository resolves aliases such as "3"
+	// to the catalog's HUMAN label (for example "Part 3") and persists it in the SAME transaction as
+	// the goat insert.
+	PartitionLabel  *string `json:"partition_label,omitempty"`
+	Breed           *string `json:"breed,omitempty"`
+	Sex             string  `json:"sex"`
+	DOB             *string `json:"dob,omitempty"`
+	DOBEstimated    *bool   `json:"dob_estimated,omitempty"`
+	OriginType      string  `json:"origin_type"`
+	EntryDate       string  `json:"entry_date"`
+	ManagementStage *string `json:"management_stage,omitempty"`
+	HealthStatus    *string `json:"health_status,omitempty"`
 	// ReproductiveStatus is optional. When present on a row whose identifiers
 	// match an existing goat, the bulk import applies it via the event-emitting
 	// ReproductiveGoat transition instead of treating the row as a create conflict.
-	ReproductiveStatus *string       `json:"reproductive_status,omitempty"`
-	WeightKg           *float64      `json:"weight_kg,omitempty"`
-	DamID              *string       `json:"dam_id,omitempty"`
+	ReproductiveStatus *string  `json:"reproductive_status,omitempty"`
+	WeightKg           *float64 `json:"weight_kg,omitempty"`
+	DamID              *string  `json:"dam_id,omitempty"`
+	// LitterSize is the number born in this delivery (1, 2, or 3). Each kid is still created as
+	// its own goat; the same delivery size is recorded on every sibling's birth row.
+	LitterSize         *int          `json:"litter_size,omitempty"`
 	SireOrLot          *string       `json:"sire_or_lot,omitempty"`
 	PhotoURL           *string       `json:"photo_url,omitempty"`
 	SourceRecordID     *string       `json:"source_record_id,omitempty"`
@@ -211,12 +268,17 @@ type AdminGoatBulkCommitRow struct {
 }
 
 type MoveGoatRequest struct {
-	ParkID       string        `json:"park_id"`
-	ShedID       string        `json:"shed_id"`
-	Reason       string        `json:"reason"`
-	OccurredAt   *time.Time    `json:"occurred_at,omitempty"`
-	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
-	RowVersion   int           `json:"row_version"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel is the destination PEN. Optional: nil moves the animal to the shed with no
+	// pen recorded, which is the pre-2026-08-06 behaviour. Without it this route could only ever
+	// target a whole shed, so Castro 1 -> Castro 2 was unexpressible here even though the app-api
+	// shifting route could already express it.
+	PartitionLabel *string       `json:"partition_label,omitempty"`
+	Reason         string        `json:"reason"`
+	OccurredAt     *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs   []EvidenceRef `json:"evidence_refs"`
+	RowVersion     int           `json:"row_version"`
 }
 
 type ExitGoatRequest struct {

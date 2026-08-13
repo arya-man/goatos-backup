@@ -17,6 +17,11 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
+	feeddirectionpg "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/postgres"
+	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
@@ -36,6 +41,9 @@ import (
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -151,6 +159,22 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 		calendarRepo := calendarpg.NewRepository(pool, pgCfg.QueryTimeout)
 		calendarService := calendarapp.NewService(calendarRepo)
+		// Counts approval + feed-direction repos for the shifting/feed verification appliers below. The
+		// shifting apply relocates animals and writes identity audit in one txn, so it needs the identity
+		// tx writer (approval_repository.go WithIdentityTxWriter), same as bootstrap/api.go.
+		identityRepo := identitypg.NewRepository(pool, pgCfg.QueryTimeout)
+		countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
+		countsMilkPreparationRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout)
+		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
+		healthRepo := healthpg.NewRepository(pool, pgCfg.QueryTimeout)
+		weighingRepo := weighingpg.NewRepository(pool, pgCfg.QueryTimeout)
+		// Weighing's apply-receipt seam. The relay is where the weighing verdict applier ACTUALLY
+		// runs (the API's in-process bus does not receive verdict events at all), so this is the
+		// process that must tell verification the verdict landed -- without it every applied
+		// weighing verdict would stay stuck reading as "decided, not yet in effect".
+		weighingVerificationBridge := weighingverificationbridge.New(
+			verificationpg.NewRepository(pool, pgCfg.QueryTimeout),
+		)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -159,8 +183,26 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
-		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+		vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
+		// locationNames enriches rework/approval push copy with the park/shed's human name (see
+		// kernelstages/bus.go C-defect-B): WithVaccineLabels alone was chained here but NOT
+		// WithLocationNames, so every push this relay's eventbus dispatcher produced degraded to
+		// the generic, unactionable "The proof is ready for operational closure" copy with no
+		// park/shed named.
+		locationNames := notificationbridge.NewLocationNameResolver(pool)
+		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
+		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
+		notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
+		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
+		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
+		// without these a verifier approval never applies locally either.
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, logger)
+		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
+		// so without these an approved birth/death opens no follow-up work locally.
+		eventwiring.RegisterWorkflowConsumers(bus,
+			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
+		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

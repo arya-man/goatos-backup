@@ -10,14 +10,24 @@ import (
 )
 
 var (
-	ErrNotFound                       = errors.New("identity record not found")
-	ErrIdempotencyConflict            = errors.New("idempotency key reused with different request")
-	ErrIdempotencyPending             = errors.New("idempotency key is not completed")
-	ErrWriteConflict                  = errors.New("identity write conflict")
-	ErrInvalidReference               = errors.New("identity referenced record is invalid")
-	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
-	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
-	ErrInvalidChronology              = errors.New("identity dob must be on or before entry_date")
+	ErrNotFound              = errors.New("identity record not found")
+	ErrIdempotencyConflict   = errors.New("idempotency key reused with different request")
+	ErrIdempotencyPending    = errors.New("idempotency key is not completed")
+	ErrWriteConflict         = errors.New("identity write conflict")
+	ErrNoTemporaryIdentifier = errors.New("identity goat has no active temporary identifier to promote")
+	ErrInvalidReference      = errors.New("identity referenced record is invalid")
+	ErrInvalidCursor         = errors.New("invalid pagination cursor")
+	ErrGuardrailRequired     = errors.New("identity critical transition requires guardrail")
+	ErrInvalidChronology     = errors.New("identity dob must be on or before entry_date")
+	// ErrPartitionRequired: Admin animal creation targeted a shed that has active catalog
+	// partitions without naming one. A parent shed is not an animal's ground location once that
+	// shed is subdivided, so the write must fail instead of silently placing the animal at shed
+	// grain.
+	ErrPartitionRequired = errors.New("identity partition_label is required for a partitioned shed")
+	// ErrPartitionNotInShed: a create/placement named a partition_label that does not exist in
+	// shed_partitions for that shed. Rejected rather than stored, so a typo can never put an
+	// animal in a pen that is not real; a shed-level placement omits the field instead.
+	ErrPartitionNotInShed             = errors.New("identity partition_label is not a real partition of this shed")
 	ErrFutureAnchor                   = errors.New("identity dob/entry_date cannot be in the future")
 	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
 	// ErrCrossParkMove: goats never move between parks (maintainer decision 2026-07-19).
@@ -56,6 +66,16 @@ var (
 	// configured has no authority to assign a cohort and the move FAILS CLOSED. This is exactly the
 	// empty/spare-shed case: configure the shed's profile first, then move animals into it.
 	ErrDestinationProfileMissing = errors.New("identity relocate: destination shed has no active configured operational profile")
+	// ErrShedProfileStageRequired: a goat is being CREATED into a shed with no supplied
+	// management_stage, but the shed has no ACTIVE configured operational profile stage to inherit
+	// (an active shed_profiles row joined through animal_stage_lookup). "One shed, one tag": a
+	// created animal adopts its shed's CONFIGURED stage — the same authority a shifting move uses
+	// (resolveDestinationTag) — so the shed stays homogeneous from birth/intake onward and
+	// stage-scoped work (feed ration resolution, vaccination eligibility) can classify the animal.
+	// A blank stage previously persisted as NULL and blocked the whole shed's feed packing
+	// (unknown_shed_tag). Fail closed rather than create a stage-less alive animal: configure the
+	// shed's profile first, then create animals into it (or supply an explicit stage).
+	ErrShedProfileStageRequired = errors.New("identity create goat: shed has no active configured profile stage to assign and no management_stage was supplied")
 )
 
 type SearchGoatsParams struct {
@@ -72,6 +92,17 @@ type SearchGoatsParams struct {
 	ParkID         *string
 	LocationID     *string
 	Status         *string
+}
+
+type ListTemporaryTaggedGoatsParams struct {
+	TenantID string
+	Limit    int
+	Cursor   *string
+	// ParkID / ShedID optionally narrow the list to one location (the operator's "Awaiting RFID"
+	// park -> shed filter). Empty means no filter on that dimension. A shed belongs to exactly one
+	// park, so ShedID alone is sufficient, but both may be sent by the park -> shed cascade.
+	ParkID string
+	ShedID string
 }
 
 type ResolveIdentifierParams struct {
@@ -125,6 +156,32 @@ type RetireGoatIdentifierCommand struct {
 	RowVersion           int
 }
 
+// PromoteTemporaryIdentifierCommand atomically retires a goat's active temporary_tag and attaches
+// the supplied permanent animal_identifier_1 as its primary identity, in ONE transaction. The temp
+// identifier is found server-side (the operator supplies only the goat and the permanent RFID).
+type PromoteTemporaryIdentifierCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	// PermanentValue is the RFID to attach as animal_identifier_1 (primary). NormalizedValue is its
+	// normalized form for the uniqueness check.
+	PermanentValue  string
+	NormalizedValue string
+	// SecondaryValue is an OPTIONAL second RFID attached as animal_identifier_2 (non-primary), exactly
+	// like the birth flow's optional animal_identifier_2. Empty means only the primary is attached.
+	// SecondaryNormalized is its normalized form.
+	SecondaryValue      string
+	SecondaryNormalized string
+	EvidenceRefs        []domain.EvidenceRef
+	RowVersion          int
+	Reason              string
+}
+
 type MoveGoatCommand struct {
 	TenantID             string
 	ActorID              string
@@ -136,11 +193,13 @@ type MoveGoatCommand struct {
 	GoatID               string
 	ToParkID             string
 	ToShedID             string
-	Reason               string
-	OccurredAt           time.Time
-	EvidenceRefs         []domain.EvidenceRef
-	RowVersion           int
-	GuardrailApproved    bool
+	// ToPartitionLabel is the destination pen, or nil for a shed-level move.
+	ToPartitionLabel  *string
+	Reason            string
+	OccurredAt        time.Time
+	EvidenceRefs      []domain.EvidenceRef
+	RowVersion        int
+	GuardrailApproved bool
 }
 
 type ExitGoatCommand struct {
@@ -258,7 +317,17 @@ type ValidateAdminGoatCreateCommand struct {
 	ParkCode             *string
 	ShedID               *string
 	ShedCode             *string
-	ManagementStage      *string
+	PartitionLabel       *string
+	// RequirePartitionGrain is enabled by the Admin single-create and bulk-import routes. The same
+	// identity constructor is also used by the Counts birth approval path, whose partition contract
+	// is owned separately; keeping this flag explicit prevents an Admin-only repair from changing
+	// that workflow accidentally.
+	RequirePartitionGrain bool
+	ManagementStage       *string
+	// BirthDamRef is the operator-scanned mother RFID at submit time, or the already-resolved
+	// canonical mother UUID when a pending approval is applied.
+	BirthDamRef *string
+	Species     string
 }
 
 type AdminGoatCreateValidation struct {
@@ -266,6 +335,8 @@ type AdminGoatCreateValidation struct {
 	FarmID           *string
 	ParkID           string
 	ShedID           string
+	PartitionLabel   *string
+	DamGoatID        *string
 	Conflicts        []domain.FieldError
 	Warnings         []domain.Warning
 }
@@ -283,21 +354,42 @@ type CreateAdminGoatCommand struct {
 	FarmID               *string
 	ParkID               string
 	ShedID               string
-	Species              string
-	Breed                *string
-	Sex                  string
-	DOB                  *time.Time
-	DOBEstimated         bool
-	OriginType           string
-	EntryDate            time.Time
-	ManagementStage      *string
-	HealthStatus         *string
-	WeightKg             *float64
-	DamID                *string
-	SireOrLot            *string
-	PhotoURL             *string
-	SourceRecordID       *string
-	EvidenceRefs         []domain.EvidenceRef
+	// PartitionLabel is the canonical HUMAN catalog label for the pen within ShedID. Admin writes
+	// set RequirePartitionGrain, making this mandatory whenever the shed has active partitions and
+	// nil only for a genuinely non-partitioned shed. Other internal callers retain their existing
+	// explicit contract until their owning module supplies the flag.
+	PartitionLabel *string
+	// RequirePartitionGrain rechecks the Admin placement rule inside the write transaction after
+	// read-only validation, so a catalog change cannot turn a valid preview into a bare-shed write.
+	RequirePartitionGrain bool
+	Species               string
+	Breed                 *string
+	Sex                   string
+	DOB                   *time.Time
+	DOBEstimated          bool
+	OriginType            string
+	EntryDate             time.Time
+	ManagementStage       *string
+	HealthStatus          *string
+	WeightKg              *float64
+	// DamID is canonical after ValidateAdminGoatCreate; it is never a copied RFID in a persisted
+	// birth relationship or emitted goat.created payload.
+	DamID      *string
+	LitterSize *int
+	// BirthEventID and BirthChildOrdinal are supplied by the Counts birth-litter submit path.
+	// Every sibling shares BirthEventID and gets a stable 1-based ordinal. BirthCountStatus is
+	// pending until the separate web approval activates the children in herd-count projections.
+	// Direct admin birth creates leave these blank and are treated as a one-child approved event.
+	BirthEventID      string
+	BirthChildOrdinal int
+	BirthCountStatus  string
+	// TimeOfBirth is the optional HH:MM (24h, IST) birth time stored as goats.time_of_birth and
+	// carried on the goat.created payload for the birth workflow opener.
+	TimeOfBirth    *string
+	SireOrLot      *string
+	PhotoURL       *string
+	SourceRecordID *string
+	EvidenceRefs   []domain.EvidenceRef
 }
 
 // ResolveReproductiveMatchCommand asks whether a bulk-import row's identifiers
@@ -334,16 +426,20 @@ type Repository interface {
 	GetGoatByID(ctx context.Context, tenantID, goatID string) (*domain.GoatPassport, error)
 	GetGoatByDisplayID(ctx context.Context, tenantID, displayID string) (*domain.GoatPassport, error)
 	SearchGoats(ctx context.Context, params SearchGoatsParams) ([]domain.GoatSummary, *string, error)
+	ListTemporaryTaggedGoats(ctx context.Context, params ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error)
 	FindIdentifierMatches(ctx context.Context, params ResolveIdentifierParams) ([]domain.IdentifierMatch, error)
 	FindOpenConflictForIdentifier(ctx context.Context, tenantID, identifierType, normalizedValue, scopeKey string) (*string, error)
 	GetGoatTimeline(ctx context.Context, params GetGoatTimelineParams) ([]domain.GoatTimelineEvent, *string, error)
 	AddGoatIdentifier(ctx context.Context, cmd AddGoatIdentifierCommand) (*AdminGoatMutationResult, error)
 	RetireGoatIdentifier(ctx context.Context, cmd RetireGoatIdentifierCommand) (*AdminGoatMutationResult, error)
+	PromoteTemporaryIdentifier(ctx context.Context, cmd PromoteTemporaryIdentifierCommand) (*AdminGoatMutationResult, error)
 	MoveGoat(ctx context.Context, cmd MoveGoatCommand) (*AdminGoatMutationResult, error)
 	ExitGoat(ctx context.Context, cmd ExitGoatCommand) (*AdminGoatMutationResult, error)
 	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)
 	HealthGoat(ctx context.Context, cmd HealthGoatCommand) (*AdminGoatMutationResult, error)
 	ReproductiveGoat(ctx context.Context, cmd ReproductiveGoatCommand) (*AdminGoatMutationResult, error)
 	IdentityGoat(ctx context.Context, cmd IdentityGoatCommand) (*AdminGoatMutationResult, error)
+	PreviewReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStagePreview, error)
+	ReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStageResult, error)
 	Ping(ctx context.Context) error
 }

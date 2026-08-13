@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
+<!--
   Submit (v-submit) chrome strings. The sheet renders backend-provided data only
   (eyebrow, title, shed name, animal stage, date, sync status). Only the static UI
   chrome labels and buttons are extracted here for localization.
@@ -48,4 +51,14 @@
     <string name="submit_sync_load_failed">Couldn\'t load your task. Tap retry.</string>
     <string name="submit_sync_queue_failed">Couldn\'t queue the submission — tap retry.</string>
     <string name="submit_sync_retry_failed">Couldn\'t retry — tap retry again.</string>
+
+    <!-- Snackbar messages for submit outcomes -->
+    <string name="submit_snackbar_queued">Submission queued — will sync when online</string>
+    <string name="submit_snackbar_succeeded">Submission synced · record on file</string>
+    <string name="submit_snackbar_conflict">Server rejected the submission</string>
+    <string name="submit_snackbar_dead_letter">Submission failed — will retry when online</string>
+    <string name="submit_confirm_title">Finalise this shed?</string>
+    <string name="submit_confirm_body">This shed goes for video check. You cannot reopen it yourself — a manager or director can.</string>
+    <string name="submit_confirm_cancel">Not yet</string>
+    <string name="submit_confirm_confirm">Finalise</string>
 </resources>

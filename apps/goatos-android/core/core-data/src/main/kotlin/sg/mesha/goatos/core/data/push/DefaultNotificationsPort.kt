@@ -39,16 +39,33 @@ class DefaultNotificationsPort(
     private val appScope: CoroutineScope,
     private val appVersion: String,
     private val osVersion: String,
+    /**
+     * Whether this phone will actually SHOW what we send it — the OS notification switch, read at
+     * report time (`NotificationManagerCompat.areNotificationsEnabled()`, supplied by :app so this
+     * module stays free of Android UI framework types). Reported alongside the token so the
+     * backend can mark a push-muted device and stop counting a dropped push as delivered: FCM
+     * accepts a send to a muted phone and reports success while the OS throws it away.
+     *
+     * Defaults to "not reported" (`null`) rather than `true` — asserting reachability we have not
+     * observed is exactly the failure this closes.
+     */
+    private val notificationsEnabled: () -> Boolean? = { null },
 ) : NotificationsPort {
 
     override fun registerToken(token: String) {
         if (token.isBlank()) return
         appScope.launch {
-            for (attempt in 1..MAX_REGISTER_ATTEMPTS) {
-                val result = runCatching { registerTokenOnce(token) }
+            var registerAttempts = 0
+            val totalAttempts = DEVICE_ID_WAIT_ATTEMPTS + MAX_REGISTER_ATTEMPTS
+            for (attempt in 1..totalAttempts) {
+                val allowRegisterWithoutDeviceId = attempt > DEVICE_ID_WAIT_ATTEMPTS
+                if (allowRegisterWithoutDeviceId) registerAttempts += 1
+                val result = runCatching {
+                    registerTokenOnce(token, allowRegisterWithoutDeviceId)
+                }
                 if (result.isSuccess) return@launch
                 val error = result.exceptionOrNull()
-                if (attempt == MAX_REGISTER_ATTEMPTS) {
+                if (allowRegisterWithoutDeviceId && registerAttempts == MAX_REGISTER_ATTEMPTS) {
                     Log.w(TAG, "Push token registration failed after bounded retries.", error)
                     return@launch
                 }
@@ -58,7 +75,7 @@ class DefaultNotificationsPort(
         }
     }
 
-    private suspend fun registerTokenOnce(token: String) {
+    private suspend fun registerTokenOnce(token: String, allowRegisterWithoutDeviceId: Boolean) {
         val deviceId = deviceStore.deviceId()?.takeIf { it.isNotBlank() }
         if (deviceId != null) {
             api.heartbeatDevice(
@@ -68,25 +85,38 @@ class DefaultNotificationsPort(
                     osVersion = osVersion,
                     pushTokenHash = null,
                     fcmToken = token,
+                    notificationsEnabled = notificationsEnabled(),
                 ),
             )
         } else {
-            val response = api.registerDevice(
-                RegisterDeviceRequestDto(
-                    appInstallId = deviceStore.appInstallId(),
-                    appVersion = appVersion,
-                    osVersion = osVersion,
-                    pushTokenHash = null,
-                    fcmToken = token,
-                ),
-            )
-            deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })
+            if (allowRegisterWithoutDeviceId) {
+                registerTokenWithoutDeviceId(token)
+                return
+            }
+            throw DeviceRegistrationDeferred()
         }
     }
 
+    private suspend fun registerTokenWithoutDeviceId(token: String) {
+        val response = api.registerDevice(
+            RegisterDeviceRequestDto(
+                appInstallId = deviceStore.appInstallId(),
+                appVersion = appVersion,
+                osVersion = osVersion,
+                pushTokenHash = null,
+                fcmToken = token,
+                notificationsEnabled = notificationsEnabled(),
+            ),
+        )
+        deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })
+    }
+
+    private class DeviceRegistrationDeferred : Exception("Device registration is waiting for bootstrap.")
+
     private companion object {
         const val TAG = "NotificationsPort"
+        const val DEVICE_ID_WAIT_ATTEMPTS = 2
         const val MAX_REGISTER_ATTEMPTS = 3
-        val REGISTER_RETRY_DELAYS_MS = longArrayOf(5_000L, 20_000L)
+        val REGISTER_RETRY_DELAYS_MS = longArrayOf(5_000L, 20_000L, 5_000L, 20_000L)
     }
 }

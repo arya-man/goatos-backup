@@ -23,15 +23,24 @@ type fakeService struct {
 	scheduleInput feedconfigapp.UpsertScheduleConfigInput
 	factorInput   feedconfigapp.UpsertShedFactorInput
 
+	feedItemInput feedconfigapp.CreateFeedItemInput
+
+	lastExperimentBatch feedconfigapp.UpsertExperimentConfigBatchInput
+
 	experimentInput       feedconfigapp.UpsertExperimentConfigInput
 	experimentStatusInput feedconfigapp.SetExperimentShedStatusInput
+	feedItemStatusInput   feedconfigapp.SetFeedItemStatusInput
+
+	rationRateFilter feedconfigapp.RationRateFilter
+	experimentFilter feedconfigapp.ExperimentConfigFilter
 
 	result domain.WriteResult
 	err    error
 	calls  int
 }
 
-func (f *fakeService) ListRationRates(context.Context, string, string, string, string, string, *int32, *int32) (domain.RationRatePage, error) {
+func (f *fakeService) ListRationRates(_ context.Context, _ string, filter feedconfigapp.RationRateFilter) (domain.RationRatePage, error) {
+	f.rationRateFilter = filter
 	return domain.RationRatePage{}, f.err
 }
 func (f *fakeService) ListRationGroups(context.Context, string, *int32, *int32) (domain.RationGroupPage, error) {
@@ -53,13 +62,28 @@ func (f *fakeService) ListShedFactors(context.Context, string, string, string, s
 	return domain.ShedFactorPage{}, f.err
 }
 
-func (f *fakeService) ListExperimentConfig(context.Context, string, string, string, string, *int32, *int32) (domain.ExperimentConfigPage, error) {
+func (f *fakeService) ListExperimentConfig(_ context.Context, _ string, filter feedconfigapp.ExperimentConfigFilter) (domain.ExperimentConfigPage, error) {
+	f.experimentFilter = filter
 	return domain.ExperimentConfigPage{}, f.err
+}
+
+func (f *fakeService) ListPens(context.Context, string, string, *int32, *int32) (domain.PenPage, error) {
+	return domain.PenPage{}, f.err
+}
+
+func (f *fakeService) UpsertExperimentConfigBatch(_ context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error) {
+	f.lastExperimentBatch = in
+	return domain.WriteResult{}, f.err
 }
 
 func (f *fakeService) UpsertExperimentConfig(_ context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error) {
 	f.calls++
 	f.experimentInput = in
+	return f.result, f.err
+}
+
+func (f *fakeService) SetFeedItemStatus(_ context.Context, in feedconfigapp.SetFeedItemStatusInput) (domain.WriteResult, error) {
+	f.feedItemStatusInput = in
 	return f.result, f.err
 }
 
@@ -72,6 +96,12 @@ func (f *fakeService) SetExperimentShedStatus(_ context.Context, in feedconfigap
 func (f *fakeService) UpsertRationRate(_ context.Context, in feedconfigapp.UpsertRationRateInput) (domain.WriteResult, error) {
 	f.calls++
 	f.rateInput = in
+	return f.result, f.err
+}
+
+func (f *fakeService) CreateFeedItem(_ context.Context, in feedconfigapp.CreateFeedItemInput) (domain.WriteResult, error) {
+	f.calls++
+	f.feedItemInput = in
 	return f.result, f.err
 }
 
@@ -112,6 +142,70 @@ func serve(t *testing.T, svc Service, req *http.Request) *httptest.ResponseRecor
 	return rec
 }
 
+// TestRationGridFiltersReachTheServiceIntact covers what only this layer can drop: the grid's
+// filters arrive as a query string, and one of them REPEATS.
+//
+// feed_item is read with q["feed_item"] rather than q.Get("feed_item"). Get returns only the FIRST
+// value, so the obvious version of this handler compiles, passes a single-item test, and silently
+// discards every item after the first -- an operator who ticked four items would be shown one
+// item's rows and no sign that the other three were dropped.
+func TestRationGridFiltersReachTheServiceIntact(t *testing.T) {
+	svc := &fakeService{}
+	target := "/feed-config/ration-rates?park_id=p&breed=Sirohi&ration_group=Beetal%2FSirohi&shed_tag=Pregnant" +
+		"&feed_item=Hybrid&feed_item=COFS&feed_item=Dry+Maize&grams_op=gt&grams_value=0"
+	rec := serve(t, svc, newRequest(t, http.MethodGet, target, "", ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	got := svc.rationRateFilter
+	if got.ParkID != "p" {
+		t.Errorf("park = %q, want %q", got.ParkID, "p")
+	}
+	// Breed and ration group are separate filters and must stay separate on the wire.
+	if got.Breed != "Sirohi" {
+		t.Errorf("breed = %q, want %q", got.Breed, "Sirohi")
+	}
+	if got.RationGroup != "Beetal/Sirohi" {
+		t.Errorf("ration group = %q, want %q", got.RationGroup, "Beetal/Sirohi")
+	}
+	if got.ShedTag != "Pregnant" {
+		t.Errorf("shed tag = %q, want %q", got.ShedTag, "Pregnant")
+	}
+	want := []string{"Hybrid", "COFS", "Dry Maize"}
+	if len(got.FeedItems) != len(want) {
+		t.Fatalf("feed items = %#v, want all %#v — a repeated query parameter was truncated", got.FeedItems, want)
+	}
+	for i := range want {
+		if got.FeedItems[i] != want[i] {
+			t.Fatalf("feed items = %#v, want %#v", got.FeedItems, want)
+		}
+	}
+	if got.GramsOp != "gt" || got.GramsValue != "0" {
+		t.Errorf("grams comparison = %q %q, want gt 0", got.GramsOp, got.GramsValue)
+	}
+}
+
+// TestInvalidGridFilterIs400NotAnEmptyPage pins the status a malformed filter gets.
+//
+// 200 with zero rows would render as "no rates are configured for this scope", and on the ration
+// grid that sentence means the sheds resolving to it are BLOCKED and will not be fed. A mistake in
+// the caller's query string must never be reported as a fact about the farm.
+//
+// The service is what decides a filter is malformed (see app.TestGramsComparisonIsValidatedAsAPair
+// for the rules); this asserts the half only the HTTP layer owns -- that its verdict leaves as a
+// 400 with a code the client can branch on, rather than a 500 or a bare empty page.
+func TestInvalidGridFilterIs400NotAnEmptyPage(t *testing.T) {
+	svc := &fakeService{err: feedconfigapp.ErrInvalidFilter}
+	rec := serve(t, svc, newRequest(t, http.MethodGet, "/feed-config/ration-rates?park_id=p&grams_op=approximately&grams_value=0", "", ""))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_filter") {
+		t.Fatalf("body = %s, want the invalid_filter code", rec.Body.String())
+	}
+}
+
 // TestWriteRequiresIdempotencyKey proves an authored edit cannot be made without a client key. These
 // routes are hit by browsers, so an unkeyed retry would author a second edit.
 func TestWriteRequiresIdempotencyKey(t *testing.T) {
@@ -123,6 +217,10 @@ func TestWriteRequiresIdempotencyKey(t *testing.T) {
 		{name: "ration rate", target: "/feed-config/ration-rates", body: `{"park_id":"p","ration_group":"Boer","shed_tag":"Pregnant","feed_item":"Concentrate","grams_per_head":250}`},
 		{name: "shed factor", target: "/feed-config/shed-factors", body: `{"park_id":"p","shed_id":"s","feed_item":"Concentrate","multiplier":1.5}`},
 		{name: "schedule", target: "/feed-config/schedule", body: `{"park_id":"p","workflow":"normal","direction_time":"07:00","correction_time":"14:00"}`},
+		// The catalog add is keyed like every other write even though it authors no quantity: an
+		// unkeyed browser retry would otherwise turn one add into two attempts, and the second one
+		// answers "already exists" for a name the operator only submitted once.
+		{name: "feed item", target: "/feed-config/feed-items", body: `{"feed_item":"RGS Concentrate"}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -283,6 +381,8 @@ func TestServiceErrorStatusMapping(t *testing.T) {
 	}{
 		{name: "idempotency conflict", err: ports.ErrIdempotencyConflict, wantStatus: http.StatusConflict, wantCode: "idempotency_conflict"},
 		{name: "future dated open row", err: ports.ErrFutureDatedRow, wantStatus: http.StatusConflict, wantCode: "future_dated_config"},
+		{name: "experiment pen already configured", err: ports.ErrExperimentPenAlreadyConfigured, wantStatus: http.StatusConflict, wantCode: "experiment_pen_already_configured"},
+		{name: "experiment pen not configured", err: ports.ErrExperimentPenNotConfigured, wantStatus: http.StatusConflict, wantCode: "experiment_pen_not_configured"},
 		{name: "park not found", err: ports.ErrParkNotFound, wantStatus: http.StatusNotFound, wantCode: "park_not_found"},
 		{name: "shed not found", err: ports.ErrShedNotFound, wantStatus: http.StatusNotFound, wantCode: "shed_not_found"},
 		{name: "missing park", err: feedconfigapp.ErrMissingPark, wantStatus: http.StatusBadRequest, wantCode: "invalid_request"},
@@ -301,8 +401,8 @@ func TestServiceErrorStatusMapping(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode error body: %v", err)
 			}
-			if body.Error.Code != tc.wantCode {
-				t.Fatalf("error code = %q, want %q", body.Error.Code, tc.wantCode)
+			if body.Code != tc.wantCode {
+				t.Fatalf("error code = %q, want %q", body.Code, tc.wantCode)
 			}
 		})
 	}
@@ -320,8 +420,8 @@ func TestFieldErrorNamesTheOffendingInput(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode error body: %v", err)
 	}
-	if body.Error.Field != "grams_per_head" {
-		t.Fatalf("error.field = %q, want grams_per_head", body.Error.Field)
+	if body.Field != "grams_per_head" {
+		t.Fatalf("error.field = %q, want grams_per_head", body.Field)
 	}
 }
 
@@ -369,5 +469,117 @@ func TestNonNumericPagingIsRejected(t *testing.T) {
 	rec := serve(t, &fakeService{}, newRequest(t, http.MethodGet, "/feed-config/ration-rates?park_id=p&limit=lots", "", ""))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Feed items (the catalog)
+// ---------------------------------------------------------------------------
+
+// TestCreateFeedItemKeepsOmittedAttributesAbsent is the catalog twin of
+// TestAbsentGramsIsNotDefaultedToZero, and it guards the same decoding hazard reaching the opposite
+// (correct) conclusion.
+//
+// An omitted attribute must arrive at the service as nil so it can be stored as NULL -- "nobody
+// measured this". An explicit 0 must arrive as "0" -- "measured as none". Decoding into a plain
+// float64 would collapse both into 0 before any layer could tell them apart, and the row would then
+// claim a measurement that was never taken.
+func TestCreateFeedItemKeepsOmittedAttributesAbsent(t *testing.T) {
+	svc := &fakeService{}
+	serve(t, svc, newRequest(t, http.MethodPost, "/feed-config/feed-items",
+		`{"feed_item":"RGS Concentrate"}`, "key-12345678"))
+	in := svc.feedItemInput
+	if in.FeedItemLabel != "RGS Concentrate" {
+		t.Fatalf("feed_item = %q, want %q", in.FeedItemLabel, "RGS Concentrate")
+	}
+	for name, got := range map[string]*string{
+		"energy_kcal_per_kg": in.EnergyKcalPerKg,
+		"dry_matter_factor":  in.DryMatterFactor,
+		"wastage_factor":     in.WastageFactor,
+	} {
+		if got != nil {
+			t.Fatalf("omitted %s arrived as %q, want nil", name, *got)
+		}
+	}
+	if in.DisplayOrder != nil {
+		t.Fatalf("omitted display_order arrived as %d, want nil so the write path appends to the end", *in.DisplayOrder)
+	}
+
+	zeroSvc := &fakeService{}
+	serve(t, zeroSvc, newRequest(t, http.MethodPost, "/feed-config/feed-items",
+		`{"feed_item":"Dry Masoor Bhusa","energy_kcal_per_kg":0,"wastage_factor":0}`, "key-12345678"))
+	if got := zeroSvc.feedItemInput.EnergyKcalPerKg; got == nil || *got != "0" {
+		t.Fatalf("explicit zero energy arrived as %v, want \"0\"", got)
+	}
+	if got := zeroSvc.feedItemInput.WastageFactor; got == nil || *got != "0" {
+		t.Fatalf("explicit zero wastage arrived as %v, want \"0\"", got)
+	}
+}
+
+// TestCreateFeedItemPreservesExactAttributeText proves an authored factor survives as its exact
+// decimal text. 0.8500 through a float64 round trip is where a catalog attribute quietly becomes
+// 0.8499999, on a screen whose whole purpose is authoring exact numbers.
+func TestCreateFeedItemPreservesExactAttributeText(t *testing.T) {
+	svc := &fakeService{}
+	serve(t, svc, newRequest(t, http.MethodPost, "/feed-config/feed-items",
+		`{"feed_item":"Green Fodder","dry_matter_factor":0.8500}`, "key-12345678"))
+	if got := svc.feedItemInput.DryMatterFactor; got == nil || *got != "0.8500" {
+		t.Fatalf("dry_matter_factor = %v, want the exact text \"0.8500\"", got)
+	}
+}
+
+// TestCreateFeedItemDuplicateIsConflictNotSuccess maps ErrFeedItemExists to 409.
+//
+// Not 200, and not 400. A success would leave the author believing the catalog now holds two
+// entries when the normalized key makes them one -- and every rate keyed on that label resolves to
+// the original item, so the "new" one would appear to author nothing. 409 says the name is taken,
+// which is the fact that decides their next move.
+func TestCreateFeedItemDuplicateIsConflictNotSuccess(t *testing.T) {
+	svc := &fakeService{err: ports.ErrFeedItemExists}
+	rec := serve(t, svc, newRequest(t, http.MethodPost, "/feed-config/feed-items",
+		`{"feed_item":"RGS Concentrate"}`, "key-12345678"))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	// The code is what the UI keys its "that name already exists" message on, so it is part of the
+	// contract rather than incidental text.
+	if body.Code != "feed_item_exists" {
+		t.Fatalf("error code = %q, want %q", body.Code, "feed_item_exists")
+	}
+}
+
+// TestCreateFeedItemRejectsAParkID proves the catalog add refuses park scoping outright rather than
+// ignoring it. feed_item_catalog is keyed (tenant, item), so a park_id in the body means the caller
+// believes items can be scoped to one park -- and silently dropping it would confirm that belief
+// while creating a tenant-wide item.
+func TestCreateFeedItemRejectsAParkID(t *testing.T) {
+	svc := &fakeService{}
+	rec := serve(t, svc, newRequest(t, http.MethodPost, "/feed-config/feed-items",
+		`{"feed_item":"RGS Concentrate","park_id":"p"}`, "key-12345678"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if svc.calls != 0 {
+		t.Fatalf("service was called with an unknown field present")
+	}
+}
+
+// TestCreateFeedItemFingerprintIsItsOwnNamespace: the catalog add and the ration-rate write must
+// never collide on one idempotency key, even for structurally similar bodies.
+func TestCreateFeedItemFingerprintIsItsOwnNamespace(t *testing.T) {
+	itemFP, err := requestFingerprint(testTenant, createFeedItemCommand, feedItemsRoute, map[string]string{"a": "b"})
+	if err != nil {
+		t.Fatalf("requestFingerprint: %v", err)
+	}
+	rateFP, err := requestFingerprint(testTenant, upsertRationRateCommand, rationRatesRoute, map[string]string{"a": "b"})
+	if err != nil {
+		t.Fatalf("requestFingerprint: %v", err)
+	}
+	if itemFP == rateFP {
+		t.Fatalf("identical bodies on the catalog and ration-rate routes produced the same fingerprint")
 	}
 }

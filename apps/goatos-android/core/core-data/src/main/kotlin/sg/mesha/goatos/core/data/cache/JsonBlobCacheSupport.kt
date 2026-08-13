@@ -83,7 +83,9 @@ suspend inline fun <reified T> readCachedJson(
         quarantine(cacheKey)
         return CachedRead(data = null, updatedAt = null, wasQuarantined = true)
     }
-    val decoded = runCatching { json.decodeFromString<T>(dtoJson) }.getOrNull()
+    val decoded = runCatching { json.decodeFromString<T>(dtoJson) }
+        .onFailure { android.util.Log.w("JsonBlobCacheSupport", "deserialize cached blob failed for cache_key $cacheKey", it) }
+        .getOrNull()
     if (decoded == null) {
         quarantine(cacheKey)
         return CachedRead(data = null, updatedAt = null, wasQuarantined = true)

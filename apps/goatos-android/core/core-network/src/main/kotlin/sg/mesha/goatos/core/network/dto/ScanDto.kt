@@ -12,6 +12,14 @@ data class ScanRosterRowDto(
     @SerialName("status") val status: String = "",
     @SerialName("scannedAt") val scannedAt: String? = null,
     @SerialName("obligationId") val obligationId: String = "",
+    /** `obligation_instances.row_version` for this row's obligation — bumps on every
+     *  transition, including a verifier rejection reopening it for re-capture. The
+     *  scan-capture idempotency-key discriminator (see
+     *  `sg.mesha.goatos.core.data.capture.scanCaptureIdempotencyKey`): folding this in makes
+     *  a genuinely-new scan after a reopen build a NEW key while a network retry of the same
+     *  scan stays on the SAME key and dedupes. Defaults to 0 for a server that has not shipped
+     *  the field yet, matching this cycle's identity for pre-existing rows. */
+    @SerialName("obligationRowVersion") val obligationRowVersion: Int = 0,
 )
 
 @Serializable

@@ -16,10 +16,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -204,13 +200,27 @@ class ApprovalViewModel @Inject constructor(
 private val RAISED_AT_FORMAT: DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM, h:mm a").withZone(ZoneId.of("Asia/Kolkata"))
 
+/**
+ * Wire row -> screen row.
+ *
+ * This mapping is deliberately THIN. It carries backend copy across and formats one timestamp for
+ * the local calendar; it composes no business text of its own.
+ *
+ * It used to do more, and that was the defect: it read the echoed payload and built its own
+ * "12 animal(s) · to shed <id>" line, and passed `raised_by_user_id` through as the raiser. The
+ * phone has no name source for a user id or a shed id, so both rendered as UUIDs at an approver
+ * while admin-web — which could resolve them — showed names. Two surfaces, two authors, two
+ * different answers for the same row. Both lines are now composed by the backend
+ * (`summary_line`, `raised_by_name`) and rendered verbatim, per the golden frontend rule.
+ */
 private fun CountsApprovalListItemDto.toRowUi(): ApprovalRowUi = ApprovalRowUi(
     requestId = approvalRequestId,
     typeLabel = requestTypeLabel(requestType),
     requestType = requestType,
-    raisedBy = raisedByUserId,
+    // Blank, never the id, when the backend resolved no name: the screen then omits the line.
+    raisedBy = raisedByName.orEmpty(),
     raisedAt = formatRaisedAt(raisedAt),
-    summaryLine = summaryLine(requestType, summary),
+    summaryLine = summaryLine.orEmpty(),
 )
 
 /**
@@ -228,41 +238,17 @@ private fun requestTypeLabel(requestType: String): String = when (requestType) {
     else -> requestType
 }
 
+/**
+ * Raised-at display formatting, with the raw backend value as the fallback.
+ *
+ * Same philosophy as [requestTypeLabel] above: an unrecognised value renders VERBATIM rather than
+ * being dropped or blanked, so an approver can still see and act on the row. A timestamp this cannot
+ * parse is a backend format change, not a per-row data fault — it would fail for every row at once,
+ * it is plainly visible on screen as an unformatted timestamp, and the approver is not blocked by it.
+ */
+// exception:exempt pure display formatter; the parse failure is fully surfaced to the user as the
+// raw value, and this is a top-level mapper with no CrashReporter in scope — threading one through
+// it to report a systematic, self-evident formatting fallback would add coupling for no new signal.
 private fun formatRaisedAt(raisedAt: String): String = runCatching {
     RAISED_AT_FORMAT.format(Instant.parse(raisedAt))
 }.getOrDefault(raisedAt)
-
-/**
- * A one-line description of what the request contains, read from the echoed payload.
- *
- * Only fields the contract defines for that request type are read, and anything missing simply
- * drops out of the line — the summary is `additionalProperties: true`, so it must be treated as
- * data to display, never as a shape to assert.
- */
-private fun summaryLine(requestType: String, summary: JsonElement?): String {
-    val obj = summary as? JsonObject ?: return ""
-    fun str(key: String): String? =
-        (obj[key] as? JsonPrimitive)?.jsonPrimitive?.contentOrNullSafe()?.takeIf { it.isNotBlank() }
-
-    return when (requestType) {
-        "birth" -> listOfNotNull(
-            str("animal_identifier_1")?.let { "Tag $it" },
-            str("sex"),
-            str("breed"),
-            str("dob")?.let { "born $it" },
-        ).joinToString(" · ")
-        "death" -> listOfNotNull(
-            str("goat_id")?.let { "Animal $it" },
-            str("reason"),
-        ).joinToString(" · ")
-        "shifting" -> listOfNotNull(
-            (obj["goat_ids"] as? kotlinx.serialization.json.JsonArray)?.size?.let { "$it animal(s)" },
-            str("destination_shed_id")?.let { "to shed $it" },
-            str("category"),
-        ).joinToString(" · ")
-        else -> ""
-    }
-}
-
-/** `content` on a JSON null primitive is the literal "null"; treat that as absent. */
-private fun JsonPrimitive.contentOrNullSafe(): String? = if (this is kotlinx.serialization.json.JsonNull) null else content

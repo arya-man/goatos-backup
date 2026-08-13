@@ -22,6 +22,14 @@ class SessionViewModelAuthTest {
     }
 
     @Test
+    fun `firebase flavor ignores stale dev bearer left by previous APK`() {
+        assertEquals(true, sessionIsAuthedForMode(AuthMode.DEV_BEARER, "operator-token"))
+        assertEquals(true, sessionIsAuthedForMode(AuthMode.FIREBASE, FIREBASE_SESSION_MARKER))
+        assertEquals(false, sessionIsAuthedForMode(AuthMode.FIREBASE, "operator-token"))
+        assertEquals(false, sessionIsAuthedForMode(AuthMode.FIREBASE, null))
+    }
+
+    @Test
     fun `stg flavor routes to Firebase`() {
         assertEquals(AuthMode.FIREBASE, authModeForFlavor("stg"))
     }

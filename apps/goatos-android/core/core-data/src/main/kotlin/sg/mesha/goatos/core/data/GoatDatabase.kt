@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ProofCaptureStateEventEntity
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
@@ -18,6 +19,10 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheEntity
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemDao
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemEntity
 import sg.mesha.goatos.core.data.cache.CountsApprovalRemoteKeyDao
@@ -30,8 +35,36 @@ import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CountsBreakdownRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionItemDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionItemEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedDirectionRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingItemDao
+import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportItemDao
+import sg.mesha.goatos.core.data.cache.FeedTransportItemEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemDao
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedTransportScopedRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.HealthPageMetaDao
+import sg.mesha.goatos.core.data.cache.HealthPageMetaEntity
+import sg.mesha.goatos.core.data.cache.HealthRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.HealthRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDao
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailDao
+import sg.mesha.goatos.core.data.cache.HealthWorkItemDetailEntity
+import sg.mesha.goatos.core.data.cache.HealthWorkItemEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
@@ -45,13 +78,61 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidItemDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidItemEntity
+import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.AwaitingRfidRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheEntity
+import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftDao
+import sg.mesha.goatos.core.data.cache.CaptureEvidenceDraftEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingItemDao
+import sg.mesha.goatos.core.data.cache.ShiftingPendingItemEntity
+import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowCardDao
+import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
+import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheDao
+import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheDao
+import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedEntity
+import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogDao
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingRosterDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
 
 /**
  * The on-device SSOT database (docs/decisions/android-offline-first.md). v1 held only the
@@ -92,6 +173,22 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * integration baseline.
  * v16 (see [MIGRATION_15_16]) persists backend scan timestamps on scan_roster_row so reopened
  * vaccination tasks show the real done state and exact IST scan time.
+ * v17 (see [MIGRATION_16_17]) adds the six Feed read-model tables — the Feed Direction sheet and
+ * the Feed Packing worklist, each as a summary-envelope blob + normalized paged rows + per-scope
+ * remote keys, so both Feed screens are offline-first and bounded from day one. Renumbered from the
+ * branch's original v16 so main's scan-timestamp migration keeps v16 as the integration baseline.
+ * v22 (see [MIGRATION_21_22]) adds Weighing's Room-first roster and category-aware observation
+ * rows without touching Vaccination state. v23 (see [MIGRATION_22_23]) scopes Weighing's local
+ * RFID uniqueness to the selected shed bucket so duplicate tags across buckets remain valid.
+ * v24 (see [MIGRATION_23_24]) adds filter-scoped Feed Transport pages without replacing the
+ * existing date-only cache, preserving every previously installed Room migration path.
+ * v25 (see [MIGRATION_24_25]) adds Health's filter-scoped treatment worklist, page metadata,
+ * keyset cursor, and bounded detail cache.
+ * v26 (see [MIGRATION_25_26]) adds `capture_evidence_drafts`, one row per (flow, work item, proof
+ * step), so captured proofs and the submit idempotency key survive Back + re-entry on every
+ * capture screen.
+ * v27 (see [MIGRATION_26_27]) adds `answers` to that same table, so the operator's typed form
+ * answers survive Back + re-entry alongside the videos they belong to.
  */
 @Database(
     entities = [
@@ -121,8 +218,50 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CountsApprovalItemEntity::class,
         CountsApprovalRemoteKeyEntity::class,
         CountsShiftingDestinationsCacheEntity::class,
+        FeedDirectionMetaCacheEntity::class,
+        FeedDirectionItemEntity::class,
+        FeedDirectionRemoteKeyEntity::class,
+        FeedPackingMetaCacheEntity::class,
+        FeedPackingItemEntity::class,
+        FeedPackingRemoteKeyEntity::class,
+        ShiftingPendingItemEntity::class,
+        ShiftingPendingRemoteKeyEntity::class,
+        AwaitingRfidItemEntity::class,
+        AwaitingRfidRemoteKeyEntity::class,
+        WorkflowCardEntity::class,
+        WorkflowRemoteKeyEntity::class,
+        WorkflowChipsCacheEntity::class,
+        WorkflowDetailCacheEntity::class,
+        FeedTransportItemEntity::class,
+        FeedTransportRemoteKeyEntity::class,
+        FeedTransportScopedItemEntity::class,
+        FeedTransportScopedRemoteKeyEntity::class,
+        WeighingRosterRowEntity::class,
+        WeighingObservationEntity::class,
+        WeighingShedObservationEntity::class,
+        HealthWorkItemEntity::class,
+        HealthRemoteKeyEntity::class,
+        HealthPageMetaEntity::class,
+        HealthWorkItemDetailEntity::class,
+        CaptureEvidenceDraftEntity::class,
+        WeighingTaskRowEntity::class,
+        WeighingTaskRemoteKeyEntity::class,
+        WeighingTaskBucketRowEntity::class,
+        WeighingTaskBucketRemoteKeyEntity::class,
+        WeighingLeadershipShedEntity::class,
+        WeighingLeadershipRecordEntity::class,
+        WeighingLeadershipRecordRemoteKeyEntity::class,
+        WeighingLeadershipGalleryRemoteKeyEntity::class,
+        WeighingPlannerParkRowEntity::class,
+        WeighingPlannerShedRowEntity::class,
+        WeighingPlannerOperatorRowEntity::class,
+        WeighingPlannerRemoteKeyEntity::class,
+        WeighingAlertsCacheEntity::class,
+        VaccinationAlertsCacheEntity::class,
+        WeighingTransitionEpochEntity::class,
+        ProofCaptureStateEventEntity::class,
     ],
-    version = 16,
+    version = 42,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -139,14 +278,78 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
     // instead of a whole-collection JSON blob, and DROPS the now-unused scan_roster_cache blob table.
     // v15 (see [MIGRATION_14_15]) adds the seven Counts read-model tables.
     // v16 (see [MIGRATION_15_16]) adds nullable backend scan timestamp to scan_roster_row.
+    // v17 (see [MIGRATION_16_17]) adds the six Feed read-model tables (Direction + Packing).
+    // v18 (see [MIGRATION_17_18]) adds the shifting pending-execution queue pair — the Shifting
+    // "Pending" tab's offline-first read model (one Room row per authorized movement + its keyset
+    // remote key), so an operator re-entering the tab sees their cached queue instead of a blank wall.
+    // v19 (see [MIGRATION_18_19]) adds the "Awaiting RFID" list pair — the Counts promote flow's
+    // offline-first read model (one Room row per temporary-tagged goat + its keyset remote key), so an
+    // operator re-entering the list sees their cached rows instead of a blank wall.
+    // v20 (see [MIGRATION_19_20]) adds the four Birth/Death workflow read-model tables
+    // (docs/decisions/birth-death-workflows.md): the keyset card list + its remote keys, the
+    // per-day chips rollup, and the drill-in detail blob — the two new work-list modules
+    // (/counts/birth, /counts/death) offline-first and bounded from day one.
+    // v22 (see [MIGRATION_21_22]) adds Weighing's local roster and observation tables.
+    // v23 (see [MIGRATION_22_23]) relaxes Weighing RFID uniqueness from campaign-wide to
+    // selected shed-bucket-wide, matching the free-flow bucket model.
+    // v25 (see [MIGRATION_24_25]) gives the leadership VIDEOS gallery its own cursor table, so a
+    // surface's cursor is never stored in — and pruned by — another surface's table.
+    // v26 (see [MIGRATION_25_26]) splits the planner catalog into its two real grains: a PARK table
+    // (every park the planner may use on a date, with the backend's own park-grain shed COUNT) and
+    // the existing shed table re-keyed per park. The two used to share one flattened keyset page,
+    // so a 76-shed park filled page one alone and the wizard's park step offered a single park.
+    // v24 (see [MIGRATION_23_24]) adds the ten Weighing LEADERSHIP read-model tables — the task
+    // list, the task's shed buckets, the shed's own context and its captured records (shared with
+    // the videos gallery), and the planner catalog — each a keyset-paged row table plus its remote
+    // key, so every leadership surface renders from Room instead of straight off a network call.
+    // v27 (see [MIGRATION_26_27]) adds the weighing ALERTS cache — the weighing module's own
+    // lifecycle feed (work assigned, shed submitted, proof sent back, shed reopened, work
+    // closed). Room-backed from day one like every other screen-facing read: an alert is read
+    // in the shed, where the network is worst, so the operator must still see what they were
+    // told when the request fails.
+    // v28 (see [MIGRATION_27_28]) persists the weighing per-scope idempotency EPOCH. It was an
+    // in-heap map, so a Close whose response was lost on a phone that was then killed retried
+    // under a NEW key and the backend applied a second close instead of replaying the first.
+    // v29 (see [MIGRATION_28_29]) adds scoped Feed Transport items and remote keys.
+    // v30 (see [MIGRATION_29_30]) adds the Health Room SSOT.
+    // v31 (see [MIGRATION_30_31]) adds the shared capture evidence draft — each recorded video's
+    // outbox item id plus the submit idempotency key, durable per work item so leaving and
+    // re-entering ANY capture screen (shifting, feed distribution/packing/transport, milk
+    // preparation/feeding) keeps the evidence it already captured.
+    // v32 (see [MIGRATION_31_32]) adds `answers` to capture_evidence_drafts — the operator's typed
+    // form answers on a reserved `__answers__` row, so re-entering a capture screen restores the
+    // numbers and remarks beside the videos instead of demanding the whole sheet again.
+    // v34 (see [MIGRATION_33_34]) adds `obligationRowVersion` to scan_roster_row —
+    // obligation_instances.row_version echoed from the backend, the server-issued cycle
+    // discriminator folded into the scan-capture idempotency key so a genuinely-new scan after a
+    // verifier-rejection reopen is not deduped away as a replay of the prior cycle's already-synced
+    // capture.
+    // v35 (see [MIGRATION_34_35]) adds `vaccination_alerts_cache` — the offline-first store for
+    // the vaccination module's own alerts feed. Vaccination never had one: the Alerts tab read the
+    // control-tower gap summary, so lifecycle notifications (proof approved / rework / record
+    // closed) were invisible on the phone.
+    // v36 (see [MIGRATION_35_36]) adds partitionKey to weighing_planner_shed_row and promotes the
+    // cache key to (queryKey, locationId, partitionKey), so sibling shed partitions cannot replace
+    // each other offline.
+    // v37 (see [MIGRATION_36_37]) scopes scan and proof capture evidence to the operational
+    // partition so one task spanning sibling partitions cannot mix their local submissions.
+    // v38 (see [MIGRATION_37_38]) adds shared proof-video processing state, metrics, and
+    // append-only state events for support/debug breadcrumbs.
+    // v39 (see [MIGRATION_38_39]) persists the actual capture location/address burned into proof media.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
+	abstract fun feedTransportItemDao(): FeedTransportItemDao
+	abstract fun feedTransportRemoteKeyDao(): FeedTransportRemoteKeyDao
+    abstract fun feedTransportScopedItemDao(): FeedTransportScopedItemDao
+    abstract fun feedTransportScopedRemoteKeyDao(): FeedTransportScopedRemoteKeyDao
     abstract fun bootstrapCacheDao(): BootstrapCacheDao
     abstract fun calendarCacheDao(): CalendarCacheDao
     abstract fun calendarScheduleDao(): CalendarScheduleDao
     abstract fun calendarScheduleRemoteKeyDao(): CalendarScheduleRemoteKeyDao
     abstract fun controlTowerCacheDao(): ControlTowerCacheDao
+    abstract fun weighingAlertsCacheDao(): WeighingAlertsCacheDao
+    abstract fun vaccinationAlertsCacheDao(): VaccinationAlertsCacheDao
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao
     abstract fun scanRosterRowDao(): ScanRosterRowDao
@@ -165,7 +368,41 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun countsBreakdownMetaCacheDao(): CountsBreakdownMetaCacheDao
     abstract fun countsBreakdownItemDao(): CountsBreakdownItemDao
     abstract fun countsBreakdownRemoteKeyDao(): CountsBreakdownRemoteKeyDao
+    abstract fun captureEvidenceDraftDao(): CaptureEvidenceDraftDao
     abstract fun countsApprovalItemDao(): CountsApprovalItemDao
     abstract fun countsApprovalRemoteKeyDao(): CountsApprovalRemoteKeyDao
     abstract fun countsShiftingDestinationsCacheDao(): CountsShiftingDestinationsCacheDao
+    abstract fun feedDirectionMetaCacheDao(): FeedDirectionMetaCacheDao
+    abstract fun feedDirectionItemDao(): FeedDirectionItemDao
+    abstract fun feedDirectionRemoteKeyDao(): FeedDirectionRemoteKeyDao
+    abstract fun feedPackingMetaCacheDao(): FeedPackingMetaCacheDao
+    abstract fun feedPackingItemDao(): FeedPackingItemDao
+    abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
+    abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
+    abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
+    abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao
+    abstract fun awaitingRfidRemoteKeyDao(): AwaitingRfidRemoteKeyDao
+    abstract fun workflowCardDao(): WorkflowCardDao
+    abstract fun workflowRemoteKeyDao(): WorkflowRemoteKeyDao
+    abstract fun workflowChipsCacheDao(): WorkflowChipsCacheDao
+    abstract fun workflowDetailCacheDao(): WorkflowDetailCacheDao
+    abstract fun healthWorkItemDao(): HealthWorkItemDao
+    abstract fun healthRemoteKeyDao(): HealthRemoteKeyDao
+    abstract fun healthPageMetaDao(): HealthPageMetaDao
+    abstract fun healthWorkItemDetailDao(): HealthWorkItemDetailDao
+    abstract fun weighingRosterDao(): WeighingRosterDao
+    abstract fun weighingObservationDao(): WeighingObservationDao
+    abstract fun weighingShedObservationDao(): WeighingShedObservationDao
+    abstract fun weighingTaskDao(): WeighingTaskDao
+    abstract fun weighingTaskRemoteKeyDao(): WeighingTaskRemoteKeyDao
+    abstract fun weighingTaskBucketDao(): WeighingTaskBucketDao
+    abstract fun weighingTaskBucketRemoteKeyDao(): WeighingTaskBucketRemoteKeyDao
+    abstract fun weighingLeadershipShedDao(): WeighingLeadershipShedDao
+    abstract fun weighingLeadershipRecordDao(): WeighingLeadershipRecordDao
+    abstract fun weighingLeadershipRecordRemoteKeyDao(): WeighingLeadershipRecordRemoteKeyDao
+
+    abstract fun weighingLeadershipGalleryRemoteKeyDao(): WeighingLeadershipGalleryRemoteKeyDao
+    abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
+    abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
+    abstract fun weighingTransitionEpochDao(): WeighingTransitionEpochDao
 }

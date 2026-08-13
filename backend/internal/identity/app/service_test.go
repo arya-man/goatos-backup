@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -280,6 +281,56 @@ func TestAddGoatIdentifierRejectsOldEvidenceIDsAndMissingScope(t *testing.T) {
 	}
 }
 
+func TestListTemporaryTaggedGoatsPassesLocationFilter(t *testing.T) {
+	const (
+		tenant = "10000000-0000-4000-8000-000000000001"
+		park   = "20000000-0000-4000-8000-000000000002"
+		shed   = "30000000-0000-4000-8000-000000000003"
+	)
+	repo := &fakeRepo{temporaryTaggedItems: []domain.TemporaryTaggedGoat{{GoatID: "g-1", DisplayID: "G-000001"}}}
+	svc := NewService(repo)
+
+	result, err := svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant,
+		Limit:    20,
+		// Spaces exercise the TrimSpace path.
+		ParkID: " " + park + " ",
+		ShedID: shed,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	if repo.lastTemporaryTaggedParams.ParkID != park {
+		t.Fatalf("park_id not passed through trimmed: %q", repo.lastTemporaryTaggedParams.ParkID)
+	}
+	if repo.lastTemporaryTaggedParams.ShedID != shed {
+		t.Fatalf("shed_id not passed through: %q", repo.lastTemporaryTaggedParams.ShedID)
+	}
+}
+
+func TestListTemporaryTaggedGoatsRejectsMalformedLocationFilter(t *testing.T) {
+	const tenant = "10000000-0000-4000-8000-000000000001"
+	svc := NewService(&fakeRepo{})
+
+	_, err := svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant, Limit: 20, ParkID: "not-a-uuid",
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_park_id" {
+		t.Fatalf("expected invalid_park_id 400, got %v", err)
+	}
+
+	_, err = svc.ListTemporaryTaggedGoats(context.Background(), ListTemporaryTaggedGoatsInput{
+		TenantID: tenant, Limit: 20, ShedID: "bogus",
+	})
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "invalid_shed_id" {
+		t.Fatalf("expected invalid_shed_id 400, got %v", err)
+	}
+}
+
 func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	identifierID := "30000000-0000-4000-8000-000000000001"
 	repo := &fakeRepo{
@@ -353,6 +404,59 @@ func TestCreateAdminGoatPassesIdempotencyIntoValidation(t *testing.T) {
 	if len(repo.createAdminGoatCmds) != 1 {
 		t.Fatalf("create calls = %d, want 1", len(repo.createAdminGoatCmds))
 	}
+	if !got.RequirePartitionGrain || !repo.createAdminGoatCmds[0].RequirePartitionGrain {
+		t.Fatal("Admin single-create must require partition grain during validation and commit")
+	}
+}
+
+func TestCreateAdminGoatPreservesCanonicalPartitionLabel(t *testing.T) {
+	requested := "3"
+	canonical := "Part 3"
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel == nil || *cmd.PartitionLabel != requested {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.PartitionLabel = &canonical
+			return validation, nil
+		},
+	}
+	request := validAdminGoatCreateRequest("PARTITION-CANONICAL")
+	request.PartitionLabel = &requested
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewService(repo).CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-partition-canonical",
+		TraceID:        testTrace,
+		RawBody:        raw,
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat: %v", err)
+	}
+	if len(repo.createAdminGoatCmds) != 1 || repo.createAdminGoatCmds[0].PartitionLabel == nil || *repo.createAdminGoatCmds[0].PartitionLabel != canonical {
+		t.Fatalf("create partition = %#v, want canonical %q", repo.createAdminGoatCmds, canonical)
+	}
+}
+
+func TestCreateAdminGoatMapsWriteTimePartitionRequirement(t *testing.T) {
+	repo := &fakeRepo{createAdminGoatErr: ports.ErrPartitionRequired}
+	_, err := NewService(repo).CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-partition-race",
+		TraceID:        testTrace,
+		RawBody:        validAdminGoatCreateRaw("PARTITION-RACE"),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 400 || appErr.Code != "partition_label_required" {
+		t.Fatalf("partition requirement error = %v, want partition_label_required 400", err)
+	}
 }
 
 func TestCreateAdminGoatAllowsMissingAnimalIdentifier2(t *testing.T) {
@@ -388,12 +492,64 @@ func TestCreateAdminGoatRejectsMissingAnimalIdentifier1(t *testing.T) {
 		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_2":"A2-ONLY","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"procured","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
 			testPark, testShed)),
 	})
+	// With neither a permanent animal_identifier_1 NOR a temporary_identifier, the create is rejected:
+	// animal_identifier_2 alone is not a primary identity.
 	var appErr *Error
-	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != "Animal ID 1 is required" {
-		t.Fatalf("err = %v, want invalid_goat_create Animal ID 1 required", err)
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" ||
+		appErr.Message != "a permanent identifier (animal_identifier_1) or a temporary_identifier is required" {
+		t.Fatalf("err = %v, want invalid_goat_create requiring a permanent-or-temporary identifier", err)
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
-		t.Fatalf("missing Animal ID 1 must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+		t.Fatalf("missing primary identity must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
+// TestCreateAdminGoatAcceptsTemporaryIdentifierOnly proves a newborn can be created with only a
+// temporary tag: it is stored as a temporary_tag identifier (primary within its own type) and NO
+// animal_identifier_1 is written, so the kid still reads as untagged until it is promoted.
+func TestCreateAdminGoatAcceptsTemporaryIdentifierOnly(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-temp-only",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"temporary_identifier":"TEMP-42","species":"goat","park_id":%q,"shed_id":%q,"breed":"beetal","sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","dam_id":"RFID-MOTHER-001","litter_size":1,"evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	if err != nil {
+		t.Fatalf("CreateAdminGoat with temporary_identifier: %v", err)
+	}
+	if len(repo.createAdminGoatCmds) != 1 {
+		t.Fatalf("create calls = %d, want 1", len(repo.createAdminGoatCmds))
+	}
+	got := repo.createAdminGoatCmds[0].Identifiers
+	if len(got) != 1 || got[0].IdentifierType != "temporary_tag" || got[0].IdentifierValue != "TEMP-42" || !got[0].IsPrimary {
+		t.Fatalf("create identifiers = %#v, want only a primary temporary_tag", got)
+	}
+}
+
+// TestCreateAdminGoatRejectsBothPermanentAndTemporary proves the two are mutually exclusive: a kid
+// has one primary identity, not a temp AND a permanent at the same time.
+func TestCreateAdminGoatRejectsBothPermanentAndTemporary(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.CreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-create-both-ids",
+		TraceID:        testTrace,
+		RawBody: []byte(fmt.Sprintf(`{"animal_identifier_1":"RFID-1","temporary_identifier":"TEMP-1","species":"goat","park_id":%q,"shed_id":%q,"sex":"female","dob":"2026-05-20","dob_estimated":false,"origin_type":"birth","entry_date":"2026-06-01","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1"}]}`,
+			testPark, testShed)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" ||
+		appErr.Message != "provide either a permanent animal_identifier_1 or a temporary_identifier, not both" {
+		t.Fatalf("err = %v, want rejection of both permanent and temporary identifiers", err)
+	}
+	if len(repo.createAdminGoatCmds) != 0 {
+		t.Fatalf("both-identifiers must fail before repo create, create=%d", len(repo.createAdminGoatCmds))
 	}
 }
 
@@ -413,6 +569,49 @@ func TestCreateAdminGoatRejectsMissingDOB(t *testing.T) {
 	}
 	if len(repo.validateAdminGoatCreateCmds) != 0 || len(repo.createAdminGoatCmds) != 0 {
 		t.Fatalf("missing DOB must fail before repo calls, validate=%d create=%d", len(repo.validateAdminGoatCreateCmds), len(repo.createAdminGoatCmds))
+	}
+}
+
+func TestPrepareBirthRequiresMetadataAndReturnsCanonicalMother(t *testing.T) {
+	valid := fmt.Sprintf(`{"temporary_identifier":"K-123456","species":"goat","park_id":%q,"shed_id":%q,"breed":"beetal","sex":"female","dob":"2026-07-28","origin_type":"birth","entry_date":"2026-07-28","dam_id":"RFID-MOTHER-001","litter_size":2,"evidence_refs":[{"evidence_type":"source_record","evidence_id":"birth-test"}]}`, testPark, testShed)
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "missing breed", body: strings.Replace(valid, `,"breed":"beetal"`, "", 1), want: "breed is required for a birth"},
+		{name: "missing mother", body: strings.Replace(valid, `,"dam_id":"RFID-MOTHER-001"`, "", 1), want: "mother RFID is required for a birth"},
+		{name: "missing litter size", body: strings.Replace(valid, `,"litter_size":2`, "", 1), want: "litter_size is required for a birth"},
+		{name: "invalid litter size", body: strings.Replace(valid, `"litter_size":2`, `"litter_size":4`, 1), want: "litter_size must be 1, 2, or 3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			_, err := NewService(repo).PrepareCreateAdminGoat(context.Background(), CreateAdminGoatInput{
+				TenantID: testTenant, ActorID: testActor, IdempotencyKey: "birth-" + strings.ReplaceAll(tc.name, " ", "-"), RawBody: []byte(tc.body),
+			})
+			var appErr *Error
+			if !errors.As(err, &appErr) || appErr.Code != "invalid_goat_create" || appErr.Message != tc.want {
+				t.Fatalf("err=%v, want invalid_goat_create %q", err, tc.want)
+			}
+			if len(repo.validateAdminGoatCreateCmds) != 0 {
+				t.Fatal("invalid birth metadata must fail before repository validation")
+			}
+		})
+	}
+
+	repo := &fakeRepo{}
+	cmd, err := NewService(repo).PrepareCreateAdminGoat(context.Background(), CreateAdminGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "birth-canonical-mother", RawBody: []byte(valid),
+	})
+	if err != nil {
+		t.Fatalf("prepare valid birth: %v", err)
+	}
+	if cmd.DamID == nil || *cmd.DamID != goatA {
+		t.Fatalf("canonical dam id=%v, want %s", cmd.DamID, goatA)
+	}
+	if cmd.LitterSize == nil || *cmd.LitterSize != 2 {
+		t.Fatalf("litter size=%v, want 2", cmd.LitterSize)
 	}
 }
 
@@ -484,6 +683,9 @@ func TestCommitAdminGoatBulkUsesStableRowIdempotencyKey(t *testing.T) {
 	wantRowKey := "bulk-idem-0001:row:1"
 	if repo.createAdminGoatCmds[0].ClientIdempotencyKey != wantRowKey {
 		t.Fatalf("row key = %q, want %q", repo.createAdminGoatCmds[0].ClientIdempotencyKey, wantRowKey)
+	}
+	if !repo.createAdminGoatCmds[0].RequirePartitionGrain {
+		t.Fatal("Admin bulk commit must recheck partition grain")
 	}
 
 	input.RawBody = validAdminGoatBulkCommitRaw("BULK-CHANGED")
@@ -607,7 +809,7 @@ func TestCommitAdminGoatBulkRejectsExpiredPreviewToken(t *testing.T) {
 func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Farm,Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,A1-KID-001,A2-KID-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Farm,Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nMain Farm,A1-KID-001,A2-KID-001,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -644,10 +846,65 @@ func TestPreviewAdminGoatBulkParsesAnimalIDsAndEntryDate(t *testing.T) {
 	}
 }
 
+func TestPreviewAdminGoatBulkRequiresAndCanonicalizesPartition(t *testing.T) {
+	canonical := "Part 3"
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel == nil || *cmd.PartitionLabel != "3" {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.PartitionLabel = &canonical
+			return validation, nil
+		},
+	}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	csv := "Animal ID 1,Species,Park,Shed,Partition,Sex,DOB,Origin,Management stage,Entry date\nA1-PART-001,goat,CBE,K1,3,female,2026-06-01,procured,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 1 || len(resp.Rows) != 1 || resp.Rows[0].Normalized == nil || resp.Rows[0].Normalized.PartitionLabel == nil || *resp.Rows[0].Normalized.PartitionLabel != canonical {
+		t.Fatalf("partition preview = %#v, want canonical %q", resp, canonical)
+	}
+}
+
+func TestPreviewAdminGoatBulkFlagsMissingPartitionForPartitionedShed(t *testing.T) {
+	repo := &fakeRepo{
+		validateAdminGoatCreateFunc: func(cmd ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error) {
+			if !cmd.RequirePartitionGrain || cmd.PartitionLabel != nil {
+				t.Fatalf("partition validation command = %#v", cmd)
+			}
+			validation := defaultAdminGoatCreateValidation(cmd)
+			validation.Conflicts = append(validation.Conflicts, domain.FieldError{
+				Field: "partition_label", Code: "required", Message: "partition_label is required because the selected shed has active partitions",
+			})
+			return validation, nil
+		},
+	}
+	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
+	csv := "Animal ID 1,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-PART-MISSING,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
+	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
+		TenantID: testTenant,
+		TraceID:  testTrace,
+		RawBody:  []byte(fmt.Sprintf(`{"csv":%q,"file_hash":%q}`, csv, testBulkHash)),
+	})
+	if err != nil {
+		t.Fatalf("PreviewAdminGoatBulkImport: %v", err)
+	}
+	if resp.Summary.CreateReady != 0 || resp.Summary.RequiresReview != 1 || len(resp.Rows) != 1 || len(resp.Rows[0].Errors) != 1 || resp.Rows[0].Errors[0].Field != "partition_label" || resp.Rows[0].Errors[0].Code != "required" {
+		t.Fatalf("missing partition preview = %#v", resp)
+	}
+}
+
 func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-NO-DOB,A2-NO-DOB,goat,CBE,K1,female,,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date\nA1-NO-DOB,A2-NO-DOB,goat,CBE,K1,female,,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -667,7 +924,7 @@ func TestPreviewAdminGoatBulkFlagsMissingDOB(t *testing.T) {
 func TestPreviewAdminGoatBulkFlagsDuplicateRowsWithoutFailingFile(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo).WithBulkPreviewSigningKey(DevBulkPreviewSigningKey())
-	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-A1-001,DUP-A2-001,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15,22.5\n\nDUP-A1-001,DUP-A2-002,goat,CBE,K1,female,2026-06-01,birth,K1,2026-06-15\n"
+	csv := "Animal ID 1,Animal ID 2,Species,Park,Shed,Sex,DOB,Origin,Management stage,Entry date,Weight(kg)\nDUP-A1-001,DUP-A2-001,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15,22.5\n\nDUP-A1-001,DUP-A2-002,goat,CBE,K1,female,2026-06-01,procured,K1,2026-06-15\n"
 	resp, err := svc.PreviewAdminGoatBulkImport(context.Background(), PreviewAdminGoatBulkInput{
 		TenantID: testTenant,
 		TraceID:  testTrace,
@@ -903,7 +1160,7 @@ func TestHealthGoatRejectsCriticalTargetBeforeRepository(t *testing.T) {
 		if !errors.As(err, &appErr) {
 			t.Fatalf("HealthGoat(%s) error = %v, want app error", status, err)
 		}
-		if appErr.Code != "critical_health_transition_requires_guardrail" || appErr.HTTPStatus != 409 {
+		if appErr.Code != "critical_action_guardrail_required" || appErr.HTTPStatus != 409 {
 			t.Fatalf("HealthGoat(%s) app error = %#v, want guardrail-required 409", status, appErr)
 		}
 		if repo.lastHealthGoatCmd.GoatID != "" {
@@ -1154,6 +1411,34 @@ type fakeRepo struct {
 	createAdminGoatResult       *ports.AdminGoatMutationResult
 	createAdminGoatErr          error
 	createAdminGoatCmds         []ports.CreateAdminGoatCommand
+	temporaryTaggedItems        []domain.TemporaryTaggedGoat
+	lastTemporaryTaggedParams   ports.ListTemporaryTaggedGoatsParams
+	lastReclassifyCmd           ports.ReclassifyShedStageCommand
+	reclassifyPreview           *ports.ReclassifyShedStagePreview
+	reclassifyResult            *ports.ReclassifyShedStageResult
+	reclassifyErr               error
+}
+
+func (f *fakeRepo) PreviewReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStagePreview, error) {
+	f.lastReclassifyCmd = cmd
+	if f.reclassifyErr != nil {
+		return nil, f.reclassifyErr
+	}
+	if f.reclassifyPreview != nil {
+		return f.reclassifyPreview, nil
+	}
+	return &ports.ReclassifyShedStagePreview{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Changing: 1}, nil
+}
+
+func (f *fakeRepo) ReclassifyShedStage(_ context.Context, cmd ports.ReclassifyShedStageCommand) (*ports.ReclassifyShedStageResult, error) {
+	f.lastReclassifyCmd = cmd
+	if f.reclassifyErr != nil {
+		return nil, f.reclassifyErr
+	}
+	if f.reclassifyResult != nil {
+		return f.reclassifyResult, nil
+	}
+	return &ports.ReclassifyShedStageResult{ShedID: cmd.ShedID, ManagementStage: cmd.ManagementStage, TotalLive: 1, Reclassified: 1}, nil
 }
 
 func (f *fakeRepo) GetGoatByID(_ context.Context, _ string, goatID string) (*domain.GoatPassport, error) {
@@ -1175,6 +1460,11 @@ func (f *fakeRepo) GetGoatByDisplayID(_ context.Context, _ string, displayID str
 
 func (f *fakeRepo) SearchGoats(context.Context, ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
 	return nil, nil, nil
+}
+
+func (f *fakeRepo) ListTemporaryTaggedGoats(_ context.Context, params ports.ListTemporaryTaggedGoatsParams) ([]domain.TemporaryTaggedGoat, *string, error) {
+	f.lastTemporaryTaggedParams = params
+	return f.temporaryTaggedItems, nil, nil
 }
 
 func (f *fakeRepo) FindIdentifierMatches(context.Context, ports.ResolveIdentifierParams) ([]domain.IdentifierMatch, error) {
@@ -1253,6 +1543,20 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
+	}, nil
+}
+
+func (f *fakeRepo) PromoteTemporaryIdentifier(_ context.Context, cmd ports.PromoteTemporaryIdentifierCommand) (*ports.AdminGoatMutationResult, error) {
+	return &ports.AdminGoatMutationResult{
+		Goat: summary(cmd.GoatID, "G-000001", "clean"),
+		Identifiers: []domain.GoatIdentifier{{
+			IdentifierType:   "animal_identifier_1",
+			IdentifierValue:  cmd.PermanentValue,
+			ScopeKey:         "global",
+			Status:           "active",
+			IsPrimaryForGoat: true,
+		}},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000103", EventType: "goat.identifier.added"}},
 	}, nil
 }
 
@@ -1411,12 +1715,18 @@ func defaultAdminGoatCreateValidation(cmd ports.ValidateAdminGoatCreateCommand) 
 	if cmd.ShedID != nil {
 		shedID = *cmd.ShedID
 	}
-	return ports.AdminGoatCreateValidation{
+	validation := ports.AdminGoatCreateValidation{
 		CustodianPartyID: "70000000-0000-4000-8000-000000000001",
 		FarmID:           cmd.FarmID,
 		ParkID:           parkID,
 		ShedID:           shedID,
+		PartitionLabel:   cmd.PartitionLabel,
 	}
+	if cmd.BirthDamRef != nil {
+		damID := goatA
+		validation.DamGoatID = &damID
+	}
+	return validation
 }
 
 func (f *fakeRepo) Ping(context.Context) error { return nil }
@@ -1443,7 +1753,7 @@ func summary(goatID, displayID, identityState string) domain.GoatSummary {
 		LifecycleStatus:   "alive",
 		AnimalIdentifier1: strPtr("A1-" + displayID),
 		AnimalIdentifier2: strPtr("A2-" + displayID),
-		LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+		LocationPath:      domain.LocationPath{OperationalLocationDisplay: "Synthetic CBE"},
 		Warnings:          []domain.Warning{},
 	}
 }

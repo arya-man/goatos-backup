@@ -585,6 +585,26 @@ func TestOperatorCapacityPlannerHonorsCrossVersionOperatorDayLoad(t *testing.T) 
 	}
 }
 
+func TestOperatorCapacityPlannerReusesSameAnimalsForCompatibleSecondVaccine(t *testing.T) {
+	planned := time.Date(2027, 7, 24, 0, 0, 0, 0, time.UTC)
+	repo := &fakeVaccinationOperatorListRepo{fakeSweepRepo: &fakeSweepRepo{}, operators: []string{"op-1"}}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	targets := make([]string, 190)
+	for i := range targets {
+		targets[i] = fmt.Sprintf("sheep-%03d", i)
+		session.claimDriveCapacity("park-1", planned, targets[i], 1)
+	}
+	session.rememberVaccinationOperatorLoad("tenant-1", "park-1", planned, "op-1", 190)
+	planner, err := svc.operatorCapacityPlannerForTargets(context.Background(), "tenant-1", "park-1", &planned, domain.DrivePlannerSettings{MaxGoatsPerDrive: 200}, session, targets)
+	if err != nil {
+		t.Fatalf("operatorCapacityPlannerForTargets: %v", err)
+	}
+	if planner.MaxGoatsPerDrive != 200 {
+		t.Fatalf("compatible second-lane cap = %d, want 200 reused animal slots", planner.MaxGoatsPerDrive)
+	}
+}
+
 func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -2259,7 +2279,7 @@ func (f *fakeVaccinationOperatorListRepo) AvailableVaccinationOperatorsForDrive(
 			// never simply absent from the list.
 			cap = 0
 		}
-		out = append(out, domain.DriveOperatorCapacity{OperatorID: operatorID, Cap: cap})
+		out = append(out, domain.DriveOperatorCapacity{OperatorID: operatorID, Cap: cap, ConfiguredCap: capPerOperator})
 	}
 	return out, nil
 }
@@ -2570,6 +2590,10 @@ func (f *fakeSweepRepo) AttachObligationsToBatch(context.Context, string, string
 }
 
 func (f *fakeSweepRepo) MarkCompleted(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeSweepRepo) ReopenObligation(context.Context, string, string) (bool, error) {
 	return false, nil
 }
 

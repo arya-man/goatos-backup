@@ -328,10 +328,31 @@ func (h *Handler) SubmitTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 	result, err := h.service.SubmitTask(r.Context(), ports.SubmitTaskCommand{
 		TenantID: tenantID(r),
 		ActorID:  actorID(r),
+		DeviceID: deviceID(r),
 		TaskID:   r.PathValue("task_id"),
 		Body:     body,
 	}, traceID(r))
+	h.logSubmitOutcome(r, "submit_task", err)
 	h.respond(w, r, result, err)
+}
+
+// logSubmitOutcome makes "I submitted and nothing happened" reconstructable: the
+// generic error logger only fires on status >= 400, so a successful vaccination
+// submission otherwise leaves no trace at all. Scoped to this one write route, not
+// every 2xx, to avoid a farm-scale log volume blowup.
+func (h *Handler) logSubmitOutcome(r *nethttp.Request, route string, err error) {
+	if err != nil {
+		return
+	}
+	h.log.InfoContext(r.Context(), "sop_submit_attempt",
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", traceID(r)),
+		slog.String("tenant_id", tenantID(r)),
+		slog.String("actor_id", actorID(r)),
+		slog.String("device_id", deviceID(r)),
+		slog.String("route", route),
+		slog.Int("status", nethttp.StatusOK),
+	)
 }
 
 func (h *Handler) RecordScanCapture(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -443,6 +464,13 @@ func tenantID(r *nethttp.Request) string {
 
 func actorID(r *nethttp.Request) string {
 	return httpmiddleware.ActorIDFromContext(r.Context())
+}
+
+// deviceID returns the client-supplied device identifier when present, so the same
+// operator submitting from multiple phones can be told apart in audit/logs. Absent
+// on older clients -- callers must tolerate "".
+func deviceID(r *nethttp.Request) string {
+	return httpmiddleware.DeviceIDFromContext(r.Context())
 }
 
 func traceID(r *nethttp.Request) string {

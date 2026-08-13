@@ -18,11 +18,14 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   blockEntries,
   contractStateLabel,
+  driveExecutionPath,
   driveShedId,
+  eventPartitionLabel,
   eventTypeMeta,
   hasWorkflowLink,
   ownerColor,
@@ -387,10 +390,13 @@ function CalendarEventDrawerPanel({
 
   // Footer "Open drive" (shed execution) vs "Open workflow", from the event's link keys → app routes.
   const shedId = driveShedId(event);
+  const partition = eventPartitionLabel(event)?.trim();
   const driveHref = shedId
     ? scopeHref(
-        `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`,
+        driveExecutionPath(shedId),
         scope,
+        {},
+        partition ? { partition_label: partition } : {},
       )
     : undefined;
   const workflowHref = hasWorkflowLink(event)
@@ -492,7 +498,11 @@ function CalendarEventDrawerPanel({
                 <div style={{ marginTop: 12 }}>
                   <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.shed_coverage")}</div>
                   <div className="chipset">
-                    {event.shed_labels.map((label) => <Tag key={label} tone="mut">{label}</Tag>)}
+                    {event.shed_labels.map((label, i) => {
+                      const partitionLabel = event.shed_partition_labels?.[i] || null
+                      const displayLabel = operationalLocationLabel({ shedName: label, partitionLabel })
+                      return <Tag key={`${label}-${partitionLabel || 'whole'}`} tone="mut">{displayLabel}</Tag>
+                    })}
                   </div>
                 </div>
               ) : null}
@@ -544,7 +554,15 @@ function CalendarEventDrawerPanel({
             <div className="metagrid">
               <MetaCell
                 k={copy(pageContract, "label.park_shed")}
-                v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${event.shed_name ?? copy(pageContract, "label.all_sheds")}`}
+                v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${
+                  event.shed_name
+                    ? event.operational_location_display ||
+                      operationalLocationLabel({
+                        shedName: event.shed_name,
+                        partitionLabel: event.partition_label,
+                      })
+                    : copy(pageContract, "label.all_sheds")
+                }`}
               />
               <MetaCell
                 k={copy(pageContract, "label.cohort_target")}
@@ -626,8 +644,14 @@ function CalendarEventDrawerPanel({
                             <span className="gid">{row.display_id}</span>
                           </td>
                           <td>
-                            {row.shed_name ??
-                              copy(pageContract, "label.placeholder")}
+                            {row.shed_name
+                              ? row.operational_location_display ||
+                                operationalLocationLabel({
+                                  shedName: row.shed_name,
+                                  partitionLabel: row.partition_label,
+                                  sourceShedName: row.source_shed_name,
+                                })
+                              : copy(pageContract, "label.placeholder")}
                           </td>
                           <td>
                             {row.animal_identifier_1 ??
@@ -761,7 +785,7 @@ function CalendarEventDrawerPanel({
                 {linkRow.map((l) => (
                   <Link
                     key={l.key}
-                    href={scopeHref(l.appPath, scope)}
+                    href={scopeHref(l.appPath, scope, {}, l.query ?? {})}
                     className={`tag t-${l.tone}`}
                   >
                     {l.label}

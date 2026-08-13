@@ -23,6 +23,49 @@ var (
 	// ErrShedNotFound is the shed equivalent, for shed-factor writes.
 	ErrShedNotFound = errors.New("feedconfig: shed not found")
 
+	// ErrPartitionNotFound is returned when the addressed pen is not in the shed's own
+	// shed_partitions catalog, or when a label is supplied for a shed that has no pens at all.
+	//
+	// Fails CLOSED for the same reason as the two above, one level finer: the write path used to
+	// validate the park and the shed and then take the pen on trust, so a typo authored quantities
+	// against a pen that exists nowhere. No operational location resolves to it, so the direction
+	// generator never reads those rows -- the author sees a saved kg that will never be fed.
+	ErrPartitionNotFound = errors.New("feedconfig: partition not found in shed")
+
+	// ErrPartitionRequired is returned when a SUBDIVIDED shed is addressed without naming a pen.
+	//
+	// Distinct from ErrPartitionNotFound because the fix is different and the caller should say so:
+	// this is a missing choice, not a wrong one. A subdivided shed has no whole-shed operational
+	// location, so a blank label there is the caller failing to say which pen -- and it would
+	// otherwise author a phantom 'whole' row sitting beside the real pens, invisible to every
+	// screen that lists them.
+	ErrPartitionRequired = errors.New("feedconfig: partition required for a subdivided shed")
+
+	// ErrExperimentPenAlreadyConfigured prevents the enrollment endpoint from acting as a partial
+	// update when a stale or concurrent form addresses a pen that has already been enrolled.
+	ErrExperimentPenAlreadyConfigured = errors.New("feedconfig: experiment pen is already configured")
+
+	// ErrExperimentPenNotConfigured keeps the single-cell editor from becoming a non-atomic first
+	// enrollment path. A new pen must be enrolled with its complete item set through the batch write.
+	ErrExperimentPenNotConfigured = errors.New("feedconfig: experiment pen is not configured")
+
+	// ErrFeedItemExists is returned when a catalog entry with the same normalized label is already
+	// present in the tenant.
+	//
+	// The add fails CLOSED rather than updating the existing row, and that is the point rather than
+	// a missing feature: this is an ADD action, so silently rewriting an item's authored energy or
+	// wastage values under it would change data the author never opened. It is also not a silent
+	// success -- "Dry Masoor Bhusa" and "dry masoor bhusa " are ONE item by feed_config_norm, so
+	// pretending the second one was created would leave the author believing the catalog holds two
+	// entries while every rate keyed on the label resolves to one.
+	ErrFeedItemExists = errors.New("feedconfig: feed item already exists in this tenant")
+
+	// ErrFeedItemNotFound is returned when a status write names a catalog row this tenant does not
+	// hold. 404 rather than a silent no-op: the author pressed a control meaning "take this item out
+	// of every feed sheet", and reporting success for an item that was never found would leave them
+	// believing an item is retired while it keeps being packed.
+	ErrFeedItemNotFound = errors.New("feedconfig: feed item not found in this tenant")
+
 	// ErrFutureDatedRow is returned when the currently-open row takes effect AFTER the business date
 	// this edit would apply on. Neither effective-dating branch is correct for it: closing that row
 	// with today's date would violate valid_to > valid_from, and correcting it in place would rewrite
@@ -47,6 +90,16 @@ type Repository interface {
 	ListShedFactors(ctx context.Context, q domain.ShedFactorQuery) (domain.ShedFactorPage, error)
 	ListExperimentConfig(ctx context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error)
 
+	// ListPens returns the park's operational locations -- every shed, and every pen of a subdivided
+	// shed -- each flagged with whether it already carries experiment configuration.
+	//
+	// It is the enroller's candidate source. The experiment table cannot be that source (it only
+	// knows locations already enrolled) and the SHED list cannot either (one enrolled pen makes the
+	// whole building look enrolled, which is how Godel 1 - Part 8 became unreachable from the UI).
+	// Reads the locations / shed_partitions catalog and NO per-animal table, so a pen holding zero
+	// animals is still listed -- that is usually the pen about to be filled and configured.
+	ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error)
+
 	// UpsertRationRate authors one grid cell, effective-dated and never destructive:
 	//
 	//	no open row                     -> INSERT              (outcome 'inserted')
@@ -62,6 +115,32 @@ type Repository interface {
 
 	// UpsertShedFactor authors one shed multiplier on the same effective-dated terms.
 	UpsertShedFactor(ctx context.Context, cmd domain.UpsertShedFactorCommand) (domain.WriteResult, error)
+
+	// CreateFeedItem adds one entry to the tenant's feed-item catalog.
+	//
+	// CREATE, NOT UPSERT, and the vocabulary reflects it -- the only success outcome is 'inserted'.
+	// A duplicate normalized label is ErrFeedItemExists rather than a correction of the existing
+	// row: the catalog is not effective-dated, so an "update" here would overwrite authored
+	// attributes in place on a screen whose control says Add.
+	//
+	// Adding an item authors NO quantity. The new label is selectable on the ration grid, the shed
+	// factors and the experiment sheds from the moment it exists, and every one of those
+	// combinations stays UNCONFIGURED -- and therefore blocking -- until someone authors it. This
+	// write must never create a rate to go with the item, not even 0.
+	CreateFeedItem(ctx context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error)
+
+	// SetFeedItemStatus retires one catalog entry, or restores a retired one.
+	//
+	// RETIRE, NEVER DELETE. The item's rates, shed factors and experiment cells are untouched, so a
+	// restore brings the item back fully configured and every past sheet stays explainable. Deleting
+	// would take the rates with it and a later restore would hand back an item whose combinations
+	// are all UNCONFIGURED — which here means BLOCKED, i.e. those sheds are not fed.
+	//
+	// The write is a genuine change to what animals are fed, not a display flag: generation reads
+	// `WHERE status = 'active'`, so a retired item leaves every sheet issued from that point.
+	// Already-in-that-state is reported as 'unchanged' rather than as an error — the author asked
+	// for a state, and it holds.
+	SetFeedItemStatus(ctx context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error)
 
 	// UpsertScheduleConfig authors one park/workflow dispatch clock on the same effective-dated
 	// terms. All three times are stored as LOCAL Asia/Kolkata wall-clock values with no offset.
@@ -80,15 +159,25 @@ type Repository interface {
 	// omission: an experiment quantity is a hand-entered figure for a running trial that is corrected
 	// while the trial runs, not a standing rule whose past values must stay reconstructable to
 	// explain an old feed sheet. The write ledger still records who changed what and when.
+	// The pen must already be enrolled; its first complete set is created only by the batch method.
 	UpsertExperimentConfig(ctx context.Context, cmd domain.UpsertExperimentConfigCommand) (domain.WriteResult, error)
 
-	// SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal
-	// per-head ration grid, by flipping the status of every one of that shed's rows in one statement.
+	// UpsertExperimentConfigBatch ENROLLS every feed item of one unconfigured pen atomically.
+	//
+	// It is not a convenience wrapper around N single-cell writes. A pen's authored cells are the
+	// COMPLETE list of what it is fed -- the planner does not fall back to the ration grid for a
+	// missing item -- so a partly-applied enrolment silently underfeeds live animals on a sheet that
+	// looks complete. The whole set commits or none of it does. An already-configured pen returns
+	// ErrExperimentPenAlreadyConfigured and must be changed through explicit cell edits.
+	UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error)
+
+	// SetExperimentShedStatus switches ONE PEN between the experiment workflow and the normal
+	// per-head ration grid, by flipping every authored cell of that pen in one statement.
 	//
 	// This is a change to WHAT ANIMALS ARE FED, not a visibility toggle: the direction path reads
 	// only active rows, and a shed with none falls through to NormalPlanner and is fed
-	// head_count x grams_per_head x shed_factor. It is whole-shed because a planner owns a shed, not
-	// a cell -- a half-enrolled shed has no representable feed.
+	// head_count x grams_per_head x shed_factor. It is complete-pen because a half-enrolled pen has
+	// no representable feed; sibling pens in the same shed remain independent.
 	//
 	// ErrShedNotFound when the shed has no rows at all: there is no experiment configuration to
 	// switch, and creating empty rows to carry a status would author cells nobody entered.

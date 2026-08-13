@@ -91,10 +91,14 @@ class ShiftingViewModel @Inject constructor(
             ShiftingEvent.LookupAnimals -> lookupAnimals()
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
-            is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId)
+            is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
+            is ShiftingEvent.EditComment -> onEditComment(event.value)
             ShiftingEvent.Submit -> submit()
+            ShiftingEvent.NavigationHandled -> _state.update {
+                it.copy(returnToActions = false, submissionNotice = null)
+            }
             ShiftingEvent.Back -> Unit // navigation — handled by the nav host.
         }
     }
@@ -117,14 +121,25 @@ class ShiftingViewModel @Inject constructor(
                     // offers. Re-validate both against the new catalog and clear what is gone.
                     val parkStillOffered = parks.any { it.parkId == current.destinationParkId }
                     val parkId = if (parkStillOffered) current.destinationParkId else ""
-                    val shedStillOffered = parks
+                    // Identity is shed_id + partition_label together — a partitioned shed offers
+                    // several entries sharing one shed_id, so checking shed_id alone would treat a
+                    // now-gone partition as still offered.
+                    val destinationStillOffered = parks
                         .firstOrNull { it.parkId == parkId }
                         ?.sheds
-                        ?.any { it.shedId == current.destinationShedId } == true
+                        ?.any {
+                            it.shedId == current.destinationShedId &&
+                                it.partitionLabel == current.destinationPartitionLabel
+                        } == true
                     current.copy(
                         destinationParks = parks,
                         destinationParkId = parkId,
-                        destinationShedId = if (shedStillOffered) current.destinationShedId else "",
+                        destinationShedId = if (destinationStillOffered) current.destinationShedId else "",
+                        destinationPartitionLabel = if (destinationStillOffered) {
+                            current.destinationPartitionLabel
+                        } else {
+                            null
+                        },
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
                 }
@@ -173,6 +188,10 @@ class ShiftingViewModel @Inject constructor(
             statusJob?.cancel()
             _state.update { it.copy(result = CountsWriteResultUi()) }
         }
+        // Starting the next movement dismisses the confirmation left by the previous one.
+        if (_state.value.lastRecordedMessage != null) {
+            _state.update { it.copy(lastRecordedMessage = null) }
+        }
         return true
     }
 
@@ -199,11 +218,16 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.lookupAnimals(query = query)
                 .onSuccess { matches ->
+                    val eligible = matches.filter(GoatSearchItemDto::isEligibleForShifting)
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = matches.map(GoatSearchItemDto::toShiftingAnimalUi),
-                            animalLookupMessage = if (matches.isEmpty()) NO_MATCH_MESSAGE else null,
+                            animalMatches = eligible.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalLookupMessage = when {
+                                eligible.isNotEmpty() -> null
+                                matches.isNotEmpty() -> INELIGIBLE_ANIMAL_MESSAGE
+                                else -> NO_MATCH_MESSAGE
+                            },
                         )
                     }
                 }
@@ -237,7 +261,14 @@ class ShiftingViewModel @Inject constructor(
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
-            current.copy(selectedAnimal = match)
+            current.copy(
+                selectedAnimal = match,
+                // A shed move is intra-farm by contract. The animal's current park is canonical,
+                // so selecting the animal also selects the only legal destination farm.
+                destinationParkId = match.parkId,
+                destinationShedId = "",
+                destinationPartitionLabel = null,
+            )
         }
         recomputeSubmitGate()
     }
@@ -247,33 +278,37 @@ class ShiftingViewModel @Inject constructor(
     // -----------------------------------------------------------------------
 
     /**
-     * Choosing a park RESETS the shed. A shed id belongs to exactly one park, so carrying the old
-     * shed forward would submit a park/shed pairing that does not exist — and because shed NAMES
-     * repeat across parks, that mistake would look plausible on screen right up until the movement
-     * relocated an animal into the wrong park.
+     * The farm is never operator-editable. Keep this event as a defensive compatibility no-op for
+     * any stale composition/test that still emits it; only selecting an animal may set the farm.
      */
     private fun onSelectDestinationPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            if (current.destinationParkId == parkId) {
-                current
+            val currentFarm = current.selectedAnimal?.parkId.orEmpty()
+            if (parkId == currentFarm) current.copy(destinationParkId = currentFarm) else current
+        }
+        recomputeSubmitGate()
+    }
+
+    private fun onSelectDestinationShed(shedId: String, partitionLabel: String?) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            // Guard the pairing at the point of selection too: only an operational location
+            // (shed_id + partition_label together) that belongs to the chosen park's catalog may
+            // be stored — never just a shed_id, since a partitioned shed offers several entries
+            // that share one shed_id.
+            val belongsToPark = current.shedsForSelectedPark.any {
+                it.shedId == shedId && it.partitionLabel == partitionLabel
+            }
+            if (belongsToPark) {
+                current.copy(destinationShedId = shedId, destinationPartitionLabel = partitionLabel)
             } else {
-                current.copy(destinationParkId = parkId, destinationShedId = "")
+                current
             }
         }
         recomputeSubmitGate()
     }
 
-    private fun onSelectDestinationShed(shedId: String) {
-        if (!beginEdit()) return
-        _state.update { current ->
-            // Guard the pairing at the point of selection too: only a shed that belongs to the
-            // chosen park may be stored.
-            val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(destinationShedId = shedId) else current
-        }
-        recomputeSubmitGate()
-    }
 
     private fun onSelectPriority(priority: String) {
         if (!beginEdit()) return
@@ -287,6 +322,19 @@ class ShiftingViewModel @Inject constructor(
         if (category !in ALLOWED_CATEGORIES) return
         _state.update { it.copy(category = category) }
         recomputeSubmitGate()
+    }
+
+    /**
+     * The optional raise note. Deliberately NOT followed by recomputeSubmitGate(): the comment can
+     * never make a movement submittable or block one, so re-running the gate on every keystroke
+     * would be work that cannot change its answer.
+     *
+     * Capped at the server's limit so an over-long note is stopped while the operator is still
+     * typing, instead of being accepted here and rejected as comment_too_long after they submit.
+     */
+    private fun onEditComment(value: String) {
+        if (!beginEdit()) return
+        _state.update { it.copy(comment = value.take(MAX_COMMENT_LENGTH)) }
     }
 
     // -----------------------------------------------------------------------
@@ -338,8 +386,13 @@ class ShiftingViewModel @Inject constructor(
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
+        destinationPartitionLabel = destinationPartitionLabel,
         priority = priority,
         category = category,
+        // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
+        // and sending "" for one of them would change the request fingerprint of an otherwise
+        // identical resubmission.
+        comment = comment.trim().ifBlank { null },
         // A list of exactly one: the contract's shape is a list and the client does not narrow a
         // server contract it does not own.
         goatIds = listOfNotNull(selectedAnimal?.goatId),
@@ -355,12 +408,41 @@ class ShiftingViewModel @Inject constructor(
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
                 .collect { item ->
                     item ?: return@collect
-                    _state.update {
-                        it.copy(result = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE))
+                    val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
+                    // Once the movement is server-confirmed (synced), auto-clear the form for the next
+                    // one and show a transient confirmation, instead of leaving the previous animal's
+                    // values on a locked form. A still-syncing (queued) or terminally-rejected (failed)
+                    // write keeps its banner and values.
+                    if (writeResult.status == CountsWriteStatus.SYNCED) {
+                        resetForNextEntry(confirmation = writeResult.message)
+                        return@collect
                     }
+                    _state.update { it.copy(result = writeResult) }
                     recomputeSubmitGate()
                 }
         }
+    }
+
+    /**
+     * Clears the form for the next movement after a server-confirmed sync. [confirmation] is shown as
+     * a transient success banner above the fresh form. The committed row is durable in the outbox and
+     * syncs on its own, so we drop only THIS ViewModel's references to it and mint a fresh idempotency
+     * key for the next movement, while KEEPING the cached destination catalog so the form stays usable.
+     */
+    private fun resetForNextEntry(confirmation: String?) {
+        statusJob?.cancel()
+        statusJob = null
+        idempotencyKey.invalidate()
+        outboxItemId.value = null
+        _state.update { current ->
+            ShiftingUiState(
+                destinationParks = current.destinationParks,
+                lastRecordedMessage = null,
+                returnToActions = true,
+                submissionNotice = confirmation,
+            )
+        }
+        recomputeSubmitGate()
     }
 
     private fun recomputeSubmitGate() {
@@ -382,8 +464,13 @@ class ShiftingViewModel @Inject constructor(
         // the backend is certain to reject with `missing_goat_ids` — durable in the outbox,
         // terminal on first dispatch, and only visible as a failure long after they walked away
         // from the shed.
-        if (state.selectedAnimal == null) return "Find and select the animal that moved."
-        if (state.destinationParkId.isBlank()) return "Choose the farm the animal moved to."
+        val animal = state.selectedAnimal ?: return "Find and select the animal that moved."
+        if (!animal.lifecycleStatus.equals("alive", ignoreCase = true)) {
+            return INELIGIBLE_ANIMAL_MESSAGE
+        }
+        if (animal.parkId.isBlank() || state.destinationParkId != animal.parkId) {
+            return "This animal's current farm is unavailable. Refresh and try again."
+        }
         if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
         return null
     }
@@ -395,10 +482,18 @@ class ShiftingViewModel @Inject constructor(
         const val SYNCED_MESSAGE = "Movement submitted for review."
 
         const val NO_MATCH_MESSAGE = "No live animal matches that tag. Check the tag and try again."
+        const val INELIGIBLE_ANIMAL_MESSAGE = "This animal is no longer active and cannot be shifted."
         const val LOOKUP_FAILED_MESSAGE =
             "Couldn't search for animals. Check your connection and try again."
         const val DESTINATIONS_FAILED_MESSAGE =
             "Couldn't load the list of farms and sheds. Check your connection and try again."
+
+        /**
+         * Mirrors the server's comment bound (maxShiftingCommentRunes / the
+         * shifting_events_raise_comment_length_check constraint). Kept in sync deliberately: the
+         * client stops the operator at the same length the server would reject.
+         */
+        const val MAX_COMMENT_LENGTH = 1000
 
         /** Mirrors the two options the screen renders; a value outside it is never stored. */
         val ALLOWED_PRIORITIES = setOf(SHIFTING_PRIORITY_HIGH, SHIFTING_PRIORITY_LOW)
@@ -425,9 +520,12 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     goatId = goatId,
     displayId = displayId.ifBlank { animalIdentifier1 },
     tag = animalIdentifier1,
+    parkId = locationPath.parkId.orEmpty(),
+    shedId = locationPath.shedId.orEmpty(),
     parkName = locationPath.parkName.orEmpty(),
     shedName = locationPath.shedName.orEmpty(),
-    locationLabel = locationPath.display,
+    partitionLabel = locationPath.partitionLabel,
+    locationLabel = locationPath.operationalLocationDisplay,
     // Carried for the death target (Birth/Death screen): the write sends this row_version verbatim
     // and the confirmation card shows sex + status. Shifting ignores all three.
     rowVersion = rowVersion,
@@ -435,9 +533,33 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     lifecycleStatus = lifecycleStatus,
 )
 
-/** Wire catalog -> dropdown vocabulary. Both levels keep their ids: names are display only. */
+internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
+    lifecycleStatus.equals("alive", ignoreCase = true) &&
+        !locationPath.parkId.isNullOrBlank() &&
+        !locationPath.shedId.isNullOrBlank()
+
+/**
+ * Wire catalog -> dropdown vocabulary. Both levels keep their ids: names are display only.
+ *
+ * The backend emits one [CountsDestinationShedDto] row per selectable OPERATIONAL LOCATION — one
+ * row per partition for a partitioned shed, one row (null `partition_label`) for a shed with none.
+ * This mapping is a straight pass-through of that shape; it never invents or collapses rows.
+ */
 internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = ShiftingParkUi(
     parkId = parkId,
     name = name,
-    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name) },
+    sheds = sheds.map {
+        ShiftingShedUi(
+            shedId = it.shedId,
+            // `name` IS the dropdown label the screen renders, so it must carry the
+            // backend-composed display -- a partitioned shed's bare name repeats once per
+            // partition ("Godel 1" three times) and the operator cannot tell them apart.
+            // Falls back to name for legacy API responses that omit the display field.
+            // operationalLocationDisplay is also passed through for callers that want the
+            // raw parts; the two are deliberately the same string here.
+            name = it.operationalLocationDisplay.ifBlank { it.name },
+            partitionLabel = it.partitionLabel,
+            operationalLocationDisplay = it.operationalLocationDisplay,
+        )
+    },
 )

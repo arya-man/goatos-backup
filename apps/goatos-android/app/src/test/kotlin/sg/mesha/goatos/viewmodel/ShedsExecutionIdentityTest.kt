@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -18,16 +19,48 @@ class ShedsExecutionIdentityTest {
         val gandhiOne = executionCardId("shed-gandhi-1", "task-park", "batch-park", "drive-park")
         val gandhiTwo = executionCardId("shed-gandhi-2", "task-park", "batch-park", "drive-park")
 
-        assertEquals("shed:shed-gandhi-1|task:task-park", gandhiOne)
+        assertEquals("shed:shed-gandhi-1|partition:whole|task:task-park", gandhiOne)
         assertEquals(gandhiOne, executionCardId("shed-gandhi-1", "task-park", "batch-park", "drive-park"))
         assertNotEquals(gandhiOne, gandhiTwo)
     }
 
     @Test
     fun `shed key falls back through batch drive and shed identity`() {
-        assertEquals("shed:shed-1|batch:batch-1", executionCardId("shed-1", null, "batch-1", "drive-1"))
-        assertEquals("shed:shed-1|drive:drive-1", executionCardId("shed-1", null, null, "drive-1"))
-        assertEquals("shed:shed-1", executionCardId("shed-1", null, null, null))
+        assertEquals("shed:shed-1|partition:whole|batch:batch-1", executionCardId("shed-1", null, "batch-1", "drive-1"))
+        assertEquals("shed:shed-1|partition:whole|drive:drive-1", executionCardId("shed-1", null, null, "drive-1"))
+        assertEquals("shed:shed-1|partition:whole", executionCardId("shed-1", null, null, null))
+    }
+
+    @Test
+    fun `sibling partitions under one shed produce distinct card keys`() {
+        val part1 = executionCardId("shed-castro", "task-a", "batch-a", null, "Part 1")
+        val part2 = executionCardId("shed-castro", "task-a", "batch-a", null, "2")
+
+        assertEquals("shed:shed-castro|partition:1|task:task-a", part1)
+        assertEquals("shed:shed-castro|partition:2|task:task-a", part2)
+        assertNotEquals(part1, part2)
+    }
+
+    @Test
+    fun `execution card key ignores backend row metadata splits`() {
+        val bluetongue = VaccinationExecutionRowDto(
+            shedId = "shed-84",
+            partitionLabel = "1",
+            batchId = "batch-drive",
+            driveId = "drive-aug",
+            sopTaskId = "task-bt-sp",
+            sopVersionId = "sop-v1",
+            sopTaskRowVersion = 11,
+            driveName = "Bluetongue",
+        )
+        val sheeppox = bluetongue.copy(
+            sopVersionId = "sop-v2",
+            sopTaskRowVersion = 13,
+            driveName = "Sheeppox",
+        )
+
+        assertEquals("shed:shed-84|partition:1|task:task-bt-sp", bluetongue.executionCardId())
+        assertEquals(bluetongue.executionCardId(), sheeppox.executionCardId())
     }
 
     @Test
@@ -48,16 +81,16 @@ class ShedsExecutionIdentityTest {
 
         assertEquals(324, summary?.expectedCount)
         assertEquals(114, summary?.submittedCount)
-        assertEquals(114, summary?.acceptedCount)
-        assertEquals(35, summary?.acceptedPercent)
+        assertEquals(0, summary?.acceptedCount)
+        assertEquals(0, summary?.acceptedPercent)
     }
 
     @Test
-    fun `overview adherence keeps selected drive rows and excludes unrelated completed history`() {
+    fun `overview adherence uses selected day rows and excludes prior completed history`() {
         val rows = listOf(
             VaccinationExecutionRowDto(
                 batchId = "drive-current",
-                currentAssignmentDate = "2026-07-24",
+                dueDate = "2026-07-24",
                 targetCount = 114,
                 openCount = 0,
                 doneCount = 114,
@@ -65,21 +98,21 @@ class ShedsExecutionIdentityTest {
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-current",
-                currentAssignmentDate = "2026-07-25",
+                dueDate = "2026-07-25",
                 targetCount = 210,
                 openCount = 210,
                 doneCount = 0,
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-future",
-                currentAssignmentDate = "2026-07-26",
+                dueDate = "2026-07-26",
                 targetCount = 324,
                 openCount = 324,
                 doneCount = 0,
             ),
             VaccinationExecutionRowDto(
                 batchId = "drive-old",
-                currentAssignmentDate = "2026-07-24",
+                dueDate = "2026-07-24",
                 targetCount = 438,
                 openCount = 0,
                 doneCount = 438,
@@ -88,12 +121,90 @@ class ShedsExecutionIdentityTest {
         )
 
         val selectedDayRows = rows.filter { it.currentScheduleDate == "2026-07-25" }
-        val counts = executionCounts(adherenceWindowRows(rows, selectedDayRows, LocalDate.parse("2026-07-25")))
+        val counts = executionCounts(selectedDayRows)
         val summary = protocolAdherenceSummary(counts)
 
-        assertEquals(ExecutionCounts(target = 324, open = 210, done = 114), counts)
-        assertEquals(324, summary?.expectedCount)
-        assertEquals(114, summary?.submittedCount)
+        assertEquals(ExecutionCounts(target = 210, open = 210, done = 0), counts)
+        assertEquals(210, summary?.expectedCount)
+        assertEquals(0, summary?.submittedCount)
+    }
+
+    @Test
+    fun `overview adherence separates submitted review overdue and accepted states`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 32,
+                openCount = 0,
+                doneCount = 32,
+                sopStatus = "needs_review",
+                workState = "verification_pending",
+                dueDate = "2000-01-01",
+            ),
+            VaccinationExecutionRowDto(
+                targetCount = 11,
+                openCount = 0,
+                doneCount = 11,
+                sopStatus = "accepted",
+                workState = "closed",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(rows)
+
+        assertEquals(43, summary?.expectedCount)
+        assertEquals(43, summary?.submittedCount)
+        assertEquals(11, summary?.acceptedCount)
+        assertEquals(1, summary?.reviewItemCount)
+        // Submitted-and-awaiting-verification is NOT overdue, even with a long-past dueDate.
+        // The row is already counted once as review; counting it again as overdue is the same
+        // double-count that painted "In review" + "Overdue" together on the shed card.
+        assertEquals(0, summary?.overdueItemCount)
+        assertEquals(25, summary?.acceptedPercent)
+    }
+
+    @Test
+    fun `overview adherence uses explicit accepted animals for mixed review shed rows`() {
+        val rows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 70,
+                openCount = 0,
+                doneCount = 70,
+                acceptedCount = 50,
+                reviewCount = 20,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+
+        val summary = protocolAdherenceSummary(rows)
+
+        assertEquals(70, summary?.expectedCount)
+        assertEquals(70, summary?.submittedCount)
+        assertEquals(50, summary?.acceptedCount)
+        assertEquals(1, summary?.reviewItemCount)
+        assertEquals(71, summary?.acceptedPercent)
+    }
+
+    @Test
+    fun `overview adherence marks multi page data incomplete instead of presenting page totals as final`() {
+        val firstPageRows = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 20,
+                openCount = 10,
+                doneCount = 10,
+                acceptedCount = 8,
+                reviewCount = 2,
+                workState = "verification_pending",
+                sopStatus = "submitted",
+            ),
+        )
+        val summary = protocolAdherenceSummary(
+            rows = firstPageRows,
+            counts = executionCounts(firstPageRows),
+            isComplete = false,
+        )
+
+        assertEquals(false, summary?.isComplete)
     }
 
     @Test
@@ -113,6 +224,37 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `all animals scanned but unsubmitted shed is not green done`() {
+        val scannedButDraft = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "in_progress",
+                primaryActionKey = "submit",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(scannedButDraft))
+    }
+
+    @Test
+    fun `accepted shed is green done`() {
+        val accepted = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "closed",
+                sopStatus = "accepted",
+            ),
+        )
+
+        assertEquals(ShedStatus.DONE, shedStatusForRows(accepted))
+    }
+
+    @Test
     fun `submitted shed opens record only`() {
         val submitted = listOf(
             VaccinationExecutionRowDto(
@@ -125,6 +267,24 @@ class ShedsExecutionIdentityTest {
         )
 
         assertTrue(submitted.opensSubmittedRecordOnly())
+    }
+
+    @Test
+    fun `verification pending shed is in review and opens record only`() {
+        val inReview = listOf(
+            VaccinationExecutionRowDto(
+                targetCount = 3,
+                openCount = 0,
+                doneCount = 3,
+                workState = "in_progress",
+                proofStatus = "uploaded",
+                verificationStatus = "pending",
+                sopStatus = "draft",
+            ),
+        )
+
+        assertEquals(ShedStatus.PENDING, shedStatusForRows(inReview))
+        assertTrue(inReview.opensSubmittedRecordOnly())
     }
 
     @Test
@@ -151,10 +311,9 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
-    fun `execution schedule date prefers backend current assignment date over legacy due date`() {
+    fun `execution schedule date uses OpenAPI dueDate field`() {
         val row = VaccinationExecutionRowDto(
-            currentAssignmentDate = "2026-08-03",
-            dueDate = "2026-07-30",
+            dueDate = "2026-08-03",
         )
 
         assertEquals("2026-08-03", row.currentScheduleDate)

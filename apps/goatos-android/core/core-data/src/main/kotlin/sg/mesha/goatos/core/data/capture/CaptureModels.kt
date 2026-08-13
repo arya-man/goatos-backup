@@ -16,6 +16,51 @@ const val ROSTER_SCAN_FIELD_KEY = "__scan_roster__"
  *  (module boundary: `feature-*`/`:app` -> `core-*`, never straight to Room). */
 enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 
+enum class ProofProcessingStatus(val wireValue: String, val operatorLabel: String) {
+    PREPARING("preparing", "Compressing proof..."),
+    COMPRESSING("compressing", "Compressing proof..."),
+    UPLOADING("uploading", "Uploading proof..."),
+    UPLOADING_ORIGINAL("uploading_original", "Uploading original proof..."),
+    UPLOADED("uploaded", "Proof uploaded"),
+    RETRYING("retrying", "Upload failed. Retrying"),
+    RETRYING_ORIGINAL("retrying_original", "Retrying original proof upload..."),
+    RECORD_AGAIN("record_again", "Record again"),
+    ;
+
+    companion object {
+        fun fromProcessingState(
+            processingState: String?,
+            syncStatus: CaptureSyncStatus,
+            uploadOriginal: Boolean,
+        ): ProofProcessingStatus {
+            if (syncStatus == CaptureSyncStatus.SYNCED) return UPLOADED
+            if (syncStatus == CaptureSyncStatus.FAILED) return if (uploadOriginal) RETRYING_ORIGINAL else RETRYING
+
+            return when (processingState) {
+                "LOCATION_RESOLVING",
+                "CAPTURED_ORIGINAL" -> PREPARING
+                "PROCESSING_MEDIA" -> COMPRESSING
+                "PROCESSED",
+                "REGISTERING_UPLOAD",
+                "UPLOADING" -> if (uploadOriginal) UPLOADING_ORIGINAL else UPLOADING
+                "UPLOAD_CONFIRMED",
+                "ATTACHED_TO_SUBMISSION" -> UPLOADED
+                "PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED" -> UPLOADING_ORIGINAL
+                "REGISTER_FAILED_RETRYING",
+                "UPLOAD_FAILED_RETRYING" -> RETRYING
+                "UPLOAD_ORIGINAL_FAILED_RETRYING" -> RETRYING_ORIGINAL
+                "DEAD_LETTER" -> RECORD_AGAIN
+                else -> when (syncStatus) {
+                    CaptureSyncStatus.PENDING,
+                    CaptureSyncStatus.IN_FLIGHT -> if (uploadOriginal) UPLOADING_ORIGINAL else UPLOADING
+                    CaptureSyncStatus.SYNCED -> UPLOADED
+                    CaptureSyncStatus.FAILED -> if (uploadOriginal) RETRYING_ORIGINAL else RETRYING
+                }
+            }
+        }
+    }
+}
+
 /** One de-duplicated RFID scan captured for a task's `goat_scan` recording-form field. */
 data class ScannedGoatRow(
     val fieldKey: String,
@@ -23,6 +68,16 @@ data class ScannedGoatRow(
     val goatId: String?,
     val obligationId: String?,
     val capturedAtMs: Long,
+    /**
+     * Whether this capture reached the backend. Room is the SSOT for the CAPTURE, never for the
+     * OBLIGATION: a SYNCED capture whose obligation the server still reports open (a verifier
+     * rejected the proof and it reopened) is a STALE done-marker, while a PENDING/IN_FLIGHT one is
+     * a legitimate offline scan the server has not seen. Conflating them either lies about
+     * completion or breaks offline scanning.
+     */
+    val syncStatus: CaptureSyncStatus = CaptureSyncStatus.PENDING,
+    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    val partitionKey: String = "whole",
 )
 
 enum class RfidScanAttemptOutcome(val wireValue: String) {
@@ -58,8 +113,10 @@ data class RfidScanAttemptRow(
 enum class ProofSubject(val wireValue: String) {
     GOAT("goat"),
     SHED("shed"),
+    PARK("park"),
     VIAL_LOT("vial_lot"),
     ADMINISTRATION("administration"),
+    OTHER("other"),
     EXTRA("extra"),
     ;
 
@@ -76,8 +133,11 @@ data class ProofCaptureRow(
     /** The goat whose single handling this clip proves. Multiple clips may share this id. */
     val subjectId: String? = null,
     val localUri: String,
+    val processedUri: String? = null,
     val mimeType: String,
     val caption: String?,
+    /** Human-readable RFID/tag for individual-animal proof matching and overlay display. */
+    val rfidTag: String? = null,
     val capturedAtMs: Long,
     /** Freshness/anti-fraud metadata — see `ProofCaptureEntity`'s kdoc ("Camera-only capture"). */
     val capturedStartMs: Long,
@@ -85,7 +145,24 @@ data class ProofCaptureRow(
     val capturedByPrincipalId: String?,
     val syncStatus: CaptureSyncStatus,
     val serverProofId: String?,
+    val outboxItemId: String? = null,
     val lastError: String?,
+    /** Normalized operational partition identity (`whole` for an unpartitioned shed). */
+    val partitionKey: String = "whole",
+    val featureSurface: String? = null,
+    val proofMode: String? = null,
+    val slotIndex: Int? = null,
+    val slotRequired: Boolean = false,
+    val processingState: String = "CAPTURED_ORIGINAL",
+    val processingAttempted: Boolean = false,
+    val stateAttempt: Int = 0,
+    val uploadOriginal: Boolean = false,
+    val originalBytes: Long? = null,
+    val processedBytes: Long? = null,
+    val lastErrorStage: String? = null,
+    val lastErrorClass: String? = null,
 ) {
     val durationMs: Long get() = (capturedEndMs - capturedStartMs).coerceAtLeast(0)
+    val processingStatus: ProofProcessingStatus
+        get() = ProofProcessingStatus.fromProcessingState(processingState, syncStatus, uploadOriginal)
 }

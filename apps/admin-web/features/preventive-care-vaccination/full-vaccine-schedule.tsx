@@ -16,7 +16,9 @@ import { ClipText, Tag } from "@/components/ui-primitives";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
+import { HashSectionScroller } from "./hash-section-scroller";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
+import { hasOperationalPartition } from "@/lib/operational-location";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -82,7 +84,7 @@ function dateEyebrow(date: string): string {
 
 function partitionLabel(pageContract: AdminUiPageContract, label: string): string {
   const trimmed = label.trim();
-  if (!trimmed) return copy(pageContract, "schedule.partition.whole_shed");
+  if (!hasOperationalPartition(trimmed)) return copy(pageContract, "schedule.partition.whole_shed");
   return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
 }
 
@@ -137,7 +139,12 @@ function scheduleMoveRedirect(returnTo: string, params: Record<string, string>):
   return `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`;
 }
 
-function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope): ScheduleDrawerRow[] {
+function executionPartitionLabel(shed: OperatorDayScheduleRow["sheds"][number]): string | undefined {
+  const realPartitions = Array.from(new Set(shed.partitions.map((partition) => partition.label.trim()).filter(hasOperationalPartition)));
+  return realPartitions.length === 1 ? realPartitions[0] : undefined;
+}
+
+function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope, closeHref: string): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
     date: row.plannedDate,
@@ -146,8 +153,15 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
     totalAnimals: row.animals,
     vaccines: row.vaccineNames,
     sheds: row.sheds.map((shed) => {
+      const ret = scheduleDrawerHref(closeHref, row);
+      const partition = executionPartitionLabel(shed);
       const href = shed.id
-        ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`, scope, { mode: "park", park: row.parkId })
+        ? scopeHref(
+            `/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`,
+            scope,
+            { mode: "park", park: row.parkId },
+            { partition_label: partition, ret },
+          )
         : undefined;
       return {
         label: shedPartitionTitle(pageContract, shed),
@@ -319,7 +333,11 @@ async function postponeDriveDateAction(formData: FormData) {
   redirect(scheduleMoveRedirect(returnTo, {
     schedule_move_result: "recorded",
     schedule_move_vaccine: vaccineCode,
-    schedule_move_date: overrideDate,
+    schedule_move_requested_date: result.data.requested_override_date || overrideDate,
+    schedule_move_date: result.data.applied_override_date || result.data.override_date || overrideDate,
+    schedule_move_shifted: result.data.auto_shifted ? "1" : "0",
+    schedule_move_conflict_vaccine: result.data.conflicting_vaccine_label || result.data.conflicting_vaccine_code || "",
+    schedule_move_conflict_date: result.data.conflicting_date || "",
   }));
 }
 
@@ -343,6 +361,7 @@ export function VaccinationFullScheduleSkeleton({
 }) {
   return (
     <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }} aria-busy="true">
+      <HashSectionScroller id="full-schedule" />
       <div className="hd vaccination-schedule-hd">
         <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <div style={{ minWidth: 0 }}>
@@ -420,7 +439,11 @@ export async function VaccinationFullSchedule({
   const scheduleMoveStatus = one(searchParams ?? {}, "schedule_move_result");
   const scheduleMoveVaccine = one(searchParams ?? {}, "schedule_move_vaccine");
   const scheduleMoveDate = one(searchParams ?? {}, "schedule_move_date");
-  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
+  const scheduleMoveRequestedDate = one(searchParams ?? {}, "schedule_move_requested_date");
+  const scheduleMoveShifted = one(searchParams ?? {}, "schedule_move_shifted") === "1";
+  const scheduleMoveConflictVaccine = one(searchParams ?? {}, "schedule_move_conflict_vaccine");
+  const scheduleMoveConflictDate = one(searchParams ?? {}, "schedule_move_conflict_date");
+  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope, closeHref);
   const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
   function monthHref(nextYear: number, nextMonth: number) {
@@ -429,6 +452,7 @@ export async function VaccinationFullSchedule({
 
   return (
     <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }}>
+      <HashSectionScroller id="full-schedule" />
       <div className="hd vaccination-schedule-hd">
         <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <div style={{ minWidth: 0 }}>
@@ -487,7 +511,9 @@ export async function VaccinationFullSchedule({
           <b>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_title" : scheduleMoveStatus === "missing" ? "schedule.move.missing_title" : "schedule.move.error_title")}</b>
           <span>
             {scheduleMoveStatus === "recorded" && scheduleMoveVaccine && scheduleMoveDate
-              ? `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
+              ? scheduleMoveShifted && scheduleMoveRequestedDate
+                ? `Requested ${fmtDate(scheduleMoveRequestedDate)}; scheduled ${fmtDate(scheduleMoveDate)} due to vaccine spacing.${scheduleMoveConflictVaccine && scheduleMoveConflictDate ? ` Too close to ${scheduleMoveConflictVaccine} on ${fmtDate(scheduleMoveConflictDate)}.` : ""}`
+                : `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
               : copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_body" : scheduleMoveStatus === "missing" ? "schedule.move.missing_body" : "schedule.move.error_body")}
           </span>
         </div>

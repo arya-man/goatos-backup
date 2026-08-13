@@ -3,10 +3,11 @@ import { Filter, Users } from "lucide-react";
 
 import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
 import { dash } from "@/lib/format";
-import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getCountsBreakdown,
+  listAnimalStages,
   type CountsBreakdownResponse,
   type CountsBreakdownSeriesPoint,
 } from "@/lib/api/server";
@@ -19,7 +20,10 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import { CountsBreakdownTable } from "./counts-breakdown-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
+import { ShedStageDrawer, type PenOption, type StageOption } from "./shed-stage-drawer";
+import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -40,6 +44,17 @@ import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 
 const PAGE_PATH = "/counts/breakdown";
 const DEFAULT_PAGE_SIZE = 10;
+
+type FeedConfigPenOptionItem = {
+  shed_id: string;
+  partition_label?: string | null;
+  operational_location_display: string;
+};
+
+type AnimalStageOptionItem = {
+  stage_code: string;
+  name?: string | null;
+};
 
 function toBarData(points: CountsBreakdownSeriesPoint[], fallbackLabel: string): SvgBarDatum[] {
   return points.map((point) => ({
@@ -63,10 +78,14 @@ export async function CountsBreakdownPage({
   const { parkId } = backendScope(scope);
 
   const farmParkId = one(sp, "bd_farm");
-  const shedId = one(sp, "bd_shed");
+  const shedIdParam = one(sp, "bd_shed");
   const stage = one(sp, "bd_stage");
   const breed = one(sp, "bd_breed");
   const sex = one(sp, "bd_sex");
+
+  // Parse shed_id and partition_label from the shed filter parameter.
+  // The filter value may be "shed_id" (non-partitioned) or "shed_id|partition_label" (partitioned).
+  const [shedId, partitionLabel] = shedIdParam ? shedIdParam.split("|") : ["", ""];
 
   const pageSizeOptions = tablePageSizes(pageContract, "detail-breakdown");
   const requestedLimit = Number(one(sp, "bd_limit"));
@@ -78,15 +97,28 @@ export async function CountsBreakdownPage({
   // One round trip for the whole screen: rows, totals, all four chart series and the filter
   // facets (including the park-scoped shed vocabulary) come back together, so there is no
   // per-chart fan-out and no serial await.
-  const breakdownResult = await getCountsBreakdown({
-    park_id: parkId || farmParkId,
-    shed_id: shedId,
-    management_stage: stage,
-    breed,
-    sex,
-    limit: pageSize,
-    offset: (requestedPage - 1) * pageSize,
-  });
+  //
+  // The stage-change picker's two vocabularies ride along in the SAME fan-out rather than a serial
+  // await: neither depends on the breakdown, and both are small tenant reference sets.
+  //
+  // Pens come from the partition CATALOG (feed-config pens reads locations x shed_partitions), not
+  // from `breakdown.facets.sheds`. That is the write-picker rule: facets answer "where animals
+  // currently are", and a real pen holding zero animals would silently vanish from a picker built
+  // on them -- while remaining a perfectly valid place to retag when animals arrive.
+  const [breakdownResult, penResult, stageResult] = await Promise.all([
+    getCountsBreakdown({
+      park_id: parkId || farmParkId,
+      shed_id: shedId,
+      partition_label: partitionLabel || undefined,
+      management_stage: stage,
+      breed,
+      sex,
+      limit: pageSize,
+      offset: (requestedPage - 1) * pageSize,
+    }),
+    listAllFeedConfigPens(),
+    listAnimalStages(),
+  ]);
 
   const authError = firstAuthRequiredError(breakdownResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -102,6 +134,9 @@ export async function CountsBreakdownPage({
   const emptyChartLabel = copy(pageContract, "chart.empty");
   const animalsNoun = copy(pageContract, "label.animals_noun");
 
+  // The compiled table contract drives the whole table: column keys, labels, visibility and which
+  // headers are sortable. `cols` remains only for the footer's colSpan.
+  const breakdownTable = table(pageContract, "detail-breakdown");
   const cols = tableLabels(pageContract, "detail-breakdown");
 
   // True when the herd carries no recorded stage at all (every animal blank), which makes both
@@ -113,6 +148,13 @@ export async function CountsBreakdownPage({
   // otherwise the in-body Farm filter. When a park is selected only that park's sheds show,
   // mirroring the park facet (and the Android CountsViewModel, which narrows sheds by parkId).
   const selectedParkId = parkId || farmParkId || "";
+
+  // park_id -> park code, from this response's own park facet.
+  const parkLabelsById = new Map(
+    (breakdown?.facets.parks ?? [])
+      .filter((point) => point.key && point.label)
+      .map((point) => [point.key, point.label] as const),
+  );
 
   // Filter vocabularies come from the response's own facets so an option can never match zero
   // rows. Sheds specifically use `facets.sheds` (the backend's live-herd, park-scoped shed
@@ -159,8 +201,18 @@ export async function CountsBreakdownPage({
     {
       param: "bd_shed",
       label: copy(pageContract, "filter.shed_label"),
-      value: shedId ?? "",
-      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId),
+      // The COMPOSITE "<shed_id>|<partition_label>" is the option value, so the control must be
+      // set to the composite too. Using the bare shedId meant no <option> matched when a partition
+      // was chosen and the native <select> silently fell back to showing "All" -- the table was
+      // correctly filtered while the dropdown claimed nothing was selected. The split into
+      // shedId/partitionLabel for the API call happens separately above.
+      value: shedIdParam ?? "",
+      // The park vocabulary is handed over so same-named sheds can be told apart. `park_label` on
+      // the shed facet is a field nothing has ever filled — the Go struct and the OpenAPI schema
+      // both lack it — so without this the disambiguation was dead code and the dropdown listed
+      // "Castro" twice, "Mandela 1 - Part 3" twice, and so on. `facets.parks` is keyed by park id
+      // and labelled with the park code, in the SAME response, so no extra read is involved.
+      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId, parkLabelsById),
     },
     {
       param: "bd_sex",
@@ -226,6 +278,32 @@ export async function CountsBreakdownPage({
   const totalAdults = breakdown?.total_adults ?? 0;
   const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
+  // Keyed by shed_id + partition, never by shed NAME: 66 of 154 shed names exist in both parks, so
+  // a name key would merge two different buildings into one picker row. The label is the backend's
+  // own `operational_location_display`, prefixed with the park for the duplicate-name case -- this
+  // does NOT recompose the location, it only disambiguates two pens that legitimately render the
+  // same string.
+  const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen: FeedConfigPenOptionItem) => ({
+    key: `${pen.shed_id}|${pen.partition_label ?? ""}`,
+    shedId: pen.shed_id,
+    partitionLabel: pen.partition_label ?? "",
+    label: pen.operational_location_display,
+  }));
+
+  // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
+  // and `stage_code` is what the write sends.
+  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : []).map((item: AnimalStageOptionItem) => ({
+    code: item.stage_code,
+    label: item.name || item.stage_code,
+  }));
+
+  // Authority is the backend's answer, read off the compiled control. A principal without
+  // goat.reclassify_shed_stage gets a DISABLED button carrying the backend's reason, not a missing
+  // one -- and the routes require the same permission, so the button is the honest label, not the
+  // lock.
+  const stageChangeEnabled = controlEnabled(pageContract, "change_shed_stage", false);
+  const stageChangeReason = control(pageContract, "change_shed_stage").disabled_reason ?? "";
+
   return (
     <div className="screen on">
       <div className="phead">
@@ -236,6 +314,13 @@ export async function CountsBreakdownPage({
           <h1>{pageContract.title}</h1>
         </div>
         <div className="sp" style={{ flex: 1 }} />
+        <ShedStageDrawer
+          pageContract={pageContract}
+          pens={penOptions}
+          stages={stageOptions}
+          enabled={stageChangeEnabled}
+          disabledReason={stageChangeReason}
+        />
       </div>
 
       {/* An API failure surfaces as a visible error band, never as an empty table that reads
@@ -290,55 +375,40 @@ export async function CountsBreakdownPage({
           role="group"
           aria-label={copy(pageContract, "section.breakdown.aria")}
         >
-          <table className="counts-breakdown-table" aria-label={copy(pageContract, "table.breakdown.aria")}>
-            <thead>
-              <tr>
-                {cols.map((col, index) => (
-                  <th key={col} style={index === cols.length - 1 ? { textAlign: "right" } : undefined}>
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {breakdownResult.ok
-                        ? hasFilter
-                          ? copy(pageContract, "empty.breakdown_filtered")
-                          : copy(pageContract, "empty.breakdown")
-                        : copy(pageContract, "state.breakdown_unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr
-                    key={`${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`}
-                  >
-                    <td className="muted">{row.park_label || noParkLabel}</td>
-                    <td>{row.management_stage || noStageLabel}</td>
-                    <td>{row.breed || noBreedLabel}</td>
-                    <td>{row.sex}</td>
-                    <td className="muted">{row.shed_label || noShedLabel}</td>
-                    <td style={{ textAlign: "right", fontWeight: 700, color: "var(--brand-d)" }}>{row.count}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {breakdown ? (
-              <tfoot>
+          {/* Headless table: TanStack owns the column model and the page-local sort; the markup
+              stays the mock's plain table. Column keys, labels and which headers carry a sort
+              affordance all come from the compiled contract, so this page declares no local
+              column list. */}
+          <CountsBreakdownTable
+            contract={breakdownTable}
+            rows={rows}
+            ariaLabel={copy(pageContract, "table.breakdown.aria")}
+            noParkLabel={noParkLabel}
+            noStageLabel={noStageLabel}
+            noBreedLabel={noBreedLabel}
+            noShedLabel={noShedLabel}
+            empty={
+              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                {breakdownResult.ok
+                  ? hasFilter
+                    ? copy(pageContract, "empty.breakdown_filtered")
+                    : copy(pageContract, "empty.breakdown")
+                  : copy(pageContract, "state.breakdown_unavailable")}
+              </div>
+            }
+            footer={
+              breakdown ? (
                 <tr>
                   <th colSpan={cols.length - 1}>{copy(pageContract, "table.breakdown.total_row")}</th>
                   {/* Read from the response: this is the sum across ALL matching rows, not the
-                      page. Recomputing it from `rows` would silently report the page subtotal. */}
+                      page. Recomputing it from `rows` would silently report the page subtotal —
+                      and reordering the page cannot touch it, because it is not derived from
+                      the rows at all. */}
                   <th style={{ textAlign: "right", color: "var(--brand-d)" }}>{breakdown.total_count}</th>
                 </tr>
-              </tfoot>
-            ) : null}
-          </table>
+              ) : undefined
+            }
+          />
         </div>
         <VaccinationTablePager
           pageContract={pageContract}
@@ -370,12 +440,17 @@ export async function CountsBreakdownPage({
           <div className="chartcard" key={chart.id} style={{ cursor: "default" }}>
             <h4>{chart.title}</h4>
             <div className="cap">{chart.caption}</div>
+            {/* No maxBars: the series must PARTITION the herd, so the chart sums to the same total
+                the KPI above it reports. Truncating here would reintroduce the gap the backend cap
+                just lost (12 of 130 pens showed 560 of 1,670 animals). The scroll window bounds
+                what a reader SEES — ten bars stand, the rest scroll — which is a different job from
+                bounding what the number MEANS. */}
             <SvgBars
               data={chart.data}
               emptyLabel={emptyChartLabel}
               valueNoun={animalsNoun}
               chartLabel={chart.title}
-              maxBars={12}
+              maxBars={chart.data.length}
             />
           </div>
         ))}

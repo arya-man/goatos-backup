@@ -10,12 +10,35 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.common.OutboxTelemetryEvent
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTerminalReason
+import sg.mesha.goatos.core.common.OutboxWritePhase
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.appApiStatusCode
+import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationAnswersDto
+import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingProofsDto
+import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
+import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import sg.mesha.goatos.core.network.serverErrorText
+import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -70,11 +93,29 @@ class SyncEngine(
     private val backoff: BackoffPolicy = BackoffPolicy.Default,
     private val maxConcurrentGroups: Int = 3,
     private val retryScheduler: SyncRetryScheduler = SyncRetryScheduler.Noop,
+    private val scannedGoatDao: ScannedGoatDao? = null,
+    private val weighingObservationDao: WeighingObservationDao? = null,
+    private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    /**
+     * Lifecycle visibility for the queue itself. Defaults to
+     * [OutboxTelemetryReporter.Noop] so every existing test/fake construction keeps compiling;
+     * production wiring binds the reporting decorator in `:core:core-analytics`.
+     *
+     * Emitted HERE — the single place every queued write is claimed, attempted, backed off and
+     * terminalized — rather than at the ~30 `dispatch*` bodies or the ~30 `enqueue*` overloads,
+     * for the same reason the HTTP failure reporter lives in the interceptor: a per-call-site
+     * emit can be forgotten by the next feature someone writes; a seam cannot.
+     */
+    private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
     // eligibility fresh (so a just-enqueued item is never missed).
     private val drainMutex = Mutex()
+
+    suspend fun deleteProof(proofId: String) = withContext(dispatchers.io) {
+        api.deleteProof(proofId)
+    }
 
     /**
      * Drains every currently-eligible outbox row, in bounded [DRAIN_BATCH_SIZE] batches so a
@@ -108,6 +149,11 @@ class SyncEngine(
                 // IN_FLIGHT row is orphaned, not actively in-flight. Without this they would be
                 // excluded from eligibility forever (never retried, never dead-lettered).
                 store.reclaimInFlight(clock())
+                // Rebuild feature acceptance after a process dies between marking the outbox
+                // success and updating the feature database. This projection is idempotent.
+                store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
+                    .filter { it.status == "SUCCEEDED" }
+                    .forEach { reconcileFeatureSuccess(it) }
                 // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
                 // fails it backs off, so eligibleForDrain would still return that group's NEWER
                 // queued rows on the next batch fetch — dispatching them would post newer writes
@@ -163,9 +209,20 @@ class SyncEngine(
         // concurrent pass already claimed it) markInFlight is a no-op and we skip it — never
         // dispatch a row we didn't actually transition.
         if (!store.markInFlight(item.id, clock())) return true
+        report(
+            OutboxTelemetryEvent(
+                phase = OutboxWritePhase.ATTEMPT_STARTED,
+                opType = item.opType,
+                itemId = item.id,
+                attempt = item.attemptCount + 1,
+                maxAttempts = item.maxAttempts,
+            ),
+        )
         return try {
             val resultJson = dispatch(item)
-            store.markSucceeded(item.id, resultJson, clock())
+            if (store.markSucceeded(item.id, resultJson, clock())) {
+                reconcileFeatureSuccess(item)
+            }
             true
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -173,6 +230,20 @@ class SyncEngine(
             recordFailure(item, error)?.let(rememberRetryDue)
             false
         }
+    }
+
+    /** The operator-facing reason a queued write did not go through — server copy where the
+     *  server gave one, otherwise a plain sentence. Never a status line or exception name. */
+    private fun Throwable.outboxLastError(): String =
+        serverErrorText()?.display
+            ?: (this as? NonRetryableSyncException)?.message?.trim()?.takeIf { it.isNotBlank() }
+            ?: authAccessOutboxLastError()
+            ?: "This did not go through yet. It will be tried again."
+
+    private fun Throwable.authAccessOutboxLastError(): String? = when (appApiStatusCode()) {
+        401 -> "Your session expired. Sign in again, then retry this write."
+        403 -> "You do not have access for this write. Ask an admin to update your access, then retry."
+        else -> null
     }
 
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
@@ -187,14 +258,65 @@ class SyncEngine(
             attemptCount = attempt,
             nextAttemptAt = nextAttemptAt,
             conflict = conflict,
-            lastError = error.message ?: (error::class.simpleName ?: "sync_failed"),
+            // SubmitScreen renders this verbatim to the operator when the row lands in
+            // CONFLICT, so it must be the SERVER's own explanation of the refusal (message plus
+            // any named field problems), never the transport's status line. A rejection the
+            // server already explained arrives as NonRetryableSyncException carrying that copy.
+            lastError = error.outboxLastError(),
             now = clock(),
         )
+        // Report only what actually happened: a non-applied transition means another pass /
+        // a manual retry already moved the row, so claiming a failure here would be a lie.
+        if (applied) {
+            val failureClass = error.javaClass.simpleName
+            report(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.ATTEMPT_FAILED,
+                    opType = item.opType,
+                    itemId = item.id,
+                    attempt = attempt,
+                    maxAttempts = item.maxAttempts,
+                    failureClass = failureClass,
+                ),
+            )
+            report(
+                if (terminal) {
+                    OutboxTelemetryEvent(
+                        phase = OutboxWritePhase.TERMINAL,
+                        opType = item.opType,
+                        itemId = item.id,
+                        attempt = attempt,
+                        maxAttempts = item.maxAttempts,
+                        failureClass = failureClass,
+                        terminalReason = if (conflict) {
+                            OutboxTerminalReason.CONFLICT
+                        } else {
+                            OutboxTerminalReason.ATTEMPTS_EXHAUSTED
+                        },
+                    )
+                } else {
+                    OutboxTelemetryEvent(
+                        phase = OutboxWritePhase.RETRY_SCHEDULED,
+                        opType = item.opType,
+                        itemId = item.id,
+                        attempt = attempt,
+                        maxAttempts = item.maxAttempts,
+                        failureClass = failureClass,
+                        retryInMs = (nextAttemptAt - clock()).coerceAtLeast(0),
+                    )
+                },
+            )
+        }
         return if (applied && !terminal) {
             nextAttemptAt
         } else {
             null
         }
+    }
+
+    /** Telemetry is diagnostics, never control flow: a broken reporter must not fail a write. */
+    private fun report(event: OutboxTelemetryEvent) {
+        runCatching { telemetry.onOutboxWrite(event) }
     }
 
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new
@@ -218,6 +340,42 @@ class SyncEngine(
         OutboxOpType.COUNTS_DEATH -> dispatchCountsDeath(item)
         OutboxOpType.COUNTS_APPROVAL_APPROVE -> dispatchCountsApprovalApprove(item)
         OutboxOpType.COUNTS_APPROVAL_REJECT -> dispatchCountsApprovalReject(item)
+        OutboxOpType.SHIFTING_COMPLETE -> dispatchShiftingComplete(item)
+        OutboxOpType.SHIFTING_CANCEL -> dispatchShiftingCancel(item)
+        OutboxOpType.COUNTS_PROMOTE_IDENTIFIER -> dispatchPromoteIdentifier(item)
+        OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
+        OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
+        OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.MILK_PREPARATION_SUBMIT -> dispatchMilkPreparationSubmit(item)
+        OutboxOpType.MILK_FEEDING_SUBMIT -> dispatchMilkFeedingSubmit(item)
+        OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
+        OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
+        OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
+        OutboxOpType.HEALTH_CASE_OPEN -> dispatchHealthCaseOpen(item)
+        OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
+        OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
+        OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+    }
+
+    private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
+        when (OutboxOpType.valueOf(item.opType)) {
+            OutboxOpType.SCAN_CAPTURE -> {
+                val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
+                scannedGoatDao?.markFieldTagStatus(
+                    taskId = payload.taskId,
+                    partitionKey = payload.partitionKey,
+                    fieldKey = payload.request.fieldKey,
+                    tag = payload.request.tag,
+                    obligationId = payload.request.obligationId?.takeIf { it.isNotBlank() },
+                    status = CaptureSyncStatus.SYNCED.name,
+                )
+            }
+            OutboxOpType.WEIGHING_ANIMAL_OBSERVATION ->
+                weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SHED_OBSERVATION ->
+                weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            else -> Unit
+        }
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -409,7 +567,336 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * The Shifting EXECUTION "Mark done". Same idempotent-replay contract as every other `dispatch*`
+     * — the row's STORED key is passed through verbatim — and it matters as much here as for the
+     * approval decisions: this call RELOCATES the animals, so a replay under a fresh key would move
+     * them a second time. Under the stored key the backend returns the original relocation with
+     * `idempotent_replay=true` and moves nobody again. Completing a movement that is no longer
+     * authorized (already applied elsewhere, or cancelled) is a 400/409 — terminal by
+     * [recordFailure]'s `isTerminalAppApiError` check, so it surfaces to the operator instead of
+     * being retried against a state that will never change.
+     */
+    private suspend fun dispatchShiftingComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ShiftingCompletePayload>(item.payloadJson)
+        val response = api.completeCountsShiftingEvent(
+            payload.shiftingEventId,
+            item.idempotencyKey,
+            payload.destinationTag,
+            // The mandatory shifting video's proof_id; high-priority completions also resolve the
+            // two embedded feed videos below before sending one atomic completion command.
+            resolveShiftingProofRef(payload),
+            resolveOptionalShiftingProofRef(payload.feedPackingProofOutboxItemId, "feed-packing"),
+            resolveOptionalShiftingProofRef(payload.feedGivenProofOutboxItemId, "feeding"),
+            payload.feedConfigFingerprint,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * Resolves the uploaded proof_id for a shifting completion from its coupled PROOF_UPLOAD outbox
+     * row. Same-group ordering means that row has already drained to SUCCEEDED before this completion
+     * runs; if it has not (a rare concurrency edge, or a pre-upgrade row with no coupling), the
+     * completion is retried (plain exception -> non-conflict retry) until the video is uploaded. A
+     * missing coupling or a permanently-failed upload is terminal — a shed move without a verifiable
+     * video must not reach the backend.
+     */
+    private suspend fun resolveShiftingProofRef(payload: ShiftingCompletePayload): String {
+        val proofItemId = payload.proofOutboxItemId
+            ?: throw NonRetryableSyncException("Shifting completion is missing its mandatory video reference.")
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("The shifting video upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for the shifting video to finish uploading before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("The shifting video upload result is not yet available.")
+        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+        if (proofId.isBlank()) {
+            throw NonRetryableSyncException("The shifting video upload did not return a proof id.")
+        }
+        return proofId
+    }
+
+    private suspend fun resolveOptionalShiftingProofRef(proofItemId: String?, label: String): String? {
+        if (proofItemId.isNullOrBlank()) return null
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("The shifting $label video upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for the shifting $label video to finish uploading before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("The shifting $label video upload result is not yet available.")
+        return syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+            .takeIf { it.isNotBlank() }
+            ?: throw NonRetryableSyncException("The shifting $label video upload did not return a proof id.")
+    }
+
+    private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedDirectionCompletePayload>(item.payloadJson)
+        val response = api.completeFeedDirectionSession(
+            item.idempotencyKey,
+            FeedDirectionCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                sessionNo = payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md).
+     * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
+     * verbatim as the `Idempotency-Key` header. ALL THREE mandatory proofs are resolved from their
+     * coupled PROOF_UPLOAD outbox rows (same group, drained first) exactly like
+     * [dispatchShiftingComplete]'s single video; a missing coupling or a permanently-failed upload is
+     * terminal — a gated completion without every verifiable proof must not reach the backend. The
+     * backend re-rejects a blank proof with `422 proof_required` (terminal by [recordFailure]'s
+     * check).
+     *
+     * THE ROLLOUT CASE, stated because it costs an operator real work: a completion queued OFFLINE by
+     * a build that predates the 2026-08-11 weight photo carries only two proofs. It cannot be healed
+     * — the feed has been given out, so the weight photo no longer exists to take — and the backend
+     * would reject it forever. It is failed TERMINALLY with a farm-language reason so the shed-session
+     * returns to the operator's list as work still needing action, exactly as a verifier bounce does,
+     * instead of retrying invisibly until someone notices the feeding never registered.
+     */
+    private suspend fun dispatchFeedDistributionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+        val response = api.completeFeedDistribution(
+            item.idempotencyKey,
+            FeedDistributionCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
+                sessionNo = payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+                feedWeightProofRef = resolveUploadedProofRef(
+                    payload.feedWeightProofOutboxItemId
+                        ?: throw NonRetryableSyncException(
+                            "This feeding needs a feed weight photo. Please record this shed's feeding again.",
+                        ),
+                ),
+                distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
+                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The verifier-GATED feed-PACKING completion. Simpler than [dispatchFeedDistributionComplete]:
+     * a SINGLE mandatory packing video, resolved from its coupled PROOF_UPLOAD outbox row (same
+     * group, drained first) exactly like [dispatchShiftingComplete]'s single video. A missing
+     * coupling or a permanently-failed upload is terminal — a gated completion without a verifiable
+     * proof must not reach the backend. The backend re-rejects a blank proof with `422
+     * proof_required` (terminal by [recordFailure]'s check).
+     */
+    private suspend fun dispatchFeedPackingComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+        val response = api.completeFeedPacking(
+            item.idempotencyKey,
+            FeedPackingCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
+                // A row queued by the PEN-DAY build carries no session, so it decodes as 0. The route
+                // rejects 0, which would strand an operator's already-recorded video on a 400 forever.
+                // Map it to session 1 -- the same choice migration 000150 makes for the pen-day rows
+                // already on the server, so the phone and the database agree on what an unlabelled
+                // pen-day video proves: the morning bag.
+                //
+                // NOT a silent widening: a 0 can only come from a row written before this build, and
+                // every row this build writes carries a real session. See FeedPackingCompletePayload.
+                sessionNo = if (payload.sessionNo < 1) 1 else payload.sessionNo,
+                targetDate = payload.targetDate,
+                workflow = payload.workflow,
+                packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchMilkPreparationSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<MilkPreparationSubmitPayload>(item.payloadJson)
+        suspend fun proof(step: String): String? = payload.proofOutboxItemIds[step]?.let { resolveUploadedProofRef(it) }
+        val response = api.submitMilkPreparation(
+            item.idempotencyKey,
+            MilkPreparationSubmissionRequestDto(
+                parkId = payload.parkId,
+                preparationDate = payload.preparationDate,
+                goatMilkUsed = payload.goatMilkUsed,
+                answers = MilkPreparationAnswersDto(
+                    morningMilkCollectedLitres = payload.answers.morningMilkCollectedLitres,
+                    eveningMilkCollectedLitres = payload.answers.eveningMilkCollectedLitres,
+                    goatMilkQuantityLitres = payload.answers.goatMilkQuantityLitres,
+                    boilingTemperatureC = payload.answers.boilingTemperatureC,
+                    cooledTemperatureC = payload.answers.cooledTemperatureC,
+                    uhtMilkQuantityLitres = payload.answers.uhtMilkQuantityLitres,
+                    citricAcidGrams = payload.answers.citricAcidGrams,
+                ),
+                proofs = MilkPreparationProofsDto(
+                    goatMilkQuantityProofRef = proof("goat_milk_quantity"),
+                    boilingTemperatureProofRef = proof("boiling_temperature"),
+                    cooledTemperatureProofRef = proof("cooled_temperature"),
+                    uhtMilkQuantityProofRef = proof("uht_milk_quantity") ?: throw NonRetryableSyncException("UHT milk quantity video is missing."),
+                    citricAcidMixingProofRef = proof("citric_acid_mixing") ?: throw NonRetryableSyncException("Citric acid mixing video is missing."),
+                ),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchMilkFeedingSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<MilkFeedingSubmitPayload>(item.payloadJson)
+        val response = api.submitMilkFeedingTask(
+            payload.taskId,
+            item.idempotencyKey,
+            MilkFeedingSubmitRequestDto(
+                parkId = payload.parkId,
+                feedingDate = payload.feedingDate,
+                sessionNo = payload.sessionNo,
+                answers = payload.answers,
+                proofs = MilkFeedingProofsDto(
+                    cleanBottlesProofRef = resolveUploadedProofRef(payload.cleanBottlesProofOutboxItemId),
+                    mixingAndFillingProofRef = resolveUploadedProofRef(payload.mixingAndFillingProofOutboxItemId),
+                ),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchFeedTransportSubmit(item:OutboxEntity):String{val payload=syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson);return syncJson.encodeToString(api.submitFeedTransport(payload.taskId,item.idempotencyKey,FeedTransportSubmitRequestDto(resolveUploadedProofRef(payload.proofOutboxItemId))))}
+
+    /**
+     * Resolves an uploaded proof_id from a coupled PROOF_UPLOAD outbox row (same-group ordering means
+     * it has already drained to SUCCEEDED before the completion that references it). A not-yet-drained
+     * row throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or
+     * a blank proof id is terminal. Shared by the two mandatory feed-distribution proofs.
+     */
+    private suspend fun resolveUploadedProofRef(proofItemId: String): String {
+        val proofRow = store.findById(proofItemId)
+            ?: throw NonRetryableSyncException("A required proof upload could not be found.")
+        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
+            throw IllegalStateException("Waiting for a proof upload to finish before completing.")
+        }
+        val resultJson = proofRow.resultJson
+            ?: throw IllegalStateException("A proof upload result is not yet available.")
+        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
+        if (proofId.isBlank()) {
+            throw NonRetryableSyncException("A proof upload did not return a proof id.")
+        }
+        return proofId
+    }
+
+    /**
+     * Assigns a permanent RFID to a temporary-tagged goat, atomically retiring the temp. Drained
+     * under the stored stable idempotency key: a server-committed-but-client-unrecorded retry returns
+     * the original promotion (`idempotent_replay=true`) instead of retagging twice. A stale
+     * row_version or a goat that no longer carries a temp tag is a 409 — terminal by
+     * [recordFailure]'s check, so it surfaces to the operator instead of being retried forever.
+     */
+    private suspend fun dispatchPromoteIdentifier(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PromoteIdentifierPayload>(item.payloadJson)
+        val response = api.promoteCountsIdentifier(
+            payload.goatId,
+            item.idempotencyKey,
+            payload.permanentIdentifier,
+            payload.rowVersion,
+            payload.animalIdentifier2,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchShiftingCancel(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ShiftingCancelPayload>(item.payloadJson)
+        val response = api.cancelCountsShiftingEvent(
+            payload.shiftingEventId,
+            item.idempotencyKey,
+            payload.reason,
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The two Birth/Death workflow-action writes (docs/decisions/birth-death-workflows.md). Same
+     * idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
+     * verbatim, so an exact retry returns the original result (`idempotent_replay=true`). A NEW key
+     * against an already-completed action is a 409, terminal by [recordFailure]'s check, so it
+     * surfaces instead of retrying forever. A `requires_video` completion resolves its mandatory
+     * proof from the coupled PROOF_UPLOAD outbox row (same group, drained first) exactly like
+     * [dispatchShiftingComplete]'s video; the backend re-rejects a missing proof with `422
+     * proof_required` (also terminal).
+     */
+    private suspend fun dispatchWorkflowActionAnswer(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WorkflowActionAnswerPayload>(item.payloadJson)
+        val response = api.answerWorkflowAction(
+            payload.workflowId,
+            payload.actionId,
+            item.idempotencyKey,
+            WorkflowActionAnswerRequestDto(
+                answerValue = payload.answerValue,
+                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWorkflowActionComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WorkflowActionCompletePayload>(item.payloadJson)
+        val response = api.completeWorkflowAction(
+            payload.workflowId,
+            payload.actionId,
+            item.idempotencyKey,
+            WorkflowActionCompleteRequestDto(
+                proofRef = payload.proofOutboxItemId?.let { resolveUploadedProofRef(it) },
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthTreatmentComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthTreatmentCompletePayload>(item.payloadJson)
+        val response = api.completeHealthWorkItem(
+            healthSessionId = payload.healthSessionId,
+            idempotencyKey = item.idempotencyKey,
+            request = HealthCompleteRequestDto(proofRef = payload.proofRef),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthCaseOpen(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthCaseOpenPayload>(item.payloadJson)
+        val response = api.openHealthCase(
+            idempotencyKey = item.idempotencyKey,
+            request = sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto(
+                goatId = payload.goatId,
+                diseaseKey = payload.diseaseKey,
+                ageBand = payload.ageBand,
+                startDate = payload.startDate,
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWeighingAnimalObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingAnimalObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingAnimalObservation(payload.campaignId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchWeighingShedObservation(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingShedObservationPayload>(item.payloadJson)
+        val response = api.recordWeighingShedObservation(payload.campaignId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
     private companion object {
+        const val SUCCESS_RECONCILE_LIMIT = 20
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200

@@ -237,18 +237,82 @@ against `origin/main`; a genuinely-bounded case appends
   using LazyColumn/Row please make sure you provide a unique key for each item.`
   thrown in the LazyList **measure pass**, which pops the whole screen. This
   shipped in `0.1.6-stg` (Crashlytics, field operators) and was fixed in
-  `a9c35a1d` by keying on the unique per-row `obligationId`. The guard flags a
-  `key = { it.goatId }`-style bare entity selector (`goatId`, `animalId`,
-  `goatUuid`, …); a string-template or composite key
-  (`key = { "${it.goatId}|${it.vaccineLabel}" }`) is allowed because it is
-  row-unique.
+  `a9c35a1d` by keying on the unique per-row `obligationId`. The proof-needed
+  feed hit the same class again when staging carried multiple active vaccine
+  obligations per goat; the row key must prefer `obligationId` before `goatId`.
+  The guard flags a `key = { it.goatId }`-style bare entity selector (`goatId`,
+  `animalId`, `goatUuid`, …) and Elvis/fallback keys where the entity id wins
+  before the row id. A string-template/composite key is allowed only when no
+  row id exists and the composite includes enough row-grain fields, e.g.
+  `goatId|vaccineLabel|primaryTag`.
 - **`lazy-list-missing-key` (state loss).** `items(<collection>)` /
   `itemsIndexed(<collection>)` with no `key =` falls back to positional identity,
   so an insert/remove/reorder reuses an item's remembered state (checkbox,
   expand, scroll) for the WRONG row and some mutations crash. Supply
   `key = { it.<uniqueRowId> }`. The count overload `items(<Int>)` is exempt (it
   has no key parameter).
+- **`lazy-list-derived-key-drift` (crash).** If a ViewModel groups backend rows
+  into UI cards, the grouping key and the rendered Compose key must be the same
+  grain. Do not group by fields that the rendered key omits. The staging sheds
+  crash on 2026-08-11 was this exact shape: vaccination BT+SP / split row-version
+  rows grouped separately by `sopVersionId`/`taskRowVersion`, but both rendered
+  with the same shed/partition/task `ShedRow.id`, so LazyColumn received duplicate
+  keys. Fix by grouping on the rendered card key, or include every grouping
+  discriminator in that key.
 
 Rule of thumb: **the key is the unique identity of the RENDERED ROW, not of the
 domain object it happens to show.** When a list can hold more than one row per
 entity, the entity id is not a valid key.
+
+## Phone-scale UI: chips, render-everything, and spinner-over-cache (machine: `make android-compose-lists-guard`)
+
+Three more shapes of the same "fetch/render less than the whole cohort" discipline, all enforced
+by the same guard (`tools/agent-hooks/check-android-compose-lists.mjs`) that owns the lazy-list key
+rules above. A real park is ~100 sheds x ~70-90 animals — a task export is ~8,000 rows; a phone
+list shows ~10, never more than ~20, and every drill level paginates ~20 (rule 2 above). Full
+rulebook + before/after examples: [`apps/goatos-android/docs/phone-scale-ui.md`](../../apps/goatos-android/docs/phone-scale-ui.md).
+
+- **`chip-row-unbounded-dimension`.** Chips are one pill per element — correct only for a small
+  FIXED set (2-3 values, e.g. an individual/lump-sum toggle). Never chip sheds, animals, operators,
+  dates, or parks; use the `FilterSelectorRow` + `SearchablePickerDialog` searchable-selector
+  pattern in `WeightHistoryChartScreen.kt` instead.
+- **`column-foreach-unbounded` / `nested-scroll-in-lazy-items`.** A `<state>.forEach { }` inside a
+  scrollable `Column`/`Row`, or a `Lazy*`/scrollable container nested inside another list's
+  `items()` row, inflates and measures every row up front instead of windowing. Use
+  `LazyColumn`/`LazyRow` with `items(list, key = ...)` and keep lists out of other lists' rows.
+- **`spinner-replaces-cached-content`.** A full-screen `CircularProgressIndicator` guarded by a
+  bare loading flag (not compounded with a cache-emptiness check) next to a sibling branch that
+  renders cached content tears that content down on every refresh. Compound the condition
+  (`state.loading && state.items.isEmpty() -> ...`, the pattern in
+  `WeighingLeadershipVideosScreen.kt`) or annotate/overlay instead.
+
+All three are deliberately conservative (narrow allowlists, by-design false negatives over false
+positives) — see the header comment in `check-android-compose-lists.mjs` for the exact scope. A
+genuinely-bounded case may append `compose-guard:ignore: <reason>` on the line.
+
+## Android row-action scope (machine: `make android-row-action-scope-guard`)
+
+Repeated mobile cards must not share a screen-wide in-flight gate for row-level
+actions. If the UI renders one card per animal, shed, obligation, proof, or
+assignment, that row's Save/Update/Retry action must be blocked only by state
+scoped to that row identity. A global `actionInFlight`, `busy`, or screen submit
+flag is reserved for screen-wide operations such as final submit, navigation,
+or a modal transaction that truly locks the whole surface.
+
+Field failure class: individual weighing free-flow saved the previous animal
+card successfully, then the next card randomly could not save because animal A's
+pending save/update held the global `actionInFlight` gate. That is invalid for
+free-flow row saves. The row action must track `updatingAnimalIds` or equivalent
+row-keyed state, and row `canSave*` must not read the global busy flag.
+
+Required proof for this class:
+
+- A regression test starts saving animal A and keeps that save pending.
+- The UI/view-model state still allows animal B's Save while animal A is pending.
+- Submitting animal B records a second capture without waiting for animal A.
+
+The static guard `tools/agent-hooks/check-android-row-action-scope.mjs` enforces
+the current weighing path: `recordIndividual(animalId, rawWeight)` must call
+`recordIndividualRow(..., useGlobalBusyGate = false)`, per-row duplicate saves
+must use `updatingWeightAnimalIds`, and row `canSaveWeight` must not depend on
+global `busy`/`actionInFlight`.

@@ -30,12 +30,11 @@ const REQUIRED_MOVEMENT_INTEGRATION = {
     { eventType: "goat.location.changed", module: "obligation", file: "backend/internal/obligation/app/shift.go" },
     { eventType: "goat.stage_changed", module: "vaccination", file: "backend/internal/vaccination/app/generation_handler.go" },
   ],
-  authoritativeProfileTokens: [
-    "shed_profiles",
+  authoritativeStageSelectionTokens: [
+    "management_stage_mode",
+    "target_management_stage",
     "animal_stage_lookup",
-    "row_version",
-    "destination_profile_id",
-    "destination_profile_row_version",
+    "management_stage",
   ],
   transactionTokens: ["goat_identity_events", "outbox_messages", "UPDATE goats", "management_stage"],
   proofFile: "backend/tests/e2e/story_shifting_vaccination_handoff_test.go",
@@ -168,21 +167,21 @@ function validateMovementIntegrationContracts(registry, byType, read, fileExists
     }
   }
 
-  const profile = contract.authoritativeProfile || {};
-  const evidenceFiles = Array.isArray(profile.evidenceFiles) ? profile.evidenceFiles : [];
+  const selection = contract.authoritativeStageSelection || {};
+  const evidenceFiles = Array.isArray(selection.evidenceFiles) ? selection.evidenceFiles : [];
   if (!evidenceFiles.includes(REQUIRED_MOVEMENT_INTEGRATION.producerFile)) {
-    errors.push(`${label} authoritative shed profile evidence must include ${REQUIRED_MOVEMENT_INTEGRATION.producerFile}`);
+    errors.push(`${label} raise-time stage selection evidence must include ${REQUIRED_MOVEMENT_INTEGRATION.producerFile}`);
   }
   const evidenceText = evidenceFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
-  for (const token of REQUIRED_MOVEMENT_INTEGRATION.authoritativeProfileTokens) {
+  for (const token of REQUIRED_MOVEMENT_INTEGRATION.authoritativeStageSelectionTokens) {
     if (!evidenceText.includes(token)) {
-      errors.push(`${label} authoritative shed profile evidence is missing ${token}`);
+      errors.push(`${label} raise-time stage selection evidence is missing ${token}`);
     }
   }
-  // Resident goats are observations, never configuration authority. This exact false-green query
-  // appeared in PR #12 and must stay mechanically banned from the movement authority path.
+  // Resident stages may be offered as destination-stage choices, but the relocation writer must
+  // consume the snapshotted explicit target and never infer one from the residents at apply time.
   if (/SELECT\s+DISTINCT\s+management_stage\s+FROM\s+goats/is.test(evidenceText)) {
-    errors.push(`${label} authoritative shed profile must not derive destination stage from resident goats`);
+    errors.push(`${label} raise-time stage selection must not infer the applied stage from resident goats`);
   }
 
   const transaction = contract.transactionEvidence || {};
@@ -487,7 +486,7 @@ function selfTest() {
       producerFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile],
       requiredEvents: [...REQUIRED_MOVEMENT_INTEGRATION.requiredEvents],
       requiredConsumers: structuredClone(REQUIRED_MOVEMENT_INTEGRATION.requiredConsumers),
-      authoritativeProfile: { evidenceFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile] },
+      authoritativeStageSelection: { evidenceFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile] },
       transactionEvidence: { evidenceFiles: [REQUIRED_MOVEMENT_INTEGRATION.producerFile] },
       requiredProof: [{ file: REQUIRED_MOVEMENT_INTEGRATION.proofFile }],
     }],
@@ -622,13 +621,13 @@ function selfTest() {
     throw new Error("feature contract missing its required consumer binding was not detected");
   }
 
-  // An activated shed-movement implementation that infers destination stage from resident goats
-  // instead of shed_profiles -> animal_stage_lookup must fail even when unrelated files contain the
-  // right words. This is the exact PR #12 false-green shape.
+  // An activated relocation writer that infers the applied stage from resident goats instead of
+  // consuming the snapshotted raise-time choice must fail even when unrelated files contain the
+  // required contract words.
   const movementPath = "backend/internal/identity/adapters/postgres/goat_relocate.go";
   const badMovementFiles = [...fileList, movementPath, "unrelated/profile_notes.go"];
   virtualFiles.set(movementPath, "SELECT DISTINCT management_stage FROM goats");
-  virtualFiles.set("unrelated/profile_notes.go", "shed_profiles animal_stage_lookup row_version");
+  virtualFiles.set("unrelated/profile_notes.go", "management_stage_mode target_management_stage animal_stage_lookup management_stage");
   const badMovement = structuredClone(goodRegistry);
   badMovement.movementIntegrationContracts = [{
     contract: "shifting_completion_to_vaccination",
@@ -639,9 +638,9 @@ function selfTest() {
       { eventType: "goat.location.changed", module: "x", file: "consumer-goat.location.changed.go" },
       { eventType: "goat.stage_changed", module: "x", file: "consumer-goat.stage_changed.go" },
     ],
-    authoritativeProfile: {
-      evidenceFiles: [movementPath],
-      requiredTokens: ["shed_profiles", "animal_stage_lookup", "row_version"],
+    authoritativeStageSelection: {
+      evidenceFiles: [movementPath, "unrelated/profile_notes.go"],
+      requiredTokens: ["management_stage_mode", "target_management_stage", "animal_stage_lookup", "management_stage"],
       forbiddenPatterns: [{ pattern: "SELECT\\s+DISTINCT\\s+management_stage\\s+FROM\\s+goats", reason: "resident inference" }],
     },
     requiredProof: [{
@@ -650,7 +649,7 @@ function selfTest() {
     }],
   }];
   virtualFiles.set("proof-shifting-vaccination_test.go", "CompleteShifting GoatShiftedHandler GoatRecheckHandler");
-  if (!validateRegistry(root, badMovement, badMovementFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("authoritative shed profile"))) {
+  if (!validateRegistry(root, badMovement, badMovementFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("raise-time stage selection"))) {
     throw new Error("resident-derived destination stage was not rejected by the movement integration contract");
   }
   virtualFiles.delete(movementPath);

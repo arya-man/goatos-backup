@@ -66,6 +66,17 @@ this boundary in local CI for both Claude and Codex.
 > anti-pattern. The static `GOATOS_BEARER_TOKEN` is only a fallback. Restart for
 > code/build reasons, not to refresh an expired token.
 
+## URL-Driven Filter Responsiveness
+
+Server-filtered worklists may keep filter state in the URL, but the operator
+must never see a selected value bounce back to an old server prop while the App
+Router refresh is pending. Prefer `WorklistFilters`. Any client component that
+combines `useSearchParams`, a native `<select>`, and `router.push` /
+`router.replace` must wrap the navigation in `useTransition` and render an
+optimistic selected value immediately. Run `make frontend-foundations-guard`
+after touching these controls; it includes the stale-select regression that hit
+Feed Config.
+
 Operational hygiene when you do restart/rebuild (so a restart is clean, not
 destructive):
 
@@ -565,6 +576,9 @@ Only these routes are current implemented product routes:
 /vaccination               Preventive Care (PC) Vaccination module surface (NOT Action Center);
                            includes status matrix, cohort detail, and execution
 /vaccination/execution/sheds/[shedId]
+/vaccination/live-tracker   Live Drive Tracker — today's drive at ADMINISTRATION grain: per-operator
+                           and per-shed proof progress, combo doses, live activity feed, attention,
+                           verification queue. Polls by re-running the server tree (router.refresh).
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
 /counts/herd                 Herd Register for vaccination trigger closure
@@ -573,23 +587,39 @@ Only these routes are current implemented product routes:
 /config
 /sops
 /goats/{goat_id}
-/verification               Verification — authority review (Admin / Data Ops authority screen)
+/verify                     Verify — cross-module verification evidence (top-level, below Approvals)
+/actions                    Compatibility redirect to /verify (route renamed 2026-08-12)
+/verification               Compatibility redirect to /verify
+/approvals                  Approvals — birth/death/shifting decision queue (top-level; RBAC:
+                            director/head/manager/am + admin + ceo_internal + counts_approver)
 ```
 
-`/verification` is the AUTHORITY act screen for the generic Verification vertical
+Scope note: `/approvals` is a top-level decision surface, gated server-side by
+`counts.approve_access` (the four org tiers + admin + ceo_internal, plus the per-person
+`counts_approver` authority). It renders from local literal copy until a backend `approvals` page
+contract lands.
+
+It is NO LONGER the only approval surface. The mobile Approvals module returned on 2026-08-05,
+superseding the 2026-07-21 decision that had moved approvals to web only. Both surfaces are served
+by the same service, the same permission, and the same list/decide logic under different route
+prefixes — so a change to approval authority or to the queue's shape affects BOTH, and neither may
+grow its own private business truth. The queue response now carries backend-composed
+`raised_by_name` / `summary_line`; this page still builds its own readable subject from resolved
+location names, and may adopt the shared line later.
+
+`/verify` is the AUTHORITY act screen for the generic Verification vertical
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
-Head/Director/CEO review the standalone Verifier's approve/reject media queue and
+authorized reviewers browse the standalone Verifier's due/approved/rejected media queue and
 act on the linked SOP task (rework / re-assign; penalty note is honestly
 disabled — no backend contract exists for it yet). It reads the real, merged
 `/verification/queue` contract (generated `AppApiComponents["schemas"]["Verification*"]`
 types in `lib/api/server.ts`, no hand-typed shapes) and acts through the EXISTING
 `/admin/tasks/{task_id}` `/rework` `/assign` routes.
-It has no backend page contract yet (`requireAdminWebPageContract` would throw),
-so it renders from local literal copy — documented exception in
-`context/frontend/admin-web-backend-ui-contract.md`. It is not in the sidebar
-yet (nav is backend-composed from department module grants; no nav-registry
-contribution exists for Verification yet, same current state as
-`/operations/dlq`).
+The backend `verification-review` page contract owns its title, table, drawer
+copy, and disabled reasons; the Verification registry owns the action-type and
+status filter options. It appears as Verify — a TOP-LEVEL primary nav item directly below
+Approvals, not inside any group — and sends park plus its own capture-date filter to the backend.
+Named to match the phone, which has always called this Verify (workforce `nav.verify`).
 
 Implemented top-level command route:
 

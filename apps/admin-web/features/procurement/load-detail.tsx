@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listLocations, type LocationSummary } from "@/lib/api/server";
+import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { getProcurementLoad } from "@/lib/api/procurement-server";
 import type {
   ProcurementArrivalReview,
@@ -80,13 +81,34 @@ function shedUsable(location: LocationSummary): boolean {
 
 async function getProcurementLocations(): Promise<ProcurementLocations> {
   // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=fixed three-call location taxonomy request; cardinality does not depend on returned rows
-  const [parksResult, farmsResult, shedsResult] = await Promise.all([
+  const [parksResult, farmsResult, shedsResult, pensResult] = await Promise.all([
     listLocations({ type: "park", status: "active" }),
     listLocations({ type: "farm", status: "active" }),
     listLocations({ type: "shed", status: "active" }),
+    listAllFeedConfigPens(),
   ]);
   const parks = parksResult.ok ? parksResult.data.items.map(toLocationOption) : [];
-  const sheds = shedsResult.ok ? shedsResult.data.items.filter(shedUsable).map(toLocationOption) : [];
+  const usableSheds = shedsResult.ok ? shedsResult.data.items.filter(shedUsable).map(toLocationOption) : [];
+  const usableShedIds = new Set(usableSheds.map((shed) => shed.id));
+  const partitionedShedIds = new Set(
+    pensResult.ok ? pensResult.data.items.filter((pen) => pen.partition_label).map((pen) => pen.shed_id) : [],
+  );
+  const penSheds = pensResult.ok
+    ? pensResult.data.items
+        .filter((pen) => usableShedIds.has(pen.shed_id))
+        .map((pen) => ({
+          id: pen.shed_id,
+          code: null,
+          name: pen.shed_name,
+          parentId: pen.park_id ?? null,
+          partitionLabel: pen.partition_label ?? null,
+          operationalLocationDisplay: pen.operational_location_display,
+        }))
+    : [];
+  const sheds = [
+    ...usableSheds.filter((shed) => !partitionedShedIds.has(shed.id)),
+    ...penSheds,
+  ];
   const farms = farmsResult.ok ? farmsResult.data.items.map(toLocationOption) : [];
   return {
     parks,

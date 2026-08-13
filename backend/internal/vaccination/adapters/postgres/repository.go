@@ -3,9 +3,13 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +49,10 @@ const (
 
 // Repository is the Postgres-backed vaccination repository.
 type Repository struct {
+	// An INSTANCE logger, not package-level slog: check-boundaries.sh bans slog.Error/Warn/
+	// Info/Debug outside platform/observability, and an adapter that cannot report an
+	// inventory anomaly would just swallow it again.
+	log          *slog.Logger
 	pool         *pgxpool.Pool
 	queries      *vaccinationdb.Queries
 	queryTimeout time.Duration
@@ -55,7 +63,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
+	return &Repository{log: slog.Default(), pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -629,9 +637,18 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 		if row.status == "accepted" {
 			return result, nil
 		}
-		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
-	}
-	if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" {
+		// Maintainer state-model: the obligation closes the moment its completion is RECORDED
+		// (sopbridge.closeObligationsForCompletions / obligation.Repository.MarkCompleted at
+		// record time), not on verification. So by the time a verifier approves, this obligation
+		// is routinely ALREADY 'completed' -- that is the expected, common case now, not a stale
+		// or conflicting state. Only refuse when there is genuinely nothing left to accept (the
+		// completion itself is not 'recorded' -- e.g. it was rejected/archived out from under this
+		// call). The completed-obligation branch below (`if obligationStatus != "completed"`)
+		// already knows to skip re-completing an obligation that is completed for this reason.
+		if row.status != "recorded" {
+			return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
+		}
+	} else if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" {
 		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
 	}
 	consumed, err := r.consumeAcceptedCompletionStock(ctx, tx, in.TenantID, row)
@@ -733,7 +750,12 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 				"occurred_at":   now.Format(time.RFC3339Nano),
 			},
 			Metadata: map[string]any{
-				"source": "vaccination_accept_completion_atomic",
+				"domain":   "vaccination",
+				"module":   "vaccination",
+				"category": "completion",
+				"result":   "recorded",
+				"status":   "completed",
+				"source":   "vaccination_accept_completion_atomic",
 			},
 			TraceID: "vaccination.completed:" + row.obligationID,
 		}); err != nil {
@@ -834,7 +856,12 @@ RETURNING obligation_id::text`, tenantID, batchID, completedObligationID)
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 ) SELECT $1::uuid, obligation_id::uuid, 'in_progress', $2, $3, idempotency_key
-FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
+FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)
+-- Same idempotency rule as the obligation repository's twin of this insert: the key replays on
+-- any second submission for the same obligation (every rework rescan), and a duplicate-key error
+-- here aborts the entire submission, silently losing the operator's redo. Re-asserting the fact
+-- must be a no-op.
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 		tenantID, siblingNow, siblingPayload, siblingUUIDs, siblingKeys); err != nil {
 		return fmt.Errorf("vaccination: bulk insert sibling in_progress events: %w", err)
 	}
@@ -855,6 +882,11 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 				"occurred_at": siblingNow.Format(time.RFC3339Nano),
 			},
 			Metadata: map[string]any{
+				"domain":               "vaccination",
+				"module":               "vaccination",
+				"category":             "obligation_lifecycle",
+				"result":               "recorded",
+				"status":               "in_progress",
 				"source":               "vaccination_accept_completion_atomic_sibling_in_progress",
 				"completed_obligation": completedObligationID,
 			},
@@ -1000,8 +1032,35 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 	if row.batchID == "" {
 		return false, nil
 	}
-	if row.lotID == "" || !row.coldChain {
-		return false, domain.ErrStockGateBlocked
+	// lotID is required here as an OPERATIONAL fact (which stock row to decrement), not a
+	// re-validation of the record-time business rule -- that policy check (lot + cold-chain
+	// required whenever a batch is present) belongs ONLY at record time
+	// (CompletionService.validateStockGate). A verifier approving evidence hours/days later
+	// must never be re-blocked by inventory state, and cold-chain confirmation happens once
+	// at the drive/lot reservation, not per verifier decision -- so coldChain is intentionally
+	// NOT re-checked here. A missing lotID at this point means the completion was recorded
+	// without ever going through a batch context and there is nothing to consume against; it
+	// is a data-shape guard, not a stock-gate re-check.
+	if row.lotID == "" {
+		// Nothing to decrement against -- but this must NOT fail the accept. Returning an error
+		// here contradicted this function's own comment above ("a verifier approving evidence
+		// hours/days later must never be re-blocked by inventory state") and did exactly that:
+		// a rework rescan records its completion with a batch but no lot, so every approval of a
+		// redone animal died with "stock gate blocked", the verdict saved but the completion
+		// never flipped to accepted, acceptedCount stayed frozen, and the event retried
+		// thousands of times because the failure is deterministic. Observed live 2026-08-05.
+		//
+		// Skipped consumption is an inventory ANOMALY, not a verification failure: the dose was
+		// physically given at record time. So the accept proceeds and the gap is recorded loudly
+		// rather than silently swallowed -- an under-decremented lot is a reconciliation problem
+		// for whoever owns stock, never a reason to block the verifier.
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "completion has a batch but no vaccine_inventory_lot_id"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("batch_id", row.batchID),
+		)
+		return false, nil
 	}
 	var itemID, locationID, unit string
 	if err := tx.QueryRow(ctx, `
@@ -1013,7 +1072,16 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 	  AND (expiry_date IS NULL OR expiry_date >= $3::date)
 	FOR UPDATE`, tenantID, row.lotID, row.administeredAt).Scan(&itemID, &locationID, &unit); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, domain.ErrStockGateBlocked
+			// No active, unexpired stock row for this lot. Same rule as the missing-lot branch
+			// above: an inventory bookkeeping gap must NOT veto the verifier. Skip the decrement,
+			// record the anomaly loudly, let the accept proceed.
+			r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+				slog.String("reason", "no active unexpired stock row for lot"),
+				slog.String("tenant_id", tenantID),
+				slog.String("completion_id", row.completionID),
+				slog.String("lot_id", row.lotID),
+			)
+			return false, nil
 		}
 		return false, fmt.Errorf("vaccination: lock completion stock: %w", err)
 	}
@@ -1069,7 +1137,17 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		return false, fmt.Errorf("vaccination: check batch reservation ledger: %w", err)
 	}
 	if batchReserved < qty {
-		return false, domain.ErrStockGateBlocked
+		// The batch/lot reservation ledger does not cover this dose. That is an inventory
+		// reconciliation problem (under-reserved drive, manual lot edit, seed gap) and is NOT a
+		// reason to refuse the verifier's verdict -- the animal was already vaccinated.
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "batch reservation ledger below dose quantity"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("batch_id", row.batchID),
+			slog.String("lot_id", row.lotID),
+		)
+		return false, nil
 	}
 	var movementID string
 	err := tx.QueryRow(ctx, `
@@ -1108,7 +1186,15 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		return false, fmt.Errorf("vaccination: adjust consume balances: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return false, domain.ErrStockGateBlocked
+		// Reserved balance no longer covers this dose (already released, adjusted, or never
+		// reserved). Consuming is impossible, but the verdict still stands: skip and record.
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "reserved balance below dose quantity at consume time"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("lot_id", row.lotID),
+		)
+		return false, nil
 	}
 	return true, nil
 }
@@ -1430,16 +1516,86 @@ func (r *Repository) RejectCompletion(ctx context.Context, tenantID, completionI
 	if err != nil {
 		return false, fmt.Errorf("vaccination: completion id: %w", err)
 	}
-	n, err := r.queries.RejectVaccinationCompletion(ctx, vaccinationdb.RejectVaccinationCompletionParams{
-		VerifiedBy:      pgconv.NullableUUID(verifiedBy),
-		RejectionReason: pgconv.Text(reason),
-		TenantID:        tenant,
-		CompletionID:    cid,
-	})
+	// A rejected completion MOVES out of vaccination_completions into the rejection archive
+	// (migration 000093), rather than staying behind with status='rejected'.
+	//
+	// The animal has to become outstanding work again -- the operator must see it on the scan
+	// screen as something to redo. While a rejected row remained, every read that asks "is there
+	// a completion for this obligation" still answered yes, which is precisely why a rejected
+	// animal stayed green on the scan screen while its four accepted shed-mates looked identical.
+	// Removing the row makes the animal outstanding BY DEFAULT on every one of those reads,
+	// instead of each of them having to remember to special-case a rejected status.
+	//
+	// Nothing is lost: the row is copied whole, in this same transaction, with the verdict that
+	// caused it. "We injected this animal and the proof was refused" stays on the record and is a
+	// different fact from "this never happened".
+	//
+	// Idempotent by construction: the archive INSERT is driven by the SELECT of the completion
+	// row, so a replayed verdict finds nothing to move and reports applied=false, exactly as the
+	// previous single-statement UPDATE did when the row was already rejected.
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("vaccination: reject completion: %w", err)
+		return false, fmt.Errorf("vaccination: begin reject completion tx: %w", err)
 	}
-	return n == 1, nil
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var moved int64
+	tag, err := tx.Exec(ctx, `
+INSERT INTO vaccination_completion_rejections (
+  completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id,
+  vaccine_inventory_lot_id, doses, dose_ml_given, route_site, adverse_reaction,
+  adverse_reaction_problem_id, cold_chain_verified, administered_at, original_status,
+  verified_by, verified_at, rejection_reason, withdrawal_until_date, recorded_by,
+  original_idempotency_key, original_row_version, original_created_at, original_updated_at,
+  rejected_by
+)
+SELECT
+  vc.completion_id, vc.tenant_id, vc.obligation_id, vc.batch_id, vc.goat_id,
+  vc.sop_submission_item_id, vc.vaccine_inventory_lot_id, vc.doses, vc.dose_ml_given,
+  vc.route_site, vc.adverse_reaction, vc.adverse_reaction_problem_id, vc.cold_chain_verified,
+  vc.administered_at, vc.status,
+  $1::uuid, now(), NULLIF($2::text, ''), vc.withdrawal_until_date, vc.recorded_by,
+  vc.idempotency_key, vc.row_version, vc.created_at, vc.updated_at,
+  $1::uuid
+FROM vaccination_completions vc
+WHERE vc.tenant_id = $3::uuid
+  AND vc.completion_id = $4::uuid
+  -- Only work that is still standing can be sent back. An already-accepted animal is terminal
+  -- (maintainer ruling): it is never re-judged, and must never be pulled back out of the record.
+  AND vc.status = 'recorded'
+ON CONFLICT (tenant_id, completion_id) DO NOTHING`,
+		pgconv.NullableUUID(verifiedBy), reason, tenant, cid)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: archive rejected completion: %w", err)
+	}
+	moved = tag.RowsAffected()
+	if moved == 0 {
+		// Nothing eligible to move: already rejected (replay), already accepted (terminal), or
+		// no such completion. Not an error, and not applied.
+		return false, nil
+	}
+	del, err := tx.Exec(ctx, `
+DELETE FROM vaccination_completions
+WHERE tenant_id = $1::uuid
+  AND completion_id = $2::uuid
+  AND status = 'recorded'`, tenant, cid)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: remove rejected completion: %w", err)
+	}
+	// The archive INSERT and this DELETE must move exactly one row together. If the row were
+	// archived but survived here, the animal would exist in BOTH tables: counted as rejected AND
+	// still holding a live completion, so it would read as handled on every completion check while
+	// also reading as sent back. Rolling back is the only safe answer -- a half-move of a clinical
+	// record is worse than no move at all.
+	if del.RowsAffected() != moved {
+		return false, fmt.Errorf(
+			"vaccination: rejected completion half-moved (archived %d, removed %d): completion_id=%s",
+			moved, del.RowsAffected(), completionID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("vaccination: commit reject completion: %w", err)
+	}
+	return true, nil
 }
 
 // ListRecordedCompletionsByTask returns the still-recorded completion ids captured under a SOP
@@ -1530,7 +1686,14 @@ SELECT
   NULL::numeric,
   NULL::text,
   false,
-  false,
+  -- Cold chain is verified once at the DRIVE/BATCH reservation (same trust boundary as the
+  -- lot COALESCE above), not re-collected per shed. Hardcoding this to false made every
+  -- drive-recorded dose permanently unapprovable: consumeAcceptedCompletionStock's stock gate
+  -- (repository.go, consume path) requires cold_chain_verified=true whenever a lot is present,
+  -- and this bulk insert is the ONLY writer for the SOP shed-submission proof path, so the flag
+  -- could never become true downstream. True here matches the trust already extended to the
+  -- lot id on the line above.
+  true,
   COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
   COALESCE(
@@ -1652,7 +1815,7 @@ WHERE vc.tenant_id = $1
 // form answers. Every read here is a single tenant+task (or tenant+batch) equality lookup against
 // an indexed column (sop_task_scan_captures_task_idx, obligation_instances_batch_idx,
 // proof_artifacts_scope_idx) — bounded to one task's shed, never a table scan.
-func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error) {
+func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string, partitionLabels ...string) (domain.ShedCompletionSummary, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1669,6 +1832,10 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		if err != nil {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed id: %w", err)
 		}
+	}
+	partitionLabel := ""
+	if len(partitionLabels) > 0 {
+		partitionLabel = strings.TrimSpace(partitionLabels[0])
 	}
 
 	var (
@@ -1715,10 +1882,18 @@ eligible AS (
   SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
   FROM obligation_instances oi
   JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE oi.tenant_id = $1
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND (oi.status <> 'scheduled' OR COALESCE(ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now())
     AND (NOT $3::boolean OR g.shed_id = $4)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 -- expected counts animals in this shed's batch that STILL need vaccination. The exclusion set
 -- MUST match RecordCompletionsFromSubmission's obligation filter exactly ('completed', 'waived',
@@ -1728,19 +1903,24 @@ eligible AS (
 -- materialize", so drive-% is correct across re-reads and an over-scan can never be masked by a
 -- stale, inflated expected_count.
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN eligible e
-    ON e.obligation_id = c.obligation_id
-    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE c.tenant_id = $1
     AND c.task_id = $2
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
+    AND (NOT $3::boolean OR g.shed_id = $4)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT p.subject_id) AS n
@@ -1749,10 +1929,18 @@ proofed_goat AS (
   WHERE p.tenant_id = $1
     AND p.scope_type = 'task'
     AND p.scope_id = $2
-    AND p.subject_type = 'goat'
-    AND p.subject_id IS NOT NULL
-    AND p.upload_state = 'completed'
-),
+	    AND p.subject_type = 'goat'
+	    AND p.subject_id IS NOT NULL
+	    AND p.upload_state = 'completed'
+	    AND p.created_at >= COALESCE((
+	      SELECT max(c.captured_at)
+	      FROM sop_task_scan_captures c
+	      WHERE c.tenant_id = p.tenant_id
+	        AND c.task_id = p.scope_id
+	        AND c.field_key IN ('goat_ids', '__scan_roster__')
+	        AND c.goat_id = p.subject_id
+	    ), '-infinity'::timestamptz)
+	),
 proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p
@@ -1760,21 +1948,37 @@ proofed_shed AS (
     AND p.scope_type = 'shed'
     AND p.subject_type = 'shed'
     AND p.upload_state = 'completed'
-    AND EXISTS (
-      SELECT 1
-      FROM eligible e
-      WHERE e.shed_id = p.scope_id
-        AND (NOT $3::boolean OR e.shed_id = $4)
-    )
-    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
-),
+	    AND EXISTS (
+	      SELECT 1
+	      FROM eligible e
+	      WHERE e.shed_id = p.scope_id
+	        AND (NOT $3::boolean OR e.shed_id = $4)
+	    )
+	    AND (
+	      $5::text = ''
+	      OR regexp_replace(lower(btrim(COALESCE(p.metadata ->> 'partition_label', 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+	    )
+	    AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
+	),
 verification_pending AS (
+  -- SHED-SCOPED. verification_items carries its own shed_id (set from the submitting
+  -- completion's shed at CreateItem time -- internal/sopbridge/vaccination_submission.go), so a
+  -- sibling shed's still-pending verification item must never inflate THIS shed's pending count.
+  -- Before this fix the count was task-wide: any shed on the same shared park drive task with a
+  -- live pending item made every OTHER shed on that task read as "submitted" too.
   SELECT count(*) AS n
   FROM verification_items vi
   WHERE vi.tenant_id = $1
     AND vi.source_task_id = $2
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
+    AND (NOT $3::boolean OR vi.shed_id = $4)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 shed_submission_state AS (
   SELECT CASE ss.state
@@ -1786,9 +1990,14 @@ shed_submission_state AS (
   FROM sop_submissions ss
   CROSS JOIN LATERAL jsonb_array_elements(ss.proof_refs) AS proof(ref)
   WHERE ss.tenant_id = $1
-    AND ss.task_id = $2
-    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
-    AND proof.ref ->> 'upload_state' = 'completed'
+	    AND ss.task_id = $2
+	    AND ss.state IN ('submitted', 'needs_review', 'accepted', 'rejected', 'voided')
+	    AND (
+	      $5::text = ''
+	      OR regexp_replace(lower(btrim(COALESCE(ss.partition_label, 'whole'))), '^part[[:space:]]+', '')
+	       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+	    )
+	    AND proof.ref ->> 'upload_state' = 'completed'
     AND proof.ref ->> 'proof_type' = 'video'
     AND proof.ref ->> 'subject_type' = 'shed'
     AND EXISTS (
@@ -1835,7 +2044,7 @@ SELECT
   END
 FROM t
 LEFT JOIN shed ON true`,
-		tenant, task, shed.Valid, shed,
+		tenant, task, shed.Valid, shed, partitionLabel,
 	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1844,10 +2053,24 @@ LEFT JOIN shed ON true`,
 		return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", err)
 	}
 
-	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task, shed)
+	breakdown, err := r.shedCompletionVaccineBreakdown(ctx, tenant, task, shed, partitionLabel)
 	if err != nil {
 		return domain.ShedCompletionSummary{}, err
 	}
+
+	// Round facts: every obligation in this shed's batch (ALL statuses, not just currently
+	// eligible ones) paired with its own row_version. Postgres already bumps
+	// obligation_instances.row_version on the two transitions that define a round --
+	// MarkObligationCompleted at submission (internal/sopbridge/vaccination_submission.go's
+	// OnTaskSubmitted -> obligation.MarkCompleted, fired BEFORE verification, not on accept) and
+	// ReopenObligation on a verifier rejection (internal/vaccination/app/completion.go
+	// RejectExisting -> obligation.ReopenObligation). RoundID is a hash of this fact set, and
+	// RoundSubmitted is computed from the SAME fact set below, so the two can never disagree.
+	roundFacts, err := r.shedCompletionRoundFacts(ctx, tenant, task, shed.Valid, shed, partitionLabel)
+	if err != nil {
+		return domain.ShedCompletionSummary{}, err
+	}
+	roundID, roundState, roundSubmitted := shedCompletionRoundState(roundFacts, pendingVerify)
 
 	summary := domain.ShedCompletionSummary{
 		TaskID:           taskID,
@@ -1859,17 +2082,75 @@ LEFT JOIN shed ON true`,
 		ProofMode:        proofMode,
 		VaccineBreakdown: breakdown,
 		SubmitState:      submitState,
+		RoundID:          roundID,
 	}
 	if proofMode != "shed_level_video" {
-		summary.SubmitState = shedCompletionSubmitState(state, pendingVerify)
+		// Per-goat mode: derive SubmitState/RoundSubmitted from the shed-scoped round-facts
+		// above, never from the shared park-level t.state. See AGENTS.md "Shared vaccination
+		// drive tasks are aggregate bookkeeping only."
+		summary.SubmitState = roundState
+		summary.RoundSubmitted = roundSubmitted
+	} else {
+		// Shed-level mode already derives submit_state from shed-scoped sop_submissions/
+		// proof_refs (shed_submission_state, above); RoundSubmitted mirrors that word rather than
+		// switching this mode's proven-working derivation.
+		summary.RoundSubmitted = shedLevelRoundSubmitted(submitState)
 	}
 	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadinessForMode(expectedCount, handledCount, proofReady, proofMode, minProofs, maxProofs)
 	return summary, nil
 }
 
+// shedRoundObligationFact is one obligation's identity/version/status inside a shed's batch,
+// used to compute RoundID/RoundSubmitted. Unlike `eligible` in the main query, this is NOT
+// filtered to non-terminal obligations -- a completed obligation IS the round's live evidence
+// until it is either accepted (stays completed) or reopened by rejection (goes back to due).
+func (r *Repository) shedCompletionRoundFacts(ctx context.Context, tenant, task pgtype.UUID, hasShed bool, shed pgtype.UUID, partitionLabel string) ([]shedRoundObligationFact, error) {
+	// projection-review: membership=obligation instances in this task's batch (obligation_batches.sop_task_id filters exactly one batch); group_key=(tenant_id, task_id) → one batch_id per SOP task; join_cardinality=one row per obligation_instance in the batch, each obligation appearing once (obligation_id is unique, no fan-out); pagination=none — whole-batch obligation list returned without LIMIT (shed drives have dozens, not thousands of obligations); scope=explicit — hasShed and shed_id filter constrain to target shed: obligation_instances via obligation_batches.batch_id resolve only to THIS task, and goats.shed_id filter further scopes to the requested shed.
+	rows, err := r.pool.Query(ctx, `
+WITH t AS (
+  SELECT st.task_id, st.tenant_id
+  FROM sop_tasks st
+  WHERE st.tenant_id = $1 AND st.task_id = $2
+),
+batch AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
+)
+SELECT oi.obligation_id::text, oi.row_version, oi.status
+FROM obligation_instances oi
+JOIN batch b ON b.batch_id = oi.batch_id
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id
+WHERE oi.tenant_id = $1
+  AND (NOT $3::boolean OR g.shed_id = $4)
+  AND (
+    $5::text = ''
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+  )
+ORDER BY oi.obligation_id`, tenant, task, hasShed, shed, partitionLabel)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion round facts: %w", err)
+	}
+	defer rows.Close()
+	var out []shedRoundObligationFact
+	for rows.Next() {
+		var f shedRoundObligationFact
+		if err := rows.Scan(&f.ObligationID, &f.RowVersion, &f.Status); err != nil {
+			return nil, fmt.Errorf("vaccination: shed completion round facts row: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion round facts rows: %w", err)
+	}
+	return out, nil
+}
+
 // shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in
 // this task's shed/batch, bounded by the same batch_id index as the summary counts above.
-func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task, shed pgtype.UUID) ([]domain.VaccineBreakdownItem, error) {
+func (r *Repository) shedCompletionVaccineBreakdown(ctx context.Context, tenant, task, shed pgtype.UUID, partitionLabel string) ([]domain.VaccineBreakdownItem, error) {
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id); group_key=(tenant_id, task_id) -> one batch_id; join_cardinality=one row per obligation_instance in the batch — protocol_rule_dimensions is many-rows-per-rule, so it is collapsed to ONE label per rule via LEFT JOIN LATERAL ... LIMIT 1 (NOT a plain JOIN) to stop count(*) double-counting an obligation when a rule has multiple selector/dimension rows; pagination=whole-shed totals, LIMIT 50 caps the number of DISTINCT vaccine labels (a shed drive has a handful of vaccines), never the per-vaccine COUNT; scope=explicit — obligations come only from THIS task's batch_id, so other sheds/parks never contribute.
 	// grain: one row per vaccine label for this shed drive. status: excludes terminal ('completed','waived','canceled','superseded') to mirror the summary's expected bucket.
 	rows, err := r.pool.Query(ctx, `
@@ -1888,6 +2169,7 @@ SELECT COALESCE(v.vaccine, NULLIF(pv.rule_dsl -> 'vaccine' ->> 'name', ''), NULL
 FROM obligation_instances oi
 JOIN batch b ON b.batch_id = oi.batch_id
 JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = oi.tenant_id AND gsp.goat_id = oi.target_id
 JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
  AND pr.protocol_version_id = oi.protocol_version_id
@@ -1916,9 +2198,14 @@ LEFT JOIN LATERAL (
 WHERE oi.tenant_id = $1
   AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
   AND (NOT $3::boolean OR g.shed_id = $4)
+  AND (
+    $5::text = ''
+    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+     = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+  )
 GROUP BY 1
 ORDER BY 1
-LIMIT 50`, tenant, task, shed.Valid, shed)
+LIMIT 50`, tenant, task, shed.Valid, shed, partitionLabel)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: shed completion vaccine breakdown: %w", err)
 	}
@@ -1937,23 +2224,81 @@ LIMIT 50`, tenant, task, shed.Valid, shed)
 	return out, nil
 }
 
-// shedCompletionSubmitState maps a generic sop_tasks.state onto the frozen ShedCompletionSummary
-// submit_state vocabulary (draft | submitted | verified | closed).
-func shedCompletionSubmitState(taskState string, pendingVerify int64) string {
-	if pendingVerify > 0 {
-		return "submitted"
+// shedRoundObligationFact is one obligation's identity/version/status snapshot, read by
+// shedCompletionRoundFacts and consumed by shedCompletionRoundState to compute RoundID and
+// RoundSubmitted from the SAME underlying facts.
+type shedRoundObligationFact struct {
+	ObligationID string
+	RowVersion   int64
+	Status       string
+}
+
+// shedCompletionRoundState computes RoundID (a deterministic fingerprint of this shed's current
+// obligation-round state), the frozen ShedCompletionSummary submit_state vocabulary (draft |
+// submitted | verified | closed) for per_goat_video mode, and the unambiguous RoundSubmitted
+// boolean -- all from the SAME per-obligation fact set, so RoundID and RoundSubmitted can never
+// disagree.
+//
+// obligation_instances.status == 'completed' is this shed's "a round was submitted" signal:
+// MarkObligationCompleted flips an obligation to 'completed' the instant a shed submits
+// (internal/sopbridge/vaccination_submission.go OnTaskSubmitted -> obligation.MarkCompleted),
+// BEFORE any verifier review, and it stays 'completed' through acceptance. A verifier REJECTION
+// is the only thing that moves it back off 'completed' (ReopenObligation -> 'due'), which is
+// exactly the live defect this replaces: a reopened obligation on shed A could never reach
+// Submit because the shared park-level sop_tasks.state stayed "needs_review" thanks to a still-
+// pending sibling shed B. Reading each obligation's OWN status/row_version instead of the shared
+// task word fixes that, per AGENTS.md: "Shared vaccination drive tasks are aggregate bookkeeping
+// only. A hidden park/batch-level sop_tasks.state must not be used as per-shed submitted/proof/
+// verification truth."
+//
+//   - open (any non-terminal, non-completed status: scheduled/due/in_progress/deferred) present
+//     anywhere in the shed's batch means the round is NOT fully submitted -> draft/false,
+//     regardless of what any other obligation in the shed is doing.
+//   - no open obligations and at least one 'completed' obligation means every currently-tracked
+//     obligation in this shed has been submitted for verification (or already accepted).
+//     pendingVerify (shed-scoped, vi.shed_id-filtered verification_items) then distinguishes
+//     "submitted, awaiting verifier" from "verified" (pendingVerify == 0, already accepted).
+//   - no open AND no completed obligations (only terminal waived/canceled/superseded, or no
+//     obligations at all) means this shed never had a submittable round -> draft/false.
+func shedCompletionRoundState(facts []shedRoundObligationFact, pendingVerify int64) (roundID, state string, roundSubmitted bool) {
+	if len(facts) == 0 {
+		return "", "draft", false
 	}
-	switch taskState {
-	case "queued", "assigned", "in_progress":
-		return "draft"
-	case "submitted", "needs_review", "rework_requested":
-		return "submitted"
-	case "accepted":
-		return "verified"
-	case "rejected", "canceled":
-		return "closed"
+	parts := make([]string, 0, len(facts))
+	var open, completed int
+	for _, f := range facts {
+		parts = append(parts, f.ObligationID+":"+strconv.FormatInt(f.RowVersion, 10))
+		switch f.Status {
+		case "completed":
+			completed++
+		case "waived", "canceled", "superseded":
+			// Terminal, but not part of this round's "submitted" evidence.
+		default:
+			open++
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	roundID = hex.EncodeToString(sum[:])[:16]
+
+	if open > 0 || completed == 0 {
+		return roundID, "draft", false
+	}
+	if pendingVerify > 0 {
+		return roundID, "submitted", true
+	}
+	return roundID, "verified", true
+}
+
+// shedLevelRoundSubmitted maps the existing shed_level_video submit_state (already derived from
+// shed-scoped sop_submissions/proof_refs by shed_submission_state) onto RoundSubmitted: a live or
+// accepted submission trail for this shed's current round. "closed" (rejected/voided) and "draft"
+// both mean the operator still needs to send a fresh submission.
+func shedLevelRoundSubmitted(state string) bool {
+	switch state {
+	case "submitted", "verified":
+		return true
 	default:
-		return "draft"
+		return false
 	}
 }
 
@@ -2043,25 +2388,54 @@ SELECT vc.completion_id::text,
        vc.goat_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
+       COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
+       COALESCE(NULLIF(gsp.partition_label, ''), 'whole')::text,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
-       vc.administered_at
+       vc.administered_at,
+       -- Protocol name + dose code feed domain.DoseDisplayLabel below. They are the ONLY inputs
+       -- that formatter needs, and both are bounded single-row lookups off the completion's own
+       -- obligation, so this stays one statement rather than a per-row label resolve.
+       COALESCE(pd.name, ''),
+       COALESCE(pr.dose_code, '')
 FROM vaccination_completions vc
 JOIN sop_submission_items si
   ON si.tenant_id = vc.tenant_id
  AND si.item_id = vc.sop_submission_item_id
+JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id
+ AND ss.submission_id = si.submission_id
 JOIN goats g
   ON g.tenant_id = vc.tenant_id
  AND g.goat_id = vc.goat_id
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+ AND shed.location_type = 'shed'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
+-- The verifier must be told WHICH vaccine the clip is evidence for. All four joins are LEFT so a
+-- completion whose protocol chain does not resolve still yields its row (the label degrades to
+-- empty and the subject simply omits the vaccine) rather than vanishing from the submission.
+LEFT JOIN obligation_instances oi
+  ON oi.tenant_id = vc.tenant_id
+ AND oi.obligation_id = vc.obligation_id
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN protocol_versions pv
+  ON pv.protocol_version_id = pr.protocol_version_id
+LEFT JOIN protocol_definitions pd
+  ON pd.protocol_id = pv.protocol_id
 LEFT JOIN LATERAL (
-  SELECT array_agg(pa.proof_id::text ORDER BY pa.created_at, pa.proof_id) AS proof_ids
-  FROM proof_artifacts pa
-  WHERE pa.tenant_id = vc.tenant_id
-    AND pa.scope_type = 'task'
-    AND pa.scope_id = si.task_id
-    AND pa.subject_type = 'goat'
-    AND pa.subject_id = vc.goat_id
-    AND pa.upload_state = 'completed'
+  SELECT array_agg(ref.value ->> 'proof_id' ORDER BY ref.ordinality) AS proof_ids
+  FROM jsonb_array_elements(COALESCE(ss.proof_refs, '[]'::jsonb)) WITH ORDINALITY AS ref(value, ordinality)
+  WHERE ref.value ->> 'upload_state' = 'completed'
+    AND ref.value ->> 'proof_type' = 'video'
+    AND ref.value ->> 'subject_type' = 'goat'
+    AND ref.value ->> 'subject_id' = vc.goat_id::text
 ) proofs ON true
 WHERE vc.tenant_id = $1
   AND si.submission_id = $2
@@ -2074,6 +2448,8 @@ LIMIT 5000`, tenant, submission)
 	out := make([]domain.SubmissionCompletion, 0)
 	for rows.Next() {
 		var item domain.SubmissionCompletion
+		var protocolName, doseCode string
+		var partitionLabelRaw string
 		if err := rows.Scan(
 			&item.CompletionID,
 			&item.SubmissionID,
@@ -2081,13 +2457,25 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatID,
 			&item.GoatLabel,
 			&item.ShedID,
+			&item.ShedLabel,
+			&partitionLabelRaw,
 			&item.ParkID,
 			&item.ProofRefIDs,
 			&item.AdministeredAt,
+			&protocolName,
+			&doseCode,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan submission completion: %w", err)
 		}
+		// Convert 'whole' sentinel to empty string for display (never show 'whole' to operators)
+		if partitionLabelRaw != "" && partitionLabelRaw != "whole" {
+			item.PartitionLabel = partitionLabelRaw
+		}
 		item.AdministeredAt = item.AdministeredAt.UTC()
+		// Derived through the ONE canonical formatter every module shares, so the verifier's
+		// queue, the calendar, execution, and push copy can never name the same dose three
+		// different ways -- and so a raw dose_code can never reach a screen.
+		item.VaccineLabel = domain.DoseDisplayLabel(protocolName, doseCode)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -2139,14 +2527,67 @@ LIMIT 5000`, tenant, task)
 	return out, nil
 }
 
+// submissionFanoutCounts compares how many submission items are expected to end up backed by an
+// ACTIVE vaccination_completions row against how many actually are, so RecordCompletionsFromSubmission
+// can fail closed on a genuine short-materialization instead of silently dropping goats.
+//
+// Root cause of the false "materialized N of M eligible submission items" failure this replaces:
+// the INSERT above uses a BARE `ON CONFLICT DO NOTHING` (no conflict target), so it silently no-ops
+// on ANY unique-constraint hit for a row -- not just the idempotency_key one it names in comments.
+// vaccination_completions also carries a second, partial unique index,
+// vaccination_completions_obligation_goat_active_unique_idx on (tenant_id, obligation_id, goat_id)
+// WHERE status IN ('recorded','accepted'), which allows at most one ACTIVE completion per
+// obligation+goat at a time. The Android client posts a CUMULATIVE proof/answer payload per shed
+// (see the P0 shed-leak comment in sopbridge/vaccination_submission.go), so a REWORK submission for
+// 2 rejected goats still carries sop_submission_items for the whole shed -- including goats whose
+// ORIGINAL completion is still 'recorded' and pending verification (never rejected, never
+// reworked). For those goats the INSERT's attempt correctly collides with the active-completion
+// index and is swallowed by the bare ON CONFLICT: nothing new needs to be recorded, the existing
+// active completion already stands. That is correct, not a bug -- but the old eligibleItems count
+// (every accepted/needs_review submission item) did not know that, so it counted those goats as
+// "should have materialized" too, eligibleItems (5) outran materializedItems (2 -- only the truly
+// reworked goats), and the whole submission's fanout was marked failed. That abort ran BEFORE
+// emitVerificationItems, so NEITHER a new verification_items row NOR the
+// verification.item.pending outbox event was ever produced for the two goats that legitimately DID
+// get reworked -- the rework loop dead-ended even though the completions themselves were recorded.
+//
+// The fix: an item counts as "materialized" when its goat has ANY active completion (status
+// recorded/accepted) for its resolved obligation -- whether that completion was just inserted by
+// this submission or already existed from an earlier one. That mirrors exactly what the partial
+// unique index (and therefore the swallowed ON CONFLICT) considers "already satisfied," so a
+// legitimate no-op is no longer misreported as a failure, while a goat that ends up with NO active
+// completion at all (a genuine insert failure -- e.g. a missing protocol_rules row) still fails the
+// count and is reported.
 func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
 	err = r.pool.QueryRow(ctx, `
-	SELECT count(si.item_id)::int,
-	       count(DISTINCT vc.sop_submission_item_id)::int
+	SELECT count(*)::int,
+	       count(*) FILTER (
+	         WHERE EXISTS (
+	           SELECT 1
+	           FROM vaccination_completions vc2
+	           WHERE vc2.tenant_id = si.tenant_id
+	             AND vc2.goat_id = si.goat_id
+	             AND vc2.status IN ('recorded', 'accepted')
+	             AND vc2.obligation_id IN (
+	               SELECT oi.obligation_id
+	               FROM obligation_instances oi
+	               WHERE oi.tenant_id = si.tenant_id
+	                 AND oi.target_type = 'goat'
+	                 AND oi.target_id = si.goat_id
+	                 AND (
+	                      oi.sop_task_id = st.task_id
+	                      OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+	                 )
+	             )
+	         )
+	       )::int
 	FROM sop_submission_items si
-	LEFT JOIN vaccination_completions vc
-	  ON vc.tenant_id = si.tenant_id
-	 AND vc.sop_submission_item_id = si.item_id
+	JOIN sop_tasks st
+	  ON st.tenant_id = si.tenant_id
+	 AND st.task_id = si.task_id
+	LEFT JOIN obligation_batches ob
+	  ON ob.tenant_id = st.tenant_id
+	 AND ob.sop_task_id = st.task_id
 	WHERE si.tenant_id = $1
 	  AND si.task_id = $2
 	  AND si.submission_id = $3
@@ -2486,10 +2927,22 @@ func (r *Repository) RecomputeEligibilityRollup(ctx context.Context, tenantID st
 		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: clear rollup: %w", err)
 	}
 
+	// projection-review: membership=canonical live goats for the tenant, LEFT JOINed 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)) so an animal is counted exactly once; group_key=the existing (tenant_id, park_id, shed_id, species, management_stage, sex, breed, health_status, usable_for_vaccination) key PLUS NULLIF(gsp.partition_label,'whole'), which SPLITS a shed's rollup across its pens instead of multiplying it, and keeps a single NULL-partition row for every non-partitioned shed; join_cardinality=the goat_shed_partitions LEFT JOIN is 1:{0,1} per goat and adds an ATTRIBUTE before grouping, so it cannot fan out the count(*); pagination=none, this is a full recompute of a derived rollup, never paged; scope=tenant_id, with park/shed/partition carried as columns for the two ceo_ai views (migration 000114) that match on the identical (tenant_id, shed_id, NULLIF(partition_label,'whole')) key
+	// partition_review: producer key adds NULLIF(gsp.partition_label,'whole') to
+	// the existing (tenant_id, park_id, shed_id, species, management_stage, sex,
+	// breed, health_status, usable_for_vaccination) GROUP BY. goat_shed_partitions
+	// PK is (tenant_id, goat_id), 1:{0,1} per goat, so this LEFT JOIN cannot fan
+	// out the per-goat membership the count(*) is grouping over -- it only adds
+	// an ATTRIBUTE to each goat row before grouping. A goat in a non-partitioned
+	// shed (no goat_shed_partitions row, or one stamped 'whole') groups into the
+	// partition_label = NULL grain, keeping today's single-row-per-shed behavior
+	// for every non-partitioned shed. group_key=consumer (the two ceo_ai views
+	// this feeds, migration 000114) matches on the identical (tenant_id, shed_id,
+	// NULLIF(partition_label,'whole')) key.
 	tag, err := tx.Exec(ctx, `
 INSERT INTO vaccination_eligibility_rollups (
   tenant_id, park_id, shed_id, species, management_stage, sex, breed, health_status,
-  usable_for_vaccination, animal_count, source_revision, recomputed_at, updated_at
+  usable_for_vaccination, animal_count, source_revision, recomputed_at, updated_at, partition_label
 )
 SELECT
   g.tenant_id,
@@ -2509,7 +2962,8 @@ SELECT
   count(*)::bigint,
   $2::bigint,
   $3::timestamptz,
-  $3::timestamptz
+  $3::timestamptz,
+  NULLIF(gsp.partition_label, 'whole')
 FROM goats g
 LEFT JOIN location_operational_attributes loa
   ON loa.tenant_id = g.tenant_id
@@ -2521,6 +2975,9 @@ LEFT JOIN animal_stage_lookup asl
   ON asl.tenant_id = sp.tenant_id
  AND asl.animal_stage_id = sp.animal_stage_id
  AND asl.status = 'active'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id
+ AND gsp.goat_id = g.goat_id
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
@@ -2535,7 +2992,8 @@ GROUP BY g.tenant_id, g.park_id, g.shed_id,
            AND COALESCE(loa.usable_for_vaccination, true)
            AND NOT COALESCE(loa.is_quarantine, false)
            AND NOT COALESCE(loa.is_icu, false)
-         )`, tenant, sourceRevision, recomputedAt)
+         ),
+         NULLIF(gsp.partition_label, 'whole')`, tenant, sourceRevision, recomputedAt)
 	if err != nil {
 		return domain.RollupRecomputeResult{}, fmt.Errorf("vaccination: rebuild rollup: %w", err)
 	}

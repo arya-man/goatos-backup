@@ -172,8 +172,9 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 				break
 			}
 			last := rows[len(rows)-1]
+			filteredRows := filterAllowedUnbatchedDueRows(plan.Config, rows)
 			uniqueRows := rows[:0]
-			for _, row := range rows {
+			for _, row := range filteredRows {
 				if _, duplicate := seenCandidates[row.ObligationID]; duplicate {
 					continue
 				}
@@ -181,11 +182,11 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 				snapshot.byVersion[plan.VersionID] = append(snapshot.byVersion[plan.VersionID], row.ObligationID)
 				uniqueRows = append(uniqueRows, row)
 			}
-			if plan.Config.ParkConsolidation.Enabled {
+			if len(uniqueRows) > 0 && plan.Config.ParkConsolidation.Enabled {
 				for _, row := range uniqueRows {
 					parkCandidateIDs = append(parkCandidateIDs, row.ObligationID)
 				}
-			} else {
+			} else if len(uniqueRows) > 0 {
 				order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
 				order = orderDueGroupsByVaccinePriority(order, groups, plan.Config)
 				for _, k := range order {
@@ -263,7 +264,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		if err != nil {
 			return plannedDate, nil, nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
+		capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, plannedDate, planner, session, targetIDs)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return plannedDate, nil, nil, err
@@ -310,7 +311,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
+			capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, &day, planner, session, targetIDs)
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
@@ -354,7 +355,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return bestDate, nil, nil, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, bestDate, planner, session, targetIDs)
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
@@ -514,7 +515,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		return remaining, nil, plannedDate, false, true, err
 	}
 	parkID := firstParkID(remaining)
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, plannedDate, planner, session, targetIDs)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return remaining, nil, plannedDate, false, true, err
@@ -537,7 +538,6 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
 	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 	if len(capped) < len(selected) {
 		animalCapReached = true
@@ -588,6 +588,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 			if err != nil {
 				return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
 			}
+			page = filterAllowedUnbatchedDueRows(cfg, page)
 			addRows(page)
 		}
 	} else {
@@ -595,6 +596,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 		if err != nil {
 			return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
 		}
+		page = filterAllowedUnbatchedDueRows(cfg, page)
 		addRows(page)
 	}
 	order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)

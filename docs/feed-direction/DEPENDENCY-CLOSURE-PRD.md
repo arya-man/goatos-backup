@@ -102,7 +102,7 @@ questions must reference these IDs rather than maintaining independent lists.
 | --- | --- | --- | --- |
 | G1 | Scope launch gate | Reopened as of 2026-06-30 because local Preventive Care (PC) / Vaccination UI/foundation closure is accepted for Feed Direction sequencing. Google dev vaccination rollout remains separate Goal 2 and is not required before Feed starts. Active Feed UI/Config/SOP exposure still requires Feed-owned backend contracts, mock fidelity, rendered proof, product-milestone closure from `FEATURE-CLOSURE-PLAN.md`, and `G2`-`G17` evidence closure. | Owner |
 | G2 | Counts/Shifting long pole | Counts/Shifting closure PRD/TRD is accepted and implemented enough to expose aggregate Base Count anchors, realized ShiftingEvent ledger, one-day projection at shed + breed grain, reviewed ration-context resolution state, idempotency, stale/imported mismatch scanning through the bounded `counts-mismatch-scan` worker path with durable scan-run evidence, recompute worker evidence through `count_projection_recompute_runs`, fail-closed exceptions with reviewed resolve/dismiss audit, and `CSG1`-`CSG10` readiness breakdown under `G2`. Breed/tag constraint tables without shed placement must produce a blocker until reviewed context resolves the physical count row to a nutrition cohort. RFID-to-shed per-goat derivation is out of initial Feed scope. | Backend/source |
-| G3 | Clock and legacy trigger inventory | Feed Director signs off the default Feed Direction clocks from `Feed, Shiftings and Count.docx`: Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` staging, and Day N+1 `09:00`/`15:00` serving slots. `G5` owns approved session-slot changes beyond that default. Legacy Slack/App Script trigger installers from `unified_automation.js`, `counting_db_automation.js`, `feed_automation.js`, and `video_verification_system.js` are a separate audit-only cutover subgate for retain/retire/replace decisions; their timings must not be treated as GoatOS schedules unless explicitly retained or replaced against the docx. | Owner |
+| G3 | Clock and legacy trigger inventory | **Clock decision accepted 2026-08-10:** default Feed Direction clocks from `Feed, Shiftings and Count.docx` are Day N `09:00` full direction, Day N `13:30` cutoff, Day N `13:30-13:45` Diff, Day N `15:00` packing/loading/transport staging outside sheds, and Day N+1 `09:00`/`15:00` serving slots. Packing, transport, and distribution are time-bounded. Create/assign Transport early enough to meet 15:00; a route policy may be stricter. The current 15:30 materializer is a source/runtime defect, not an accepted deadline. `G5` owns approved session-slot changes beyond the default. Legacy Slack/App Script installers remain audit-only cutover evidence and never override the accepted source clocks. | Accepted owner rule; implementation proof open |
 | G4 | Ration source/provenance | Solver/import path, ration values, aliases, feed vectors, uploaded breed/tag/energy constraint tables, quantity/weight thresholds, constraint hashes, approval metadata, publish authority checks, and typed CRUD/import/review/publish flow are defined. KT examples such as `80/20`, `400-500g`, `600g`, `F1` `11-15kg`, and `F2` `15-20kg` are reviewed as candidate row values, not hardcoded constants. `G4` must define the runtime template pipeline: source tables -> typed parameter rows -> dimension/alias/source-hash validation -> calculation preview -> row repair/DLQ -> approved `feed_direction_config_pack`. Workbook formulas and tabs are evidence only. | Source/owner |
 | G5 | Eligibility, experiment absolute-kg allocation, and stage-tag/session policy | Warmup 14-day transition tags, ICU, Quarantine, Flushing, Breeding, K0/K1, F2/Fattening, SIROHI->Beetal or other breed aliases, pregnant-animal policy, lactation/warm-up safety policy, native exact-shed absolute-kg allocation (hand-entered kg per feed item, split across sessions, head count informational), and versioned session-slot/feed-set policy are explicitly approved. A legacy Experiment zero row means diversion to that absolute-kg allocation, not automatic exclusion. The source default is two serving slots with 50/50 split, but admins may add, disable, reorder, or reweight slots only through approved effective-dated Feed Direction protocol config with validation and supersession rules. KT pregnant windows such as `12:30-15:00`/`14:00-15:00` are policy candidates only; they do not override docx clocks unless approved. Shifted pregnant/lactating/warm-up cohorts must re-resolve destination shed ration context and block on shortage or missing policy before generation/Diff. | Source/owner |
 | G6 | Quantity and precision boundary | Feed units are whole grams/ml into the current inventory app port, or inventory app ports are widened before decimal/sub-gram feed use; baking-soda precision is resolved before build | Architecture |
@@ -110,7 +110,7 @@ questions must reference these IDs rather than maintaining independent lists.
 | G8 | Transport map and checklist entity | Direction-shed to transport-shed consolidation owner/storage is confirmed, and any transport list/checklist entity from legacy overlap has a GoatOS equivalent | Source/owner |
 | G9 | Exception thresholds and rework policy | Packing discrepancy, wastage variance, and KT-style `90-95%` shed/pack/breed/tag/energy match thresholds plus warm-up allowance are either approved, rejected, or marked draft-only; legacy alert plus reset/re-send evidence is inventoried; destination-shed shortage, overpack, moist/unsafe leftover feed, refusal-to-eat, and sickness-risk reasons are typed; and GoatOS typed rework/re-issue is explicitly formalized | Owner |
 | G10 | Slack security | Affected legacy scripts inventoried, credentials revoked/rotated, any bridge credential moved to secret storage, and GoatOS API-only ingress proven before overlap. If `G10` is deferred, Slack bridge/overlap stays disabled and cannot count as done. | Security |
-| G11 | Reminder/escalation SLA | Per-stage deadlines, reminder cadence, escalation owner, retry policy, and admin-alert fallback are defined | Kernel |
+| G11 | Reminder/escalation SLA | Materialize the accepted G3 hard stage clocks with preassigned duty owners. The 2026-08-10 maintainer policy allows no ordinary grace for the accepted packing/transport/distribution clocks, so their deadline crossing persists immediately; conditional Water uses the separately pinned grace in its effective session procedure. Pin route/session policy, define pre-deadline reminders and post-breach recovery/contact offsets, and attribute stock/config/route/vehicle/system/offline-proof/verifier dependencies before a violation candidate. Follow `docs/decisions/task-timing-alerting-violations-and-appeals.md`; verifier lateness is separate from operator physical-service lateness. | Kernel; implementation proof open |
 | G12 | NotificationGateway routing | Feed alert events and channel mappings are defined behind replaceable notification ports; Slack is only one adapter/cutover channel | Kernel/security |
 | G13 | Missed/recovery events | Feed explicitly closes or acknowledges the kernel missed/overdue gap: deadline crossing creates durable missed/recovery events and visible process exceptions | Kernel |
 | G14 | Audit and observability | Business audit rows, worker metrics, queue lag, retry counts, DLQ/error counters, and alert thresholds are specified | Kernel/ops |
@@ -168,8 +168,8 @@ reason so a green `G2` is traceable instead of a single opaque checkbox.
 
 `G3` closes in two separate parts.
 
-First, confirm the default Feed Direction clocks from
-`Feed, Shiftings and Count.docx`:
+The maintainer confirmed the default Feed Direction clocks from
+`Feed, Shiftings and Count.docx` on 2026-08-10:
 
 | Clock | Product meaning |
 | --- | --- |
@@ -179,6 +179,17 @@ First, confirm the default Feed Direction clocks from
 | Day N `15:00` | Packed and diff-corrected feed staged outside sheds |
 | Day N+1 `09:00` | Session 1 served from staged stock |
 | Day N+1 `15:00` | Session 2 served from staged stock |
+
+Packing/loading/Transport staging outside sheds is due by Day N 15:00. The
+current daily Transport task is incorrectly created only at 15:30; create and
+assign it early enough to meet 15:00, with any route-specific cutoff allowed to
+be stricter. Physical Distribution leaves use the accepted published-slot hard
+clock at 09:00/15:00. A Water leaf is hard only when an effective session
+procedure separately pins its applicability, sequencing, owner, deadline/grace,
+and proof. The 2026-08-10 maintainer policy allows no ordinary
+grace for the accepted packing/transport/distribution clocks. Pre-warning,
+post-breach recovery/contact intervals, and route lead time remain versioned
+policy, not client constants.
 
 Second, audit legacy Slack/App Script trigger installers only as cutover
 evidence. The audit must cover current/older feed packing, transport, count

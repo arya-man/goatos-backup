@@ -375,7 +375,7 @@ export function ShedPassportLocalDrawer({
               </div>
               <div className="helpgrid">
                 <div className="hk">{copy(pageContract, "label.location")}</div>
-                <div>{dash(goat?.summary.location_path.display)}</div>
+                <div>{dash(goat?.summary.location_path.operational_location_display)}</div>
                 <div className="hk">{copy(pageContract, "label.breed_sex")}</div>
                 <div>{dash(goat ? [goat.summary.breed, goat.summary.sex].filter(Boolean).join(" / ") : [displayedItem.breed, displayedItem.sex].filter(Boolean).join(" / "))}</div>
                 <div className="hk">{copy(pageContract, "label.lifecycle")}</div>

@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CBE / CPT Vaccination Projection — 2026-08-04</title>
+<style>
+  :root{
+    --ground:#f7f9f6;
+    --panel:#ffffff;
+    --panel-2:#eef2ed;
+    --line:#dce4dc;
+    --line-strong:#c3d0c4;
+    --ink:#14201a;
+    --ink-2:#4a5b51;
+    --ink-3:#7b8c82;
+    --accent:#1f7a4d;
+    --accent-soft:rgba(31,122,77,.10);
+    --good:#1f7a4d;   --good-soft:rgba(31,122,77,.10);
+    --warn:#9a6712;   --warn-soft:rgba(154,103,18,.12);
+    --crit:#a8382f;   --crit-soft:rgba(168,56,47,.10);
+    --info:#2c6a94;   --info-soft:rgba(44,106,148,.10);
+    --shadow:0 1px 2px rgba(20,32,26,.05);
+    --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --body:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#0b1310; --panel:#111c17; --panel-2:#16241d;
+      --line:#20342a; --line-strong:#2c4739;
+      --ink:#e4ede7; --ink-2:#9db0a5; --ink-3:#75897d;
+      --accent:#4cbd86; --accent-soft:rgba(76,189,134,.13);
+      --good:#4cbd86; --good-soft:rgba(76,189,134,.13);
+      --warn:#dfa946; --warn-soft:rgba(223,169,70,.14);
+      --crit:#e4706a; --crit-soft:rgba(228,112,106,.14);
+      --info:#63aad9; --info-soft:rgba(99,170,217,.13);
+      --shadow:none;
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#f7f9f6; --panel:#ffffff; --panel-2:#eef2ed;
+    --line:#dce4dc; --line-strong:#c3d0c4;
+    --ink:#14201a; --ink-2:#4a5b51; --ink-3:#7b8c82;
+    --accent:#1f7a4d; --accent-soft:rgba(31,122,77,.10);
+    --good:#1f7a4d; --good-soft:rgba(31,122,77,.10);
+    --warn:#9a6712; --warn-soft:rgba(154,103,18,.12);
+    --crit:#a8382f; --crit-soft:rgba(168,56,47,.10);
+    --info:#2c6a94; --info-soft:rgba(44,106,148,.10);
+    --shadow:0 1px 2px rgba(20,32,26,.05);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0b1310; --panel:#111c17; --panel-2:#16241d;
+    --line:#20342a; --line-strong:#2c4739;
+    --ink:#e4ede7; --ink-2:#9db0a5; --ink-3:#75897d;
+    --accent:#4cbd86; --accent-soft:rgba(76,189,134,.13);
+    --good:#4cbd86; --good-soft:rgba(76,189,134,.13);
+    --warn:#dfa946; --warn-soft:rgba(223,169,70,.14);
+    --crit:#e4706a; --crit-soft:rgba(228,112,106,.14);
+    --info:#63aad9; --info-soft:rgba(99,170,217,.13);
+    --shadow:none;
+  }
+
+  body{background:var(--ground);color:var(--ink);font-family:var(--body);
+    font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;
+    overflow-x:hidden}
+  *,*::before,*::after{box-sizing:border-box}
+  .page{max-width:1520px;margin:0 auto;padding:32px 22px 80px;
+    display:flex;flex-direction:column;gap:34px;min-width:0}
+  section,.mast,.scroll{min-width:0;max-width:100%}
+
+  /* masthead */
+  .mast{display:flex;flex-direction:column;gap:14px;
+    padding-bottom:20px;border-bottom:2px solid var(--line-strong)}
+  .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:600}
+  h1{font-family:var(--display);font-weight:600;font-size:clamp(26px,4vw,38px);
+    line-height:1.1;margin:0;text-wrap:balance;letter-spacing:-.01em}
+  .provenance{color:var(--ink-2);font-size:13px;max-width:78ch}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;box-shadow:var(--shadow);
+    display:flex;flex-direction:column;gap:2px;min-width:0}
+  .tile .n{font-family:var(--display);font-size:26px;font-weight:600;
+    line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .tile .l{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);overflow-wrap:break-word}
+  .tile.good .n{color:var(--good)} .tile.warn .n{color:var(--warn)} .tile.crit .n{color:var(--crit)}
+
+  /* sections */
+  section{display:flex;flex-direction:column;gap:10px}
+  .head{display:flex;flex-direction:column;gap:3px;
+    border-left:3px solid var(--rail,var(--line-strong));padding-left:12px}
+  section.good{--rail:var(--good)} section.info{--rail:var(--info)}
+  section.warn{--rail:var(--warn)} section.crit{--rail:var(--crit)}
+  h2{font-family:var(--display);font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .lede{color:var(--ink-2);font-size:12.5px}
+
+  /* tables */
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel);box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:12.7px}
+  .scroll > table{min-width:1140px}
+  .scroll > table th:first-child,
+  .scroll > table td:first-child{min-width:210px}
+  .scroll > table th:nth-child(2),
+  .scroll > table td:nth-child(2){min-width:120px}
+  thead th{position:sticky;top:0;z-index:1;background:var(--panel-2);color:var(--ink-3);
+    font-weight:600;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    text-align:left;padding:9px 12px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
+  td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top;
+    color:var(--ink-2);overflow-wrap:break-word}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:var(--panel-2)}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}
+  .who{color:var(--ink);font-weight:600}
+  .who small{display:block;font-weight:400;color:var(--ink-3);font-size:11px;margin-top:3px;line-height:1.45}
+  .total{color:var(--accent);font-weight:700}
+  code{font-family:var(--mono);font-size:11.5px;background:var(--panel-2);
+    border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--ink);
+    white-space:nowrap}
+  .row-warn td{background:var(--warn-soft)}
+  .row-warn:hover td{background:var(--warn-soft)}
+  .row-crit td{background:var(--crit-soft)}
+  .row-crit:hover td{background:var(--crit-soft)}
+
+  .pill{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    font-weight:600;padding:2px 8px;border-radius:999px;
+    border:1px solid currentColor;max-width:100%;white-space:normal;
+    overflow-wrap:anywhere;line-height:1.35}
+  .p-good{color:var(--good);background:var(--good-soft)}
+  .p-warn{color:var(--warn);background:var(--warn-soft)}
+  .p-crit{color:var(--crit);background:var(--crit-soft)}
+  .p-info{color:var(--info);background:var(--info-soft)}
+  .p-mute{color:var(--ink-3);background:var(--panel-2);border-color:var(--line)}
+  .pills{display:flex;flex-wrap:wrap;gap:4px}
+  .p-sys{color:var(--info);background:var(--info-soft)}
+  .p-farm{color:var(--warn);background:var(--warn-soft)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+    font-size:11.5px;color:var(--ink-3);padding:10px 12px;
+    background:var(--panel);border:1px solid var(--line);border-radius:8px}
+  .legend span.k{display:inline-flex;align-items:center;gap:6px}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(310px,100%),1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:15px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;
+    min-width:0;overflow-wrap:break-word}
+  .card > *{min-width:0;max-width:100%}
+  .card h3{font-family:var(--display);font-size:15px;font-weight:600;margin:0}
+  .kv{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:5px 16px;
+    font-size:12.5px;margin:0}
+  .kv dt{color:var(--ink-3);overflow-wrap:break-word}
+  .kv dd{margin:0;color:var(--ink-2);min-width:0;overflow-wrap:break-word}
+  .kv dd strong{color:var(--accent);font-variant-numeric:tabular-nums}
+  .card table{font-size:12.3px;width:100%}
+  .card td,.card th{padding:8px 10px}
+  .card .fine{color:var(--ink-3);font-size:11.5px;line-height:1.5}
+
+  footer{border-top:1px solid var(--line);padding-top:16px;
+    color:var(--ink-3);font-size:11.5px;line-height:1.6}
+
+  @media (max-width:640px){
+    .page{padding:22px 14px 60px}
+    .tile .n{font-size:22px}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="mast">
+    <div class="eyebrow">Preventive Care · Projection Evidence</div>
+    <h1>CBE / CPT Vaccination Projection</h1>
+    <p class="provenance">Business date <strong>2026-08-04</strong>. Built from the corrected animal register for both farms, the shed roster and drive
+      logs shared by the farm team, the vaccination history already recorded against those animals, and the
+      dashboard head-count reference. This is a planning projection — the figures come from those records,
+      not from a reconciliation against the live system.</p>
+    <div class="tiles">
+      <div class="tile"><span class="n">1670</span><span class="l">Animals on record</span></div>
+      <div class="tile"><span class="n">935</span><span class="l">CBE</span></div>
+      <div class="tile"><span class="n">735</span><span class="l">CPT</span></div>
+      <div class="tile good"><span class="n">14</span><span class="l">Confirmed drive rows</span></div>
+      <div class="tile warn"><span class="n">208</span><span class="l">Due 5–6 Aug</span></div>
+      <div class="tile warn"><span class="n">40</span><span class="l">Data-quality follow-up</span></div>
+    </div>
+    <div class="legend">
+      <span class="k"><span class="pill p-sys">System rule</span> the date follows the approved vaccination schedule and is calculated for you</span>
+      <span class="k"><span class="pill p-farm">Farm instruction</span> the date was entered by the farm team and is not raised automatically yet</span>
+    </div>
+  </header>
+
+  <section class="good">
+    <div class="head">
+      <h2>Confirmed drive plan</h2>
+      <p class="lede">14 rows. Only groups trusted enough to schedule, or to record as completed history.
+        Rows that need source cleanup rather than a drive are separated further down.</p>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Vaccine</th><th class="num">Total eligible</th><th>Past same-vaccine dates</th>
+          <th>Projection anchor</th><th class="num">History-backed</th><th class="num">No-history</th>
+          <th>How they are grouped</th><th>Frequency</th><th>Projected drive dates</th>
+          <th class="num">Final drive total</th>
+        </tr></thead>
+        <tbody>
+          <tr>
+            <td class="who">CBE adult goats — ET+TT booster
+              <small>134 Sumathi goats still pending</small></td>
+            <td class="num">414 goats total;<br>134 pending Sumathi goats for this drive</td>
+            <td>Dose 1: 30 Jun / 1 Jul 2026; non-Sumathi adults done 1–2 Aug per the farm team</td>
+            <td>Dose 1 + 3 weeks · anchor 5 Aug 2026</td>
+            <td class="num">280 done</td><td class="num">134 pending</td>
+            <td>Sumathi 1 Parts 1–8; Sumathi 2 Parts 1–6</td>
+            <td>Booster 3 weeks after first dose</td>
+            <td><strong>5–6 Aug 2026</strong>, with 5 Aug as anchor</td>
+            <td class="num total">134</td>
+          </tr>
+          <tr>
+            <td class="who">CBE adult sheep — Blue Tongue</td>
+            <td class="num">71 sheep</td>
+            <td>None on record</td>
+            <td>Recent ET+TT booster / updated 5 Aug anchor</td>
+            <td class="num">0</td><td class="num">71</td>
+            <td>Adult sheep drive</td>
+            <td>Adult Blue Tongue dose 1 now; the approved repeat afterwards is yearly from the accepted dose</td>
+            <td><strong>5–6 Aug 2026</strong></td>
+            <td class="num total">71</td>
+          </tr>
+          <tr>
+            <td class="who">CBE adult sheep — Blue Tongue booster</td>
+            <td class="num">71 sheep</td>
+            <td>Blue Tongue dose 1 projected 5–6 Aug 2026</td>
+            <td>Blue Tongue dose 1 + 3 weeks from the 5 Aug anchor</td>
+            <td class="num">0</td><td class="num">71</td>
+            <td>Same 71 adult sheep</td>
+            <td><span class="pill p-farm">Farm instruction</span> +3 weeks after the first Blue Tongue. The approved schedule does not raise an adult Blue Tongue second dose on its own unless it is configured</td>
+            <td><strong>26 Aug 2026</strong></td>
+            <td class="num total">71</td>
+          </tr>
+          <tr>
+            <td class="who">CBE normal tagged kids — ET+TT booster</td>
+            <td class="num">242 kids</td>
+            <td>First ET+TT around 1–2 Jul; register dose 1 dated 3 Jul 2026</td>
+            <td>Dose 1 + 3 weeks</td>
+            <td class="num">242</td><td class="num">0</td>
+            <td>Normal CBE kids, excluding Castro/Y10 fattening mock rows and the 3 Yashoda 6 K2 cleanup kids listed below</td>
+            <td>Booster 3 weeks after first dose</td>
+            <td><strong>Done 1–2 Aug 2026</strong> per the farm team, except the 3 cleanup tags</td>
+            <td class="num total">242</td>
+          </tr>
+          <tr>
+            <td class="who">CBE Yashoda 6 K2 cleanup — ET+TT booster
+              <small><code>901007000504784</code><br><code>901007000504725</code><br><code>901007000504736</code></small></td>
+            <td class="num">3 kids</td>
+            <td>First ET+TT around 1–2 Jul with the other CBE kids; blank on record for these 3</td>
+            <td>Missed the 1–2 Aug CBE kids ET+TT booster round</td>
+            <td class="num">0</td><td class="num">3</td>
+            <td>Yashoda 6 K2 cleanup group</td>
+            <td>Cleanup ET+TT booster this week</td>
+            <td><strong>5–6 Aug 2026</strong></td>
+            <td class="num total">3</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult goats — ET+TT booster history
+              <small>Administered · included in the 324-adult drive</small></td>
+            <td class="num">95 goats</td>
+            <td>Booster drive: 24 Jul = 114 adult total first-day slice; 25 Jul = 163; 26 Jul = 47 across all CPT adults</td>
+            <td>CPT adult drive execution</td>
+            <td class="num">95</td><td class="num">0</td>
+            <td>Included in 324-adult CPT ET+TT booster drive</td>
+            <td>Booster 3 weeks after first dose; proof / video verification remains separate</td>
+            <td>Administered 24–26 Jul 2026</td>
+            <td class="num total">95</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult sheep — ET+TT booster history
+              <small>Administered · included in the 324-adult drive</small></td>
+            <td class="num">229 sheep</td>
+            <td>Booster drive: 24 Jul = 114 adult total first-day slice; 25 Jul = 163; 26 Jul = 47 across all CPT adults</td>
+            <td>CPT adult drive execution</td>
+            <td class="num">229</td><td class="num">0</td>
+            <td>Included in 324-adult CPT ET+TT booster drive</td>
+            <td>Booster 3 weeks after first dose; proof / video verification remains separate</td>
+            <td>Administered 24–26 Jul 2026</td>
+            <td class="num total">229</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult goats — Goat Pox</td>
+            <td class="num">95 goats</td>
+            <td>None</td>
+            <td>ET+TT booster administered 24–26 Jul 2026</td>
+            <td class="num">0</td><td class="num">95</td>
+            <td>CPT adult goat-only drive</td>
+            <td>Yearly from actual Goat Pox date afterward</td>
+            <td>From 10 Aug 2026 onward</td>
+            <td class="num total">95</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult sheep — Sheep Pox</td>
+            <td class="num">229 sheep</td>
+            <td>None</td>
+            <td>ET+TT booster administered 24–26 Jul 2026</td>
+            <td class="num">0</td><td class="num">229</td>
+            <td>CPT adult sheep drive; can pair with Blue Tongue</td>
+            <td>Yearly from actual Sheep Pox date afterward</td>
+            <td>From 10 Aug 2026 onward</td>
+            <td class="num total">229</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult sheep — Blue Tongue</td>
+            <td class="num">229 sheep</td>
+            <td>None</td>
+            <td>ET+TT booster administered 24–26 Jul 2026; the 14-day safety gap supports 10 Aug onward</td>
+            <td class="num">0</td><td class="num">229</td>
+            <td>Same 229 sheep; can be given with Sheep Pox</td>
+            <td>Approved repeat is yearly from the accepted Blue Tongue dose</td>
+            <td>From 10 Aug 2026 onward</td>
+            <td class="num total">229</td>
+          </tr>
+          <tr>
+            <td class="who">CPT adult sheep — Blue Tongue booster</td>
+            <td class="num">229 sheep</td>
+            <td>Blue Tongue dose 1 not yet done</td>
+            <td>Blue Tongue dose 1 + 3 weeks</td>
+            <td class="num">0</td><td class="num">229</td>
+            <td>Same adult sheep cohort</td>
+            <td><span class="pill p-farm">Farm instruction</span> +3 weeks after the first Blue Tongue. The approved schedule does not raise an adult Blue Tongue second dose on its own unless it is configured</td>
+            <td>If dose 1 on 10 Aug, booster 31 Aug 2026</td>
+            <td class="num total">229</td>
+          </tr>
+          <tr>
+            <td class="who">CPT kids with history — PPR</td>
+            <td class="num">233 kids</td>
+            <td>ET+TT dose 1: 1 Jul; booster: 24 Jul</td>
+            <td>ET+TT booster complete</td>
+            <td class="num">233</td><td class="num">0</td>
+            <td>CPT kids from the vaccination roster / history</td>
+            <td>PPR after ET+TT course</td>
+            <td>Next pending drive</td>
+            <td class="num total">233</td>
+          </tr>
+          <tr>
+            <td class="who">CPT July 25 birth — ET+TT dose 1
+              <small><code>901007000504378</code> · Yashoda 3</small></td>
+            <td class="num">1 kid</td>
+            <td>None</td>
+            <td>Birth date: 25 Jul 2026</td>
+            <td class="num">0</td><td class="num">1</td>
+            <td>Single newborn: <code>901007000504378</code>, Yashoda 3</td>
+            <td>First ET+TT at 3 weeks from birth</td>
+            <td><strong>15 Aug 2026</strong></td>
+            <td class="num total">1</td>
+          </tr>
+          <tr>
+            <td class="who">CPT July 25 birth — ET+TT booster
+              <small><code>901007000504378</code> · Yashoda 3</small></td>
+            <td class="num">1 kid</td>
+            <td>ET+TT dose 1 due 15 Aug 2026</td>
+            <td>Dose 1 + 3 weeks</td>
+            <td class="num">0</td><td class="num">1</td>
+            <td>Same newborn <code>901007000504378</code></td>
+            <td>Booster 3 weeks after first dose</td>
+            <td><strong>5 Sep 2026</strong>, if dose 1 given 15 Aug</td>
+            <td class="num total">1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="info">
+    <div class="head">
+      <h2>Resolved — no drive needed</h2>
+      <p class="lede">345 purchased-fattening animals plus the G2P3 cohort already carry the vaccine.
+        Do not schedule them again.</p>
+    </div>
+    <div class="scroll">
+      <table style="min-width:820px">
+        <thead><tr><th>Group</th><th class="num">Count</th><th>Vaccine status</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="who">CBE purchased fattening — C1 / C2 / C3 plus Yashoda 10 parity rows</td>
+            <td class="num">205</td>
+            <td><span class="pills"><span class="pill p-good">ET+TT done</span><span class="pill p-good">Booster done</span><span class="pill p-good">PPR done</span></span></td>
+            <td>The farm team confirmed purchased fattening animals at both CBE and CPT have all three done</td>
+          </tr>
+          <tr>
+            <td class="who">CPT purchased fattening — C1 / C2 / G2P1 / G2P2</td>
+            <td class="num">140</td>
+            <td><span class="pills"><span class="pill p-good">ET+TT done</span><span class="pill p-good">Booster done</span><span class="pill p-good">PPR done</span></span></td>
+            <td>The farm team confirmed only C1, C2, G2P1 and G2P2 are purchased fattening in CPT; no drive now</td>
+          </tr>
+          <tr>
+            <td class="who">CPT G2P3 tagged animals
+              <small>39 scanned on the drive log · 37 unmapped rows on record</small></td>
+            <td class="num">39 / 37</td>
+            <td><span class="pills"><span class="pill p-good">Given 20 Jul 2026</span><span class="pill p-mute">Needs reconciling</span></span></td>
+            <td>The Godel 2 Part 3 drive log records 39 scanned, 38 on record, 1 new. The animal register still holds
+              37 unmapped rows for that shed, so the tags and counts need reconciling — no drive now</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="warn">
+    <div class="head">
+      <h2>Data-quality follow-up</h2>
+      <p class="lede">40 animals. The operational decision is captured — these are no longer blanket holds after
+        the farm team's latest clarification. What remains is record cleanup for audit-grade history.</p>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Problem group</th><th class="num">Count</th><th>Current source conflict</th>
+          <th>What is known</th><th>What is missing</th><th>Drive decision</th>
+        </tr></thead>
+        <tbody>
+          <tr class="row-warn">
+            <td class="who">CBE Yashoda 6 K2 RFIDs
+              <small><code>901007000504784</code><br><code>901007000504725</code><br><code>901007000504736</code></small></td>
+            <td class="num">3</td>
+            <td>On the animal register, but absent from the CBE tagging sheet, the combined vaccination history, and both movement and event searches</td>
+            <td>These 3 missed the CBE kids ET+TT booster round that ran on 1–2 Aug</td>
+            <td>The exact past ET+TT dose date is still missing on the register, but the latest instruction is to give the booster now</td>
+            <td><span class="pill p-warn">Schedule cleanup</span> ET+TT booster on <strong>5–6 Aug 2026</strong></td>
+          </tr>
+          <tr class="row-warn">
+            <td class="who">CPT G2P3 rows needing tag reconciliation
+              <small>Sample real RFIDs: <code>901007000504036</code> (old ID 981 BLR), <code>901007000504117</code> (old ID 797 BLR) — both CPT, Anantapur Sheep, Female, Adult, on record</small></td>
+            <td class="num">37 on record;<br>39 scanned</td>
+            <td>The register carries 37 unmapped Godel 2 Part 3 rows, while the shed roster holds a Godel 2 Part 3 vaccination log dated 20 Jul 2026 with real tag numbers, recorded in a layout unlike the other sheds</td>
+            <td>The vaccinations are done. Drive log totals: <strong>39 scanned, 38 on record, 1 new</strong>. Breakdown: 36 adult female sheep on record — Godel 1 Partition 1 = 21, Mandela 2 Partition 10 = 8, Mandela 2 Partition 9 = 7 — plus 2 F2 kids (<code>901007000505113</code> male, Godel 2 Partition 4; <code>901007000505085</code> female, Mandela 2 Partition 5) and 1 new animal <code>901007000504386</code>, old ID Flock BLR 0702 CPT, with no shed or age recorded. The log is headed Godel 2 Part 3 while the individual rows name other sheds, so both must be kept when the records are matched up</td>
+            <td>Bring in the 39 logged animals, match them to the rows on record, settle 37 against 39, and carry the 20 Jul 2026 vaccination across</td>
+            <td><span class="pill p-good">No drive now</span> Reconcile G2P3 tags and history separately</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="info">
+    <div class="head">
+      <h2>How each date is derived</h2>
+      <p class="lede">Which projections the approved schedule can work out on its own, and which are dates the
+        farm team asked for. ET+TT throughout this plan is system-calculated. The adult Blue Tongue
+        second dose is not.</p>
+    </div>
+    <div class="scroll">
+      <table style="min-width:860px">
+        <thead><tr><th>Projection item</th><th>Basis</th><th>How to use it here</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="who">ET+TT kid first dose</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>4 weeks (28 days) from date of birth, or from a trusted assumed age</td>
+          </tr>
+          <tr>
+            <td class="who">ET+TT kid booster</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>7 weeks (49 days) from date of birth, and never less than 21 days after the first dose</td>
+          </tr>
+          <tr>
+            <td class="who">ET+TT adult second dose</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>21 days after the previous accepted dose, with a 21-day minimum gap</td>
+          </tr>
+          <tr>
+            <td class="who">ET+TT repeat after a completed course</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>182 days after the completed course</td>
+          </tr>
+          <tr>
+            <td class="who">Newborn <code>901007000504378</code></td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>Born 2026-07-25 plus 21 days for the first field action, then the booster 21 days after the
+              dose is actually given — 15 Aug, then 5 Sep</td>
+          </tr>
+          <tr>
+            <td class="who">Pox and Blue Tongue after a recent ET+TT</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>A 14-day safety gap applies unless an approved same-day pair is chosen. This is what supports
+              the CPT "from 10 Aug onward" rows after the 24–26 Jul ET+TT</td>
+          </tr>
+          <tr>
+            <td class="who">Two vaccines per animal per session</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>A hard limit on how many vaccines one animal can receive in a single session</td>
+          </tr>
+          <tr>
+            <td class="who">Repeat cycles for PPR, pox, FMD, HS and adult Blue Tongue</td>
+            <td><span class="pill p-sys">System rule</span></td>
+            <td>The latest accepted dose of the same vaccine sets the next repeat. One vaccine is never
+              anchored off another vaccine's dose, except for the medical spacing gaps above</td>
+          </tr>
+          <tr class="row-warn">
+            <td class="who">Adult Blue Tongue booster at +3 weeks</td>
+            <td><span class="pill p-farm">Farm instruction</span></td>
+            <td>Asked for by the farm team, not part of the approved schedule today. The approved schedule
+              carries Blue Tongue for kids at 16 and 20 weeks, and a yearly adult repeat from the accepted
+              dose. Treat the <strong>26 Aug</strong> and <strong>31 Aug</strong> rows as farm-entered dates
+              until an adult Blue Tongue second dose is configured</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <h2>Supporting detail</h2>
+      <p class="lede">Anchors, execution history, and the boundary of what has actually been verified.</p>
+    </div>
+    <div class="cards">
+
+      <div class="card">
+        <h3>Must-not-miss animal</h3>
+        <dl class="kv">
+          <dt>RFID</dt><dd><code>901007000504378</code></dd>
+          <dt>Farm · shed</dt><dd>CPT · Yashoda 3 (shed tag K1)</dd>
+          <dt>Species</dt><dd>Goat · Sojat · Male</dd>
+          <dt>Born</dt><dd>2026-07-25, 11:58 am · 4.1 kg</dd>
+          <dt>Mother</dt><dd><code>901007000504141</code></dd>
+          <dt>ET+TT dose 1</dt><dd><strong>2026-08-15</strong></dd>
+          <dt>ET+TT booster</dt><dd><strong>2026-09-05</strong> if dose 1 lands on 15 Aug</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>CPT adult ET+TT booster execution</h3>
+        <table>
+          <thead><tr><th>Date</th><th class="num">Animals</th><th>Source</th></tr></thead>
+          <tbody>
+            <tr><td>2026-07-24</td><td class="num">114</td><td>Recorded drive history</td></tr>
+            <tr><td>2026-07-25</td><td class="num">163</td><td>Operational drive split</td></tr>
+            <tr><td>2026-07-26</td><td class="num">47</td><td>Operational drive split</td></tr>
+            <tr><td class="who">Total</td><td class="num total">324</td><td><span class="pill p-warn">Video verification pending</span></td></tr>
+          </tbody>
+        </table>
+        <p class="fine">The day split is taken from the drive records. Video verification of the proof is still
+          outstanding, so treat the doses as given but the proof as not yet signed off.</p>
+      </div>
+
+      <div class="card">
+        <h3>Rules applied</h3>
+        <dl class="kv">
+          <dt>ET+TT booster</dt><dd>3 weeks after the first ET+TT dose</dd>
+          <dt>Sheep Pox + Blue Tongue</dt><dd>Can be given on the same day</dd>
+          <dt>Pox / BT after ET</dt><dd>2 weeks from the last ET date</dd>
+          <dt>Blue Tongue booster</dt><dd>3 weeks from the first Blue Tongue dose</dd>
+          <dt>Newborn ET+TT</dt><dd>First dose at 3 weeks from birth</dd>
+          <dt>Missing DOB</dt><dd>K2 kids assumed 8 weeks; F2 kids assumed 16 weeks</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>Count reconciliation</h3>
+        <table>
+          <thead><tr><th>Source</th><th class="num">Total</th><th class="num">CBE</th><th class="num">CPT</th></tr></thead>
+          <tbody>
+            <tr><td>Dashboard</td><td class="num">1673</td><td class="num">942</td><td class="num">731</td></tr>
+            <tr><td>Farm team evidence</td><td class="num">1484</td><td class="num">935</td><td class="num">549</td></tr>
+            <tr><td>Animal register</td><td class="num">1670</td><td class="num">935</td><td class="num">735</td></tr>
+            <tr><td class="who">Register vs dashboard</td>
+              <td class="num" style="color:var(--crit)">−3</td>
+              <td class="num" style="color:var(--crit)">−7</td>
+              <td class="num" style="color:var(--warn)">+4</td></tr>
+          </tbody>
+        </table>
+        <p class="fine">The CBE evidence matches the CBE register total. The net difference against the dashboard
+          is still open.</p>
+      </div>
+
+      <div class="card">
+        <h3>Missing-DOB kid anchors</h3>
+        <dl class="kv">
+          <dt>CBE Y6 K2 · 3</dt><dd>K2, 8 weeks assumed. First ET+TT ran around 1–2 Jul with the other CBE kids; these 3 missed the 1–2 Aug booster round — <span class="pill p-warn">booster 5–6 Aug 2026</span></dd>
+          <dt>CPT fattening · 140</dt><dd>F2, 16 weeks assumed. ET+TT, booster and PPR confirmed done — <span class="pill p-good">no drive</span></dd>
+          <dt>CPT G2P3 · 39 / 37</dt><dd>These are real tagged animals: the shed roster holds a Godel 2 Part 3 log with real tag numbers. Vaccination done 20 Jul 2026 — <span class="pill p-good">no drive now</span>, the register still needs its counts and tags reconciled</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <h3>Animals on record</h3>
+        <table>
+          <thead><tr><th>Cohort</th><th class="num">CBE</th><th class="num">CPT</th></tr></thead>
+          <tbody>
+            <tr><td>Adult goats</td><td class="num">414</td><td class="num">95</td></tr>
+            <tr><td>Adult sheep</td><td class="num">71</td><td class="num">229</td></tr>
+            <tr><td>Kid goats</td><td class="num">206</td><td class="num">92</td></tr>
+            <tr><td>Kid sheep</td><td class="num">244</td><td class="num">319</td></tr>
+            <tr><td class="who">Farm total</td><td class="num total">935</td><td class="num total">735</td></tr>
+          </tbody>
+        </table>
+        <p class="fine">1670 animals across both farms. Godel 2 · Part 3 holds 46 young sheep, of which 37 still
+          carry no tag number — that is the G2P3 reconciliation backlog.</p>
+      </div>
+
+      <div class="card">
+        <h3>Verification boundary</h3>
+        <dl class="kv">
+          <dt>Animal register</dt><dd><span class="pill p-good">Counted</span></dd>
+          <dt>Farm team evidence</dt><dd><span class="pill p-good">Captured</span></dd>
+          <dt>CPT adult drive records</dt><dd><span class="pill p-good">Captured</span></dd>
+          <dt>Live system reconciliation</dt><dd><span class="pill p-warn">Outstanding</span></dd>
+        </dl>
+        <p class="fine">This page is a planning projection built from the records above.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <footer>
+    Counts, dates, tag numbers, source conflicts and drive decisions are carried across unchanged from the
+    CBE/CPT vaccination projection note dated 2026-08-04.
+    This week, 5–6 Aug 2026: 134 Sumathi adult goats (ET+TT booster), 71 adult sheep (Blue Tongue dose 1) and the
+    3 Yashoda 6 K2 cleanup kids (ET+TT booster). Already done 1–2 Aug: 280 non-Sumathi adult goats and 242 tagged
+    kids. The 26 Aug and 31 Aug Blue Tongue boosters are farm-entered dates, not system-raised. G2P3 needs no drive —
+    vaccinated 20 Jul 2026, 39 scanned against 37 rows on record.
+  </footer>
+
+</div>
+</body>
+</html>

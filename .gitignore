@@ -63,6 +63,13 @@ Screenshots/
 .codex-goatos-render/
 .codex-visual/
 .codex-exports/
+.agent-docs/context7/current/
+.agent-docs/context7/planned/
+.agent-docs/context7/graphify-out/
+.agent-docs/context7/manifest.json
+.agent-docs/context7/*.log
+.agent-docs/context7/logs/
+agent-docs/context7/
 .understand-anything/
 **/.claude/launch.json
 # local durable-store scratch (bulk-status worker / dev runtime state)
@@ -101,6 +108,7 @@ wiki/
 
 # Claude subagent worktrees (isolation:worktree) — local scratch, never commit
 .claude/worktrees/
+.claude/settings.local.json
 
 # compiled cmd binaries accidentally produced by `go build ./cmd/<x>` (no /...)
 # in the module root — build artifacts, never commit
@@ -137,3 +145,33 @@ backend/seed-shed-profiles
 .env.ceo-ai.local
 backend/bin/
 .codex-proof/
+
+# Maintainer-local working data, committed to main by mistake on 2026-08-04 (c4efe25b9) and
+# untracked again. These are generated/one-off artifacts, not project sources: raw goat JSON
+# dumps, the ad-hoc runbook scripts that build them, exported patch files, and timestamped
+# seed-correction output. Listed by NAME rather than as docs/runbooks/*.py on purpose -- a broad
+# glob would silently hide a runbook script that IS meant to be committed.
+docs/runbooks/CBE-goats.json
+docs/runbooks/CBE-CPT-goats.json
+docs/runbooks/add-c2-y10-icu.py
+docs/runbooks/add-cpt-kids.py
+docs/runbooks/apply-cpt-shed-roster.py
+docs/runbooks/apply-cpt-slack-shiftings.py
+docs/runbooks/apply-health-and-breed.py
+docs/runbooks/build-cbe-cpt-goats.py
+docs/runbooks/build-cbe-goats.py
+docs/runbooks/fill-assumed-ids.py
+docs/runbooks/fill-castro.py
+docs/runbooks/normalize-goats-json.py
+feed-lifecycle-patches/
+fixtures/cpt-shed-partitions/
+# Timestamped seed-correction output only -- the rest of this fixture dir is tracked source.
+fixtures/vaccination-hrms-source-full/seed-stage-correction-*.json
+
+# Go binaries built with `go build ./cmd/...` land in backend/ and must never be committed.
+# A 13MB arm64 binary was committed this way once; it is architecture-locked, useless in CI, and
+# rots silently the moment its source changes.
+/backend/backfill-verification-subject-labels
+
+# Compiled one-off importer binaries built in place (13MB Mach-O); build to a temp path instead.
+backend/import-procurement-vendors

@@ -1,0 +1,56 @@
+{
+  "fixture_id": "weighing-stg-scopes-v1",
+  "environment": "stg",
+  "module": "weighing",
+  "free_flow": true,
+  "parks": [
+    {
+      "code": "CBE",
+      "name": "CBE",
+      "scope_ranges": [
+        { "name": "Castro", "from": 1, "to": 3 },
+        { "name": "Godel 1 Part", "from": 1, "to": 8 },
+        { "name": "Godel 2 Part", "from": 1, "to": 8 },
+        { "name": "Yashoda", "from": 1, "to": 10 }
+      ],
+      "expected_scope_count": 29
+    },
+    {
+      "code": "CPT",
+      "name": "CPT",
+      "scope_ranges": [
+        { "name": "Castro", "from": 1, "to": 2 },
+        { "name": "Godel 2 Part", "from": 1, "to": 4 },
+        { "name": "Mandela 1 Part", "from": 1, "to": 4 },
+        { "name": "Yashoda", "from": 1, "to": 4 }
+      ],
+      "expected_scope_count": 14
+    }
+  ],
+  "expected_scope_count": 43,
+  "write_mode": "append_idempotent",
+  "clean_environment": false,
+  "android_hidden_modules": ["counts"],
+  "access": {
+    "modules": ["vaccination", "weighing"],
+    "excluded_modules": ["counts"],
+    "principals": [
+      { "park": "CPT", "display_name": "Amit Kumar", "email": "amit797069@gmail.com", "role": "operator" },
+      { "park": "CPT", "display_name": "Darshan Talwar", "email": "darshantalawar033@gmail.com", "role": "operator" },
+      { "park": "CPT", "display_name": "Sagar Mahoor", "email": "sagarmahoor143@gmail.com", "role": "operator" },
+      { "park": "CBE", "display_name": "Pramod", "email": "pramodsahu616285@gmail.com", "role": "operator", "firebase_uid_required": true },
+      { "park": "CBE", "display_name": "Sharath", "role": "operator", "firebase_uid_required": true },
+      { "display_name": "Dinakar", "email": "babureddy315@gmail.com", "role": "director", "explicit_park_scope_required": true, "firebase_uid_required": true }
+    ],
+    "excluded_principals": ["Eshwar"]
+  },
+  "isolation": {
+    "create_expected_animals": false,
+    "create_goats": false,
+    "create_goat_identifiers": false,
+    "validate_rfid_against_roster": false,
+    "validate_rfid_across_sheds": false,
+    "touch_vaccination": false,
+    "touch_counts": false
+  }
+}

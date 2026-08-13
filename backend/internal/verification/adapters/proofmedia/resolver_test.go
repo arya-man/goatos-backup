@@ -2,7 +2,10 @@ package proofmedia
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +15,7 @@ import (
 	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
+	vports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
@@ -21,8 +25,14 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 			ProofID:    "10000000-0000-4000-8000-000000000001",
 			MimeType:   "video/mp4",
 			DurationMS: &duration,
+			Metadata: map[string]any{
+				"action_id": "20000000-0000-4000-8000-000000000001",
+			},
 		},
 		url: "/app/proofs/10000000-0000-4000-8000-000000000001/download/signed?tenant_id=00000000-0000-4000-8000-000000000001&expires=1&sig=ok",
+	}).WithActionPresentationResolver(fakeActionPresentationResolver{
+		labels:  map[string]string{"20000000-0000-4000-8000-000000000001": "Are any babies still inside?"},
+		answers: map[string]string{"20000000-0000-4000-8000-000000000001": "No"},
 	})
 
 	media, err := resolver.ResolveMedia(context.Background(), "00000000-0000-4000-8000-000000000001", []string{"10000000-0000-4000-8000-000000000001"})
@@ -35,6 +45,31 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	if media[0].MimeType != "video/mp4" || media[0].DurationMS == nil || *media[0].DurationMS != duration {
 		t.Fatalf("media metadata not populated: %#v", media[0])
 	}
+	if media[0].Label != "Are any babies still inside?" {
+		t.Fatalf("media label=%q, want Are any babies still inside?", media[0].Label)
+	}
+	if media[0].Answer != "No" {
+		t.Fatalf("media answer=%q, want No", media[0].Answer)
+	}
+}
+
+type fakeActionPresentationResolver struct {
+	labels  map[string]string
+	answers map[string]string
+}
+
+func (f fakeActionPresentationResolver) ResolveActionPresentations(_ context.Context, _ string, actionIDs []string) (map[string]string, map[string]string, error) {
+	labels := make(map[string]string, len(actionIDs))
+	answers := make(map[string]string, len(actionIDs))
+	for _, id := range actionIDs {
+		if label, ok := f.labels[id]; ok {
+			labels[id] = label
+		}
+		if answer, ok := f.answers[id]; ok {
+			answers[id] = answer
+		}
+	}
+	return labels, answers, nil
 }
 
 func TestLocalUploadCompletePreservesDurationForVerificationMedia(t *testing.T) {
@@ -173,6 +208,17 @@ func (r *memoryProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs [
 	return out, nil
 }
 
+func (r *memoryProofRepo) DeleteUnattachedProof(_ context.Context, _ string, proofID string, _ string) (proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	proof, ok := r.proofs[proofID]
+	if !ok {
+		return proofdomain.Artifact{}, ports.ErrNotFound
+	}
+	delete(r.proofs, proofID)
+	return proof, nil
+}
+
 func (r *memoryProofRepo) CompleteProof(_ context.Context, in proofdomain.CompleteUpload) (proofdomain.Artifact, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -225,6 +271,10 @@ func (r *memoryProofRepo) BackfillSubmissionRetention(_ context.Context, _ time.
 	return 0, nil
 }
 
+func (r *memoryProofRepo) ListUploadedProofs(context.Context, proofdomain.ListUploadedProofsQuery) ([]proofdomain.Artifact, error) {
+	return nil, nil
+}
+
 func (r *memoryProofRepo) PurgeExpired(_ context.Context, _ time.Time, _ int) (int, error) {
 	return 0, nil
 }
@@ -234,3 +284,62 @@ func (r *memoryProofRepo) PurgeAbandonedUploads(_ context.Context, _ time.Time, 
 }
 
 var _ ports.Repository = (*memoryProofRepo)(nil)
+
+// This is the whole bug in one test, through the REAL stack (proof service + local storage +
+// this resolver): move the stored object aside and the link still resolves — signing a URL says
+// nothing about the bytes — but the verdict-time availability check must say the evidence is gone.
+func TestEnsureEvidenceAvailableSeesThroughAResolvableLink(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	repo := newMemoryProofRepo()
+	service := proofapp.NewService(repo, localstorage.New(dir, "local-proof-secret"))
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	scopeID := "20000000-0000-4000-8000-000000000001"
+	subjectID := "30000000-0000-4000-8000-000000000001"
+	uploadedBy := "40000000-0000-4000-8000-000000000001"
+
+	target, err := service.CreateUpload(ctx, proofdomain.CreateUpload{
+		TenantID: tenantID, ProofType: "video", MimeType: "video/mp4",
+		ScopeType: "task", ScopeID: scopeID, SubjectType: "shed", SubjectID: &subjectID, UploadedBy: &uploadedBy,
+		Metadata: map[string]any{
+			"capture_source":    "in_app_camera",
+			"captured_start_ms": int64(1000),
+			"captured_end_ms":   int64(5200),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateUpload: %v", err)
+	}
+	if _, err := service.StoreUpload(ctx, tenantID, target.Proof.ProofID, "video/mp4", strings.NewReader("proof-video-bytes")); err != nil {
+		t.Fatalf("StoreUpload: %v", err)
+	}
+
+	resolver := NewResolver(service)
+	proofIDs := []string{target.Proof.ProofID}
+
+	if err := resolver.EnsureEvidenceAvailable(ctx, tenantID, proofIDs); err != nil {
+		t.Fatalf("EnsureEvidenceAvailable with the object present = %v, want nil", err)
+	}
+
+	// The exact production incident: the object goes away, the DB rows do not.
+	stored, err := repo.GetProof(ctx, tenantID, target.Proof.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, stored.ObjectKey)); err != nil {
+		t.Fatalf("remove stored object: %v", err)
+	}
+
+	// A link is STILL issued — which is precisely why the old link-only gate was a tautology.
+	media, err := resolver.ResolveMedia(ctx, tenantID, proofIDs)
+	if err != nil || len(media) != 1 || media[0].DownloadURL == "" {
+		t.Fatalf("ResolveMedia after the object vanished: media=%#v err=%v — the premise of this test is that a link still resolves", media, err)
+	}
+
+	err = resolver.EnsureEvidenceAvailable(ctx, tenantID, proofIDs)
+	if !errors.Is(err, vports.ErrEvidenceMissing) {
+		t.Fatalf("EnsureEvidenceAvailable with the object gone = %v, want vports.ErrEvidenceMissing", err)
+	}
+}
+
+var _ vports.EvidenceAvailabilityChecker = (*Resolver)(nil)

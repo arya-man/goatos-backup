@@ -14,9 +14,10 @@ import android.os.Build
  *    "V1 should avoid in-app Bluetooth discovery unless product explicitly needs a
  *    branded pairing wizard". The keyboard-wedge reader is read via `InputManager`
  *    (no permission) plus `BluetoothAdapter.getBondedDevices()` / ACL broadcasts as a
- *    secondary signal, which is what needs runtime `BLUETOOTH_CONNECT` on API 31+.
- *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` and location are
- *    deliberately not part of this login-time catalog.
+ *    secondary signal. Operator routes still request both Android 12+ Nearby Devices
+ *    permissions (`BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN`) so future in-app scan/pairing
+ *    affordances cannot land outside the mandatory permission contract. LOCATION is mandatory
+ *    for operators (maintainer 2026-08-02).
  *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture, FCM alerts.
  */
 // Permission constants added after minSdk (BLUETOOTH_CONNECT API 31, POST_NOTIFICATIONS
@@ -27,6 +28,10 @@ enum class AppPermission(
     val manifestPermission: String,
     val minSdkInt: Int,
     val optional: Boolean,
+    /** Highest SDK on which this login-time permission should be requested. Int.MAX_VALUE = no
+     *  cap. This catalog is role-neutral; operator camera surfaces have their own mandatory gate
+     *  for precise location, camera, microphone, and RFID permissions. */
+    val maxSdkInt: Int = Int.MAX_VALUE,
 ) {
     /** CameraX proof capture (shed-record submit video/photo evidence). Needed on every
      *  supported OS version (minSdk 29). */
@@ -45,6 +50,15 @@ enum class AppPermission(
         optional = true,
     ),
 
+    /** Android 12+ "Nearby devices" scan permission. Current RFID is keyboard-wedge/bonded
+     *  device first, but operator camera surfaces require this permission too so any future
+     *  in-app scan/pairing helper is covered before capture begins. */
+    BLUETOOTH_SCAN(
+        manifestPermission = Manifest.permission.BLUETOOTH_SCAN,
+        minSdkInt = Build.VERSION_CODES.S,
+        optional = true,
+    ),
+
     /** Obligation/escalation push alerts rendered from FCM. Runtime-requestable only on
      *  Android 13+ (TIRAMISU); pre-33 devices receive notifications without a prompt. */
     NOTIFICATIONS(
@@ -52,13 +66,23 @@ enum class AppPermission(
         minSdkInt = Build.VERSION_CODES.TIRAMISU,
         optional = true,
     ),
+
+    /** Legacy location for pre-Android-12 RFID readiness. From Android 12 the RFID path uses
+     *  BLUETOOTH_CONNECT; the operator proof-capture gate still requires precise location on
+     *  every supported OS so proof overlays can stamp the local address. */
+    LOCATION(
+        manifestPermission = Manifest.permission.ACCESS_FINE_LOCATION,
+        minSdkInt = 0,
+        optional = true,
+        maxSdkInt = Build.VERSION_CODES.R,
+    ),
     ;
 
     companion object {
         /** The OS-appropriate subset of [AppPermission] to request/display on the given
          *  (default: current) device — this IS the OS-version-aware gate. */
         fun requiredForSdkInt(sdkInt: Int = Build.VERSION.SDK_INT): List<AppPermission> =
-            entries.filter { sdkInt >= it.minSdkInt }
+            entries.filter { sdkInt >= it.minSdkInt && sdkInt <= it.maxSdkInt }
     }
 }
 

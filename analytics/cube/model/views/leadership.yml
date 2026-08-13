@@ -17,6 +17,7 @@ views:
           - species
           - park_label
           - shed_label
+          - partition_label
           - management_stage
           - exit_business_day
 
@@ -34,6 +35,7 @@ views:
           - species
           - park_label
           - shed_label
+          - partition_label
           - due_business_day
 
   - name: kpi_vaccination_operator
@@ -56,6 +58,7 @@ views:
           - operator_label
           - park_label
           - shed_label
+          - partition_label
           - next_action
           - planned_business_day
 

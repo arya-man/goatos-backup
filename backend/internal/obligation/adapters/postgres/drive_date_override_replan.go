@@ -311,11 +311,11 @@ WHERE vda.tenant_id = $1
       $5::date < $4::date
       AND ob.planned_date = $5
       AND vda.planned_date > $4
-      AND vda.planned_date <= ($4::date + INTERVAL '13 days')::date
+      AND vda.planned_date <= ($4::date + ($6::int * INTERVAL '1 day'))::date
     )
   )
   AND vda.vaccine_rule_ids && moved_rules.rule_ids
-ORDER BY vda.planned_date, vda.assignment_id`, tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(from), businessDateOnly(to))
+ORDER BY vda.planned_date, vda.assignment_id`, tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(from), businessDateOnly(to), vaccinationDriveOverrideSafeHorizonDays)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: select vaccination drive assignments for date move: %w", err)
 	}

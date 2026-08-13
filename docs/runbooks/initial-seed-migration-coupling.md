@@ -111,6 +111,16 @@ not-due, and unknown physical reads. Seed verification for these tables is only
 that the migration applied and Submit can validate/finalize runtime captures
 when they exist.
 
+`sop_submissions.partition_label` is runtime submit identity, not source seed
+truth. Clean-slate seed starts with no SOP submissions, so migration
+`000147_sop_submissions_partition_label.sql` has no seed row to backfill. For an
+already-seeded database, apply the migration before API/app startup; new
+partition-scoped submits must write the physical partition label, while older
+whole-shed submissions remain `NULL` and continue to read as whole-shed
+history. The follow-up lock-safety hotfix for this migration changes only how
+the index is built and dropped (`CONCURRENTLY` outside a transaction); it does
+not add a seed closeout step.
+
 The standard setup shape is:
 
 ```text
@@ -291,3 +301,22 @@ statements on `notification_requests`, `obligation_status_events`, and
 no new app-visible surface, so the seed/import path is unchanged. No seed
 command or projection recompute needs updating; the coupling companion is this
 runbook note plus the `seed-migration-guard:ignore` markers in the migrations.
+
+## 000034 birth/death workflows (2026-07-27, no seed impact)
+
+Migration `000034_birth_death_workflows.sql` creates `workflow_instances` and
+`workflow_actions` and adds `goats.time_of_birth`.
+
+- `workflow_instances` / `workflow_actions` are OPERATIONAL/EVENT tables per the
+  classification above: rows are produced only by the tasks module's
+  `goat.created` / `goat.exited` consumers and the operator answer/complete APIs
+  on the production path. The seed never hand-writes a workflow row, so no seed
+  command, projector, or closeout flag changes.
+- `goats.time_of_birth` is an ADDITIVE, NULLABLE column that is backfilled
+  NEVER: `NULL` means unknown, and every reader (the birth workflow opener)
+  falls back to 07:00 IST on the DOB. Existing seed/import rows stay valid
+  without touching any seed path; new source data may supply it through
+  `CreateAdminGoatRequest.time_of_birth` when available.
+
+No seed change is required; this runbook note is the coupling companion for the
+`goats` table touch.

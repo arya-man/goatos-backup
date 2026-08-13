@@ -30,6 +30,9 @@ import sg.mesha.goatos.core.network.dto.VerificationStatus
 class VerificationRepositoryPaginationTest {
     private data class Request(
         val category: String?,
+        val status: String?,
+        val businessDate: String?,
+        val missedOnly: Boolean?,
         val parkId: String?,
         val shedId: String?,
         val cursor: String?,
@@ -75,7 +78,7 @@ class VerificationRepositoryPaginationTest {
     @Test
     fun `refresh then append persists a bounded keyset window through Room`() = runTest {
         withRepository { repository, backend, requests ->
-            backend.response = ::numberedPage
+            backend.response = { numberedPage(it.cursor) }
             repository.refreshQueue(category = "vaccine", limit = PAGE_SIZE).getOrThrow()
             repository.appendQueue(cursor = "cursor-1", category = "vaccine", limit = PAGE_SIZE).getOrThrow()
 
@@ -91,7 +94,7 @@ class VerificationRepositoryPaginationTest {
     @Test
     fun `distinct categories are cached in separate scopes`() = runTest {
         withRepository { repository, backend, _ ->
-            backend.response = ::numberedPage
+            backend.response = { numberedPage(it.cursor) }
             repository.refreshQueue(category = "vaccine", limit = PAGE_SIZE).getOrThrow()
             repository.refreshQueue(category = "diagnosis", limit = PAGE_SIZE).getOrThrow()
 
@@ -103,9 +106,90 @@ class VerificationRepositoryPaginationTest {
     }
 
     @Test
+    fun `status business date and missed filters are cached in separate scopes`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = { request ->
+                VerificationQueueResponseDto(items = listOf(item("${request.status}-${request.businessDate}-${request.missedOnly}")))
+            }
+            repository.refreshQueue(
+                category = "birth",
+                status = "pending",
+                businessDate = "2026-07-30",
+                missed = false,
+                limit = PAGE_SIZE,
+            ).getOrThrow()
+            repository.refreshQueue(
+                category = "birth",
+                status = "approved",
+                businessDate = "2026-07-29",
+                missed = false,
+                limit = PAGE_SIZE,
+            ).getOrThrow()
+            repository.refreshQueue(
+                category = "birth",
+                status = "pending",
+                missed = true,
+                limit = PAGE_SIZE,
+            ).getOrThrow()
+
+            val dueToday = repository.observeQueue(
+                category = "birth",
+                status = "pending",
+                businessDate = "2026-07-30",
+                missed = false,
+                limit = PAGE_SIZE,
+            ).first().data!!
+            val approvedYesterday = repository.observeQueue(
+                category = "birth",
+                status = "approved",
+                businessDate = "2026-07-29",
+                missed = false,
+                limit = PAGE_SIZE,
+            ).first().data!!
+            val missed = repository.observeQueue(
+                category = "birth",
+                status = "pending",
+                missed = true,
+                limit = PAGE_SIZE,
+            ).first().data!!
+
+            assertEquals("pending-2026-07-30-false", dueToday.items.single().itemId)
+            assertEquals("approved-2026-07-29-false", approvedYesterday.items.single().itemId)
+            assertEquals("pending-null-true", missed.items.single().itemId)
+            assertEquals(3, requests.map { listOf(it.status, it.businessDate, it.missedOnly) }.distinct().size)
+        }
+    }
+
+    @Test
+    fun `sibling partition filters are cached in separate scopes`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = { request ->
+                VerificationQueueResponseDto(items = listOf(item(request.shedId.orEmpty())))
+            }
+            repository.refreshQueue(category = "vaccine", shedId = "shed-1#1", limit = PAGE_SIZE).getOrThrow()
+            repository.refreshQueue(category = "vaccine", shedId = "shed-1#2", limit = PAGE_SIZE).getOrThrow()
+
+            val partitionOne = repository.observeQueue(
+                category = "vaccine",
+                shedId = "shed-1#1",
+                limit = PAGE_SIZE,
+            ).first().data!!
+            val partitionTwo = repository.observeQueue(
+                category = "vaccine",
+                shedId = "shed-1#2",
+                limit = PAGE_SIZE,
+            ).first().data!!
+
+            assertEquals("shed-1#1", partitionOne.items.single().itemId)
+            assertEquals("shed-1#2", partitionTwo.items.single().itemId)
+            assertEquals(listOf("shed-1#1", "shed-1#2"), requests.map { it.shedId })
+        }
+    }
+
+    @Test
     fun `stale cursor is rejected before network and cache stays intact`() = runTest {
         withRepository { repository, backend, requests ->
-            backend.response = ::numberedPage
+            backend.response = { numberedPage(it.cursor) }
             repository.refreshQueue(category = "vaccine", limit = PAGE_SIZE).getOrThrow()
 
             val result = repository.appendQueue(cursor = "wrong-cursor", category = "vaccine", limit = PAGE_SIZE)
@@ -118,7 +202,7 @@ class VerificationRepositoryPaginationTest {
     @Test
     fun `offline append preserves Room cursor for retry`() = runTest {
         withRepository { repository, backend, _ ->
-            backend.response = ::numberedPage
+            backend.response = { numberedPage(it.cursor) }
             repository.refreshQueue(category = "vaccine", limit = PAGE_SIZE).getOrThrow()
             backend.offlineCursor = "cursor-1"
 
@@ -180,16 +264,19 @@ class VerificationRepositoryPaginationTest {
                     "listVerificationQueue" -> {
                         val request = Request(
                             category = args?.get(0) as String?,
-                            parkId = args?.get(1) as String?,
-                            shedId = args?.get(2) as String?,
-                            cursor = args?.get(3) as String?,
-                            limit = args?.get(4) as Int?,
+                            status = args?.get(1) as String?,
+                            businessDate = args?.get(2) as String?,
+                            missedOnly = args?.get(3) as Boolean?,
+                            parkId = args?.get(4) as String?,
+                            shedId = args?.get(5) as String?,
+                            cursor = args?.get(6) as String?,
+                            limit = args?.get(7) as Int?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
                             throw IOException("offline")
                         }
-                        backend.response(request.cursor)
+                        backend.response(request)
                     }
                     "toString" -> "VerificationQueueAppApiTestProxy"
                     "hashCode" -> System.identityHashCode(proxy)
@@ -209,7 +296,7 @@ class VerificationRepositoryPaginationTest {
 
     private class Backend {
         var offlineCursor: String? = null
-        var response: (String?) -> VerificationQueueResponseDto = { error("response not configured") }
+        var response: (Request) -> VerificationQueueResponseDto = { error("response not configured") }
     }
 
     private fun numberedPage(cursor: String?): VerificationQueueResponseDto {

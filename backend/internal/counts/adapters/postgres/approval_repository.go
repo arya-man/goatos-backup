@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
 // IdentityTxWriter is the slice of the identity module's Postgres repository that the Counts
@@ -35,11 +36,23 @@ type IdentityTxWriter interface {
 	RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd identityports.RelocateGoatsCommand) (identityports.RelocateGoatsResult, error)
 }
 
+// DeathEvidenceTxGate is implemented by the tasks Postgres repository. The consuming adapter owns
+// this seam so Counts does not import tasks storage. It validates both staged videos and moves the
+// workflow's internal verifier action to in_review inside the approval transaction.
+type DeathEvidenceTxGate interface {
+	PrepareDeathEvidenceForApprovalInTx(ctx context.Context, tx pgx.Tx, tenantID, goatID string) (ready bool, err error)
+}
+
 // WithIdentityTxWriter injects the identity write seam used to apply approved birth/death/shifting
 // effects. A repository without it can still submit and list requests; approving one returns a
 // clear error rather than silently skipping the effect.
 func (r *Repository) WithIdentityTxWriter(w IdentityTxWriter) *Repository {
 	r.identityTx = w
+	return r
+}
+
+func (r *Repository) WithDeathEvidenceTxGate(g DeathEvidenceTxGate) *Repository {
+	r.deathEvidenceTx = g
 	return r
 }
 
@@ -97,6 +110,11 @@ func scanApprovalRequest(row pgx.Row) (domain.ApprovalRequest, error) {
 func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	payload := in.Payload
 	if len(payload) == 0 {
@@ -109,7 +127,7 @@ func (r *Repository) CreateApprovalRequest(ctx context.Context, in domain.Approv
 		raisedAt = time.Now().In(biztime.DefaultLocation())
 	}
 
-	row := r.pool.QueryRow(ctx, `
+	row := tx.QueryRow(ctx, `
 INSERT INTO counts_approval_requests (
   tenant_id, request_type, payload, shifting_event_id, subject_goat_id,
   status, raised_by_user_id, raised_at, idempotency_key, request_fingerprint
@@ -125,6 +143,14 @@ RETURNING `+approvalRequestColumns,
 
 	created, err := scanApprovalRequest(row)
 	if err == nil {
+		if created.RequestType == domain.ApprovalRequestTypeDeath {
+			if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathReported, created, ""); err != nil {
+				return domain.ApprovalRequest{}, false, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
 		return created, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -132,7 +158,7 @@ RETURNING `+approvalRequestColumns,
 	}
 
 	// The key already existed. Return the original row iff the payload fingerprint matches.
-	existing, err := scanApprovalRequest(r.pool.QueryRow(ctx, `
+	existing, err := scanApprovalRequest(tx.QueryRow(ctx, `
 SELECT `+approvalRequestColumns+`
 FROM counts_approval_requests
 WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.IdempotencyKey))
@@ -145,7 +171,190 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.Idempotenc
 	if existing.RequestFingerprint != in.RequestFingerprint {
 		return domain.ApprovalRequest{}, false, ports.ErrIdempotencyConflict
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ApprovalRequest{}, false, err
+	}
 	return existing, true, nil
+}
+
+// CreateBirthApprovalRequest writes one litter atomically: one count-approval aggregate plus one
+// canonical goat per child. The goat_births rows are count-pending, so their insert triggers remove
+// them from the herd projection before commit while goat.created remains available to Tasks.
+func (r *Repository) CreateBirthApprovalRequest(
+	ctx context.Context,
+	in domain.ApprovalRequestSubmission,
+	children []identityports.CreateAdminGoatCommand,
+) (domain.BirthSubmissionResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if r.identityTx == nil {
+		return domain.BirthSubmissionResult{}, fmt.Errorf("counts: submit birth: identity write seam is not wired")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.BirthSubmissionResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	payload := in.Payload
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	raisedAt := in.RaisedAt
+	if raisedAt.IsZero() {
+		raisedAt = time.Now().In(biztime.DefaultLocation())
+	}
+	created, err := scanApprovalRequest(tx.QueryRow(ctx, `
+INSERT INTO counts_approval_requests (
+  tenant_id, request_type, payload, status, raised_by_user_id, raised_at,
+  idempotency_key, request_fingerprint
+) VALUES ($1::uuid, 'birth', $2::jsonb, 'pending', $3::uuid, $4::timestamptz, $5, $6)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING `+approvalRequestColumns,
+		in.TenantID, string(payload), in.RaisedByUserID, raisedAt.UTC(),
+		in.IdempotencyKey, in.RequestFingerprint))
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, readErr := scanApprovalRequest(tx.QueryRow(ctx, `
+SELECT `+approvalRequestColumns+`
+FROM counts_approval_requests
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`, in.TenantID, in.IdempotencyKey))
+		if readErr != nil {
+			if errors.Is(readErr, pgx.ErrNoRows) {
+				return domain.BirthSubmissionResult{}, ports.ErrIdempotencyInProgress
+			}
+			return domain.BirthSubmissionResult{}, readErr
+		}
+		if existing.RequestFingerprint != in.RequestFingerprint {
+			return domain.BirthSubmissionResult{}, ports.ErrIdempotencyConflict
+		}
+		items, readErr := birthChildren(ctx, tx, existing.TenantID, existing.ApprovalRequestID)
+		if readErr != nil {
+			return domain.BirthSubmissionResult{}, readErr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.BirthSubmissionResult{}, err
+		}
+		return domain.BirthSubmissionResult{Approval: existing, Children: items, Replayed: true}, nil
+	}
+	if err != nil {
+		return domain.BirthSubmissionResult{}, fmt.Errorf("counts: insert birth approval request: %w", err)
+	}
+
+	items := make([]domain.BirthChildResult, 0, len(children))
+	for i := range children {
+		cmd := children[i]
+		cmd.BirthEventID = created.ApprovalRequestID
+		cmd.BirthChildOrdinal = i + 1
+		cmd.BirthCountStatus = domain.ApprovalStatusPending
+		result, createErr := r.identityTx.CreateAdminGoatInTx(ctx, tx, cmd)
+		if createErr != nil {
+			return domain.BirthSubmissionResult{}, createErr
+		}
+		temp := ""
+		for _, identifier := range cmd.Identifiers {
+			if identifier.IdentifierType == "temporary_tag" {
+				temp = identifier.IdentifierValue
+				break
+			}
+		}
+		items = append(items, domain.BirthChildResult{
+			GoatID: result.Goat.GoatID, TemporaryIdentifier: temp, ChildOrdinal: i + 1,
+		})
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.BirthSubmissionResult{}, err
+	}
+	return domain.BirthSubmissionResult{Approval: created, Children: items}, nil
+}
+
+func birthChildren(ctx context.Context, tx pgx.Tx, tenantID, birthEventID string) ([]domain.BirthChildResult, error) {
+	rows, err := tx.Query(ctx, `
+SELECT gb.child_goat_id::text, gb.child_ordinal, COALESCE(gi.identifier_value, '')
+FROM goat_births gb
+LEFT JOIN goat_identifiers gi
+  ON gi.tenant_id = gb.tenant_id
+ AND gi.goat_id = gb.child_goat_id
+ AND gi.identifier_type = 'temporary_tag'
+ AND gi.status = 'active'
+WHERE gb.tenant_id = $1::uuid AND gb.birth_event_id = $2::uuid
+ORDER BY gb.child_ordinal`, tenantID, birthEventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.BirthChildResult, 0, 3)
+	for rows.Next() {
+		var item domain.BirthChildResult
+		if err := rows.Scan(&item.GoatID, &item.ChildOrdinal, &item.TemporaryIdentifier); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// insertDeathApprovalOutbox keeps submission/rejection and their workflow commands atomic. The
+// event id and idempotency key are deterministic per approval request + transition, so a replay
+// can never open or cancel duplicate work.
+func insertDeathApprovalOutbox(
+	ctx context.Context, tx pgx.Tx, eventType string, req domain.ApprovalRequest, reason string,
+) error {
+	if req.SubjectGoatID == nil || *req.SubjectGoatID == "" {
+		return fmt.Errorf("counts: %s request %s has no subject goat", eventType, req.ApprovalRequestID)
+	}
+	idempotencyKey := eventType + ":" + req.ApprovalRequestID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	occurredAt := req.RaisedAt.UTC()
+	if eventType == domain.EventDeathRejected {
+		occurredAt = time.Now().UTC()
+	}
+	payload, err := json.Marshal(map[string]any{
+		"event_id":         eventID,
+		"event_type":       eventType,
+		"schema_version":   countsEventSchemaVersion,
+		"schema_ref":       countsEventSchemaRef,
+		"aggregate_type":   "counts_approval_request",
+		"aggregate_id":     req.ApprovalRequestID,
+		"occurred_at":      occurredAt.Format(time.RFC3339Nano),
+		"recorded_at":      time.Now().UTC().Format(time.RFC3339Nano),
+		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
+		"idempotency_key":  idempotencyKey,
+		"actor":            map[string]any{"actor_type": "system_rule", "actor_id": nil, "actor_ref": nil},
+		"subject_type":     "goat",
+		"subject_id":       *req.SubjectGoatID,
+		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
+		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
+		"payload": map[string]any{
+			"approval_request_id": req.ApprovalRequestID,
+			"goat_id":             *req.SubjectGoatID,
+			"reason":              reason,
+		},
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s envelope: %w", eventType, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer": "counts.ApprovalService", "schema_version": countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey, "event_type": eventType,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s headers: %w", eventType, err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'counts_approval_request', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`, req.TenantID, eventID, eventType, countsEventSchemaVersion,
+		req.ApprovalRequestID, countsEventTopic, payload, headers, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("counts: insert %s outbox: %w", eventType, err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +378,22 @@ WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`, tenantID, approv
 	return out, nil
 }
 
+// ApprovalSubjectPark is the indexed, tenant-scoped authority lookup used for death decisions by
+// a park-scoped manager. No payload/free-text value is trusted for scope.
+func (r *Repository) ApprovalSubjectPark(ctx context.Context, tenantID, goatID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var parkID string
+	err := r.pool.QueryRow(ctx, `
+SELECT park_id::text
+FROM goats
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(&parkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrGoatNotFound
+	}
+	return parkID, err
+}
+
 // ListApprovalRequests returns one keyset page ordered by (raised_at, approval_request_id) DESC.
 //
 // Keyset, not OFFSET: the approvals queue is appended to continuously, so an offset page would
@@ -178,7 +403,7 @@ WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`, tenantID, approv
 // bounded by the page size rather than filters over the table.
 //
 // RequestTypes is caller-authority, not a client filter: it is derived from the caller's
-// permissions, so the page can only ever contain rows this approver is allowed to decide.
+// permissions on the approver queue.
 func (r *Repository) ListApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (domain.ApprovalRequestPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -368,6 +593,14 @@ WHERE tenant_id = $1::uuid AND approval_request_id = $2::uuid`,
 		if err != nil {
 			return domain.ApprovalRequest{}, false, err
 		}
+	} else if current.RequestType == domain.ApprovalRequestTypeBirth {
+		if _, err := tx.Exec(ctx, `
+UPDATE goat_births
+SET count_status = 'rejected', count_approved_at = NULL, count_approved_by = NULL
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pending'`,
+			current.TenantID, current.ApprovalRequestID); err != nil {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: reject birth count eligibility: %w", err)
+		}
 	}
 
 	// The status flip. `AND status = 'pending'` makes the transition itself the concurrency guard:
@@ -396,6 +629,11 @@ RETURNING `+approvalRequestColumns,
 		}
 		return domain.ApprovalRequest{}, false, fmt.Errorf("counts: decide approval request: %w", err)
 	}
+	if current.RequestType == domain.ApprovalRequestTypeDeath && in.Status == domain.ApprovalStatusRejected {
+		if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathRejected, current, in.Reason); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.ApprovalRequest{}, false, err
@@ -413,31 +651,72 @@ func (r *Repository) applyApprovalEffect(
 		return "", "", fmt.Errorf("counts: approve %s request %s: no prepared effect supplied",
 			req.RequestType, req.ApprovalRequestID)
 	}
-	if r.identityTx == nil {
-		return "", "", fmt.Errorf("counts: approve %s request %s: identity write seam is not wired",
-			req.RequestType, req.ApprovalRequestID)
-	}
-
 	switch req.RequestType {
 	case domain.ApprovalRequestTypeBirth:
-		cmd, ok := in.Effect.CreateGoat.(identityports.CreateAdminGoatCommand)
-		if !ok {
-			return "", "", fmt.Errorf("counts: approve birth request %s: effect is not a goat create command",
+		effect := in.Effect.BirthCounts
+		if effect == nil || effect.BirthEventID != req.ApprovalRequestID {
+			return "", "", fmt.Errorf("counts: approve birth request %s: invalid birth-count effect",
 				req.ApprovalRequestID)
 		}
-		// Creates the kid AND emits goat.created in this transaction, so the kid's vaccination
-		// obligations are generated if and only if the approval commits.
-		result, err := r.identityTx.CreateAdminGoatInTx(ctx, tx, cmd)
+		rows, err := tx.Query(ctx, `
+SELECT child_goat_id::text, litter_size, count_status
+FROM goat_births
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid
+ORDER BY child_ordinal
+FOR UPDATE`, req.TenantID, effect.BirthEventID)
 		if err != nil {
 			return "", "", err
 		}
-		return domain.ApprovalResultTypeGoat, result.Goat.GoatID, nil
+		childCount, litterSize := 0, 0
+		for rows.Next() {
+			var childID, status string
+			var size int
+			if err := rows.Scan(&childID, &size, &status); err != nil {
+				rows.Close()
+				return "", "", err
+			}
+			if status != domain.ApprovalStatusPending || (litterSize != 0 && litterSize != size) {
+				rows.Close()
+				return "", "", ports.ErrApprovalEffectIncomplete
+			}
+			litterSize = size
+			childCount++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return "", "", err
+		}
+		if childCount == 0 || childCount != litterSize {
+			return "", "", ports.ErrApprovalEffectIncomplete
+		}
+		if _, err := tx.Exec(ctx, `
+UPDATE goat_births
+SET count_status = 'approved', count_approved_at = $3::timestamptz, count_approved_by = $4::uuid
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pending'`,
+			req.TenantID, effect.BirthEventID, in.DecidedAt.UTC(), in.DecidedByUserID); err != nil {
+			return "", "", err
+		}
+		return domain.ApprovalResultTypeBirthEvent, effect.BirthEventID, nil
 
 	case domain.ApprovalRequestTypeDeath:
+		if r.identityTx == nil {
+			return "", "", fmt.Errorf("counts: approve death request %s: identity write seam is not wired", req.ApprovalRequestID)
+		}
 		cmd, ok := in.Effect.ExitGoat.(identityports.ExitGoatCommand)
 		if !ok {
 			return "", "", fmt.Errorf("counts: approve death request %s: effect is not a goat exit command",
 				req.ApprovalRequestID)
+		}
+		if r.deathEvidenceTx == nil {
+			return "", "", fmt.Errorf("counts: approve death request %s: death evidence gate is not wired",
+				req.ApprovalRequestID)
+		}
+		ready, err := r.deathEvidenceTx.PrepareDeathEvidenceForApprovalInTx(ctx, tx, req.TenantID, cmd.GoatID)
+		if err != nil {
+			return "", "", err
+		}
+		if !ready {
+			return "", "", ports.ErrDeathEvidenceIncomplete
 		}
 		// The dead+died guardrail is re-checked inside identity's adapter on this exact path; a
 		// command that did not come from the guarded prepare step fails here rather than exiting an
@@ -450,6 +729,9 @@ func (r *Repository) applyApprovalEffect(
 		return domain.ApprovalResultTypeGoat, result.Goat.GoatID, nil
 
 	case domain.ApprovalRequestTypeShifting:
+		if r.identityTx == nil {
+			return "", "", fmt.Errorf("counts: approve shifting request %s: identity write seam is not wired", req.ApprovalRequestID)
+		}
 		effect := in.Effect.Shifting
 		if effect == nil {
 			return "", "", fmt.Errorf("counts: approve shifting request %s: missing shifting effect",
@@ -496,7 +778,7 @@ func (r *Repository) authorizeShiftingEventInTx(
 	tag, err := tx.Exec(ctx, `
 UPDATE shifting_events
 SET authorization_state = 'authorized',
-    event_status = 'authorized',
+    event_status = CASE WHEN event_status = 'pending' THEN 'authorized' ELSE event_status END,
     authorized_at = $3::timestamptz,
     authorized_by = $4::uuid,
     updated_at = now(),
@@ -508,6 +790,21 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_st
 	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("%w: shifting event %s was not pending", ports.ErrApprovalAlreadyDecided, shiftingEventID)
+	}
+	current, err := lockShiftingEvent(ctx, tx, tenantID, shiftingEventID)
+	if err != nil {
+		return err
+	}
+	if current.CompletedAt != nil &&
+		(current.EventStatus == domain.ShiftingEventStatusAuthorized || current.EventStatus == domain.ShiftingEventStatusPendingVerification) {
+		var approvedGoatIDs []string
+		if in.Effect != nil && in.Effect.Shifting != nil {
+			approvedGoatIDs = in.Effect.Shifting.GoatIDs
+		}
+		if _, err := r.applyAuthorizedCompletedShiftingInTx(ctx, tx, tenantID, shiftingEventID,
+			in.DecidedAt.UTC(), in.IdempotencyKey, approvedGoatIDs); err != nil {
+			return err
+		}
 	}
 	return nil
 }

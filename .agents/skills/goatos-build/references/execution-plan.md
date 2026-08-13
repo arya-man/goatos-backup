@@ -3,6 +3,21 @@
 Load this when splitting work across two developers/agents, planning delivery
 order, setting dev/stg/prod, designing load tests, or deciding start points.
 
+## Current Defect and Task-Kernel Work
+
+For work on the current whole-project defects or the generic task model, the
+active execution sources are:
+
+```text
+context/repo-audits/current-whole-project-remediation-ledger.md
+context/execution/operational-task-kernel-remediation-plan.md
+```
+
+The first document is the ordered bug queue and current closure gate. The second
+sequences owner/duty/clock, Today, escalation, hierarchy, sign-off, module
+rollout, and retirement. They supersede the historical Phase 0 start point below
+for this workstream.
+
 ## Current Start Point — Protocol Engine Phase 0
 
 Always load `context/architecture/operational-kernel.md` when planning a new

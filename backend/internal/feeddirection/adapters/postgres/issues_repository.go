@@ -223,7 +223,12 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 	header.AmendedAt = &cmd.AmendedAt
 	header.AmendmentCount++
 	header.GenerationInputFingerprint = cmd.Fingerprint
-	return ports.AmendResult{Header: header, Outcome: ports.AmendOutcomeAmended, AffectedShedIDs: diff.AffectedShedIDs}, nil
+	return ports.AmendResult{
+		Header:               header,
+		Outcome:              ports.AmendOutcomeAmended,
+		AffectedShedIDs:      diff.AffectedShedIDs,
+		HeadCountChangedPens: diff.HeadCountChangedPens,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +335,8 @@ ORDER BY workflow`, tenantID, parkID, feedDay, workflow)
 	return out, rows.Err()
 }
 
-const issueCellColumns = `park_id::text, park_label, shed_id::text, shed_label, shed_tag, breed,
+const issueCellColumns = `park_id::text, park_label, shed_id::text, shed_label,
+       coalesce(partition_label, '') AS partition_label, shed_tag, breed,
        ration_group, experiment_arm, session_no, session_label, head_count, head_count_informational,
        workflow, feed_item_label, feed_item_key, quantity_kg::text, grams_per_head::text,
        shed_factor::text, blocked_reason_code, blocked_reason_detail, session_total_kg::text,
@@ -338,7 +344,7 @@ const issueCellColumns = `park_id::text, park_label, shed_id::text, shed_label, 
 
 func scanIssueCell(rows pgx.Rows) (domain.StoredCell, error) {
 	var c domain.StoredCell
-	if err := rows.Scan(&c.ParkID, &c.ParkLabel, &c.ShedID, &c.ShedLabel, &c.ShedTag, &c.Breed,
+	if err := rows.Scan(&c.ParkID, &c.ParkLabel, &c.ShedID, &c.ShedLabel, &c.PartitionLabel, &c.ShedTag, &c.Breed,
 		&c.RationGroup, &c.ExperimentArm, &c.SessionNo, &c.SessionLabel, &c.HeadCount, &c.HeadCountInformational,
 		&c.Workflow, &c.FeedItemLabel, &c.FeedItemKey, &c.QuantityKg, &c.GramsPerHead,
 		&c.ShedFactor, &c.BlockedReasonCode, &c.BlockedReasonDetail, &c.SessionTotalKg,
@@ -391,7 +397,7 @@ ORDER BY feed_direction_issue_id, row_seq, item_seq`, tenantID, issueIDs)
 	for rows.Next() {
 		var issueID string
 		var c domain.StoredCell
-		if err := rows.Scan(&issueID, &c.ParkID, &c.ParkLabel, &c.ShedID, &c.ShedLabel, &c.ShedTag, &c.Breed,
+		if err := rows.Scan(&issueID, &c.ParkID, &c.ParkLabel, &c.ShedID, &c.ShedLabel, &c.PartitionLabel, &c.ShedTag, &c.Breed,
 			&c.RationGroup, &c.ExperimentArm, &c.SessionNo, &c.SessionLabel, &c.HeadCount, &c.HeadCountInformational,
 			&c.Workflow, &c.FeedItemLabel, &c.FeedItemKey, &c.QuantityKg, &c.GramsPerHead,
 			&c.ShedFactor, &c.BlockedReasonCode, &c.BlockedReasonDetail, &c.SessionTotalKg,
@@ -419,6 +425,7 @@ func insertIssueRows(ctx context.Context, tx pgx.Tx, tenantID, issueID, parkID s
 	parkLabel := make([]string, n)
 	shedID := make([]string, n)
 	shedLabel := make([]string, n)
+	partitionLabel := make([]string, n)
 	shedTag := make([]string, n)
 	breed := make([]string, n)
 	rationGroup := make([]string, n)
@@ -442,6 +449,7 @@ func insertIssueRows(ctx context.Context, tx pgx.Tx, tenantID, issueID, parkID s
 		parkLabel[i] = c.ParkLabel
 		shedID[i] = c.ShedID
 		shedLabel[i] = c.ShedLabel
+		partitionLabel[i] = c.PartitionLabel
 		shedTag[i] = c.ShedTag
 		breed[i] = c.Breed
 		rationGroup[i] = c.RationGroup
@@ -474,7 +482,7 @@ func insertIssueRows(ctx context.Context, tx pgx.Tx, tenantID, issueID, parkID s
 		// An amend upserts changed cells on the natural key. This is the FULL idempotency contract
 		// (real columns updated), not the banned idempotency_key-only conflict handler.
 		conflict = `
-ON CONFLICT (tenant_id, feed_direction_issue_id, shed_id, session_no, shed_tag_key, breed_key, feed_item_key)
+ON CONFLICT (tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key)
 DO UPDATE SET
   park_label = EXCLUDED.park_label, shed_label = EXCLUDED.shed_label, shed_tag = EXCLUDED.shed_tag,
   breed = EXCLUDED.breed, ration_group = EXCLUDED.ration_group, experiment_arm = EXCLUDED.experiment_arm,
@@ -493,26 +501,28 @@ INSERT INTO feed_direction_issue_rows (
   tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag, breed,
   ration_group, experiment_arm, session_no, session_label, head_count, head_count_informational,
   workflow, feed_item_label, quantity_kg, grams_per_head, shed_factor, blocked_reason_code,
-  blocked_reason_detail, session_total_kg, overdue_pending, row_seq, item_seq, amended, amended_at
+  blocked_reason_detail, session_total_kg, overdue_pending, row_seq, item_seq, partition_label,
+  amended, amended_at
 )
 SELECT $1::uuid, $2::uuid, $3::uuid, t.park_label, t.shed_id::uuid, t.shed_label, t.shed_tag, t.breed,
   t.ration_group, t.experiment_arm, t.session_no, t.session_label, t.head_count, t.head_count_informational,
   t.workflow, t.feed_item_label, t.quantity_kg::numeric, t.grams_per_head::numeric, t.shed_factor::numeric,
   t.blocked_reason_code, t.blocked_reason_detail, t.session_total_kg::numeric, t.overdue_pending, t.row_seq,
-  t.item_seq, $26::boolean, $27::timestamptz
+  t.item_seq, nullif(t.partition_label, ''), $27::boolean, $28::timestamptz
 FROM unnest(
   $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::int4[],
   $12::text[], $13::int8[], $14::bool[], $15::text[], $16::text[], $17::text[], $18::text[], $19::text[],
-  $20::text[], $21::text[], $22::text[], $23::bool[], $24::int4[], $25::int4[]
+  $20::text[], $21::text[], $22::text[], $23::bool[], $24::int4[], $25::int4[], $26::text[]
 ) AS t(
   park_label, shed_id, shed_label, shed_tag, breed, ration_group, experiment_arm, session_no,
   session_label, head_count, head_count_informational, workflow, feed_item_label, quantity_kg,
   grams_per_head, shed_factor, blocked_reason_code, blocked_reason_detail, session_total_kg,
-  overdue_pending, row_seq, item_seq
+  overdue_pending, row_seq, item_seq, partition_label
 )`+conflict,
 		tenantID, issueID, parkID, parkLabel, shedID, shedLabel, shedTag, breed, rationGroup,
 		experimentArm, sessionNo, sessionLabel, headCount, hcInfo, workflow, feedItemLabel, quantity,
-		grams, factor, blockedCode, blockedDetail, sessionTotal, overdue, rowSeq, itemSeq, amended, amendedAtUTC)
+		grams, factor, blockedCode, blockedDetail, sessionTotal, overdue, rowSeq, itemSeq, partitionLabel,
+		amended, amendedAtUTC)
 	if err != nil {
 		return fmt.Errorf("feeddirection: insert issue rows: %w", err)
 	}
@@ -527,12 +537,14 @@ func deleteIssueCells(ctx context.Context, tx pgx.Tx, tenantID, issueID string, 
 	}
 	n := len(keys)
 	shedID := make([]string, n)
+	partitionKey := make([]string, n)
 	sessionNo := make([]int32, n)
 	shedTagKey := make([]string, n)
 	breedKey := make([]string, n)
 	feedItemKey := make([]string, n)
 	for i, k := range keys {
 		shedID[i] = k.ShedID
+		partitionKey[i] = k.PartitionKey
 		sessionNo[i] = k.SessionNo
 		shedTagKey[i] = k.ShedTagKey
 		breedKey[i] = k.BreedKey
@@ -540,11 +552,12 @@ func deleteIssueCells(ctx context.Context, tx pgx.Tx, tenantID, issueID string, 
 	}
 	_, err := tx.Exec(ctx, `
 DELETE FROM feed_direction_issue_rows r
-USING unnest($3::text[], $4::int4[], $5::text[], $6::text[], $7::text[]) AS k(shed_id, session_no, shed_tag_key, breed_key, feed_item_key)
+USING unnest($3::text[], $4::int4[], $5::text[], $6::text[], $7::text[], $8::text[]) AS k(shed_id, session_no, shed_tag_key, breed_key, feed_item_key, partition_key)
 WHERE r.tenant_id = $1::uuid AND r.feed_direction_issue_id = $2::uuid
   AND r.shed_id = k.shed_id::uuid AND r.session_no = k.session_no
-  AND r.shed_tag_key = k.shed_tag_key AND r.breed_key = k.breed_key AND r.feed_item_key = k.feed_item_key`,
-		tenantID, issueID, shedID, sessionNo, shedTagKey, breedKey, feedItemKey)
+  AND r.shed_tag_key = k.shed_tag_key AND r.breed_key = k.breed_key AND r.feed_item_key = k.feed_item_key
+  AND r.partition_key = k.partition_key`,
+		tenantID, issueID, shedID, sessionNo, shedTagKey, breedKey, feedItemKey, partitionKey)
 	if err != nil {
 		return fmt.Errorf("feeddirection: delete amended-out issue cells: %w", err)
 	}

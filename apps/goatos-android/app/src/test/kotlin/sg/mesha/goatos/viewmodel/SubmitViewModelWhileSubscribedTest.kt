@@ -87,6 +87,8 @@ class SubmitViewModelWhileSubscribedTest {
             scanSource = FakeScanSource(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+        analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+        crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-1")),
         )
 
@@ -136,10 +138,10 @@ private class CountingTasksRepository(task: TaskSummaryDto) : TasksRepository {
 
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
 
-    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> =
         MutableStateFlow(null)
 
-    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> = Result.success(Unit)
 }
 
 /** Counts active collectors of [observeAllForTask]'s Flow. */
@@ -148,11 +150,11 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
     var activeCollectors = 0
         private set
 
-    override fun observeScannedTags(taskId: String, fieldKey: String): Flow<List<ScannedGoatRow>> = error("unused")
+    override fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> = error("unused")
 
-    override fun observeScannedCount(taskId: String, fieldKey: String): Flow<Int> = error("unused")
+    override fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String?): Flow<Int> = error("unused")
 
-    override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> =
+    override fun observeAllForTask(taskId: String, partitionLabel: String?): Flow<List<ScannedGoatRow>> =
         object : Flow<List<ScannedGoatRow>> {
             override suspend fun collect(collector: FlowCollector<List<ScannedGoatRow>>) {
                 activeCollectors++
@@ -170,12 +172,24 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int,
         capturedAtMs: Long?,
+        partitionLabel: String?,
     ) = Unit
 
-    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String) = Unit
+    override suspend fun recordLocalScanIfAbsent(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        capturedAtMs: Long?,
+        partitionLabel: String?,
+    ): Boolean = true
 
-    override suspend fun tagsForTask(taskId: String): List<String> = emptyList()
+    override suspend fun enqueuePendingScans(taskId: String, fieldKey: String, partitionLabel: String?) = Unit
+
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String, partitionLabel: String?) = Unit
+
+    override suspend fun tagsForTask(taskId: String, partitionLabel: String?): List<String> = emptyList()
 
     override suspend fun clearForTask(taskId: String) = Unit
 }
@@ -186,7 +200,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     var activeCollectors = 0
         private set
 
-    override fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>> =
+    override fun observeProofs(taskId: String, partitionLabel: String?): Flow<List<ProofCaptureRow>> =
         object : Flow<List<ProofCaptureRow>> {
             override suspend fun collect(collector: FlowCollector<List<ProofCaptureRow>>) {
                 activeCollectors++
@@ -206,12 +220,16 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         localUri: String,
         mimeType: String,
         caption: String?,
+        rfidTag: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
+        partitionLabel: String?,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
     ): AppResult<ProofCaptureRow> = error("unused")
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> = error("unused")

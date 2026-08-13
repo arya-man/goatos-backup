@@ -26,6 +26,7 @@ type SweepSession struct {
 	vaccinationOperatorLoads     map[string]int32
 	driveCellCounts              map[string]int32
 	driveLoaded                  map[string]struct{}
+	driveTargetClaims            map[string]map[string]struct{}
 	vaccinationOperatorAvailable map[string][]domain.DriveOperatorCapacity
 	// loaded marks every visitShotCountKey whose starting count has already been resolved once
 	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
@@ -98,6 +99,7 @@ type driveCapacityReservation struct {
 	obligationID string
 	key          string
 	cells        int32
+	claimed      bool
 }
 
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
@@ -109,6 +111,7 @@ func NewSweepSession() *SweepSession {
 		vaccinationOperatorLoads:     make(map[string]int32),
 		driveCellCounts:              make(map[string]int32),
 		driveLoaded:                  make(map[string]struct{}),
+		driveTargetClaims:            make(map[string]map[string]struct{}),
 		vaccinationOperatorAvailable: make(map[string][]domain.DriveOperatorCapacity),
 		loaded:                       make(map[string]struct{}),
 	}
@@ -439,36 +442,7 @@ func (s *SweepSession) sameDayCompatibleWithPlannedVaccines(targetID string, ide
 }
 
 func vaccineComboSessionsForCode(vaccineCode string) []string {
-	seen := make(map[string]struct{})
-	out := make([]string, 0, 2)
-	add := func(session string) {
-		session = strings.TrimSpace(session)
-		if session == "" {
-			return
-		}
-		if _, ok := seen[session]; ok {
-			return
-		}
-		seen[session] = struct{}{}
-		out = append(out, session)
-	}
-	if session := domain.VaccineComboSession(vaccineCode); session != "" {
-		add(session)
-	}
-	switch normalizedVaccineMatrixCode(vaccineCode) {
-	case "et tt", "et+tt":
-		add("combo:ET+TT+PPR")
-	case "ppr":
-		add("combo:ET+TT+PPR")
-		add("combo:PPR+Blue Tongue")
-	case "blue tongue":
-		add("combo:PPR+Blue Tongue")
-	case "goat pox":
-		add(domain.VaccineComboSession("Goat Pox"))
-	case "sheep pox":
-		add("combo:Sheep Pox+Blue Tongue")
-	}
-	return out
+	return domain.ApprovedVaccineComboSessions(vaccineCode)
 }
 
 func comboSessionListsOverlap(left, right []string) bool {
@@ -585,13 +559,46 @@ func crossVaccineSessionGapDays(previous, next vaccineMatrixClass) int32 {
 	}
 }
 
-func (s *SweepSession) claimDriveCapacity(parkID string, plannedDate time.Time, obligationID string, cells int32) driveCapacityReservation {
+func (s *SweepSession) claimDriveCapacity(parkID string, plannedDate time.Time, targetID string, cells int32) driveCapacityReservation {
 	if cells <= 0 {
 		cells = 1
 	}
 	key := driveCapacityKey(parkID, plannedDate)
+	targetID = strings.TrimSpace(targetID)
+	if targetID != "" {
+		if s.driveTargetClaims[key] == nil {
+			s.driveTargetClaims[key] = make(map[string]struct{})
+		}
+		if _, exists := s.driveTargetClaims[key][targetID]; exists {
+			return driveCapacityReservation{obligationID: targetID, key: key}
+		}
+		s.driveTargetClaims[key][targetID] = struct{}{}
+	}
 	s.driveCellCounts[key] += cells
-	return driveCapacityReservation{obligationID: obligationID, key: key, cells: cells}
+	return driveCapacityReservation{obligationID: targetID, key: key, cells: cells, claimed: true}
+}
+
+func (s *SweepSession) claimedDriveTargetCount(parkID string, plannedDate time.Time, targetIDs []string) int32 {
+	if s == nil || len(targetIDs) == 0 {
+		return 0
+	}
+	claimed := s.driveTargetClaims[driveCapacityKey(parkID, plannedDate)]
+	seen := make(map[string]struct{}, len(targetIDs))
+	var count int32
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		if _, duplicate := seen[targetID]; duplicate {
+			continue
+		}
+		seen[targetID] = struct{}{}
+		if _, ok := claimed[targetID]; ok {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *SweepSession) resetDriveCapacity(parkID string, plannedDate time.Time, persisted int32) {
@@ -621,8 +628,14 @@ func (s *SweepSession) driveCapacityUsed(parkID string, plannedDate time.Time) i
 func (s *SweepSession) releaseDriveCapacityClaims(claims []driveCapacityReservation) {
 	for i := len(claims) - 1; i >= 0; i-- {
 		claim := claims[i]
-		if claim.cells <= 0 {
-			claim.cells = 1
+		if !claim.claimed || claim.cells <= 0 {
+			continue
+		}
+		if targets := s.driveTargetClaims[claim.key]; targets != nil && claim.obligationID != "" {
+			delete(targets, claim.obligationID)
+			if len(targets) == 0 {
+				delete(s.driveTargetClaims, claim.key)
+			}
 		}
 		if s.driveCellCounts[claim.key] > claim.cells {
 			s.driveCellCounts[claim.key] -= claim.cells

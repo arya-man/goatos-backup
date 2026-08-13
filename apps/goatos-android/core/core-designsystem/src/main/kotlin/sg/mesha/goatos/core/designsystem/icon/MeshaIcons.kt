@@ -106,6 +106,8 @@ object MeshaIcons {
         "M4 7.5h9a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-9a1.5 1.5 0 0 1 -1.5 -1.5v-6a1.5 1.5 0 0 1 1.5 -1.5z",
         "M14.5 11 20.5 8v8l-6 -3",
     )
+    val Play: ImageVector = strokeIcon("play", "M8 5.5v13l10-6.5z")
+    val Pause: ImageVector = strokeIcon("pause", "M8.5 5.5v13M15.5 5.5v13")
     val Vaccine: ImageVector = strokeIcon(
         "vial",
         "M9 3.5h6M10 3.5v6.5l-3 8a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2 -2.5l-3 -8V3.5M8 13.5h8",
@@ -139,6 +141,42 @@ object MeshaIcons {
         "feed",
         "M3.5 11h17a8.5 8.5 0 0 1 -17 0zM8 11c0-2 1-2.5 0-4.5M12 11c0-2 1-2.5 0-4.5M16 11c0-2 1-2.5 0-4.5",
     )
+    val Package: ImageVector = strokeIcon(
+        "package",
+        "M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z",
+        "M4 7.5 12 12l8-4.5M12 12v9M8 5.25l8 4.5",
+    )
+    val Truck: ImageVector = strokeIcon(
+        "truck",
+        "M3.5 6h11v10h-11z",
+        "M14.5 9h3.5l2.5 3v4h-6z",
+        "M7.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+        "M17.5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    )
+    /** Milk preparation: a lidded milk can with a mixing spoon. */
+    val MilkPreparation: ImageVector = strokeIcon(
+        "milkpreparation",
+        "M8 6h8l1.5 3v9a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2V9z",
+        "M9 3.5h6V6H9zM6.5 10h11",
+        "M19.5 4.5 13 15M18.5 3.5l2 2",
+    )
+    /** Milk feeding: a measured feeding bottle with a nipple. */
+    val MilkFeeding: ImageVector = strokeIcon(
+        "milkfeeding",
+        "M9 7h6l1.5 3v8a2 2 0 0 1 -2 2h-5a2 2 0 0 1 -2 -2v-8z",
+        "M9 7V5h6v2M10 5l1-2h2l1 2",
+        "M11 11h3M11 14h3M11 17h3",
+    )
+    /**
+     * Colostrum: the first milk, and a timed one. A droplet with a clock hand — deliberately not a
+     * third bottle, because it sits in the same bar as Milk Prep's can and Milk Feeding's bottle
+     * and would be unreadable at 20dp as another vessel.
+     */
+    val Colostrum: ImageVector = strokeIcon(
+        "colostrum",
+        "M12 3.5c3.6 4.6 5.5 7.2 5.5 9.6a5.5 5.5 0 0 1 -11 0c0-2.4 1.9-5 5.5-9.6z",
+        "M12 10.8v2.9l2.1 1.2",
+    )
     val Goat: ImageVector = strokeIcon(
         "goat",
         "M5 8c-1-3 1-4 2-2M19 8c1-3-1-4-2-2M7 6c0 6 2 9 5 9s5-3 5-9M9 15v3M15 15v3M10 11h.01M14 11h.01",
@@ -155,11 +193,25 @@ object MeshaIcons {
         "M8 17.5v-4M13 17.5v-8M18 17.5v-11",
     )
 
-    /** Birth/Death: one lifecycle event up, one down. */
+    /** Legacy combined Birth/Death destination: one lifecycle event up, one down. */
     val ArrowUpDown: ImageVector = strokeIcon(
         "arrowupdown",
         "M7 20.5V4M3.5 7.5 7 4l3.5 3.5",
         "M17 3.5V20M13.5 16.5 17 20l3.5-3.5",
+    )
+
+    /** Birth: an arrival into the herd lifecycle. */
+    val Birth: ImageVector = strokeIcon(
+        "birth",
+        "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
+        "M12 16V8M8.5 11.5 12 8l3.5 3.5",
+    )
+
+    /** Death: an exit from the herd lifecycle. */
+    val Death: ImageVector = strokeIcon(
+        "death",
+        "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17z",
+        "M12 8v8M8.5 12.5 12 16l3.5-3.5",
     )
 
     /** Shifting: an animal moving between sheds/parks. */
@@ -169,10 +221,26 @@ object MeshaIcons {
         "M20 15.5H4M7.5 12 4 15.5 7.5 19",
     )
 
+    /**
+     * Breeding: a mating pair, not the herd-at-large. Distinct from [Goat] (Counts/"Herd
+     * Operations" -- head counts, births, deaths, shifting across the whole herd) on purpose:
+     * both once resolved to [Goat], which put two different verticals under one icon in the
+     * same CEO drawer (found on-device, not by a golden -- see MeshaIconsNavKeyTest).
+     */
+    val Breeding: ImageVector = strokeIcon(
+        "breeding",
+        "M12 20.5c-4-2.7-8-6.3-8-10A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 3.5c0 3.7-4 7.3-8 10z",
+    )
+
     /** Neutral fallback for an unmapped backend key (a generic module tile). */
     val Module: ImageVector = strokeIcon(
         "module",
         "M4 4.5h6.5v6.5H4zM13.5 4.5H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z",
+    )
+
+    val Health: ImageVector = strokeIcon(
+        "health",
+        "M8 3.5h8v4.5h4.5v8H16v4.5H8V16H3.5V8H8z",
     )
 
     /**
@@ -180,28 +248,66 @@ object MeshaIcons {
      * identifiers from `moduleNavRegistry` (bootstrap_copy.go); an unknown key falls back to
      * the neutral [Module] tile rather than borrowing another vertical's glyph.
      */
-    fun forNavKey(key: String): ImageVector = when (key.lowercase()) {
+    fun forNavKey(key: String): ImageVector = when (key.lowercase().removePrefix("verify_")) {
+        // A verifier's drawer names its modules verify_vaccination / verify_weighing /
+        // verify_counts. Those keys matched nothing here, so EVERY module in that drawer fell
+        // through to the generic Module grid -- three different features wearing one icon. The
+        // verify_ prefix says which app section you are in, not which feature the row is, so it
+        // is stripped and the row keeps its own module glyph.
         "calendar" -> Calendar
         // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
         "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
         "home", "dhome", "overview" -> Home
-        "alerts", "notifications" -> Bell
+        // "weighing_alerts" is WEIGHING's own alerts destination, distinct from the
+        // vaccination "alerts" feed but the same kind of surface, so it takes the same bell.
+        "alerts", "notifications", "weighing_alerts" -> Bell
         "you", "profile", "settings" -> User
-        // Counts vertical and its field-event destinations.
-        "counts" -> BarChart
-        // The nav destination, plus the two individual request types an approval row carries.
-        "birth_death", "birth", "death" -> ArrowUpDown
+        // Counts vertical ("Herd Operations" in the drawer) takes the goat: it is the herd itself
+        // -- births, deaths, shifting, head counts. Sharing BarChart with weighing put two
+        // different modules under one icon in the same drawer, which is what the verifier's
+        // three-identical-grid-icons bug looked like once the keys resolved at all.
+        //
+        // "breeding" is deliberately NOT this glyph: it used to share Goat with "counts", which
+        // put Herd Operations and Breeding under one icon in the same CEO drawer -- the exact bug
+        // class this file's own doc comment warns against ("rather than borrowing another
+        // vertical's glyph"), just introduced by two keys pointing at the same case instead of
+        // one key falling through. See [Breeding] and MeshaIconsNavKeyTest.
+        "counts" -> Goat
+        // Weighing is the numbers surface: weights and their trend.
+        "weighing" -> BarChart
+        "birth_death" -> ArrowUpDown
+        "birth" -> Birth
+        "death" -> Death
         "shifting" -> Transfer
         // The approver's queue: a decision to be made, not a record to be captured.
         "approval", "approvals" -> CheckCircle
+        // Leadership weight history. Falls to the generic Module glyph without this, which is
+        // the SAME grid icon the Tasks tab uses -- two tabs, one icon, in the same bar.
+        // Growth is a TREND, not a snapshot -- and without its own glyph it fell through to the
+        // generic Module icon, which is the same 4-square mark the Tasks tab uses.
+        "growth" -> ArrowUpDown
+        "weights" -> BarChart
         "videos" -> Video
         "close" -> Video
-        // Declared-but-unbuilt modules the backend advertises as "soon".
-        "feed_direction" -> Feed
-        "breeding" -> Goat
-        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md) — its
-        // one job is a video-verification queue, so the Video glyph is its nav icon.
-        "verify", "verification", "video_verification" -> Video
+        "feed_direction", "direction" -> Feed
+        "feed_packing", "packing" -> Package
+        "feed_transport", "transport" -> Truck
+        // Milk vertical: the drawer row reuses the preparation can, its two destinations keep
+        // their own glyphs.
+        "milk", "milk_preparation" -> MilkPreparation
+        "milk_feeding" -> MilkFeeding
+        // Its own glyph, not the generic Module grid: Colostrum shares the Milk bar with two
+        // siblings, and the fallback would repeat the mark another tab already uses.
+        "colostrum" -> Colostrum
+        // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
+        "breeding" -> Breeding
+        "aas_health", "health_adults", "health_kids" -> Health
+        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). The tab is
+        // a DECISION queue, so it takes the same CheckCircle as "approvals" above rather than the
+        // Video glyph: video is the evidence, not the job, and the camcorder both restated the one
+        // thing a verifier already knows and repeated the glyph the queue cards use for their own
+        // media thumbnails -- two different meanings, one icon, on the same screen.
+        "verify", "verification", "video_verification" -> CheckCircle
         else -> Module
     }
 }

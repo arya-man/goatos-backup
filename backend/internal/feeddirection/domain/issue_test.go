@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -166,5 +167,107 @@ func TestExpectedIssueInstantIsDMinusOneAtDirectionTime(t *testing.T) {
 	want := time.Date(2026, 7, 29, 7, 0, 0, 0, biztime.DefaultLocation())
 	if !got.Equal(want) {
 		t.Fatalf("issue instant = %s, want %s (D-1 at 07:00 IST)", got, want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HeadCountChangedPens (maintainer decision 2026-08-10)
+// ---------------------------------------------------------------------------
+//
+// The afternoon correction throws away an operator's packing video and makes them film the pen
+// again. That is expensive, so it is spent ONLY where the number of mouths actually moved -- which
+// is a strictly narrower question than "did this shed's sheet reprint", and a PER-PEN one.
+
+// packingCell builds one stored cell at a given pen and head count, holding everything else fixed so
+// a test can move exactly one variable.
+func packingCell(shedID, partition string, headCount int64, quantity string) []StoredCell {
+	return FlattenRows([]DirectionRow{{
+		ShedID: shedID, PartitionLabel: partition, ShedTag: "Non-Pregnant", Breed: "Beetal",
+		SessionNo: 1, Workflow: WorkflowNormal, HeadCount: headCount, SessionTotalKg: quantity,
+		Items: []ItemQuantity{{FeedItem: "Concentrate", Status: QuantityResolved, QuantityKg: strptr(quantity)}},
+	}})
+}
+
+// A COSMETIC change reprints the sheet but must NOT reopen the pen: the packer weighed out the right
+// quantity for the right number of animals, and their video still proves it. Reopening here would
+// discard good work for a relabelled ration group.
+func TestDiffCellsDoesNotReportAPenWhoseHeadCountDidNotMove(t *testing.T) {
+	t.Parallel()
+	stored := packingCell("shed-a", "1", 40, "1.000")
+	generated := packingCell("shed-a", "1", 40, "1.000")
+	generated[0].RationGroup = "Kid (renamed)"
+
+	diff := DiffCells(stored, generated)
+
+	if !diff.HasChanges() {
+		t.Fatal("a relabelled ration group must still reprint the sheet")
+	}
+	if len(diff.AffectedShedIDs) != 1 {
+		t.Fatalf("affected sheds = %v, want the shed to reprint", diff.AffectedShedIDs)
+	}
+	if len(diff.HeadCountChangedPens) != 0 {
+		t.Fatalf("head-count-changed pens = %+v, want none -- a cosmetic change must not discard a packing video", diff.HeadCountChangedPens)
+	}
+}
+
+// THE CASE THE FEATURE EXISTS FOR: animals shifted in, so the pen now feeds more mouths and the
+// quantities moved with them. The already-filmed bag is for the old count.
+func TestDiffCellsReportsAPenWhoseHeadCountMoved(t *testing.T) {
+	t.Parallel()
+	stored := packingCell("shed-a", "1", 40, "1.000")
+	generated := packingCell("shed-a", "1", 50, "1.250")
+
+	diff := DiffCells(stored, generated)
+
+	want := []PenKey{{ShedID: "shed-a", PartitionKey: "1"}}
+	if !reflect.DeepEqual(diff.HeadCountChangedPens, want) {
+		t.Fatalf("head-count-changed pens = %+v, want %+v", diff.HeadCountChangedPens, want)
+	}
+}
+
+// THE PEN, NOT THE SHED. Castro 1 / 2 / 3 share one shed_id and hold different animals on different
+// rations. AffectedShedIDs cannot express this -- it would reopen all three because one changed,
+// making two packers refilm work that never moved. Same distinction migration 000137 exists for.
+func TestDiffCellsReportsOnlyTheChangedPenOfASharedShed(t *testing.T) {
+	t.Parallel()
+	stored := append(packingCell("castro", "1", 40, "1.000"), packingCell("castro", "2", 30, "0.750")...)
+	generated := append(packingCell("castro", "1", 40, "1.000"), packingCell("castro", "2", 45, "1.125")...)
+
+	diff := DiffCells(stored, generated)
+
+	want := []PenKey{{ShedID: "castro", PartitionKey: "2"}}
+	if !reflect.DeepEqual(diff.HeadCountChangedPens, want) {
+		t.Fatalf("head-count-changed pens = %+v, want only Castro - 2; Castro - 1 did not move and its video is still good", diff.HeadCountChangedPens)
+	}
+	// The shed-level signal deliberately CANNOT tell the two pens apart -- which is exactly why the
+	// reopen must not be driven from it.
+	if len(diff.AffectedShedIDs) != 1 || diff.AffectedShedIDs[0] != "castro" {
+		t.Fatalf("affected sheds = %v, want the one shared shed", diff.AffectedShedIDs)
+	}
+}
+
+// Animals LEFT: the pen's grain vanished from the recompute. It is packing for fewer mouths than the
+// video was shot for, so it reopens on the same terms as one that gained animals.
+func TestDiffCellsReportsAPenWhoseGrainDisappeared(t *testing.T) {
+	t.Parallel()
+	stored := packingCell("shed-a", "1", 40, "1.000")
+
+	diff := DiffCells(stored, nil)
+
+	want := []PenKey{{ShedID: "shed-a", PartitionKey: "1"}}
+	if !reflect.DeepEqual(diff.HeadCountChangedPens, want) {
+		t.Fatalf("head-count-changed pens = %+v, want the emptied pen", diff.HeadCountChangedPens)
+	}
+}
+
+// An undivided shed normalizes to the stable 'whole' key, so it matches
+// feed_packing_completions.partition_key rather than missing on an empty string.
+func TestDiffCellsNormalizesAnUndividedShedToWhole(t *testing.T) {
+	t.Parallel()
+	diff := DiffCells(packingCell("yashoda", "", 40, "1.000"), packingCell("yashoda", "", 55, "1.375"))
+
+	want := []PenKey{{ShedID: "yashoda", PartitionKey: "whole"}}
+	if !reflect.DeepEqual(diff.HeadCountChangedPens, want) {
+		t.Fatalf("head-count-changed pens = %+v, want the whole-shed key", diff.HeadCountChangedPens)
 	}
 }

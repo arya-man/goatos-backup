@@ -14,8 +14,10 @@
 #      tunnels the device loopback to the laptop over USB (works on emulator AND a
 #      physical phone; 10.0.2.2 is emulator-only and does NOT work on a real phone).
 #
-# Prereqs: local backend up on :8080 (make dev-local-service-start), device
-# connected via USB with USB debugging enabled ("Allow" the RSA prompt).
+# Prereqs: device connected via USB with USB debugging enabled ("Allow" the RSA
+# prompt). The script starts/repairs the local backend service on :8080 before
+# minting the dev token, so a dead API cannot strand the phone at the workspace
+# error screen.
 #
 # Usage:
 #   tools/dev/android-dev-run.sh                 # auto-pick device, full run
@@ -31,15 +33,36 @@ android_dir="$repo_root/apps/goatos-android"
 # same in non-interactive shells.
 # shellcheck source=tools/dev/android-env.sh
 source "$repo_root/tools/dev/android-env.sh"
-api_base="http://localhost:8080"
+host_api_port="${GOATOS_PHONE_QA_PORT:-8080}"
+api_base="http://localhost:${host_api_port}"
 bootstrap_path="/app/bootstrap"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
-user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
+# The Android dev build starts in the field-operator surface. The old CEO default could read the
+# workflow but was correctly denied TaskExecute on proof upload, leaving camera files only in the
+# tablet outbox. Callers can still override this for leadership/verifier testing.
+user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000201}"
 ttl="${GOATOS_DEV_TOKEN_TTL:-23h}"
 gradle_props="$HOME/.gradle/gradle.properties"
 supervisor="$repo_root/tools/dev/run-local-stack-supervised.sh"
+service="$repo_root/tools/dev/local-stack-service.sh"
+android_api_log_dir="$repo_root/.codex-goatos-render/logs"
+android_api_log="$android_api_log_dir/local-api-android-dev.log"
+android_api_bin="$repo_root/.codex-goatos-render/bin/goatos-api-android-dev"
+android_api_label="sg.mesha.goatos.android-dev-api"
+android_api_plist="$HOME/Library/LaunchAgents/$android_api_label.plist"
+launch_domain="gui/$(id -u)"
 
-serial=""; do_clear=1; token_only=0
+# ANDROID_SERIAL is the STANDARD adb device selector, and every other adb call in a multi-device
+# session honours it. This script did not: `serial` came only from -s/--serial, so pick_device()
+# fell through to "first physical device in `adb devices`" and installed there no matter which
+# device the caller targeted.
+#
+# With four devices attached that silently sent EVERY install to the same phone: operator, then
+# verifier, then director, then CEO all landed on one handset (last write wins), the other three
+# were never touched, and each phone showed whichever identity happened to be installed last.
+# That looked like a token-seeding bug and was actually a device-selection bug (2026-08-08).
+# -s/--serial still wins over the env var.
+serial="${ANDROID_SERIAL:-}"; do_clear=1; token_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -s|--serial) serial="$2"; shift 2 ;;
@@ -80,25 +103,145 @@ validate() { # $1=token -> 0 if /app/bootstrap==200
   [ "$code" = "200" ]
 }
 
+detect_android_database_url() {
+  local port
+  port="$(
+    docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+      | awk '$1 == "goatos-local-current" && match($0, /127\.0\.0\.1:[0-9]+->5432\/tcp/) {
+          print $0
+        }' \
+      | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
+      | head -n 1
+  )"
+  if [ -n "$port" ]; then
+    printf 'postgres://postgres:goatos@127.0.0.1:%s/goatos?sslmode=disable\n' "$port"
+    return 0
+  fi
+  printf 'postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable\n'
+}
+
+start_android_api_fallback() {
+  local code pid
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+  [ "$code" = "204" ] && return 0
+
+  pid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  if [ -n "$pid" ]; then
+    die "port 8080 is in use but /readyz is not healthy; stop pid $pid or free :8080"
+  fi
+
+  mkdir -p "$android_api_log_dir"
+  log "shared service did not become ready; starting Android dev API fallback on canonical local DB..."
+  mkdir -p "$(dirname "$android_api_bin")"
+  ( cd "$backend_dir" && go build -buildvcs=false -o "$android_api_bin" ./cmd/api )
+  mkdir -p "$(dirname "$android_api_plist")"
+  cat >"$android_api_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$android_api_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$android_api_bin</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$backend_dir</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$android_api_log</string>
+  <key>StandardErrorPath</key>
+  <string>$android_api_log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DATABASE_URL</key>
+    <string>${DATABASE_URL:-$(detect_android_database_url)}</string>
+    <key>GOATOS_ENV</key>
+    <string>${GOATOS_ENV:-local}</string>
+    <key>GOATOS_TENANT_ID</key>
+    <string>$tenant_id</string>
+    <key>GOATOS_AUTH_MODE</key>
+    <string>${GOATOS_AUTH_MODE:-bearer}</string>
+    <key>GOATOS_AUTH_ISSUER</key>
+    <string>$iss</string>
+    <key>GOATOS_AUTH_AUDIENCE</key>
+    <string>$aud</string>
+    <key>GOATOS_AUTH_HS256_SECRET</key>
+    <string>${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}</string>
+    <key>GOATOS_AUTH_MAX_TOKEN_TTL</key>
+    <string>${maxttl:-24h}</string>
+    <key>GOATOS_HTTP_ADDR</key>
+    <string>127.0.0.1:8080</string>
+    <key>GOATOS_ALLOW_STALE_LOCAL_STACK</key>
+    <string>1</string>
+    <key>GOATOS_LOCAL_MEDIA_SIGNING_SECRET</key>
+    <string>${GOATOS_LOCAL_MEDIA_SIGNING_SECRET:-goatos-local-media-secret-32-bytes-min}</string>
+  </dict>
+</dict>
+</plist>
+EOF
+  launchctl bootout "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+  launchctl bootstrap "$launch_domain" "$android_api_plist" >/dev/null
+  launchctl enable "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "$launch_domain/$android_api_label" >/dev/null 2>&1 || true
+
+  for _ in $(seq 1 60); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  cat "$android_api_log" >&2 || true
+  die "Android dev API fallback did not become ready on :8080"
+}
+
+ensure_backend() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+  if [ "$code" = "204" ]; then
+    return 0
+  fi
+  log "backend not ready on :8080 (readyz=$code); starting local backend service..."
+  bash "$service" start >/dev/null
+  for _ in $(seq 1 45); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  log "backend still not ready; restarting local backend service..."
+  bash "$service" restart >/dev/null
+  for _ in $(seq 1 60); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || true)"
+    [ "$code" = "204" ] && return 0
+    sleep 1
+  done
+  bash "$service" logs >&2 || true
+  start_android_api_fallback
+}
+
 # issuer/audience/max-ttl from the supervised script (with sane fallbacks)
 eval "$(grep -E '^export GOATOS_AUTH_(ISSUER|AUDIENCE|MAX_TOKEN_TTL)=' "$supervisor" 2>/dev/null || true)"
 iss="${GOATOS_AUTH_ISSUER:-goatos-local}"
 aud="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 maxttl="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 
-log "backend health: $(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || echo unreachable) (expect 204); minting a dev token that /app/bootstrap accepts..."
+ensure_backend
+log "backend health: $(curl -s -o /dev/null -w '%{http_code}' "$api_base/readyz" || echo unreachable) on host :$host_api_port (expect 204); minting a dev token that /app/bootstrap accepts..."
 
 token=""
 # 1) explicit env secret
 if [ -n "${GOATOS_AUTH_HS256_SECRET:-}" ]; then
   t="$(mint_with "$GOATOS_AUTH_HS256_SECRET")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: \$GOATOS_AUTH_HS256_SECRET"; fi
 fi
-# 2) live :8080 process env
+# 2) live host API process env
 if [ -z "$token" ]; then
-  apipid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  apipid="$(lsof -ti tcp:"$host_api_port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
   if [ -n "$apipid" ]; then
     s="$(ps eww "$apipid" 2>/dev/null | tr ' ' '\n' | grep '^GOATOS_AUTH_HS256_SECRET=' | head -1 | cut -d= -f2- || true)"
-    t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: live :8080 process env"; fi
+    t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: live :$host_api_port process env"; fi
   fi
 fi
 # 3) supervised-script default
@@ -106,14 +249,15 @@ if [ -z "$token" ]; then
   s="$(eval "$(grep -E '^export GOATOS_AUTH_HS256_SECRET=' "$supervisor" 2>/dev/null)"; printf '%s' "${GOATOS_AUTH_HS256_SECRET:-}")"
   t="$(mint_with "$s")"; if [ -n "$t" ] && validate "$t"; then token="$t"; log "secret source: run-local-stack-supervised.sh default"; fi
 fi
-[ -n "$token" ] || die "could not mint a token the backend accepts (is the stack up on :8080? secret mismatch?). Start it with: make dev-local-service-start"
+[ -n "$token" ] || die "could not mint a token the backend accepts (is the stack up on :$host_api_port? secret mismatch?). Start it with: make dev-local-service-start"
 
 # bake into ~/.gradle/gradle.properties (token value never printed)
 mkdir -p "$(dirname "$gradle_props")"; touch "$gradle_props"
-grep -v '^goatosDevBearerToken=' "$gradle_props" > "$gradle_props.tmp" 2>/dev/null || true
+grep -Ev '^(goatosDevBearerToken|goatosDevApiBaseUrl)=' "$gradle_props" > "$gradle_props.tmp" 2>/dev/null || true
+printf 'goatosDevApiBaseUrl=http://localhost:8080/\n' >> "$gradle_props.tmp"
 printf 'goatosDevBearerToken=%s\n' "$token" >> "$gradle_props.tmp"
 mv "$gradle_props.tmp" "$gradle_props"
-log "fresh dev token baked into ~/.gradle/gradle.properties (validated: /app/bootstrap 200, ttl $ttl)"
+log "dev API URL + fresh token baked into ~/.gradle/gradle.properties (validated: /app/bootstrap 200, ttl $ttl)"
 [ "$token_only" = "1" ] && { log "token-only: done."; exit 0; }
 
 # --- build + install + tunnel + launch ---------------------------------------
@@ -127,7 +271,21 @@ log "device: $dev"
 log "JAVA_HOME=$JAVA_HOME"
 
 log "building :app:assembleDevDebug ..."
-( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q )
+# Pass the identity EXPLICITLY as a project property, do not rely on the value this script just
+# wrote into ~/.gradle/gradle.properties.
+#
+# That file is not tracked as a task input, so Gradle considered :app:assembleDevDebug UP-TO-DATE
+# after the token changed and re-installed the PREVIOUS APK -- carrying the PREVIOUS person's
+# baked token. Installing operator, then verifier, then director in sequence therefore put ONE
+# identity (whoever ran first) on every device, and each phone opened on that person's screens.
+# Seen twice: 2026-08-07 with two phones, and again 2026-08-08 with three phones plus the
+# emulator, where the verifier's phone rendered the operator's shed list.
+#
+# A command-line -P IS an input to buildConfigField, so changing it re-runs the task and the APK
+# actually carries the identity this run minted. Cheaper and more precise than --rerun-tasks,
+# which would force a full rebuild for every device.
+( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q \
+    -PgoatosDevBearerToken="$token" -PgoatosDevApiBaseUrl="http://localhost:8080/" )
 apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 [ -f "$apk" ] || die "APK not found at $apk"
 
@@ -139,7 +297,13 @@ device_user="$(adb -s "$dev" shell am get-current-user 2>/dev/null | tr -d '\r' 
   adb -s "$dev" shell pm clear --user "$device_user" sg.mesha.goatos.dev >/dev/null 2>&1 || true
   log "cleared app data for foreground Android user $device_user (fresh token will be used)"
 }
-adb -s "$dev" reverse tcp:8080 tcp:8080 >/dev/null
-log "adb reverse tcp:8080 -> laptop:8080 (device localhost now reaches the laptop backend)"
+# The DEVICE side is always 8080 (that is the APK's baked base URL), but the HOST side is not.
+# Phone QA runs its API on a NON-DEFAULT port because 8080 carries the maintainer's stg replica,
+# and phone-qa-throwaway-run.sh remaps the tunnel accordingly before calling this script.
+# Hardcoding tcp:8080 tcp:8080 here CLOBBERED that remap on every install, pointing all four
+# devices at a port with nothing on it -- which is exactly the "Couldn't reach the server" screen
+# that read as an app bug for a whole QA session (2026-08-08).
+adb -s "$dev" reverse tcp:8080 tcp:"$host_api_port" >/dev/null
+log "adb reverse tcp:8080 -> laptop:$host_api_port (device localhost now reaches the laptop backend)"
 adb -s "$dev" shell am start --user "$device_user" -n sg.mesha.goatos.dev/sg.mesha.goatos.MainActivity >/dev/null 2>&1 || true
 log "launched. If it shows 'Couldn't load your workspace', the backend isn't reachable — re-run this script (it re-mints + re-tunnels)."

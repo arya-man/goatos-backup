@@ -30,9 +30,18 @@ vaccination operator seat or animal capacity.
 rules still come from the backend vaccination rule engine. Adult vaccination
 generation must not use `entry_date` / `post_arrival` as a due-date anchor:
 accepted same-vaccine history drives adult booster/repeat timing, and adult
-blank-history animals enter the reviewed manual campaign/catch-up cohort packed
-by whole physical shed/partition. Kid/young DOB and age-window timing remains
-strict.
+blank-history animals automatically join the normal adult drive for that vaccine;
+they do not require a separate manual-campaign trigger or approval. Repeat versus
+initial/catch-up is an animal-level dose instruction inside one logical drive, not
+a reason to split the roster into separate drives. When repeat-history readiness
+dates differ but their safe windows overlap, use the latest readiness date inside
+the shared window for both repeat-history and blank-history obligations; do not
+create an earlier partial drive. If repeat history arrives after a stable
+blank-history obligation was already generated, reschedule that same open row
+onto the shared cohort date; never leave the old split date or mint a duplicate.
+Pack work by whole physical
+shed; partition is only a fallback when the physical shed itself exceeds the full
+per-operator cap. Kid/young DOB and age-window timing remains strict.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
@@ -69,12 +78,41 @@ mapping, MCP Toolbox tool, `ceo_ai.*` reporting view, assistant context/doc, or
 document an explicit exclusion. `make leadership-assistant-coverage-guard`
 enforces this in local CI.
 
+Operational read model rule: shared command surfaces and mobile/admin/reporting
+reads must follow `docs/architecture/operational-read-model-contract.md`.
+**Partition display rule (MANDATORY):** when a partition exists (`Castro 1`
+alongside `Castro 2`), every surface must render the partition label, group by
+`shed_id` + park, never collapse unless explicitly the aggregate. Full convention,
+worked wrong-examples, schema requirements, and guards: `docs/decisions/operational-location-convention.md`.
+Whenever developing or debugging Calendar, Control Tower, Action Center,
+Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
+screens, OpenAPI/generated clients, or a new vertical/module, first identify the
+canonical write owner, row/summary grain, bucket disjointness, stable scope
+identity, whole-result summary behavior, and every consuming surface. Run
+`make operational-read-model-contract-guard` + `make operational-location-guard`.
+
+Critical animal actions (quarantine, ICU, death, contagious disease isolation,
+high-risk movement, and sale/allocation blockers) must follow `docs/features/critical-animal-action-guardrails.md`.
+Run `make critical-animal-action-availability-guard` when touching those paths.
+
 CEO AI reporting views: backend/migrations/postgres/000024-000027 introduce
 `ceo_ai.*` reporting views (vaccination_shed_status, vaccination_dose_pickup,
 action_center, vaccination_operator_status) that read canonical vaccination/
 procurement/obligation/workforce tables but do NOT modify the vaccination seed/
 config/SOP schema. These migrations support the leadership assistant's
 operational read path and are not part of the vaccination protocol contract.
+
+Defect-prevention and kernel non-deviation rule: every bug fix, audit batch,
+migration, feature, and operational module must load and follow
+`context/execution/defect-prevention-execution-contract.md`. Coordinators for
+the whole-ledger/kernel program also resume from
+`context/execution/operational-kernel-program-state.md`. Operational work is
+one event-driven, interlinked task/ticketing waterfall: canonical event and
+transaction, real owner and pinned clock, bounded hierarchy,
+acknowledgement-gated contacts, proof, separate verification/sign-off task,
+close/reopen rollup, and shared reads. Module domain facts stay local; private
+task authorities, schedulers, owner fallbacks, overdue logic, escalation
+ladders, verification queues, and screen-only follow-up pipelines are banned.
 
 ## Required First Step — 4-Layer Lookup
 
@@ -130,6 +168,7 @@ docs/protocol-engine/state-machines.md
 docs/protocol-engine/high-scale-kernel-validation-plan.md
 docs/protocol-engine/migration-and-cutover.md
 context/architecture/operational-kernel.md
+docs/architecture/operational-read-model-contract.md
 docs/preventive-care-vaccination/TRD.md
 docs/feed-direction/TRD.md
 docs/decisions/calendar-ownership.md
@@ -164,6 +203,25 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- A physical shed at or below one operator's full configured cap is indivisible,
+  even when it does not fit the current day's residual slots. Carry the complete
+  shed to the next operator-day; do not peel off partitions to fill a remainder.
+  Enforce this in park pre-batching as well as operator planning and group
+  compatible blank-history catch-up and history-backed repeat rule rows by the
+  same physical shed before applying the cap. For CPT, preserve the canonical
+  route `Gandhi`, `Godel 1`, `Godel 2`, `Mandela 2`, `Old Yashoda`, yielding
+  `193 + 131 = 324` with one 200-animal operator for the full adult cohort.
+- Operator submission time is the medical `administered_at` anchor. Delayed
+  verifier/director approval may set `verified_at`/`closed_at`, but must never
+  replace the administration date used for booster and repeat scheduling.
+- Batch readiness and closure count only active `recorded`/`accepted`
+  vaccination completions. Retained `rejected`/`reversed` attempts are audit
+  history and must not block a later successful retry.
+- STG operator grants are park-scoped, never tenant-scoped. Leadership/director
+  visibility may get tenant scope, but field execution accounts (`operator`,
+  weighing operators) must declare a park and materialize `user_scope_grants`
+  with `scope_type='park'`. Run `make stg-operator-scope-guard` for any STG
+  login, Firebase, workforce, or operator grant change.
 - Operator drive assignments are generated metadata, not obligation membership.
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
@@ -198,9 +256,13 @@ Permanent scale and guard-authoring rules:
 - A green unit test or checker is not recurrence protection until the failing
   fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
   is recorded in `AGENTS.md` and the relevant reference doc.
-- `requiredInCI` means a guard runs from a standard `make ci-local` component
-  job. A guard reachable only through the legacy `JOB=guardrails` compatibility
-  helper is unwired and must fail the registration meta-guard.
+- `requiredInCI` means a guard must run from a standard `make ci-local`
+  component job. The current registration meta-guard proves declarations and
+  textual reachability only; semantic recipe execution, affected-job routing,
+  file uniqueness/existence, and spoof resistance remain mandatory F0 work in
+  `context/repo-audits/current-whole-project-remediation-ledger.md`. Until F0,
+  reviewers must verify those properties directly rather than treating the
+  meta-guard as complete proof.
 - Shed shifting is profile-driven. Resolve the active destination
   `shed_profiles -> animal_stage_lookup` row and lock its version; never infer a
   destination stage from resident goats. Verified completion atomically changes
@@ -235,6 +297,20 @@ built product.
 
 ## Before you code: operational-invariant discipline
 
+Before editing a bug fix, audit row, migration, new feature, or kernel milestone,
+fill the batch record and prevention matrix in
+`context/execution/defect-prevention-execution-contract.md`. Name the exact
+failing production path, sibling sites, canonical invariant, regression,
+persistent safety control, structural guard or stronger-control rationale,
+adversarial self-test when a structural guard applies (otherwise the applicable
+production-path proof for the stronger control), ordinary local-CI job,
+recovery/observability, skill/doc updates, and internal dependency/commit order
+in the single integration PR.
+For operational features also name the event, task
+source identity, owner, clock, parent/work-unit, proof, sign-off leaf, contact
+policy, acknowledgement, rollup, shared reads, and reconciliation. A missing
+answer is a design gap, not work to defer silently.
+
 Before touching code, identify WHICH operational invariant(s) the change touches:
 
 - **pagination forward-progress:** cursor is monotonic, next-page fetch cannot regress
@@ -254,14 +330,29 @@ Before touching code, identify WHICH operational invariant(s) the change touches
 - **India business-date correctness:** date-only values in business rules (due/missed/
   recovery windows, eligibility checks) use India/local operational timezone, never UTC
 
-Every bug fix REQUIRES a failing-before regression test added to an existing suite. Run
-the test BEFORE the fix to confirm it fails; after the fix it passes. A fix with no
-failing-before test is unproven.
+Every bug fix REQUIRES a failing-before regression test added to an existing
+suite. Run the test BEFORE the fix to confirm it fails; after the fix it passes.
+A net-new feature proves its acceptance behavior is absent or failing on the
+base. A docs/policy-only change uses structural validation and diff proof rather
+than inventing a runtime failure. A behavioral fix without failing-before proof
+is unproven.
 
-Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit being
-pushed. Partial `JOB=...` runs are fine while developing; only a full local CI gates
-main push. GitHub Actions availability is irrelevant to this gate; use
-`make land-main` for the fetch/rebase/full-local-CI/race-check/push sequence.
+The fix also requires recurrence prevention in the same batch. Prefer a DB,
+transaction, type, schema, or production-path control over a weak static grep.
+When the rule is mechanically detectable, ship a structural guard with
+adversarial fixtures, manifest registration, self-test, Make target, and normal
+`run_common` or component-job wiring. Update the closest canonical anti-pattern,
+the relevant skill/reference, and operational recovery. If any applicable leg
+is absent, report `source-fixed, closure-pending`; do not mark the work done.
+
+Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit
+being pushed. Partial `JOB=...` runs are fine while developing; only a full
+local CI gates main push. This is the ordinary deterministic CI gate, not a
+substitute for applicable PostgreSQL, migration, device, browser, deploy, or
+live-state certification lanes. GitHub Actions availability is irrelevant.
+Ordinary work and this documentation foundation use `make land-main`; the
+approved whole-ledger/task-kernel program uses
+`make land-integration-pr PR=<number>` after F0 implements and proves it.
 
 ## Reference Guide
 
@@ -305,13 +396,13 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
-- **Promote staging only through GitHub's PR merge.** Never push any local ref,
-  `HEAD`, `main`, local `stg`, agent branch, or refspec directly to remote
-  `stg`. Open the same-repository `vgoats/goatos main -> stg` PR, wait for
-  `stg-pr-gate`, and merge it in GitHub. Manual workflow dispatch is only a
-  rerun of the exact current `stg` SHA already produced by such a merge. Never
+- **Promote staging only through manual Cloud Deploy.** Never create or wait for
+  a `main -> stg` PR or GitHub Actions deployment. Never push any local ref to
+  remote `stg`. Deploy only from a clean, approved `origin/main` SHA through
+  `docs/runbooks/stg-deploy.md` and the repo-owned Cloud Deploy helpers. Never
   use `--no-verify` to bypass the installed pre-push guard.
-- **Land main through `make land-main` (Codex and Claude).** Do not issue a
+- **Land ordinary work and this documentation foundation through
+  `make land-main` (Codex and Claude).** Do not issue a
   direct `git push` / `git mesha-push` to `main`, and do not run CI before
   refreshing main during a landing. The target requires a clean worktree,
   fetches and rebases onto fresh `origin/main`, runs complete affected-component
@@ -319,11 +410,29 @@ one product; this skill is the navigation layer.
   and verifies the exact green SHA. Use a clean isolated worktree when the
   development checkout is dirty or shared; never auto-rebase unrelated local
   changes merely because an agent session started.
-- For any consolidated-ledger fix, read
-  `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
-  `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one
-  root batch at a time; do not claim closure without its current-SHA proof
-  packet, required CI gates, and independent counter-review.
+- **Kernel/remediation program exception.** The approved whole-ledger and
+  operational-kernel program uses one external integration PR, not direct-main
+  landing. F0 must introduce the repo-owned exact-head program-PR landing gate
+  defined in `context/execution/defect-prevention-execution-contract.md` before
+  any implementation batch can close or the program PR can merge. Until that
+  gate exists, `make land-main` remains the default for unrelated ordinary
+  changes and for landing the documentation foundation only.
+- For any whole-project audit fix, read
+  `context/repo-audits/current-whole-project-remediation-ledger.md` and its
+  current closure gate. For work explicitly naming an older last-35 ID, read
+  its historical ledger and closure program instead. Work one root batch at a
+  time; do not claim closure without its current-SHA proof packet, required CI
+  gates, and independent counter-review.
+  Before implementation, fetch fresh `origin/main`, re-adjudicate the selected
+  IDs and migration tail, and treat the ledger's recorded SHA as evidence
+  provenance rather than live status.
+- For every bug fix, feature, migration, and kernel milestone, use
+  `context/execution/defect-prevention-execution-contract.md` as the mandatory
+  batch-entry, recurrence-prevention, PR-topology, and closure checklist. A
+  behavior-only fix is not complete.
+- For generic task hierarchy, owner/duty clocks, Today/My Tasks, sign-off, or
+  escalation work, also obey
+  `context/execution/operational-task-kernel-remediation-plan.md`.
 - Lock to the user-approved slice. Shared/generic infrastructure may be built
   only to serve that slice, and visible UI/API handoffs must not present future
   verticals as live product.
@@ -399,6 +508,10 @@ one product; this skill is the navigation layer.
   projection/read-model table, update the seed command, seed/projection test, or
   seed runbook in the same change. `make seed-migration-guard` enforces this
   coupling; see `docs/runbooks/initial-seed-migration-coupling.md`.
+- Role-catalog and `workforce_members.primary_role_hint` changes are seed-owned.
+  The live Growth Director role key is `growth_director` and it is Weighing-only;
+  do not spell it `director_growth`, do not merge it with `pc_director`, and do
+  not let HRMS roster seed create vaccination capacity from it.
 - New setup tables must declare their class: source/canonical, derived/read
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in
@@ -619,6 +732,7 @@ one product; this skill is the navigation layer.
   to the pushed branch/main, otherwise fixes can look landed while the browser is
   exercising a disposable tree.
 
+<!-- Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care department module grant. This changes runtime module/navigation authorization only; it does not change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts. -->
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 
@@ -631,3 +745,69 @@ one product; this skill is the navigation layer.
 <!-- Coupling review 2026-07-24: CPT operator-drive clean reseed may start from a freshly migrated local DB. seed-roster-real resolves only centers present in the selected source bundle and can create that required park row before HRMS import; generation history uses the full as-of business day so same-day accepted completions suppress duplicate open work before the 2026-07-25 ET+TT 210 catch-up proof runs. -->
 <!-- Coupling review 2026-07-25: Editable vaccination caps (migration 000045 + PUT /vaccination/capacity-config): the operator daily animal cap and a new nullable per-animal shot-cap override are edited on the People/vaccination-operators screen and written to vaccination_capacity_config, cascading vaccination.capacity.changed per active park to re-plan future drives. Seed leaves the override NULL (planner falls back to rule_dsl/default), so no seed fixture, roster, or SOP contract changes. The apply-leave path additionally enforces a min-1-operator-per-day coverage guard (min_operator_coverage 409). -->
 <!-- Coupling review 2026-07-25: selected_operator_ids on vaccination_operator_assignment_config is an admin-selected parallel roster preference. Seed leaves it empty; saving config may reassign current/future open planned drive rows, but source fixture bytes, HRMS roster import, SOP definitions, and completed proofs remain unchanged. -->
+<!-- Coupling review 2026-07-25: migration 000002 restores selected_operator_ids on already-migrated DBs after the collapsed baseline gained the column. It is a runtime schema repair only; backfill from default_operator_id keeps previous scheduling behavior and does not alter fixture/source contracts. -->
+<!-- Coupling review 2026-08-06: pc.vaccination duty derivation. seed-closeout requires an active seat holding BOTH execute and manage for pc.vaccination, because kernelstages/reminder_cadence.go resolves both duty types for the reminder ladder. seed-position-duties previously excluded the WHOLE module from manage, so the requirement was structurally unsatisfiable and every fresh local stack looped "Local database preparation failed". The exclusion is now narrowed to the two prefixes it was always meant to cover -- vaccination_operator_* (inflated HR tier, still executing) and backup_manager (covers the absent manager's tasks, not their authority) -- so preventive_care_manager / park_head / shed_manager earn manage as the cadence file already documented. -->
+<!-- Coupling review 2026-08-01: a module that enqueues a verification item must declare BOTH ends -- an entry in notificationbridge.pendingModuleProfiles (its own recipients, wording and tap route; there is deliberately no fallback profile) AND at least one active verify-duty holder in position_module_duties. Missing either means the pending-proof push reaches nobody while every test stays green, which is exactly how the path looked wired for months while notification_requests stayed empty. Both are asserted by tests, not comments. -->
+
+## WEIGHING IS SCAN-AND-SUBMIT (do not re-derive rules)
+
+Assign sheds → individual: scan RFID + weight + video per animal; lump-sum: total
+weight + count + video(s) per shed → submit. **The only business rule is: no double
+scan of the same animal in a bucket before submit.**
+
+NO shed↔RFID validation · NO roster/expected count/denominator/percentage · NO herd
+or goat or clinical lookup · NO vaccine/protocol/obligation rules · NO "shed is empty"
+concept (free-flow cannot know what is in a shed).
+
+If a finding assumes any of those exist, it is invalid — close it and cite ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`. Real weighing
+findings are about PLUMBING: writes landing, evidence being reviewable, failures being
+visible, screens showing honest numbers. Full statement:
+`docs/features/weighing/TRD.md` → "What weighing IS".
+
+Isolation does not exempt Weighing from shared operational coordination.
+Weighing emits its domain/audit/idempotency/proof/outbox facts atomically; a
+shared-kernel consumer outside the Weighing package consumes those events
+outward-only into owner/clock, hierarchy, contact-waterfall, proof, and sign-off
+task state. The consumer must be receipt-backed, idempotent, version-fenced,
+bounded, observable, replayable, and reconciled. Never add an inbound
+`task_nodes`, SOP, obligation, roster, herd, or lifecycle dependency to
+Weighing, and never let generic task state gate scan-and-submit execution.
+
+<!-- Coupling review 2026-08-04: vaccination drive safe-date override metadata is runtime scheduling state, not source seed data. Requested/applied override dates and conflict metadata do not change raw vaccination/HRMS source files, SOP contracts, seed closeout, fixture hashes, or approved source-date validation. Approved combo helper sharing is code reuse for clinical scheduling only. -->
+<!-- Coupling review 2026-08-04: seed-roster-real adds aas_health + milk + feed_direction + vaccination to the health department module grant and milk to preventive_care, extending the same department-grant mechanism recorded on 2026-07-29 for feed_direction. Runtime module/navigation authorization only; no HRMS roster row, vaccination history, source date, fixture byte, hash or count changes. -->
+<!-- Coupling review 2026-08-05: CBE/CPT controlled seed-port support is runtime-only: preserve double-tag aliases, constrain sweeps by dose/target, seed verifier grants from existing auth-pending rows, add weighing duties, and use the active position partial-unique key. HRMS fixture/source bytes and validation contracts stay unchanged. Do not generate Blue Tongue or PPR open obligations for the current port; schedule them later only after stock/source confirmation. -->
+<!-- Coupling review 2026-08-05 follow-up: when validating CBE/CPT seed-port work, confirm optional `rfid2` values are imported as secondary aliases and that the port is run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr` until stock/manual scheduling is ready. -->
+
+### Rework is not a terminal state (2026-08-05)
+
+When touching vaccination submit/verify, remember an accepted SOP task can be
+reopened by a rejection (`ReopenTaskForRework`) and a weighing bucket refuses to
+complete while any animal in it sits in `rework`. Both exist because a rejected
+animal's re-submission used to be silently dropped: the server replayed the old
+response, the app reported success, and the operator's redone work vanished.
+
+## Kid/adult is a cohort property (do not re-derive it from age)
+
+An animal's `goats.age_band` follows its `management_stage` through
+`animal_stage_lookup.age_band` (`kid` / `adult` / NULL). A shifting stamps the destination
+cohort's band in the same transaction that moves the animal
+(`identity/adapters/postgres.RelocateGoatsToShedInTx`); migration `000109` owns the
+classification and the live-herd backfill.
+
+It is deliberately NOT age-derived. In the live CBE/CPT herd, F2 fattening cohorts are kid at up
+to 67 weeks and K2 to 55 weeks — "kid" means *not yet in a breeding cohort*, an operational
+classification made by placement. A `>20 weeks ⇒ adult` rule would flip 261 animals against the
+farm's own record.
+
+Consequences for anyone touching this:
+
+- Classify a new cohort by editing `animal_stage_lookup`, never by adding a rule in Go.
+- ICU / Quarantine carry NULL band on purpose: a clinical placement must not reclassify an animal.
+- `Warmup` is kid by maintainer decision, deliberately against the source sheet.
+- The vaccination **schedule path** is separately age-derived and is expected to disagree; do not
+  reconcile them.
+- Pinned by `migrations/postgres.TestStageAgeBandClassification` and the
+  `story_shifting_kid_to_adult` kernel story.
+
+<!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->

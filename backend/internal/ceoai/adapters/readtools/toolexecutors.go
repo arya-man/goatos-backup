@@ -20,8 +20,9 @@ type scopedReader func(ctx context.Context, tenantID string, params map[string]a
 // It calls the real counts service to return actual data from the database.
 type countsBreakdownExecutor struct {
 	// countsBySpeciesReader provides counts broken down by species/park/shed/
-	// breed/sex/stage. In the bootstrap wiring, this is set to a closure that
-	// calls the counts service (ceo_ai.animal_current_scope).
+	// partition/breed/sex/stage. In the bootstrap wiring, this is set to a
+	// closure that calls the counts service (ceo_ai.animal_current_scope,
+	// fixed by migration 000110 to carry partition_label per goat).
 	countsBySpeciesReader scopedReader
 }
 
@@ -29,8 +30,15 @@ func (e *countsBreakdownExecutor) Spec() ports.ToolSpec {
 	return ports.ToolSpec{
 		Name:        "counts_breakdown",
 		Route:       domain.RouteAPI,
-		Description: "Animal counts broken down by park, shed, breed, sex, stage, or other dimensions",
-		Params:      []string{"dimension", "park_label", "shed_id", "species"},
+		Description: "Animal counts broken down by park, shed, partition, breed, sex, stage, or other dimensions",
+		// partition_label is advertised and honored: buildCountsReader
+		// (backend/internal/bootstrap/ceoai_readers.go) filters returned rows
+		// to the named partition and renders every scope through
+		// oploc.OperationalLocation.Display(), so "at Castro 1" answers with
+		// Castro's partition-1 count instead of the whole-shed total. Fixed
+		// 2026-08-05 (migration 000110); previously partition scope silently
+		// collapsed into the parent shed here.
+		Params: []string{"dimension", "park_label", "shed_id", "partition_label", "species"},
 	}
 }
 

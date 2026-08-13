@@ -448,7 +448,7 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 	return r.srGoat, r.srGoatLoadFound, nil
 }
 
-func (r *completionRepoFake) ShedCompletionSummary(_ context.Context, _ string, taskID, shedID string) (domain.ShedCompletionSummary, error) {
+func (r *completionRepoFake) ShedCompletionSummary(_ context.Context, _ string, taskID, shedID string, _ ...string) (domain.ShedCompletionSummary, error) {
 	return domain.ShedCompletionSummary{TaskID: taskID, SubmitState: "draft"}, nil
 }
 
@@ -478,6 +478,14 @@ func (o *obligationCompleterFake) GetBoosterContext(context.Context, string, str
 
 func (o *obligationCompleterFake) IsCompleted(_ context.Context, _, obligationID string) (bool, error) {
 	return o.completed[obligationID], nil
+}
+
+func (o *obligationCompleterFake) ReopenObligation(_ context.Context, _, obligationID string) (bool, error) {
+	if !o.completed[obligationID] {
+		return false, nil
+	}
+	o.completed[obligationID] = false
+	return true, nil
 }
 
 type stockConsumerFake struct {

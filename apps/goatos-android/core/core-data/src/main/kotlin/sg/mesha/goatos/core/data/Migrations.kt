@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.data
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import org.json.JSONObject
 
 /**
  * v1 -> v2: adds the per-read-model cache tables for the offline-first read screens
@@ -388,5 +389,761 @@ val MIGRATION_14_15: Migration = object : Migration(14, 15) {
 val MIGRATION_15_16: Migration = object : Migration(15, 16) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `scan_roster_row` ADD COLUMN `scannedAtMs` INTEGER")
+    }
+}
+
+/**
+ * v16 -> v17: adds the six Feed read-model tables — the Feed Direction sheet and the Feed Packing
+ * worklist, each as a summary-envelope blob + normalized paged rows + per-scope remote keys
+ * (docs/decisions/android-offline-first.md). Purely additive; no existing table changes.
+ *
+ * As in [MIGRATION_14_15], each CREATE spells its table name out as a literal (never an
+ * interpolated loop) so `make room-migration-guard` can statically match every new v17 @Entity
+ * table against a CREATE here — an interpolated name would be invisible to the very check that
+ * exists to catch the upgrade-crash defect (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_16_17: Migration = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_direction_items_queryKey_sortIndex` " +
+                "ON `feed_direction_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_direction_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_packing_items_queryKey_sortIndex` " +
+                "ON `feed_packing_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_packing_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}
+
+/**
+ * v17 -> v18: the shifting pending-execution queue pair — the Shifting "Pending" tab's offline-first
+ * read model. One Room row per authorized movement ([ShiftingPendingItemEntity]) plus its opaque
+ * keyset remote key ([ShiftingPendingRemoteKeyEntity]), shaped exactly like the Counts APPROVAL
+ * queue. Additive and non-destructive: no existing table is touched, so an installed APK carrying an
+ * unsynced write outbox upgrades in place without data loss.
+ */
+val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shifting_pending_items` " +
+                "(`queryKey` TEXT NOT NULL, `shiftingEventId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`raisedAt` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `shiftingEventId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_shifting_pending_items_queryKey_sortIndex` " +
+                "ON `shifting_pending_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `shifting_pending_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}
+
+/**
+ * v19 -> v20: the four Birth/Death workflow read-model tables
+ * (docs/decisions/birth-death-workflows.md): the keyset-paginated card list + its per-scope remote
+ * keys (shaped exactly like the shifting Pending pair), the per-day chips rollup blob, and the
+ * drill-in detail blob. Additive and non-destructive: no existing table is touched, so an installed
+ * APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * As in [MIGRATION_14_15], each CREATE spells its table name out as a literal (never an
+ * interpolated loop) so `make room-migration-guard` can statically match every new v20 @Entity
+ * table against a CREATE here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_19_20: Migration = object : Migration(19, 20) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_cards` " +
+                "(`queryKey` TEXT NOT NULL, `workflowId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `workflowId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_workflow_cards_queryKey_sortIndex` " +
+                "ON `workflow_cards` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_chips_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `workflow_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+val MIGRATION_20_21: Migration = object : Migration(20,21){
+    override fun migrate(db:SupportSQLiteDatabase){
+        db.execSQL("CREATE TABLE IF NOT EXISTS `feed_transport_items` (`taskId` TEXT NOT NULL, `businessDate` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`taskId`))")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_items_businessDate_sortIndex` ON `feed_transport_items` (`businessDate`,`sortIndex`)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS `feed_transport_remote_keys` (`businessDate` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`businessDate`))")
+    }
+}
+
+/**
+ * v18 -> v19: the "Awaiting RFID" list pair — the Counts promote flow's offline-first read model. One
+ * Room row per temporary-tagged goat ([AwaitingRfidItemEntity]) plus its keyset remote key
+ * ([AwaitingRfidRemoteKeyEntity]). Additive and non-destructive: no existing table is touched, so an
+ * installed APK carrying an unsynced write outbox upgrades in place without data loss.
+ */
+val MIGRATION_18_19: Migration = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `awaiting_rfid_items` " +
+                "(`goatId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `displayId` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`goatId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_awaiting_rfid_items_sortIndex` " +
+                "ON `awaiting_rfid_items` (`sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `awaiting_rfid_remote_keys` " +
+                "(`id` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+    }
+}
+
+/** v21 -> v22: Weighing Room-first local state.
+ *
+ * Adds normalized roster rows for indexed RFID lookup, individual-animal weighing observations,
+ * and per-shed/partition observations. The tables are additive and separate from Vaccination's
+ * scan/proof rows so Weighing cannot update Vaccination completion state or create individual
+ * animal weights for `per_shed_partition` scopes.
+ */
+val MIGRATION_21_22: Migration = object : Migration(21, 22) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_roster_row` " +
+                "(`id` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, " +
+                "`displayAnimalId` TEXT NOT NULL, `primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, " +
+                "`normalizedPrimaryTag` TEXT NOT NULL, `normalizedSecondaryTag` TEXT, `status` TEXT NOT NULL, " +
+                "`availabilityStatus` TEXT, `seq` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey` ON `weighing_roster_row` (`scopeKey`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_seq` " +
+                "ON `weighing_roster_row` (`scopeKey`, `seq`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedPrimaryTag` " +
+                "ON `weighing_roster_row` (`scopeKey`, `normalizedPrimaryTag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_roster_row_scopeKey_normalizedSecondaryTag` " +
+                "ON `weighing_roster_row` (`scopeKey`, `normalizedSecondaryTag`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_roster_row` (`campaignId`, `campaignShedId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_observation` " +
+                "(`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, " +
+                "`scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, " +
+                "`serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, " +
+                "`capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_idempotencyKey` ON `weighing_observation` (`idempotencyKey`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_observation` (`scopeKey`, `capturedAtMs`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` " +
+                "ON `weighing_observation` (`campaignId`, `workGroupId`, `campaignShedId`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_shed_observation` " +
+                "(`shedObservationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `resultJson` TEXT NOT NULL, " +
+                "`proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, " +
+                "`idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, " +
+                "PRIMARY KEY(`shedObservationId`))",
+        )
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_idempotencyKey` ON `weighing_shed_observation` (`idempotencyKey`)")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_shed_observation_campaignId_campaignShedId` " +
+                "ON `weighing_shed_observation` (`campaignId`, `campaignShedId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_weighing_shed_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_shed_observation` (`scopeKey`, `capturedAtMs`)",
+        )
+    }
+}
+
+val MIGRATION_22_23: Migration = object : Migration(22, 23) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS `index_weighing_roster_row_campaignId_animalId`")
+        db.execSQL("DROP INDEX IF EXISTS `index_weighing_observation_campaignId_animalId`")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_roster_row_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_roster_row` (`campaignId`, `campaignShedId`, `animalId`)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `animalId`)",
+        )
+    }
+}
+
+/**
+ * v24 — the Weighing LEADERSHIP read models.
+ *
+ * Purely ADDITIVE: ten new tables, no existing table touched, nothing dropped. Before this, the
+ * leadership half of Weighing (task list, task detail, shed detail + its captured records, the
+ * videos gallery, and the planner catalog) was network-only — no Room entity, no DAO, no Flow — so
+ * a phone with no signal rendered a blank wall over data it had already been shown, and every
+ * screen rendered straight off a network response instead of off the on-device SSOT.
+ *
+ * Each list table pairs with a remote-key table holding the backend's opaque keyset cursor plus the
+ * WHOLE-SCOPE tallies (task tab counts, whole-task bucket count) that must not be derived from the
+ * cached page. The shed table carries park name, weigh business DATE and the resolved assignee name
+ * as columns, because those are the shed read's own answer — that is what lets a cold deep link
+ * render without route arguments.
+ */
+val MIGRATION_23_24: Migration = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "CREATE TABLE IF NOT EXISTS `weighing_task_row` (`queryKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `campaignId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_task_row_queryKey_sortIndex` ON `weighing_task_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_remote_key` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `activeCount` INTEGER NOT NULL, `completedCount` INTEGER NOT NULL, `canPublish` INTEGER NOT NULL, `canEnd` INTEGER NOT NULL, `canReopen` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_bucket_row` (`campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`, `campaignShedId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_task_bucket_row_campaignId_sortIndex` ON `weighing_task_bucket_row` (`campaignId`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_bucket_remote_key` (`campaignId` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `totalCount` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_shed` (`shedKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `shedName` TEXT NOT NULL, `parkName` TEXT NOT NULL, `weighDate` TEXT NOT NULL, `operatorUserId` TEXT NOT NULL, `operatorDisplayName` TEXT NOT NULL, `category` TEXT NOT NULL, `status` TEXT NOT NULL, `periodLabel` TEXT NOT NULL, `estimatedAnimalCount` INTEGER NOT NULL, `maxShedVideos` INTEGER NOT NULL, `lumpSumJson` TEXT, `galleryQueryKey` TEXT, `gallerySortIndex` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_campaignId` ON `weighing_leadership_shed` (`campaignId`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_galleryQueryKey_gallerySortIndex` ON `weighing_leadership_shed` (`galleryQueryKey`, `gallerySortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_record` (`shedKey` TEXT NOT NULL, `observationId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`, `observationId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_record_shedKey_sortIndex` ON `weighing_leadership_record` (`shedKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_record_remote_key` (`shedKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_shed_row` (`queryKey` TEXT NOT NULL, `locationId` TEXT NOT NULL, `parkId` TEXT NOT NULL, `parkName` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `shedJson` TEXT NOT NULL, `existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `locationId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_operator_row` (`queryKey` TEXT NOT NULL, `userId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `userId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_operator_row_queryKey_sortIndex` ON `weighing_planner_operator_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_remote_key` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        ).forEach(db::execSQL)
+    }
+}
+
+/**
+ * v24 -> v25: the leadership VIDEOS gallery gets its own cursor table.
+ *
+ * The gallery's cursor was stored as a task-list remote key under an invented query key, in the
+ * table the L0 task list prunes by newest-N-filters — so browsing task filters evicted the gallery
+ * cursor while its rows were still on screen, and the gallery row evicted a real filter's tallies.
+ * Additive: one new table, nothing dropped or rewritten.
+ */
+val MIGRATION_24_25: Migration = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_gallery_remote_key` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}
+
+/**
+ * v25 -> v26: the planner catalog's PARK grain gets its own table.
+ *
+ * Parks and sheds are two different grains and used to share one flattened keyset page of ~20 rows.
+ * A real park holds 76+ sheds, so page one was entirely one park and the wizard's park step offered
+ * a single park. Parks are few and must all be offered, so they are now cached whole in this table;
+ * the shed table keeps pagination and is re-keyed per park (`<date>|<park id>`).
+ *
+ * Additive: one new table. The shed and cursor tables are untouched — their old date-keyed rows
+ * simply stop matching the new park-scoped key and age out through the existing prune.
+ *
+ * v26 ALSO drops `weighing_observation.animalId` and re-keys the bucket's unique index onto
+ * `scannedIdentifier`, following the backend: migration `000078` dropped
+ * `weighing_observations.animal_id` and `000079` dropped `weighing_expected_animals` entirely.
+ * Weighing is free-flow — a capture is a scanned tag and a weight and never resolves to herd
+ * identity — so `animalId` is a column the server can no longer populate, and the unique index
+ * `(campaignId, campaignShedId, animalId)` was a uniqueness rule over a value that is always `""`:
+ * two different scanned tags in one bucket collided, and `WeighingObservationDao.insert` uses
+ * `OnConflictStrategy.IGNORE`, so the second capture was silently DROPPED.
+ *
+ * SQLite before 3.35 has no `DROP COLUMN` and the engines on supported devices predate it, so this
+ * is the canonical create/copy/drop/rename rebuild. It is NON-DESTRUCTIVE: every existing row is
+ * carried across with its syncStatus, idempotencyKey, capture time and proof ids intact — this
+ * table holds unsynced operator captures the outbox has not yet delivered, and losing one loses a
+ * real weight taken in a shed. `scannedIdentifier` is already NOT NULL on the old table so no
+ * backfill is needed; the copy is ordered by `capturedAtMs` and uses `INSERT OR IGNORE` so that
+ * legacy rows that DO collide on the new unique key (possible only for rows written under the old
+ * animalId-keyed index) keep the EARLIEST capture instead of failing the whole upgrade.
+ */
+val MIGRATION_25_26: Migration = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_park_row` (`queryKey` TEXT NOT NULL, " +
+                "`parkId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `name` TEXT NOT NULL, " +
+                "`kidCount` INTEGER NOT NULL, `shedCount` INTEGER NOT NULL, " +
+                "`existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `parkId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_park_row_queryKey_sortIndex` " +
+                "ON `weighing_planner_park_row` (`queryKey`, `sortIndex`)",
+
+            // --- weighing_observation: drop animalId, re-key the unique index on scannedIdentifier.
+            "CREATE TABLE IF NOT EXISTS `weighing_observation_new` (" +
+                "`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `scannedIdentifier` TEXT NOT NULL, " +
+                "`weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, " +
+                "`syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, " +
+                "`capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+            "INSERT OR IGNORE INTO `weighing_observation_new` (" +
+                "`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, `campaignShedId`, " +
+                "`expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `syncStatus`, " +
+                "`idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                "SELECT `observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, `campaignShedId`, " +
+                "`expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `syncStatus`, " +
+                "`idempotencyKey`, `capturedAtMs`, `lastError` " +
+                "FROM `weighing_observation` ORDER BY `capturedAtMs` ASC",
+            "DROP TABLE `weighing_observation`",
+            "ALTER TABLE `weighing_observation_new` RENAME TO `weighing_observation`",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_idempotencyKey` " +
+                "ON `weighing_observation` (`idempotencyKey`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_observation` (`scopeKey`, `capturedAtMs`)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "`index_weighing_observation_campaignId_campaignShedId_scannedIdentifier` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `scannedIdentifier`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` " +
+                "ON `weighing_observation` (`campaignId`, `workGroupId`, `campaignShedId`)",
+        ).forEach(db::execSQL)
+    }
+}
+
+/**
+ * v26 -> v27: adds the weighing ALERTS cache table.
+ *
+ * The weighing module gained its own lifecycle alerts feed (work assigned, shed submitted for
+ * verification, proof sent back for rework, shed reopened, work closed). Like every other
+ * screen-facing read it is Room-backed from day one rather than a bare network call, because the
+ * screen is opened in a shed where the network is worst and an operator must still be able to
+ * read the message that told them what to do.
+ *
+ * ADDITIVE AND NON-DESTRUCTIVE: one CREATE TABLE IF NOT EXISTS for a brand-new JSON-blob cache.
+ * No existing table is touched, no column is dropped, no row is copied, so there is nothing to
+ * lose and nothing to back-fill. A cache miss on first open is correct behaviour -- the feed
+ * simply refreshes from the backend.
+ */
+val MIGRATION_26_27: Migration = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_alerts_cache` (" +
+                "`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+/**
+ * v27 → v28: persists the weighing per-scope idempotency EPOCH.
+ *
+ * PURELY ADDITIVE — one new table, nothing existing is touched. There is no backfill and none is
+ * possible: the epochs this replaces only ever existed in the heap of a process that has since
+ * exited. An upgraded install simply mints its first on-disk epoch on the next transition, which is
+ * exactly what the old code did on every cold start anyway.
+ */
+val MIGRATION_27_28: Migration = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_transition_epoch` (" +
+                "`scopeId` TEXT NOT NULL, `epoch` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeId`))",
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Renumbered onto main's v28 during the 2026-08-04 merge: these four migrations were
+// authored as 23->27 on feat/counts-shifting-feed while main independently shipped
+// 23->28 (weighing leadership read models). The SQL is unchanged; only the version
+// numbers moved so both chains apply in one order.
+// ---------------------------------------------------------------------------
+
+/**
+ * v28 -> v29: scope Feed Transport's Room pages by date + Farm + shed + status. The original
+ * date-only tables remain intact for upgrade safety; the new filtered read path uses this parallel,
+ * bounded pair so changing a filter cannot evict another filter's offline page.
+ */
+val MIGRATION_28_29: Migration = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_transport_scoped_items` " +
+                "(`scopeKey` TEXT NOT NULL, `taskId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `taskId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_scopeKey_sortIndex` " +
+                "ON `feed_transport_scoped_items` (`scopeKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_transport_scoped_remote_keys` " +
+                "(`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`filtersJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        )
+    }
+}
+
+/** v29 -> v30: Health list/detail Room SSOT. All list rows are scoped by the complete filter set. */
+val MIGRATION_29_30: Migration = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_work_items` " +
+                "(`scopeKey` TEXT NOT NULL, `healthSessionId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `healthSessionId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_health_work_items_scopeKey_sortIndex` " +
+                "ON `health_work_items` (`scopeKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_remote_keys` " +
+                "(`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_page_meta` " +
+                "(`scopeKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `health_work_item_details` " +
+                "(`healthSessionId` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`healthSessionId`))",
+        )
+    }
+}
+
+/**
+ * v30 -> v31: the shared capture evidence draft.
+ *
+ * One row per (capture flow, work item, proof step) holding the captured proof's outbox item id, plus
+ * a reserved `__submit__` step row holding the submit's idempotency key. Purely additive (a new
+ * table, no column or index touched), and rows are deleted once a submit is accepted, so an upgrade
+ * carries no data and the table stays bounded by the work an operator is mid-way through.
+ */
+val MIGRATION_30_31: Migration = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Self-healing DROP: an intermediate build of this change shipped a shifting-only draft table
+        // before the store was generalized. A device that installed it sits at v31 with the old table,
+        // and Room validates the schema hash on open — so the stale table is removed here rather than
+        // left to fail an install. (docs/decisions/room-migration-safety.md: a schema is validated,
+        // never assumed.)
+        db.execSQL("DROP TABLE IF EXISTS `shifting_evidence_drafts`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `capture_evidence_drafts` " +
+                "(`flowKey` TEXT NOT NULL, `entityId` TEXT NOT NULL, `step` TEXT NOT NULL, " +
+                "`outboxItemId` TEXT, `idempotencyKey` TEXT, `fingerprint` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`flowKey`, `entityId`, `step`))",
+        )
+    }
+}
+
+/**
+ * v31 -> v32: the operator's typed form answers join their proofs in the capture draft.
+ *
+ * Purely additive — one nullable column on `capture_evidence_drafts`, no table rebuilt, no index
+ * touched, no data rewritten. Existing v31 rows keep their proofs and submit keys and simply read
+ * back a null `answers`, which the repository maps to "nothing typed yet", so an upgrade mid-capture
+ * still restores the videos it already had.
+ */
+val MIGRATION_31_32: Migration = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `capture_evidence_drafts` ADD COLUMN `answers` TEXT")
+    }
+}
+
+// v33 caches the verifier's per-capture verdict beside the capture. Nullable and additive:
+// existing rows migrate as "no verdict recorded", which is exactly what they were.
+val MIGRATION_32_33: Migration = object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `verificationStatus` TEXT")
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `reworkReason` TEXT")
+    }
+}
+
+// v34 adds obligation_instances.row_version (echoed from the backend as
+// ScanRosterRowDto.obligationRowVersion) to scan_roster_row. Non-nullable with a DEFAULT 0 so
+// existing rows migrate as "cycle 0" — the same value a freshly-inserted pre-server-field row
+// gets from ScanRosterRowEntity's own Kotlin default, so no row observes a spurious cycle change
+// on upgrade. This is the server-issued discriminator CaptureRepository's
+// scanCaptureIdempotencyKey folds into the scan-capture key so a genuinely-new scan after a
+// verifier-rejection reopen (row_version bump) is not deduped away as a replay of the prior
+// cycle's already-synced capture, closing the silent scan-capture data-loss defect.
+val MIGRATION_33_34: Migration = object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `scan_roster_row` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}
+
+/**
+ * v34 -> v35: create `vaccination_alerts_cache`, the offline-first store behind the vaccination
+ * module's own alerts feed.
+ *
+ * A new @Entity with NO migration compiles, works on a fresh install, and CRASHES every in-place
+ * upgrade on open ("Migration didn't properly handle ..."), because an upgrade runs only the
+ * registered Migrations and then validates against the @Entity set. That already shipped once
+ * (MOB-007), so the table is created here explicitly.
+ *
+ * The column list, types, nullability and primary key must match what Room generates for
+ * [sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheEntity] exactly, or validation fails on
+ * upgrade even though the table exists.
+ */
+val MIGRATION_34_35: Migration = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vaccination_alerts_cache` (" +
+                "`cacheKey` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+val MIGRATION_35_36: Migration = object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `weighing_planner_shed_row` RENAME TO `weighing_planner_shed_row_v35`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_shed_row` (" +
+                "`queryKey` TEXT NOT NULL, " +
+                "`locationId` TEXT NOT NULL, " +
+                "`partitionKey` TEXT NOT NULL, " +
+                "`parkId` TEXT NOT NULL, " +
+                "`parkName` TEXT NOT NULL, " +
+                "`sortIndex` INTEGER NOT NULL, " +
+                "`shedJson` TEXT NOT NULL, " +
+                "`existingCampaignJson` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `locationId`, `partitionKey`))",
+        )
+        db.query(
+            "SELECT `queryKey`, `locationId`, `parkId`, `parkName`, `sortIndex`, " +
+                "`shedJson`, `existingCampaignJson`, `updatedAt` FROM `weighing_planner_shed_row_v35`",
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val shedJson = cursor.getString(5)
+                db.execSQL(
+                    "INSERT INTO `weighing_planner_shed_row` " +
+                        "(`queryKey`, `locationId`, `partitionKey`, `parkId`, `parkName`, `sortIndex`, " +
+                        "`shedJson`, `existingCampaignJson`, `updatedAt`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    arrayOf<Any?>(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        weighingPartitionKeyFromShedJson(shedJson),
+                        cursor.getString(2),
+                        cursor.getString(3),
+                        cursor.getLong(4),
+                        shedJson,
+                        if (cursor.isNull(6)) null else cursor.getString(6),
+                        cursor.getLong(7),
+                    ),
+                )
+            }
+        }
+        db.execSQL("DROP TABLE `weighing_planner_shed_row_v35`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)")
+    }
+}
+
+private fun weighingPartitionKeyFromShedJson(shedJson: String): String =
+    // exception:exempt best-effort migration of an existing cache row; malformed cached JSON safely falls back to whole-shed identity and is refreshed from the planner catalog.
+    runCatching { JSONObject(shedJson).optString("partition_label", "").trim().lowercase() }
+        .getOrDefault("")
+
+/**
+ * v36 -> v37: capture evidence is keyed by the operational partition it was recorded in.
+ * Existing rows predate that identity and cannot be assigned safely, so they remain under the
+ * fail-closed `whole` scope. A partitioned task will not consume them as evidence.
+ */
+val MIGRATION_36_37: Migration = object : Migration(36, 37) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `scanned_goat_capture` ADD COLUMN `partitionKey` TEXT NOT NULL DEFAULT 'whole'",
+        )
+        db.execSQL("DROP INDEX IF EXISTS `index_scanned_goat_capture_taskId_fieldKey_tag`")
+        db.execSQL("DROP INDEX IF EXISTS `index_scanned_goat_capture_taskId_fieldKey_capturedAtMs`")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_tag` " +
+                "ON `scanned_goat_capture` (`taskId`, `partitionKey`, `fieldKey`, `tag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_capturedAtMs` " +
+                "ON `scanned_goat_capture` (`taskId`, `partitionKey`, `fieldKey`, `capturedAtMs`)",
+        )
+
+        db.execSQL(
+            "ALTER TABLE `proof_capture` ADD COLUMN `partitionKey` TEXT NOT NULL DEFAULT 'whole'",
+        )
+        db.execSQL("DROP INDEX IF EXISTS `index_proof_capture_taskId_fieldKey`")
+        db.execSQL("DROP INDEX IF EXISTS `index_proof_capture_taskId_subjectId_capturedAtMs`")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_taskId_partitionKey_fieldKey` " +
+                "ON `proof_capture` (`taskId`, `partitionKey`, `fieldKey`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_taskId_partitionKey_subjectId_capturedAtMs` " +
+                "ON `proof_capture` (`taskId`, `partitionKey`, `subjectId`, `capturedAtMs`)",
+        )
+    }
+}
+
+/**
+ * v37 -> v38: proof-video processing gets its own durable state/metrics layer.
+ * Existing proof rows are already captured originals and keep their upload status; new fields are
+ * nullable/defaulted so no queued field proof is lost during upgrade.
+ */
+val MIGRATION_37_38: Migration = object : Migration(37, 38) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `featureSurface` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `proofMode` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `slotIndex` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `slotRequired` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processingState` TEXT NOT NULL DEFAULT 'CAPTURED_ORIGINAL'")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processingAttempted` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `stateAttempt` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadOriginal` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `originalUri` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processedUri` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `originalBytes` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `processedBytes` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `inputWidth` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `inputHeight` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `durationMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `targetVideoBitrate` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `targetAudioBitrate` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `locationStatus` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gpsAccuracyM` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `geocoderStatus` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorStage` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorClass` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorRetryable` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `lastErrorMessageHash` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadSessionId` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `objectGeneration` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadedAtMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `attachedAtMs` INTEGER")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `updatedAtMs` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE `proof_capture` SET `originalUri` = `localUri`, `durationMs` = MAX(`capturedEndMs` - `capturedStartMs`, 0), `updatedAtMs` = `capturedAtMs`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `proof_capture_state_event` (" +
+                "`id` TEXT NOT NULL, " +
+                "`proofId` TEXT NOT NULL, " +
+                "`fromState` TEXT, " +
+                "`toState` TEXT NOT NULL, " +
+                "`stage` TEXT NOT NULL, " +
+                "`attempt` INTEGER NOT NULL, " +
+                "`occurredAtMs` INTEGER NOT NULL, " +
+                "`durationMs` INTEGER, " +
+                "`bytesIn` INTEGER, " +
+                "`bytesOut` INTEGER, " +
+                "`errorClass` TEXT, " +
+                "`retryable` INTEGER, " +
+                "PRIMARY KEY(`id`), " +
+                "FOREIGN KEY(`proofId`) REFERENCES `proof_capture`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_state_event_proofId_occurredAtMs` " +
+                "ON `proof_capture_state_event` (`proofId`, `occurredAtMs`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_state_event_stage_occurredAtMs` " +
+                "ON `proof_capture_state_event` (`stage`, `occurredAtMs`)",
+        )
+    }
+}
+
+val MIGRATION_38_39: Migration = object : Migration(38, 39) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `latitude` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `longitude` REAL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `geocodedAddress` TEXT")
+    }
+}
+
+val MIGRATION_39_40: Migration = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `rfidTag` TEXT")
+    }
+}
+
+val MIGRATION_40_41: Migration = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP INDEX IF EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_tag`")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_partitionKey_fieldKey_tag_obligationId` " +
+                "ON `scanned_goat_capture` (`taskId`, `partitionKey`, `fieldKey`, `tag`, `obligationId`)",
+        )
+    }
+}
+
+val MIGRATION_41_42: Migration = object : Migration(41, 42) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
     }
 }

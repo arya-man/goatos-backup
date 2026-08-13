@@ -9,7 +9,20 @@ import { fmtDate as fmtIstDate } from "@/lib/format";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "@/features/counts";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
-import { driveClosedCoveragePct, driveCoverage, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { driveVisibleProgress, drivePctFor, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { operationalLocationLabel } from "@/lib/operational-location";
+
+function targetLocationLabel(item: CalendarDriveTarget): string {
+  if (!item.shed_name) return "—";
+  return (
+    item.operational_location_display ||
+    operationalLocationLabel({
+      shedName: item.shed_name,
+      partitionLabel: item.partition_label,
+      sourceShedName: item.source_shed_name,
+    })
+  );
+}
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
@@ -125,8 +138,14 @@ export async function VaccinationDriveDetail({
     );
   }
 
-  const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
-  const pct = driveClosedCoveragePct(coverage.completed, coverage.total, event.status);
+  // Same drive, same number: the detail ring renders the BACKEND-OWNED progress contract verbatim,
+  // exactly as DriveProgressCard does. It previously derived its own numerator via the legacy
+  // per-client coverage helper and its own percentage via the closed-cap helper, which caps at 99
+  // until event.status is
+  // "completed" -- so a fully covered drive read 100% on the card and 99% on its own detail page.
+  // Do NOT reintroduce a locally derived numerator or a local cap here.
+  const coverage = driveVisibleProgress(summary);
+  const pct = drivePctFor(summary, coverage);
   const chips = driveStatusChips(summary);
   const ringRadius = 29;
   const ringCircumference = 2 * Math.PI * ringRadius;
@@ -146,7 +165,7 @@ export async function VaccinationDriveDetail({
     tag1: item.animal_identifier_1,
     tag2: item.animal_identifier_2,
     park: summary.park_name,
-    shed: item.shed_name ?? "—",
+    shed: targetLocationLabel(item),
     breed: null,
     sex: null,
     lifecycleStatus: item.lifecycle_status,
@@ -188,7 +207,7 @@ export async function VaccinationDriveDetail({
               {chips.map((chip) => (
                 <span key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
                   <span className={`d c-${driveStatusClass(chip.key)}`} />
-                  {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+                  {chip.count} {copy(pageContract, "calendar.drive.doses").toLowerCase()} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
                 </span>
               ))}
             </div>
@@ -237,7 +256,7 @@ export async function VaccinationDriveDetail({
                               <span className="gid">{item.display_id || "—"}</span>
                             </LocalOverlayLink>
                           </td>
-                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.shed_name || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{targetLocationLabel(item)}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_1 || "—"}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_2 || "—"}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.stage || "—"}</LocalOverlayLink></td>

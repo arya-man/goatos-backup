@@ -2,13 +2,17 @@ package local
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
+	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
 const (
@@ -81,3 +85,85 @@ func TestLocalPathStaysInsideBaseDir(t *testing.T) {
 		t.Fatal("Store accepted an escaping object key")
 	}
 }
+
+// A relocated/absent media root must surface as the terminal ErrObjectMissing class, never as a
+// raw *fs.PathError that the HTTP boundary would classify as an unexpected 500.
+func TestOpenMissingObjectReturnsErrObjectMissing(t *testing.T) {
+	storage := New(t.TempDir(), "local-proof-secret")
+	proof := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/gone.mp4",
+	}
+
+	reader, err := storage.Open(context.Background(), proof)
+	if err == nil {
+		reader.Close()
+		t.Fatal("Open() on a missing object returned no error")
+	}
+	if !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("Open() error = %v, want ports.ErrObjectMissing", err)
+	}
+}
+
+func TestOpenPresentObjectStreams(t *testing.T) {
+	dir := t.TempDir()
+	storage := New(dir, "local-proof-secret")
+	proof := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/present.mp4",
+		MimeType:  "video/mp4",
+	}
+	if _, err := storage.Store(context.Background(), proof, strings.NewReader("bytes"), "video/mp4"); err != nil {
+		t.Fatalf("Store() error = %v", err)
+	}
+
+	reader, err := storage.Open(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reader.Close()
+	got, err := io.ReadAll(reader)
+	if err != nil || string(got) != "bytes" {
+		t.Fatalf("read = %q err = %v", got, err)
+	}
+}
+
+// StatObject is the verdict-time existence check: present -> nil, absent -> the terminal
+// ErrObjectMissing class (never a raw *fs.PathError).
+func TestStatObjectReportsPresenceAndAbsence(t *testing.T) {
+	dir := t.TempDir()
+	storage := New(dir, "local-proof-secret")
+	missing := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/gone.mp4",
+	}
+	if err := storage.StatObject(context.Background(), missing); !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("StatObject(missing) = %v, want ports.ErrObjectMissing", err)
+	}
+
+	present := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/present.mp4",
+		MimeType:  "video/mp4",
+	}
+	if _, err := storage.Store(context.Background(), present, strings.NewReader("proof-bytes"), "video/mp4"); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if err := storage.StatObject(context.Background(), present); err != nil {
+		t.Fatalf("StatObject(present) = %v, want nil", err)
+	}
+
+	// Removing the bytes must flip the answer — this is exactly the production incident shape.
+	if err := os.Remove(filepath.Join(dir, present.ObjectKey)); err != nil {
+		t.Fatalf("remove stored object: %v", err)
+	}
+	if err := storage.StatObject(context.Background(), present); !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("StatObject(after delete) = %v, want ports.ErrObjectMissing", err)
+	}
+}
+
+var _ ports.ObjectStatter = (*Storage)(nil)

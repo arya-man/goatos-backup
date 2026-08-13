@@ -17,7 +17,17 @@ type AskBody = {
   conversation_id?: unknown;
   stream?: unknown;
   locale?: unknown;
+  page_scope?: unknown;
 };
+
+function cleanPageScope(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  if (typeof obj.park_id === "string" && obj.park_id) out.park_id = obj.park_id;
+  if (typeof obj.shed_id === "string" && obj.shed_id) out.shed_id = obj.shed_id;
+  return Object.keys(out).length ? out : undefined;
+}
 
 export async function POST(request: NextRequest): Promise<Response> {
   let body: AskBody;
@@ -41,6 +51,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
   if (typeof body.locale === "string" && body.locale) {
     payload.locale = body.locale;
+  }
+  const pageScope = cleanPageScope(body.page_scope);
+  if (pageScope) {
+    payload.page_scope = pageScope;
   }
 
   return forwardStream("/ceo-ai/ask", {

@@ -4,6 +4,7 @@ package sg.mesha.goatos.feature.counts
 // analytics events and the CrashReporter non-fatal on every queue-load and decision failure.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,19 +26,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 
 /**
- * The approver's pending-decision queue (`/counts/approvals`) — an L0 root of the Counts module,
- * contributed by the backend in the trailing bar slot other modules give to "You".
+ * The approver's pending-decision queue (`/counts/approvals`) — the single L0 root of the
+ * APPROVALS module.
+ *
+ * Its own module, not a Counts tab (maintainer decision 2026-08-05, superseding the 2026-07-21
+ * removal of approvals from mobile). Counts stays capture-only for the operators who record
+ * births, deaths and shifts; approving is a different job held by different people, so it gets its
+ * own drawer entry gated on its own authority. The route keeps the `/counts/...` path because the
+ * backing API is still `/app/counts/approvals`.
  *
  * ### What this screen is
  * Birth, death, and shifting are RAISED by field operators and applied only when approved. So this
@@ -63,11 +68,26 @@ data class ApprovalRowUi(
     /** Backend-composed request-type label, rendered verbatim. */
     val typeLabel: String,
     val requestType: String,
-    /** Who raised it. */
+    /**
+     * Who raised it, as a NAME the backend resolved. Blank when the backend could not resolve one,
+     * in which case the row omits the line entirely.
+     *
+     * Never a user id. This field used to carry `raised_by_user_id` straight through, so the screen
+     * rendered "Raised by 7f3a91c2-4d18-…" at an approver — a copy-firewall violation and useless
+     * to the person deciding. The name is composed server-side (golden frontend rule: the label is
+     * backend-owned), and an unresolvable raiser drops the line rather than falling back to the id.
+     */
     val raisedBy: String,
     /** When, already formatted for display. */
     val raisedAt: String,
-    /** A short line describing what the request contains, derived from the echoed payload. */
+    /**
+     * A short, farm-readable line describing what the request contains, COMPOSED BY THE BACKEND
+     * with every id already resolved to a name ("12 animals · Gandhi 1 → Gandhi 2 · Routine").
+     * Rendered verbatim; blank when the payload held nothing nameable, and then omitted.
+     *
+     * This used to be built here from the raw payload, which is how "to shed 0b4e-…" reached an
+     * approver: the phone has no name source for a shed id. See [raisedBy].
+     */
     val summaryLine: String,
 )
 
@@ -98,7 +118,14 @@ fun ApprovalScreen(
     onEvent: (ApprovalEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Refresh-on-open (docs/decisions/android-offline-first.md, mandatory for every read screen):
+    // the cached queue renders instantly from Room and a background refresh fires every time the
+    // approver lands on or returns to this tab. A retained ViewModel on the backstack must never
+    // show a queue that was fetched once at creation -- this is the one surface where minutes-old
+    // data actively misleads, because a request raised while the approver was elsewhere would be
+    // invisible, and one they already decided elsewhere would still look actionable.
     RefreshOnResume { onEvent(ApprovalEvent.Refresh) }
+
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = stringResource(R.string.counts_approval_title),
@@ -154,18 +181,12 @@ fun ApprovalScreen(
 
             if (rows.loadState.append is LoadState.Loading) {
                 item(key = "appending") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = MeshaColors.Faint,
-                            strokeWidth = 2.dp,
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.counts_approval_loading_more),
+                        color = MeshaColors.Faint,
+                        style = MeshaType.sectionLabel,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
                 }
             }
 
@@ -173,7 +194,7 @@ fun ApprovalScreen(
                 Text(
                     text = stringResource(R.string.counts_approval_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.sectionLabel,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
@@ -192,9 +213,10 @@ private fun ApprovalCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
-            .padding(14.dp),
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -204,17 +226,21 @@ private fun ApprovalCard(
                 tint = MeshaColors.Brand,
                 modifier = Modifier.size(16.dp),
             )
-            Text(row.typeLabel, color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.W800)
+            Text(row.typeLabel, color = MeshaColors.Ink, style = MeshaType.cardTitle)
         }
         // Who raised it / what it is / when — the three facts an approver needs to decide.
-        Text(
-            text = stringResource(R.string.counts_approval_raised_by, row.raisedBy),
-            color = MeshaColors.Muted,
-            fontSize = 12.sp,
-        )
-        Text(text = row.raisedAt, color = MeshaColors.Faint, fontSize = 11.sp)
+        // Each is omitted when the backend had nothing to say, so a row never shows a label with
+        // an empty or id-shaped value after it.
+        if (row.raisedBy.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.counts_approval_raised_by, row.raisedBy),
+                color = MeshaColors.Muted,
+                style = MeshaType.cardSubtitle,
+            )
+        }
+        Text(text = row.raisedAt, color = MeshaColors.Faint, style = MeshaType.sectionLabel)
         if (row.summaryLine.isNotBlank()) {
-            Text(text = row.summaryLine, color = MeshaColors.Ink, fontSize = 12.sp)
+            Text(text = row.summaryLine, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
         }
 
         if (rejecting) {
@@ -278,17 +304,16 @@ private fun ApprovalAction(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(if (enabled) tone else MeshaColors.Surf3)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 13.dp),
+            .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = if (enabled) MeshaColors.OnBrand else MeshaColors.Faint,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W800,
+            style = MeshaType.listTitle,
         )
     }
 }
@@ -312,7 +337,7 @@ private fun ApprovalBanner(message: String, isError: Boolean) {
             modifier = Modifier.size(16.dp),
         )
         // Verbatim: a backend rejection/conflict reason is the server's own copy.
-        Text(text = message, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W600)
+        Text(text = message, color = fg, style = MeshaType.cardSubtitle)
     }
 }
 
@@ -321,8 +346,9 @@ private fun ApprovalEmptyState(isError: Boolean, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
             .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -332,8 +358,7 @@ private fun ApprovalEmptyState(isError: Boolean, onRetry: () -> Unit) {
                 if (isError) R.string.counts_approval_error else R.string.counts_approval_empty,
             ),
             color = if (isError) MeshaColors.Danger else MeshaColors.Muted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.listTitle,
         )
         // Offered on the EMPTY state too, not just on error. An approver looking at "nothing
         // waiting on you" has no other way to ask whether that is still true, and a queue is

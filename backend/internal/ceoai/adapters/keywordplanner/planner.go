@@ -48,11 +48,16 @@ var rules = []rule{
 	{regexp.MustCompile(`(?i)operator|vaccinator|drive assignment|assigned animals|animals assigned`), "operator_vaccination_load", "operator_vaccination_load", domain.RouteCube, "operator_label"},
 	{regexp.MustCompile(`(?i)dose pickup|pickup|pick up|vaccine pickup|vaccines? need pickup`), "vaccination_dose_pickup", "mesha_vaccination_dose_pickup", domain.RouteToolbox, ""},
 	{regexp.MustCompile(`(?i)pre.?arrival|arrival history|supplier claim|history review`), "prearrival_history_review", "mesha_prearrival_history_review", domain.RouteToolbox, ""},
+	{regexp.MustCompile(`(?i)(missed|missing|not\s+done|not\s+vaccinated).{0,60}(vaccine|vaccination|vaccinat|shot|dose)|(vaccine|vaccination|vaccinat|shot|dose).{0,60}(missed|missing|not\s+done|not\s+vaccinated)`), "vaccination_missed", "vaccination_overdue", domain.RouteCube, ""},
+	{regexp.MustCompile(`(?i)(overdue|behind|late).{0,60}(by|per|each)\s+shed|(by|per|each)\s+shed.{0,60}(overdue|behind|late)`), "vaccination_overdue_by_shed", "vaccination_overdue", domain.RouteCube, "shed_label"},
+	{regexp.MustCompile(`(?i)(overdue|behind|late).{0,60}(by|per|each)\s+park|(by|per|each)\s+park.{0,60}(overdue|behind|late)`), "vaccination_overdue_by_park", "vaccination_overdue", domain.RouteCube, "park_label"},
 	{regexp.MustCompile(`(?i)overdue|behind|late`), "vaccination_overdue_sheds", "vaccination_overdue", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)adherence|complian`), "vaccination_adherence", "vaccination_compliance", domain.RouteCube, ""},
 	{regexp.MustCompile(`(?i)mortality|death`), "counts_movement_daily", "mortality_rate", domain.RouteCube, ""},
+	{regexp.MustCompile(`(?i)(vaccinat|shot|dose|due).{0,60}(by|per|each)\s+shed|(by|per|each)\s+shed.{0,60}(vaccinat|shot|dose|due)`), "vaccination_due_by_shed", "vaccination_due", domain.RouteCube, "shed_label"},
+	{regexp.MustCompile(`(?i)(vaccinat|shot|dose|due).{0,60}(by|per|each)\s+park|(by|per|each)\s+park.{0,60}(vaccinat|shot|dose|due)`), "vaccination_due_by_park", "vaccination_due", domain.RouteCube, "park_label"},
 	{regexp.MustCompile(`(?i)vaccinat|shot|dose|due`), "vaccination_due_today", "vaccination_due", domain.RouteCube, ""},
-	{regexp.MustCompile(`(?i)how many[\w\s]{0,25}(goat|sheep|animal)|(goat|sheep)s?\s+(and|vs\.?|versus|or)\s+(goat|sheep)|headcount|census|herd size|total animal|active (goat|sheep|animal)`), "total_animal_census", "active_animals", domain.RouteCube, ""},
+	{regexp.MustCompile(`(?i)how many[\w\s]{0,25}(goat|sheep|animal)|(goat|sheep)s?\s+(and|vs\.?|versus|or)\s+(goat|sheep)|headcount|census|herd size|total animal|active (goat|sheep|animal)`), "total_animal_census", "active_animals", domain.RouteCube, "species"},
 	// tool MUST match the registered executor's Spec().Name
 	// (readtools.feedDirectionTodayExecutor = "feed_direction_today"). It
 	// previously said "feed_direction_preview", which no executor was ever
@@ -146,22 +151,23 @@ var behindDiagnostic = regexp.MustCompile(`(?i)\b(why|what.?s? (driving|causing)
 
 // diagnoseBehind returns the decomposed grouped sub-questions for a "why are we
 // behind on vaccination" diagnostic, or nil when the question is not that shape.
-// Contributors: shed-grain overdue grouped by park, plus operator-grain overdue
+// Contributors: shed-grain overdue grouped by shed, plus operator-grain overdue
 // grouped by operator — every figure grounded, worst-first (Cube orders desc).
 func diagnoseBehind(text string) []domain.SubQuestion {
 	if !behindDiagnostic.MatchString(text) {
 		return nil
 	}
 	low := strings.ToLower(text)
+
 	if !strings.Contains(low, "vaccinat") && !strings.Contains(low, "overdue") &&
 		!strings.Contains(low, "behind") && !strings.Contains(low, "late") {
 		return nil
 	}
 	return []domain.SubQuestion{
 		{
-			ID: "0", Text: "vaccination overdue by park", IntentClass: "vaccination_overdue_by_park",
+			ID: "0", Text: "vaccination overdue by shed", IntentClass: "vaccination_overdue_by_shed",
 			Route: domain.RouteCube, ToolName: "vaccination_overdue",
-			Params: map[string]any{"group_by": "park_label"},
+			Params: map[string]any{"group_by": "shed_label"},
 		},
 		{
 			ID: "1", Text: "operator vaccination overdue by operator", IntentClass: "operator_vaccination_behind",
@@ -194,20 +200,31 @@ func splitClauses(text string) []string {
 	return out
 }
 
-var knownParks = []string{"Castro 1", "Castro 2", "Channapatna", "Gandhi 1", "Gandhi 2"}
+var knownParks = []string{"Castro 1", "Castro 2", "Channapatna", "Gandhi 1", "Gandhi 2", "CBE", "CPT"}
+
+var scopedIDRE = regexp.MustCompile(`(?i)\b(park_id|shed_id):([0-9a-f-]{36})\b`)
 
 func extractParams(text string) map[string]any {
 	params := map[string]any{}
 	low := strings.ToLower(text)
+	for _, m := range scopedIDRE.FindAllStringSubmatch(text, -1) {
+		if len(m) == 3 {
+			params[strings.ToLower(m[1])] = m[2]
+		}
+	}
 	for _, park := range knownParks {
 		if strings.Contains(low, strings.ToLower(park)) {
 			params["park_label"] = park
 			break
 		}
 	}
-	if strings.Contains(low, "goat") && !strings.Contains(low, "sheep") {
+	mentionsGoat := strings.Contains(low, "goat")
+	mentionsSheep := strings.Contains(low, "sheep")
+	if mentionsGoat && mentionsSheep {
+		params["group_by"] = "species"
+	} else if mentionsGoat {
 		params["species"] = "goat"
-	} else if strings.Contains(low, "sheep") {
+	} else if mentionsSheep {
 		params["species"] = "sheep"
 	}
 	return params

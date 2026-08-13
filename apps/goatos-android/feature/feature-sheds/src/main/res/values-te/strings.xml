@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Header and navigation chrome -->
     <string name="sheds_refresh_description">రిఫ్రెష్</string>
     <string name="sheds_title">టీకా షెడ్‌లు</string>
+    <string name="sheds_park_pinned_fmt">పార్క్: %1$s</string>
+    <string name="sheds_park_pinned_clear_description">అన్ని పార్క్‌లను చూపించు</string>
     <string name="sheds_count_fmt">%1$d షెడ్‌లు</string>
     <string name="sheds_due_fmt">%1$d తెరిచి ఉన్నాయి</string>
     <string name="sheds_day_summary_fmt">%1$d / %2$d పూర్తయింది</string>
@@ -14,7 +19,17 @@
     <string name="sheds_num_cell_in_shed">లక్ష్యం</string>
     <string name="sheds_num_cell_due">మిగిలినవి</string>
     <string name="sheds_num_cell_done">పూర్తయింది</string>
+    <string name="sheds_num_cell_accepted">ఆమోదించబడింది</string>
     <string name="sheds_partition_fmt">భాగం %1$s</string>
+
+    <string name="sheds_status_done">పూర్తయింది</string>
+    <string name="sheds_status_in_progress">పురోగతిలో ఉంది</string>
+    <string name="sheds_status_in_review">సమీక్షలో ఉంది</string>
+    <string name="sheds_status_submitted">సమర్పించబడింది</string>
+    <string name="sheds_status_open">తెరిచి ఉంది</string>
+    <string name="sheds_status_overdue">గడువు దాటింది</string>
+    <string name="sheds_status_sent_back">తిరిగి పంపారు</string>
+    <string name="sheds_status_complete">పూర్తి</string>
 
     <!-- Roster changes section -->
     <string name="sheds_roster_changes_caption">సిబ్బంది మార్పులు · ఈ డ్రైవ్ షెడ్యూల్ చేయబడిన తర్వాత</string>

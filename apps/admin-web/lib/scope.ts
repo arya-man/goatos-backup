@@ -11,7 +11,8 @@
 //                                        process-integrity reads (CT/AC/PA/WF) reconstruct that
 //                                        business date from versioned snapshots; the vaccination
 //                                        execution/shed reads are current-view-only and reject a past
-//                                        as_of with 400 historical_as_of_unsupported.)
+//                                        as_of with 400 historical_as_of_unsupported. Actions maps it
+//                                        to verification business_date so historical proof stays available.)
 //   date_from / date_to = YYYY-MM-DD    (custom range bounds)
 //   domain     = vaccination | procurement | …  (command-lens data source; omitted = default vaccination)
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -70,7 +71,7 @@ export function rangeDays(range: RangeKey): number {
 //     /vaccination/schedule, and /app/vaccination/coverage) are CURRENT-VIEW-ONLY: operations/execution
 //     keep a single serving snapshot at ~now and reject a past as_of with 400 historical_as_of_unsupported
 //     (future clamps to now); schedule reads only pre-materialized month windows. The verification
-//     queue does NOT yet consume as_of.
+//     queue consumes the date through the Actions page's business_date mapping.
 //   - range / date_from (lower bound): parsed + carried in the URL but NOT consumed by ANY query yet —
 //     "Last 7 vs Last 30" does not change results until the range backend pass lands. Do not pretend it
 //     filters. backendScope therefore returns only park_id + as_of (the genuinely-honored params).

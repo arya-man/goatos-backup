@@ -26,9 +26,10 @@ import {
   one,
   type RouteSearchParams,
 } from "@/lib/search-params";
-import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
+import { HerdActions, type HerdAnimalStageOption, type HerdOperationalLocationOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
@@ -87,7 +88,15 @@ function statusTone(value: string | null | undefined, kind: "lifecycle" | "healt
 function locationLabel(g: GoatRow, part: "park" | "shed"): string {
   const path = g.location_path;
   if (part === "park") return path.park_code ?? path.park_name ?? "—";
-  return path.shed_name ?? path.shed_code ?? "—";
+  const shedName = path.shed_name ?? path.shed_code ?? "";
+  if (!shedName) return "—";
+  return (
+    path.operational_location_display ||
+    operationalLocationLabel({
+      shedName,
+      partitionLabel: path.partition_label,
+    })
+  );
 }
 
 function weightLabel(weight: number | null | undefined): string {
@@ -179,6 +188,7 @@ export async function HerdRegisterPage({
         label: stage.name ? `${stage.stage_code} · ${stage.name}` : stage.stage_code,
       }))
     : [];
+  const operationalLocations: HerdOperationalLocationOption[] = locations.operationalLocations;
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
   // Honest state: an unavailable summary read shows a dash, not fabricated numbers.
@@ -219,6 +229,8 @@ export async function HerdRegisterPage({
         <HerdActions
           parks={locations.parks}
           sheds={locations.sheds}
+          operationalLocations={operationalLocations}
+          operationalLocationsAvailable={locations.available}
           farms={locations.farms}
           animalStages={animalStages}
           locationsAvailable={locations.available}

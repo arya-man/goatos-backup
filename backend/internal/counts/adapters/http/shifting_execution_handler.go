@@ -16,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Shifting EXECUTION endpoints -- the operator's half of a movement.
@@ -43,7 +44,7 @@ const (
 type ShiftingExecutionWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompleteShiftingInput) (domain.ShiftingExecutionResult, bool, error)
 	Cancel(ctx context.Context, in countsapp.CancelShiftingInput) (domain.ShiftingExecutionResult, bool, error)
-	ListPendingExecution(ctx context.Context, tenantID, sourceParkID string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
+	ListPendingExecution(ctx context.Context, tenantID, businessDate, status string, pageSize int, cursor string) (domain.ShiftingExecutionPage, error)
 }
 
 // WithShiftingExecutionWorkflow injects the execution service. A handler without it answers 501
@@ -102,52 +103,84 @@ type appShiftingExecutionResponse struct {
 	IdempotentReplay bool `json:"idempotent_replay"`
 }
 
-// CompleteShiftingEvent records that an authorized movement physically happened. THIS is where the
-// animals relocate.
+// CompleteShiftingEvent records operator completion. It relocates only when Park Head approval is
+// already present; otherwise the later approval transaction applies the move.
 func (h *AppWriteHandler) CompleteShiftingEvent(w http.ResponseWriter, r *http.Request) {
 	tenantID, actorID, eventID, clientKey, ok := h.executionPreamble(w, r)
 	if !ok {
 		return
 	}
 
-	// The completion body carries at most an OPTIONAL destination_tag: the movement's animals,
-	// destination shed, and authorization are all already recorded, so no animal set is accepted here
-	// (that would let the operator's phone relocate a herd the approver never signed off on). The
-	// destination_tag is only consulted when the destination shed is empty; for an occupied shed the
-	// server derives the cohort and a supplied value must agree with it.
-	var destinationTag string
+	// The completion body carries a MANDATORY proof_ref (the operator's video, maintainer decision
+	// 2026-07-26) and an OPTIONAL destination_tag. The movement's animals, destination shed, and
+	// proposed animal set is already recorded, so no animal set is accepted here (that would let the
+	// operator's phone relocate a herd the approver never signed off on). The destination_tag is only
+	// consulted when the destination shed is empty; for an occupied shed the server derives the
+	// cohort and a supplied value must agree with it. A completion with no video is rejected: the
+	// video is reviewed independently after the approval + completion business gate.
+	var (
+		destinationTag        string
+		proofRef              string
+		feedPackingProofRef   string
+		feedGivenProofRef     string
+		feedConfigFingerprint string
+	)
 	if raw, bodyOK := h.readBody(w, r); !bodyOK {
 		return
 	} else if len(strings.TrimSpace(string(raw))) > 0 {
 		var body struct {
-			DestinationTag string `json:"destination_tag"`
+			ProofRef              string `json:"proof_ref"`
+			FeedPackingProofRef   string `json:"feed_packing_proof_ref"`
+			FeedGivenProofRef     string `json:"feed_given_proof_ref"`
+			FeedConfigFingerprint string `json:"feed_config_fingerprint"`
+			DestinationTag        string `json:"destination_tag"`
 		}
 		if err := decodeStrictJSON(raw, &body, "ShiftingCompleteRequest"); err != nil {
 			h.writeAppError(w, r, err)
 			return
 		}
+		proofRef = strings.TrimSpace(body.ProofRef)
+		feedPackingProofRef = strings.TrimSpace(body.FeedPackingProofRef)
+		feedGivenProofRef = strings.TrimSpace(body.FeedGivenProofRef)
+		feedConfigFingerprint = strings.TrimSpace(body.FeedConfigFingerprint)
 		destinationTag = strings.TrimSpace(body.DestinationTag)
 	}
+	if proofRef == "" {
+		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
+			"a video proof (proof_ref) is required to complete a shifting movement", nil)
+		return
+	}
 
-	// The fingerprint covers the completion's MEANING, which now includes the destination cohort tag,
-	// so a same-key replay carrying a different tag is a conflict rather than a silent override.
+	// The fingerprint covers the completion's MEANING, which now includes the video and the
+	// destination cohort tag, so a same-key replay carrying a different video/tag is a conflict rather
+	// than a silent override.
 	canonical, err := canonicalRequestBytes(tenantID, appShiftingCompleteCommand, appShiftingCompleteRoute, struct {
-		ShiftingEventID string `json:"shifting_event_id"`
-		DestinationTag  string `json:"destination_tag,omitempty"`
-	}{ShiftingEventID: eventID, DestinationTag: destinationTag})
+		ShiftingEventID       string `json:"shifting_event_id"`
+		ProofRef              string `json:"proof_ref"`
+		FeedPackingProofRef   string `json:"feed_packing_proof_ref,omitempty"`
+		FeedGivenProofRef     string `json:"feed_given_proof_ref,omitempty"`
+		FeedConfigFingerprint string `json:"feed_config_fingerprint,omitempty"`
+		DestinationTag        string `json:"destination_tag,omitempty"`
+	}{ShiftingEventID: eventID, ProofRef: proofRef, FeedPackingProofRef: feedPackingProofRef,
+		FeedGivenProofRef: feedGivenProofRef, FeedConfigFingerprint: feedConfigFingerprint,
+		DestinationTag: destinationTag})
 	if err != nil {
 		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
 		return
 	}
 
 	result, replay, err := h.execution.Complete(r.Context(), countsapp.CompleteShiftingInput{
-		TenantID:           tenantID,
-		ShiftingEventID:    eventID,
-		CompletedByUserID:  actorID,
-		TraceID:            appTraceID(r),
-		DestinationTag:     destinationTag,
-		IdempotencyKey:     "counts-shifting-completion:" + clientKey,
-		RequestFingerprint: stableHash("counts-app-shifting-completion", canonical),
+		TenantID:              tenantID,
+		ShiftingEventID:       eventID,
+		CompletedByUserID:     actorID,
+		TraceID:               appTraceID(r),
+		ProofRef:              proofRef,
+		FeedPackingProofRef:   feedPackingProofRef,
+		FeedGivenProofRef:     feedGivenProofRef,
+		FeedConfigFingerprint: feedConfigFingerprint,
+		DestinationTag:        destinationTag,
+		IdempotencyKey:        "counts-shifting-completion:" + clientKey,
+		RequestFingerprint:    stableHash("counts-app-shifting-completion", canonical),
 	})
 	if err != nil {
 		h.writeShiftingExecutionError(w, r, err)
@@ -283,26 +316,44 @@ func istLabel(t *time.Time) *string {
 // ---------------------------------------------------------------------------
 
 type appShiftingPendingExecutionResponse struct {
-	Items      []appShiftingPendingExecutionItem `json:"items"`
-	NextCursor string                            `json:"next_cursor,omitempty"`
+	Items         []appShiftingPendingExecutionItem `json:"items"`
+	NextCursor    string                            `json:"next_cursor,omitempty"`
+	StatusCounts  domain.ShiftingActionStatusCounts `json:"status_counts"`
+	PreviousDates []domain.ShiftingPreviousDate     `json:"previous_dates"`
 }
 
 type appShiftingPendingExecutionItem struct {
-	ShiftingEventID string `json:"shifting_event_id"`
-	EventStatus     string `json:"event_status"`
+	ShiftingEventID   string `json:"shifting_event_id"`
+	EventStatus       string `json:"event_status"`
+	VerificationState string `json:"verification_state"`
+	PrimaryActionKey  string `json:"primary_action_key"`
 
 	Priority string `json:"priority"`
 	Category string `json:"category"`
+	// (helpers for the operational-location labels below live at the end of this file)
 
 	SourceParkID   *string `json:"source_park_id,omitempty"`
 	SourceParkName *string `json:"source_park_name,omitempty"`
 	SourceShedID   *string `json:"source_shed_id,omitempty"`
 	SourceShedName *string `json:"source_shed_name,omitempty"`
+	// SourcePartitionLabel/DestinationPartitionLabel and their composed *OperationalLocationDisplay
+	// labels close a silent gap found 2026-08-06: the Android DTOs already declared the partition
+	// fields, shifting_events has carried the columns since 000113, but nothing here selected or
+	// emitted them -- so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2
+	// move and the client fields deserialized null forever.
+	//
+	// The *Display fields are composed by oploc.Display() so the client renders the label rather
+	// than rebuilding it from name + partition (the re-derivation defect in
+	// docs/decisions/operational-location-display-contract.md).
+	SourcePartitionLabel             *string `json:"source_partition_label,omitempty"`
+	SourceOperationalLocationDisplay *string `json:"source_operational_location_display,omitempty"`
 
-	DestinationParkID   string `json:"destination_park_id"`
-	DestinationParkName string `json:"destination_park_name"`
-	DestinationShedID   string `json:"destination_shed_id"`
-	DestinationShedName string `json:"destination_shed_name"`
+	DestinationParkID                     string  `json:"destination_park_id"`
+	DestinationParkName                   string  `json:"destination_park_name"`
+	DestinationShedID                     string  `json:"destination_shed_id"`
+	DestinationShedName                   string  `json:"destination_shed_name"`
+	DestinationPartitionLabel             *string `json:"destination_partition_label,omitempty"`
+	DestinationOperationalLocationDisplay string  `json:"destination_operational_location_display"`
 
 	ApprovedByUserID *string    `json:"approved_by_user_id,omitempty"`
 	ApprovedAt       *time.Time `json:"approved_at,omitempty"`
@@ -320,6 +371,7 @@ type appShiftingPendingExecutionItem struct {
 	AnimalCount      int                                 `json:"animal_count"`
 	AnimalsTruncated bool                                `json:"animals_truncated"`
 	Animals          []appShiftingPendingExecutionAnimal `json:"animals"`
+	FeedRequirement  *domain.ShiftingFeedRequirement     `json:"feed_requirement,omitempty"`
 }
 
 type appShiftingPendingExecutionAnimal struct {
@@ -328,7 +380,7 @@ type appShiftingPendingExecutionAnimal struct {
 	Tag       *string `json:"tag,omitempty"`
 }
 
-// ListShiftingPendingExecution returns one keyset page of authorized movements awaiting execution.
+// ListShiftingPendingExecution returns one keyset page of raised/authorized/evidence-rework Actions.
 func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -357,7 +409,8 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 	}
 
 	page, err := h.execution.ListPendingExecution(r.Context(), tenantID,
-		strings.TrimSpace(r.URL.Query().Get("park_id")), pageSize,
+		strings.TrimSpace(r.URL.Query().Get("date")),
+		strings.TrimSpace(r.URL.Query().Get("status")), pageSize,
 		strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		h.writeShiftingExecutionError(w, r, err)
@@ -373,34 +426,42 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 			})
 		}
 		items = append(items, appShiftingPendingExecutionItem{
-			ShiftingEventID: row.ShiftingEventID,
-			// Every row on this queue is authorized by construction -- the read is filtered to it --
-			// but naming the status keeps the client from inferring it from the route.
-			EventStatus:         domain.ShiftingEventStatusAuthorized,
-			Priority:            row.Priority,
-			Category:            row.Category,
-			SourceParkID:        row.SourceParkID,
-			SourceParkName:      row.SourceParkName,
-			SourceShedID:        row.SourceShedID,
-			SourceShedName:      row.SourceShedName,
-			DestinationParkID:   row.DestinationParkID,
-			DestinationParkName: row.DestinationParkName,
-			DestinationShedID:   row.DestinationShedID,
-			DestinationShedName: row.DestinationShedName,
-			ApprovedByUserID:    row.AuthorizedByUserID,
-			ApprovedAt:          row.AuthorizedAt,
-			ApprovedAtIST:       istLabel(row.AuthorizedAt),
-			RaisedByUserID:      row.RaisedByUserID,
-			RaisedAt:            row.RaisedAt,
-			RaisedAtIST:         row.RaisedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
-			EffectiveAt:         row.EffectiveAt,
-			AnimalCount:         row.AnimalCount,
-			AnimalsTruncated:    row.AnimalCount > len(animals),
-			Animals:             animals,
+			ShiftingEventID:                  row.ShiftingEventID,
+			EventStatus:                      row.EventStatus,
+			VerificationState:                row.VerificationState,
+			PrimaryActionKey:                 row.PrimaryActionKey,
+			Priority:                         row.Priority,
+			Category:                         row.Category,
+			SourceParkID:                     row.SourceParkID,
+			SourceParkName:                   row.SourceParkName,
+			SourceShedID:                     row.SourceShedID,
+			SourceShedName:                   row.SourceShedName,
+			SourcePartitionLabel:             row.SourcePartitionLabel,
+			SourceOperationalLocationDisplay: optionalOperationalLocationDisplay(row.SourceShedName, row.SourcePartitionLabel),
+			DestinationParkID:                row.DestinationParkID,
+			DestinationParkName:              row.DestinationParkName,
+			DestinationShedID:                row.DestinationShedID,
+			DestinationShedName:              row.DestinationShedName,
+			DestinationPartitionLabel:        row.DestinationPartitionLabel,
+			DestinationOperationalLocationDisplay: oploc.OperationalLocation{
+				ShedName:       row.DestinationShedName,
+				PartitionLabel: stringOrEmpty(row.DestinationPartitionLabel),
+			}.Display(),
+			ApprovedByUserID: row.AuthorizedByUserID,
+			ApprovedAt:       row.AuthorizedAt,
+			ApprovedAtIST:    istLabel(row.AuthorizedAt),
+			RaisedByUserID:   row.RaisedByUserID,
+			RaisedAt:         row.RaisedAt,
+			RaisedAtIST:      row.RaisedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+			EffectiveAt:      row.EffectiveAt,
+			AnimalCount:      row.AnimalCount,
+			AnimalsTruncated: row.AnimalCount > len(animals),
+			Animals:          animals,
+			FeedRequirement:  row.FeedRequirement,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK,
-		appShiftingPendingExecutionResponse{Items: items, NextCursor: page.NextCursor})
+		appShiftingPendingExecutionResponse{Items: items, NextCursor: page.NextCursor, StatusCounts: page.StatusCounts, PreviousDates: page.PreviousDates})
 }
 
 // ---------------------------------------------------------------------------
@@ -413,11 +474,25 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusNotFound, "shifting_event_not_found", "shifting event not found", err)
 	case errors.Is(err, ports.ErrShiftingNotAuthorized):
 		// 400, not 409: the caller addressed a movement that is in the wrong state for this
-		// transition (still pending approval, already rejected, already canceled). The message
-		// names the actual state so an operator is told WHY rather than just refused.
+		// transition -- awaiting Park Head approval (approve-first, maintainer decision 2026-08-09),
+		// or already rejected, canceled, or otherwise terminal.
 		h.writeError(w, r, http.StatusBadRequest, "shifting_not_authorized", err.Error(), err)
 	case errors.Is(err, ports.ErrShiftingExecutionIncomplete):
 		h.writeError(w, r, http.StatusConflict, "shifting_execution_incomplete", err.Error(), err)
+	case errors.Is(err, ports.ErrShiftingProofRequired):
+		// 422: the movement is executable, but a shifting completion must carry the operator's video
+		// (maintainer decision, 2026-07-26). Actionable input error.
+		h.writeError(w, r, http.StatusUnprocessableEntity, "proof_required",
+			"a video proof (proof_ref) is required to complete a shifting movement", err)
+	case errors.Is(err, ports.ErrShiftingFeedProofsRequired):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_proofs_required",
+			"high-priority shifting requires live feed-packing and feeding videos", err)
+	case errors.Is(err, ports.ErrShiftingFeedConfigBlocked):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "feed_config_blocked",
+			"destination feed configuration cannot resolve the required ration", err)
+	case errors.Is(err, ports.ErrShiftingFeedConfigChanged):
+		h.writeError(w, r, http.StatusConflict, "feed_config_changed",
+			"destination feed configuration changed; refresh the task before submitting", err)
 	case errors.Is(err, identityports.ErrDestinationTagRequired):
 		// 422: the movement is executable, but completing it into an EMPTY destination shed needs the
 		// operator to name the cohort the animals join. Actionable input error, not a server fault.
@@ -451,4 +526,30 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		}
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 	}
+}
+
+// stringOrEmpty dereferences an optional label, treating nil as "no partition".
+func stringOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// optionalOperationalLocationDisplay composes the operator-facing label for a movement END whose
+// shed itself is optional (an intake has no source). It returns nil rather than an empty string so
+// the field stays absent on the wire for a movement with no origin, instead of shipping "" and
+// making the client decide what that means.
+func optionalOperationalLocationDisplay(shedName *string, partitionLabel *string) *string {
+	if shedName == nil || strings.TrimSpace(*shedName) == "" {
+		return nil
+	}
+	display := oploc.OperationalLocation{
+		ShedName:       *shedName,
+		PartitionLabel: stringOrEmpty(partitionLabel),
+	}.Display()
+	if display == "" {
+		return nil
+	}
+	return &display
 }

@@ -45,6 +45,7 @@ const (
 	piTodayObl      = "71000000-0000-4000-8000-000000000023"
 	piCodedVersion  = "71000000-0000-4000-8000-000000000024"
 	piCodedRule     = "71000000-0000-4000-8000-000000000025"
+	piSubItem       = "71000000-0000-4000-8000-000000000026"
 )
 
 func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
@@ -102,6 +103,209 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	if countFor(result.CountsByWorkState, domain.WorkStateVerificationPending) != 1 ||
 		countFor(result.CountsByWorkState, domain.WorkStateScheduled) != 1 {
 		t.Fatalf("counts = %+v", result.CountsByWorkState)
+	}
+}
+
+func TestListRowsKeepsPartitionsAsOperationalLocationGrain(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	const (
+		partitionGoat       = "71000000-0000-4000-8000-000000000180"
+		partitionObligation = "71000000-0000-4000-8000-000000000181"
+	)
+	execPI(t, ctx, pool, "base goat partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '1', 'Process Shed - 1')`,
+		piTenant, piGoat, piShed)
+	execPI(t, ctx, pool, "partition sibling goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		partitionGoat, piTenant, piParty, piShed, piPark)
+	execPI(t, ctx, pool, "partition sibling location",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '2', 'Process Shed - 2')`,
+		piTenant, partitionGoat, piShed)
+	execPI(t, ctx, pool, "partition sibling obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, sop_task_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'goat', $7, 'shed', $8,
+		   TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'pi-partition-sibling', 1)`,
+		partitionObligation, piTenant, piVersion, piRule, piBatch, piTask, partitionGoat, piShed)
+
+	dayStart := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
+	repo := NewRepository(pool, 5*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:         piTenant,
+		AsOf:             time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueAfter:         &dayStart,
+		DueBefore:        dayStart,
+		Limit:            10,
+		IncludeCompleted: true,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	if len(result.Rows) != 2 || result.TotalCount != 2 {
+		t.Fatalf("partition rows=%d total=%d, want 2 distinct operational locations: %#v", len(result.Rows), result.TotalCount, result.Rows)
+	}
+
+	byPartition := make(map[string]domain.Row, len(result.Rows))
+	for _, row := range result.Rows {
+		if row.PartitionLabel == nil {
+			t.Fatalf("partitioned row lost partition label: %#v", row)
+		}
+		byPartition[*row.PartitionLabel] = row
+	}
+	for _, want := range []string{"1", "2"} {
+		row, ok := byPartition[want]
+		if !ok {
+			t.Fatalf("partition %s missing from rows: %#v", want, result.Rows)
+		}
+		if row.ExpectedCount != 1 {
+			t.Fatalf("partition %s expected_count=%d, want 1", want, row.ExpectedCount)
+		}
+		if row.OperationalLocationDisplay != "Process Shed - "+want {
+			t.Fatalf("partition %s display=%q", want, row.OperationalLocationDisplay)
+		}
+		if !strings.Contains(row.RowID, ":partition:"+want+":") {
+			t.Fatalf("partition %s row identity=%q", want, row.RowID)
+		}
+	}
+}
+
+func TestProtocolAdherenceLatestDriveScopeUsesRepositoryAggregate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	base := domain.Query{
+		TenantID:                piTenant,
+		AsOf:                    asOf,
+		DueBefore:               time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:                   10,
+		IncludeCompleted:        true,
+		IncludeAdherenceSummary: true,
+	}
+
+	unscoped, err := listAtAsOf(t, ctx, repo, base)
+	if err != nil {
+		t.Fatalf("unscoped adherence ListRows: %v", err)
+	}
+	if rowByBatchSubstr(unscoped.Rows, piBatch) == nil || rowByBatchSubstr(unscoped.Rows, piBatchNext) == nil {
+		t.Fatalf("seed must expose current and sibling future batches before latest-drive scope: %#v", unscoped.Rows)
+	}
+	if unscoped.TotalCount < 2 {
+		t.Fatalf("unscoped total = %d, want at least both seeded batches", unscoped.TotalCount)
+	}
+
+	scopedQuery := base
+	scopedQuery.ScopeLatestDrive = true
+	scoped, err := listAtAsOf(t, ctx, repo, scopedQuery)
+	if err != nil {
+		t.Fatalf("scoped adherence ListRows: %v", err)
+	}
+	if rowByBatchSubstr(scoped.Rows, piBatch) == nil {
+		t.Fatalf("selected current batch missing from scoped rows: %#v", scoped.Rows)
+	}
+	if rowByBatchSubstr(scoped.Rows, piBatchNext) != nil {
+		t.Fatalf("future sibling batch leaked into selected-drive scope: %#v", scoped.Rows)
+	}
+	if scoped.TotalCount != int64(len(scoped.Rows)) {
+		t.Fatalf("scoped total = %d rows=%d, want whole selected-drive total", scoped.TotalCount, len(scoped.Rows))
+	}
+	if scoped.AdherenceSummary.ExpectedCount != 1 ||
+		scoped.AdherenceSummary.OpenGapCount+scoped.AdherenceSummary.ProcessIntactCount != int(scoped.TotalCount) {
+		t.Fatalf("scoped summary=%+v total=%d, want selected-drive aggregate", scoped.AdherenceSummary, scoped.TotalCount)
+	}
+}
+
+func TestShedScopeStatusDoesNotInheritSharedParentNeedsReview(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	const (
+		otherShed       = "71000000-0000-4000-8000-000000000201"
+		otherGoat       = "71000000-0000-4000-8000-000000000202"
+		otherBatch      = "71000000-0000-4000-8000-000000000203"
+		otherObligation = "71000000-0000-4000-8000-000000000204"
+	)
+	execPI(t, ctx, pool, "other shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-PI-2', 'Process Shed Two', $3, 'active')`,
+		otherShed, piTenant, piPark)
+	execPI(t, ctx, pool, "other shed profile",
+		`INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity)
+		 VALUES ($1, $2, $3, 'mixed', 500)`,
+		otherShed, piTenant, piStage)
+	execPI(t, ctx, pool, "other shed ops",
+		`INSERT INTO location_operational_attributes (tenant_id, location_id, usable_for_vaccination, is_quarantine, is_icu)
+		 VALUES ($1, $2, true, false, false)`,
+		piTenant, otherShed)
+	execPI(t, ctx, pool, "other goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		otherGoat, piTenant, piParty, otherShed, piPark)
+	execPI(t, ctx, pool, "shared parent already in review",
+		`UPDATE sop_tasks
+		 SET state = 'needs_review', scope_type = 'park', scope_id = $3::uuid
+		 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
+		piTenant, piTask, piPark)
+	execPI(t, ctx, pool, "other shed batch on same parent task",
+		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, sop_task_id, conducted_by)
+		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5, $6)`,
+		otherBatch, piTenant, piVersion, otherShed, piTask, piOperator)
+	execPI(t, ctx, pool, "other shed obligation not submitted",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, sop_task_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'goat', $7, 'shed', $8, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'in_progress', 'pi-other-shed-obligation', 1)`,
+		otherObligation, piTenant, piVersion, piRule, otherBatch, piTask, otherGoat, otherShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListRows() error = %v", err)
+	}
+	submittedShed := rowByBatchSubstr(result.Rows, piBatch)
+	if submittedShed == nil {
+		t.Fatalf("submitted shed row missing: %#v", result.Rows)
+	}
+	if submittedShed.WorkState != domain.WorkStateVerificationPending ||
+		submittedShed.SOPTaskState != domain.SOPStateSubmitted ||
+		submittedShed.ProofState != domain.ProofStateUploaded ||
+		submittedShed.VerificationState != domain.VerificationStatePending {
+		t.Fatalf("submitted shed state drifted: work=%s sop=%s proof=%s verification=%s",
+			submittedShed.WorkState, submittedShed.SOPTaskState, submittedShed.ProofState, submittedShed.VerificationState)
+	}
+	unsubmittedShed := rowByBatchSubstr(result.Rows, otherBatch)
+	if unsubmittedShed == nil {
+		t.Fatalf("unsubmitted shed row missing: %#v", result.Rows)
+	}
+	if unsubmittedShed.WorkState == domain.WorkStateVerificationPending ||
+		unsubmittedShed.SOPTaskState == domain.SOPStateSubmitted ||
+		unsubmittedShed.ProofState == domain.ProofStateUploaded ||
+		unsubmittedShed.VerificationState == domain.VerificationStatePending {
+		t.Fatalf("unsubmitted shed inherited shared parent review state: work=%s sop=%s proof=%s verification=%s",
+			unsubmittedShed.WorkState, unsubmittedShed.SOPTaskState, unsubmittedShed.ProofState, unsubmittedShed.VerificationState)
 	}
 }
 
@@ -657,8 +861,8 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 		t.Fatalf("rows args = %d, want %d", len(args), rowsQueryArgCount)
 	}
 	// 5k-50k envelope: the request path executes the canonical LIST/AGGREGATE SQL, so the arg contract is
-	// validated against the SQL that actually runs. The canonical LIST uses the full 19-arg keyset contract;
-	// the counts and adherence aggregates use the 15-arg (countQueryArgs) prefix with no keyset args.
+	// validated against the SQL that actually runs. The canonical LIST uses the full 20-arg keyset contract;
+	// the counts and adherence aggregates use the 16-arg (countQueryArgs) prefix with no keyset args.
 	if rowsPlaceholders := maxPlaceholder(processIntegrityCanonicalRowsSQL); rowsPlaceholders != rowsQueryArgCount {
 		t.Fatalf("canonical rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
 	}
@@ -1327,6 +1531,10 @@ func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgx
 		 VALUES ($1, $2, $3, $4, $5, 'pi-submission', '{}'::jsonb,
 		   jsonb_build_array(jsonb_build_object('proof_id', $6::text)), 'submitted', TIMESTAMPTZ '2026-06-24 09:00:00+00')`,
 		piSub, piTenant, piTask, piSOPVersion, piOperator, piProof)
+	execPI(t, ctx, pool, "submission item",
+		`INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state)
+		 VALUES ($1, $2, $3, $4, $5, 'pi-goat-item', 'needs_review')`,
+		piSubItem, piTenant, piSub, piTask, piGoat)
 	execPI(t, ctx, pool, "batch",
 		`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, sop_task_id, conducted_by)
 		 VALUES ($1, $2, $3, 'shed', $4, 'in_progress', DATE '2026-06-24', $5, $6)`,

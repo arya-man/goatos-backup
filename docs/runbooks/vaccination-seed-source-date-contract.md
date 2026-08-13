@@ -39,7 +39,15 @@ the database can contain correct canonical rows while the live pages are not
 demonstrably usable.
 
 HRMS is part of the same setup, not a later cosmetic step. Vaccination work is
-routed by shed manager and backup ownership; without the roster, attendance/
+routed by shed manager and backup ownership. The roster must also yield at least
+one manager-tier seat that is NOT an operator or a backup -- `seed-position-duties`
+derives the `pc.vaccination` `manage` duty only from `preventive_care_manager`,
+`park_head` and `shed_manager`, deliberately leaving `vaccination_operator_*`
+(a drive operator whose HR title reads manager is still executing) and
+`backup_manager` (a backup covers the absent manager's tasks, not their authority)
+on `execute`. A source that seeds only operators produces no `manage` holder, and
+`seed-closeout.sh` then fails the whole stack because the reminder ladder would
+queue to nobody. Without the roster, attendance/
 leave windows, timetable-backed positions, strict shed-manager mapping, and
 position duties, the system cannot know who owns a drive, who covers leave, or
 whether a shed is executable.
@@ -80,6 +88,18 @@ Fixture validation, source validation, and shed-owner checks all aggregate by
 that physical shed. Partition rows may split operator drive work, but they must
 not create separate buildings, duplicate owner coverage requirements, duplicate
 animal counts, or independent read-model totals.
+
+**Partition resolution and schema contract (2026-08-06).** Every animal placed
+in a partitioned shed must have a matching entry in `goat_shed_partitions`
+during seed, so location-bearing read models can populate `partition_label` on
+`verification_items`, `weighing_campaign_sheds`, `health_cases`, and future
+operational tables that snapshot location at write time. Migrations that add
+`partition_label` columns backfill from `goat_shed_partitions` (the canonical
+per-goat partition mapping), so the seed contract is: partition resolution
+happens at seed time when animals are placed, not at query time. Unresolvable
+partitions (no `goat_shed_partitions` match, or an animal genuinely in a
+non-partitioned shed) result in NULL `partition_label` and render as the plain
+shed name, never as an inferred or fabricated partition.
 
 CPT-only operator-drive rehearsal data is valid when the source center is CPT
 only and the reviewed roster contains exactly the three vaccination
@@ -216,7 +236,9 @@ Missing scheduling-anchor checks are trigger-specific. `birth_age` rules need
 DOB, `post_arrival` rules need entry date, and `after_previous_completion`
 rules need accepted completion evidence. Adult vaccination rules must not be
 authored or regenerated as `post_arrival` entry-date work; adult no-history
-animals enter a reviewed manual campaign/catch-up cohort instead. Do not treat
+animals automatically enter the next compatible normal generated drive instead.
+`manual_campaign` may remain matrix metadata but must never require a separate
+command, approval, or manual campaign before generation. Do not treat
 an unrelated missing field as a blocker for a rule that does not use that field.
 
 ### Authoritative Per-Vaccine Anchor Order
@@ -232,7 +254,7 @@ replay, and dynamic recomputation:
    history and the animal is eligible to start an age-based course.
 3. **Trusted herd-entry date**, only for non-adult paths whose published rule is
    explicitly `post_arrival`.
-4. **Adult catch-up/primary at the next compatible reviewed campaign drive**
+4. **Adult catch-up/primary at the next compatible normal generated drive**
    when an adult vaccine has no accepted same-vaccine history. Adult
    `entry_date` / `post_arrival` is never a vaccination due-date anchor, so
    different adult arrival dates must not create singleton drives.
@@ -369,6 +391,12 @@ Before relying on a seed command after migration changes, run
 vaccination/protocol/SOP/HRMS/grant tables, or app-visible projection tables must
 be paired with the seed command, test/E2E, or runbook update that handles the new
 schema. See `docs/runbooks/initial-seed-migration-coupling.md`.
+
+Migration `000057_growth_director_role.sql` is the closeout example for a
+role-catalog/HRMS-hint migration: `growth_director` is added so Weighing can have
+its own director execution gate. It must remain separate from `pc_director`; a
+vaccination source reseed must not infer vaccination execution from the Growth
+Director hint.
 
 For local/dev rehearsals, the one-command source path is:
 
@@ -709,6 +737,7 @@ At minimum, this contract is guarded by:
 
 Do not push a seed change that bypasses these gates.
 
+<!-- Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care department module grant. This changes runtime module/navigation authorization only; it does not change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts. -->
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 <!-- Coupling review 2026-07-22: ceo_ai reporting migrations 000024-000027 create `ceo_ai.*` read-only views that query canonical vaccination/procurement/obligation/workforce tables. They do not modify the seed source contract, HRMS roster schema, vaccination protocol, or SOP configuration, so no fixture/source-data change is required. -->
@@ -724,3 +753,41 @@ Do not push a seed change that bypasses these gates.
 <!-- Coupling review 2026-07-25: Adult non-repeating physical-partition campaign obligations use a stable generation idempotency key and realign unbatched open rows on replay. A seed as-of correction may move derived open work to the intended campaign day, but it must not create a second same-goat/same-dose open obligation. Raw source dates and kid/young strict timing are unchanged. -->
 <!-- Coupling review 2026-07-25: The new nullable vaccination_capacity_config.max_shots_per_animal_per_drive override (migration 000045) does not change any source date, kid/adult path selection, or history anchoring. Seed leaves it NULL and the sweeper uses the rule_dsl/default shot cap; a non-null admin override only tightens/loosens the same-day per-animal shot cap the sweeper already enforces, never the trusted-history suppression or as-of generation contract. -->
 <!-- Coupling review 2026-07-25: vaccination_operator_assignment_config.selected_operator_ids is an admin-authored roster preference for explicit parallel operator selection. It does not change source vaccination dates, HRMS source bytes, protocol timing, proof history, or generation eligibility. Existing seed input remains valid with the default empty array, and runtime reassignment only moves open planned drive assignment rows from the effective business date forward. -->
+<!-- Coupling review 2026-07-25: migration 000002 is the forward live-DB repair for selected_operator_ids after the baseline was amended. Existing configs are backfilled to ARRAY[default_operator_id], so effective scheduling semantics stay unchanged until an admin edits the People / HRMS config; source dates and generation anchors remain untouched. -->
+<!-- Coupling review 2026-08-01: seed-position-duties now emits a VERIFY duty per notification module (module codes taken from notificationbridge.PendingNotificationDutyModules, so seeder and consumer cannot drift) and skips the video_verifier seat before the module-prefix match, which previously made -strict abort before inserting anything. position_module_duties held ZERO rows, and ResolveModuleDutyRecipients joins duty_type=verify -- so every verifier pending-proof push for every module resolved to no devices and notification_requests stayed empty. Seed completeness therefore now includes notification reachability: a module that enqueues a verification item must have an active verify-duty holder in scope. No source spreadsheet bytes, fixture hashes, row counts, vaccination schedules, capacity config or proof history change. -->
+<!-- Coupling review 2026-08-02: Adult blank-history animals automatically join the normal generated drive and accepted same-vaccine history supersedes that stable campaign row on replay. The medical schedule anchor is always operator-submitted vaccination_completions.administered_at; delayed verifier/director closure never shifts future doses. No source fixture bytes, hashes, counts or HRMS rows change. -->
+<!-- Coupling review 2026-08-04: vaccination drive move requested/applied safe-date metadata records runtime override decisions after canonical scheduling. It does not become a source-date anchor, does not change trusted-history suppression, and does not alter kid/adult timing, HRMS capacity rows, SOP contracts, fixture hashes, or seed source validation. -->
+<!-- Coupling review 2026-08-04: the health/milk department -> module grant change in seed-roster-real is runtime navigation authorization only. It selects nothing about vaccination timing: no source date, trusted-history anchoring, kid/adult schedule-path selection, as-of suppression or generation eligibility is touched, and the vaccination department grant itself is unchanged for preventive_care. -->
+<!-- Coupling review 2026-08-05: CBE/CPT controlled seed-port support keeps source dates authoritative while adding runtime-only controls for aliasing incoming/current RFIDs, scoped sweeper generation, verifier-grant seeding, weighing duty seeding, and active position upserts. No HRMS/vaccination source-date contract changes. For this port, Blue Tongue and PPR are excluded from open obligation generation until stock and operational dates are confirmed later. -->
+<!-- Coupling review 2026-08-05 follow-up: optional `rfid2` is a scan alias only, never a vaccine date/history field. CBE/CPT ports that intentionally defer stock/manual vaccines must run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr`; this changes publication for generated open work only, not accepted source history. -->
+
+## 2026-08-05: rework re-submission (SOP task state)
+
+A verifier rejecting a vaccination proof now moves the SOP task from `accepted`
+back to `rework_requested` (`ReopenTaskForRework`). Before this, the task stayed
+terminal and the operator's re-submission was refused with a write conflict, so
+the redone work was lost while the phone reported success.
+
+Seeding impact: none on source data or its date contract. A seeded task that has
+already been accepted can now be reopened by a verdict, so a fixture asserting a
+task is terminal-forever is asserting behaviour that no longer exists.
+
+## 2026-08-05: source dates never imply a kid/adult band
+
+Migration `000109` adds `animal_stage_lookup.age_band` (`kid` / `adult` / NULL). It does not
+change this contract, and the reason matters more than the fact.
+
+This contract governs how a trusted source DATE becomes a vaccination history anchor and how the
+kernel then generates future obligations. The kid/adult BAND is a different axis and must not be
+folded into it:
+
+- The vaccination **schedule path** (`SchedulePathForGoat`: kid course ≤16w, continuation to 20w,
+  adult thereafter) is age-derived and stays exactly as documented here. It is unaffected.
+- `goats.age_band` is **cohort-derived** — it follows `management_stage` via the stage
+  vocabulary, and a shifting is what changes it.
+
+These two deliberately disagree, and that is correct: a 30-week F2 fattening animal is on the
+ADULT vaccination path while the farm still counts it as a kid. Do not "reconcile" them by
+deriving one from the other, and do not let a seeded source date write `age_band`.
+
+<!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->

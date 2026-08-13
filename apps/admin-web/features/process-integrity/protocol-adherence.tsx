@@ -3,8 +3,8 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Syringe } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
-import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
-import { copy, optionalCopy, optionalOption, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { AdherenceRow, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
+import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
@@ -13,6 +13,8 @@ import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSiz
 import { vaccinationDriveDisplayName } from "@/lib/vaccine-display";
 import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
 import { fmtDate } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location";
+import { EvidenceMedia } from "./evidence-media";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
 const accentVar: Record<Tone4, string> = {
@@ -47,6 +49,9 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
   if ((labels[4] || "").toLowerCase() === "owner") {
     labels[4] = `${labels[4]} chain`.toUpperCase();
   }
+  if ((labels[4] || "").toLowerCase() === "owner chain") {
+    labels[4] = copy(pageContract, "label.owner_short");
+  }
   return labels;
 }
 
@@ -69,13 +74,14 @@ function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string
 }
 
 function workStateTone(pageContract: AdminUiPageContract, workState: string): Tone {
-  return (optionalOption(pageContract, "work_state_filter_chips", workState)?.tone ?? "mut") as Tone;
+  return optionTone(pageContract, "work_state_filter_chips", workState) as Tone;
 }
 
 function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   switch (row.drive_capacity_state) {
     case "over_cap_required":
-      return "over-cap required";
+      if (driveCapacityWithinSlots(row)) return copyOr(pageContract, "gap.none", "none");
+      return copyOr(pageContract, "gap.capacity_shortfall", "capacity shortfall");
     case "medical_defer":
       return row.drive_medical_defer_reason ? `medical defer: ${row.drive_medical_defer_reason}` : "medical defer";
     case "terminal_animal_closed":
@@ -101,12 +107,24 @@ function gapLabel(pageContract: AdminUiPageContract, row: AdherenceRow): string 
   }
 }
 
+function driveCapacityWithinSlots(row: AdherenceRow): boolean {
+  const slots = (row.drive_available_operators ?? 0) * (row.drive_operator_cap ?? 0);
+  const animals = row.drive_animals_assigned ?? row.drive_animals_required ?? 0;
+  return slots > 0 && animals <= slots;
+}
+
 function driveCapacityDetail(row: AdherenceRow): string | null {
   if (row.drive_capacity_state !== "over_cap_required") return null;
   const slots = (row.drive_available_operators ?? 0) * (row.drive_operator_cap ?? 0);
   const animals = row.drive_animals_assigned ?? row.drive_animals_required ?? 0;
   const latest = row.drive_latest_safe_date ? fmtDate(row.drive_latest_safe_date) : undefined;
-  return `${animals.toLocaleString("en-IN")} animals / ${slots.toLocaleString("en-IN")} operator slots${latest ? ` · latest safe ${latest}` : ""}`;
+  if (driveCapacityWithinSlots(row)) {
+    return latest
+      ? `${animals.toLocaleString("en-IN")} assigned / ${slots.toLocaleString("en-IN")} slots · latest safe ${latest}`
+      : `${animals.toLocaleString("en-IN")} assigned / ${slots.toLocaleString("en-IN")} slots`;
+  }
+  const shortage = slots > 0 ? animals - slots : animals;
+  return `${shortage.toLocaleString("en-IN")} more animal${shortage === 1 ? "" : "s"} than planned capacity${latest ? ` · latest safe ${latest}` : ""}`;
 }
 
 const VACCINE_CODE_COPY_KEYS: Array<[needle: string, copyKey: string]> = [
@@ -130,10 +148,11 @@ function readableAdherenceExpected(pageContract: AdminUiPageContract, raw: strin
       ? copy(pageContract, "schedule.adult_course")
       : copy(pageContract, "schedule.course");
   const timing = readableScheduleTiming(pageContract, code);
-  const dueCount = raw.match(/:\s*(\d+)\s*(?:due|d\b)/i)?.[1];
-  const sharedLabel = vaccinationDriveDisplayName(raw);
+  const dueCount = raw.match(/:\s*(\d+)\s*(?:animals\s+must\s+finish|due|d\b)/i)?.[1];
+  const sharedLabel = vaccinationDriveDisplayName(withoutPrefix);
   const fallbackLabel = copy(pageContract, "label.vaccination_drive");
-  const bits = sharedLabel && sharedLabel !== fallbackLabel ? [sharedLabel] : [vaccine, path, timing].filter(Boolean);
+  const noisySharedLabel = /^Preventive Care Vaccination Matrix\b/i.test(sharedLabel);
+  const bits = sharedLabel && sharedLabel !== fallbackLabel && !noisySharedLabel ? [sharedLabel] : [vaccine, path, timing].filter(Boolean);
   return {
     title: `${bits.join(" ")}${dueCount ? ` - ${dueCount} ${copy(pageContract, "label.due_lower")}` : ""}`,
     detail: bits.join(" "),
@@ -148,26 +167,23 @@ function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string)
   return text.replaceAll("_", " ");
 }
 
+function adherenceLocationDetail(row: AdherenceRow): string {
+  return (
+    row.operational_location_display ||
+    operationalLocationLabel({
+      shedName: row.shed_name,
+      partitionLabel: row.partition_label,
+      sourceShedName: row.source_shed_name,
+    })
+  );
+}
+
 function readableScheduleTiming(pageContract: AdminUiPageContract, code: string): string | undefined {
   const match = code.match(/_(\d+)(w|m|yr)$/);
   if (!match) return undefined;
   const [, value, unit] = match;
   const unitKey = unit === "w" ? "schedule.weeks" : unit === "m" ? "schedule.months" : "schedule.years";
   return `${value} ${copy(pageContract, unitKey)}`;
-}
-
-function EvidenceCell({ evidence, pageContract }: { evidence: ProcessIntegrityEvidence; pageContract: AdminUiPageContract }) {
-  if (evidence.latest_rejection_reason) {
-    return <Tag tone="dng" title={evidence.latest_rejection_reason}>{copy(pageContract, "label.rejected")}</Tag>;
-  }
-  if (evidence.evidence_count > 0) {
-    return (
-      <Tag tone="ok" title={evidence.audit_ref ?? undefined}>
-        {evidence.evidence_count} {copy(pageContract, evidence.evidence_count === 1 ? "label.proof_singular" : "label.proof_plural")}
-      </Tag>
-    );
-  }
-  return <span className="muted">—</span>;
 }
 
 export async function ProtocolAdherencePage({
@@ -248,10 +264,11 @@ export async function ProtocolAdherencePage({
     scopeHref(`/workflows/${encodeURIComponent(row.row_id)}`, scope, {}, { from: "protocol-adherence" });
   const drawerRecords: ProtocolAdherenceDrawerRecord[] = rows.map((row) => {
     const expected = readableAdherenceExpected(pageContract, row.expected);
+    const locationDetail = adherenceLocationDetail(row);
     return {
       row,
       expectedTitle: expected.title,
-      expectedDetail: expected.detail,
+      expectedDetail: locationDetail || expected.detail,
       actual: readableAdherenceActual(pageContract, row.actual),
       gap: gapLabel(pageContract, row),
       owner: ownerOf(pageContract, row),
@@ -340,12 +357,12 @@ export async function ProtocolAdherencePage({
 	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
           <table className="table-fixed adherence-table">
             <colgroup>
-              <col style={{ width: "28%" }} />
+              <col style={{ width: "27%" }} />
               <col style={{ width: "13%" }} />
-              <col style={{ width: "20%" }} />
+              <col style={{ width: "19%" }} />
               <col style={{ width: "10%" }} />
               <col style={{ width: "11%" }} />
-              <col style={{ width: "12%" }} />
+              <col style={{ width: "14%" }} />
               <col style={{ width: "6%" }} />
             </colgroup>
             <thead>
@@ -371,6 +388,7 @@ export async function ProtocolAdherencePage({
                   const href = rowDrawerHref(row);
                   const expected = readableAdherenceExpected(pageContract, row.expected);
                   const actual = readableAdherenceActual(pageContract, row.actual);
+                  const expectedDetail = adherenceLocationDetail(row) || expected.detail;
                   const driveDetail = driveCapacityDetail(row);
                   return (
                     <tr key={row.row_id}>
@@ -379,7 +397,7 @@ export async function ProtocolAdherencePage({
                           <ClipText title={expected.title} className="strong">
                             {expected.title}
                           </ClipText>
-                          <span className="mt">{expected.detail}</span>
+                          <span className="mt">{expectedDetail}</span>
                         </LocalOverlayLink>
                       </td>
                       <td className="muted">
@@ -390,7 +408,7 @@ export async function ProtocolAdherencePage({
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={workStateTone(pageContract, row.work_state)}>{gapLabel(pageContract, row)}</Tag>
-                          {driveDetail ? <span className="mt">{driveDetail}</span> : null}
+                          {driveDetail ? <span className="mt gap-detail">{driveDetail}</span> : null}
                         </LocalOverlayLink>
                       </td>
                       <td>
@@ -412,7 +430,7 @@ export async function ProtocolAdherencePage({
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-	                          <EvidenceCell evidence={row.evidence} pageContract={pageContract} />
+	                          <EvidenceMedia evidence={row.evidence} pageContract={pageContract} />
                         </LocalOverlayLink>
                       </td>
                     </tr>

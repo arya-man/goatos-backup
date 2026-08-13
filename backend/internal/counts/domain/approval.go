@@ -28,6 +28,7 @@ const (
 	ApprovalStatusRejected = "rejected"
 
 	ApprovalResultTypeGoat          = "goat"
+	ApprovalResultTypeBirthEvent    = "birth_event"
 	ApprovalResultTypeShiftingEvent = "shifting_event"
 
 	// MaxApprovalPageSize caps the approvals list. The screen is mobile-first and a phone viewport
@@ -131,13 +132,31 @@ type ApprovalDecision struct {
 // matching the request's type. The commands are built by the owning module's app service at
 // decision time (identity's Prepare* seam), so this package never re-implements their validation.
 type ApprovalEffect struct {
-	// CreateGoat is set for a birth: a *ports.CreateAdminGoatCommand from the identity module,
-	// carried as `any` so the counts domain does not depend on identity's port types.
-	CreateGoat any
+	// BirthCounts is set for a birth approval. The canonical children already exist; approval only
+	// changes the shared litter from count-pending to count-approved atomically with the request.
+	BirthCounts *BirthCountsApprovalEffect
 	// ExitGoat is set for a death: a *ports.ExitGoatCommand from the identity module.
 	ExitGoat any
 	// Shifting is set for a shifting approval.
 	Shifting *ShiftingApprovalEffect
+}
+
+type BirthCountsApprovalEffect struct {
+	BirthEventID string
+}
+
+// BirthChildResult is one canonical child created during a litter submission.
+type BirthChildResult struct {
+	GoatID              string `json:"goat_id"`
+	TemporaryIdentifier string `json:"temporary_identifier"`
+	ChildOrdinal        int    `json:"child_ordinal"`
+}
+
+// BirthSubmissionResult keeps the canonical children and the independent web approval together.
+type BirthSubmissionResult struct {
+	Approval ApprovalRequest
+	Children []BirthChildResult
+	Replayed bool
 }
 
 // ShiftingApprovalEffect authorizes a pending shifting event and moves the named animals.

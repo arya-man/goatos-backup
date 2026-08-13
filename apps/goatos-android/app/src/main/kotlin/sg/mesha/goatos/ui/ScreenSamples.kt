@@ -35,6 +35,10 @@ import sg.mesha.goatos.feature.timetable.PositionTier
 import sg.mesha.goatos.feature.timetable.TimetableRow
 import sg.mesha.goatos.feature.timetable.TimetableUiState
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
+import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
+import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
+import sg.mesha.goatos.feature.weighing.WeighingUiState
 
 // Interim sample states so the nav host renders the real screens end-to-end. Each
 // screen's ViewModel will replace these with live /app/bootstrap-driven data — the
@@ -121,7 +125,7 @@ fun sampleShedsState(): ShedsUiState = ShedsUiState(
 
 fun sampleScanState(): ScanUiState = ScanUiState(
     shedLabel = "Vaccination · Gandhi 1",
-    cohortLabel = "Milking does",
+    cohortLabel = "Gandhi 1 Scan",
     ringDone = 12,
     ringTotal = 40,
     ringUnitLabel = "vaccinated",
@@ -145,6 +149,58 @@ fun sampleScanState(): ScanUiState = ScanUiState(
         statusLabel = "Reader disconnected",
         connected = false,
         actionLabel = "Reconnect",
+    ),
+)
+
+/**
+ * The weighing PLANNER surface as this screen still owns it: the "Plan" header and no operator
+ * work list. The week strip, park card, shed/category picker and operator vocabulary moved to the
+ * planner surface (WeighingTasksScreen + the create wizard), so this sample no longer carries
+ * fixture data for them.
+ */
+fun sampleWeighingPlanState(): WeighingUiState = WeighingUiState(
+    plannerMode = true,
+)
+
+fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
+    title = "Gandhi 1",
+    scopeLabel = "Weighing · Week 31 · Individual",
+    hasScope = true,
+    category = "individual_animal",
+    totalExpected = 78,
+    selectedAnimalId = "goat-078",
+    selectedAnimalLabel = "RFID 004821 · Kid 078",
+    scanInput = "RFID004821",
+    weightInput = "18.4",
+    individualDrafts = listOf(
+        WeighingDraftUiRow("draft-1", "goat-078", "RFID 004821 · 18.4 kg", proofReady = true, readyToSubmit = true),
+        WeighingDraftUiRow("draft-2", "goat-079", "RFID 004839 · 17.9 kg", proofReady = false, readyToSubmit = false),
+    ),
+    visibleRows = listOf(
+        WeighingRosterUiRow(
+            id = "row-1",
+            animalId = "goat-078",
+            displayAnimalId = "RFID 004821",
+            status = "Accepted",
+        ),
+        WeighingRosterUiRow(
+            id = "row-2",
+            animalId = "goat-079",
+            displayAnimalId = "RFID 004839",
+            status = "Scanned",
+        ),
+        WeighingRosterUiRow(
+            id = "row-3",
+            animalId = "goat-080",
+            displayAnimalId = "RFID 004847",
+            status = "Pending",
+        ),
+        WeighingRosterUiRow(
+            id = "row-4",
+            animalId = "goat-081",
+            displayAnimalId = "RFID 005001",
+            status = "Pending",
+        ),
     ),
 )
 
@@ -237,7 +293,6 @@ fun sampleProfileState(): ProfileUiState = ProfileUiState(
     rows = listOf(
         SettingRow(SettingKind.LANGUAGE, "Language", value = "English"),
         SettingRow(SettingKind.RFID, "RFID reader", subtitle = "Chainway R3", value = "Paired", valueEmphasis = true),
-        SettingRow(SettingKind.TIMETABLE, "Timetable", subtitle = "Shift roster (read-only)"),
         SettingRow(SettingKind.SIGN_OUT, "Sign out"),
     ),
 )

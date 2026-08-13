@@ -1,5 +1,7 @@
 package sg.mesha.goatos.core.data
 
+import sg.mesha.goatos.core.network.BootstrapError
+
 import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.AppApi
@@ -7,6 +9,7 @@ import sg.mesha.goatos.core.network.BootstrapDto
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.HeartbeatDeviceRequestDto
 import sg.mesha.goatos.core.network.RegisterDeviceRequestDto
+import sg.mesha.goatos.core.network.asBootstrapError
 import sg.mesha.goatos.core.network.toNavState
 
 /**
@@ -25,6 +28,12 @@ class DefaultBootstrapRepository(
     private val deviceStore: DeviceStore? = null,
     private val appVersion: String = "",
     private val osVersion: String = "",
+    /**
+     * Whether this phone will actually SHOW what we send it (the OS notification switch, supplied
+     * by :app). Reported on register AND on every heartbeat, so the backend can mark a device
+     * push-muted instead of counting an OS-dropped push as delivered. `null` = not reported.
+     */
+    private val notificationsEnabled: () -> Boolean? = { null },
 ) : BootstrapRepository {
     override suspend fun loadNavState(): NavState =
         try {
@@ -33,24 +42,37 @@ class DefaultBootstrapRepository(
             cache?.save(dto)
             reconcileDevice(dto)
             dto.toNavState()
-        } catch (t: java.io.IOException) {
-            // Offline-first fallback is ONLY for transport/connectivity failures. An
-            // auth/permission failure (401/403 arrives as retrofit HttpException, NOT an
-            // IOException) and any other error propagate — so a stale cached shell can
-            // never mask a rejected token / revoked device / missing grant / switched user.
-            cache?.load()?.toNavState() ?: throw t
+        } catch (t: Throwable) {
+            // Map network-layer errors to domain-level bootstrap errors.
+            // Auth/permission failures (401/403) must NOT fall back to cache — a stale
+            // cached shell can never mask a rejected/expired token, revoked device, missing
+            // grant, or switched user. Connectivity failures may fall back and retry.
+            val bootstrapError = t.asBootstrapError()
+            when (bootstrapError) {
+                is BootstrapError.AuthSessionExpired -> throw bootstrapError
+                // Access not provisioned yet: surface it, but never destroy local work.
+                is BootstrapError.AccessNotProvisioned -> throw bootstrapError
+                is BootstrapError.ConnectivityFailure -> {
+                    // Try to fall back to cached bootstrap on connectivity failure only.
+                    cache?.load()?.toNavState() ?: throw bootstrapError
+                }
+            }
         }
 
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
         (
             cache?.load()
-                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }
+                    .onFailure { android.util.Log.e("DefaultBootstrapRepository", "fetch bootstrap for operatorProfile failed", it) }
+                    .getOrNull()
         )?.operatorProfile
 
     override suspend fun actorTenantId(): String? =
         (
             cache?.load()
-                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }
+                    .onFailure { android.util.Log.e("DefaultBootstrapRepository", "fetch bootstrap for actorTenantId failed", it) }
+                    .getOrNull()
         )?.actor?.tenantId?.ifBlank { null }
 
     /** Remember a known device id, or register this install when the backend needs it. */
@@ -69,7 +91,11 @@ class DefaultBootstrapRepository(
                 runCatching {
                     api.heartbeatDevice(
                         id,
-                        HeartbeatDeviceRequestDto(appVersion = appVersion, osVersion = osVersion),
+                        HeartbeatDeviceRequestDto(
+                            appVersion = appVersion,
+                            osVersion = osVersion,
+                            notificationsEnabled = notificationsEnabled(),
+                        ),
                     )
                 }
             }
@@ -85,6 +111,7 @@ class DefaultBootstrapRepository(
                     appInstallId = store.appInstallId(),
                     appVersion = appVersion,
                     osVersion = osVersion,
+                    notificationsEnabled = notificationsEnabled(),
                 ),
             )
             store.setDeviceId(response.device.deviceId.ifBlank { null })

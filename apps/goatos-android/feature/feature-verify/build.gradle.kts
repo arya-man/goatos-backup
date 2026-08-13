@@ -35,8 +35,17 @@ dependencies {
 
     // Streamed signed-URL video playback for the verification queue (verifier-app-and-flow.md).
     // Capture-only CameraX lives in :device:device-camera; this feature is playback-only.
+    // Players are built via ProofPlayerFactory (:core:core-media), NOT ExoPlayer.Builder
+    // directly — that routes playback through the app's instrumented OkHttp client so a failed
+    // proof-video fetch reaches the telemetry seam (W-22).
+    implementation(project(":core:core-media"))
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.coil.compose)
+
+    // Plain-JUnit coverage for the pure viewport-visibility gate (isRowVisibleInViewport):
+    // whether a proof-video row should keep playing is decidable off two Rects alone.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

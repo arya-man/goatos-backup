@@ -81,6 +81,51 @@ WHERE l.tenant_id = $1::uuid
 ORDER BY l.display_order, l.name, l.location_id
 LIMIT $4`
 
+// scale-guard:ignore: UNPAGED read of the tenant's ACTIVE PARK catalog, bounded by physical infrastructure (a tenant has order-of two parks) and NOT by herd size, animals, obligations, or events. Covered by locations_tenant_type_status_idx. This is the farm filter vocabulary + default-park source; a park list that grew with the herd would be a different query.
+const listParksSQL = `
+SELECT l.location_id::text,
+       COALESCE(NULLIF(l.location_code, ''), l.name, '') AS park_label
+FROM locations l
+WHERE l.tenant_id = $1::uuid
+  AND l.location_type = 'park'
+  AND l.status = 'active'
+ORDER BY l.display_order, l.name, l.location_id
+LIMIT $2`
+
+// MaxParkRows caps the park catalog read. A tenant has order-of two parks; the cap is generous
+// headroom that FAILS closed rather than truncating, on the same principle as MaxShedScopeRows.
+const MaxParkRows = 200
+
+// ListParks returns every active park in the tenant, ordered deterministically. It is the farm
+// filter vocabulary the feed screens render and the default-park source when a request omits
+// park_id.
+func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]ports.Park, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, listParksSQL, tenantID, MaxParkRows+1)
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: list parks: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ports.Park, 0)
+	for rows.Next() {
+		var park ports.Park
+		if err := rows.Scan(&park.ParkID, &park.Label); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan park: %w", err)
+		}
+		out = append(out, park)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feeddirection: list parks: %w", err)
+	}
+	if len(out) > MaxParkRows {
+		return nil, fmt.Errorf("%w: tenant has more than %d active parks", ports.ErrScopeTooLarge, MaxParkRows)
+	}
+	return out, nil
+}
+
 // ListShedScope returns every active shed matching the request filters, unpaged.
 //
 // ONE QUERY, ONE POPULATION. This replaced a separate paged shed query: the service now slices its
@@ -171,7 +216,7 @@ func (r *Repository) LoadConfigSnapshot(ctx context.Context, tenantID, parkID st
 		RatesByKey:            map[string]domain.RationRate{},
 		ShedFactorsByKey:      map[string]string{},
 		Sessions:              []domain.SessionTemplate{},
-		ExperimentByShedID:    map[string][]domain.ExperimentCell{},
+		ExperimentByLocation:  map[string][]domain.ExperimentCell{},
 	}
 
 	// The business date is formatted in Go from an already-normalized Asia/Kolkata business-day
@@ -204,6 +249,35 @@ func (r *Repository) LoadConfigSnapshot(ctx context.Context, tenantID, parkID st
 		return domain.ConfigSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// ListSessionTemplates returns ONLY the park's active feeding-session split (session_no + label) for
+// the session-filter vocabulary. A dedicated tiny read (~2 rows), deliberately not the full config
+// snapshot -- see the port doc. It reuses the same active-session query loadSessions runs, minus the
+// split fraction and slot items the vocabulary does not need. status='active' with no valid_from/to
+// window matches loadSessions exactly.
+func (r *Repository) ListSessionTemplates(ctx context.Context, tenantID, parkID string, _ time.Time) ([]domain.SessionTemplate, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT session_no, session_label
+FROM feed_session_templates
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND status = 'active'
+ORDER BY display_order, session_no`, tenantID, parkID)
+	if err != nil {
+		return nil, fmt.Errorf("feeddirection: list session templates: %w", err)
+	}
+	defer rows.Close()
+	sessions := make([]domain.SessionTemplate, 0, 4)
+	for rows.Next() {
+		var session domain.SessionTemplate
+		if err := rows.Scan(&session.SessionNo, &session.Label); err != nil {
+			return nil, fmt.Errorf("feeddirection: scan session template: %w", err)
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return sessions, nil
 }
 
 func (r *Repository) loadParkLabel(ctx context.Context, snapshot *domain.ConfigSnapshot, tenantID, parkID string) error {
@@ -460,21 +534,24 @@ LIMIT $4`, tenantID, parkID, asOfDate, MaxSessionItemRows+1)
 func (r *Repository) loadExperiments(ctx context.Context, snapshot *domain.ConfigSnapshot, tenantID, parkID string) error {
 	// scale-guard:ignore: bounded set-based read of ONE park's hand-authored experiment sheds (an operator-entered list, tens of rows). Covered by feed_experiment_config_shed_lookup_idx (tenant_id, park_id, shed_id) WHERE status = 'active'.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, feed_item_key, feed_item_label, absolute_kg::text, experiment_category
+SELECT shed_id::text, COALESCE(partition_label, ''), feed_item_key, feed_item_label, absolute_kg::text, experiment_category
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND status = 'active'
-ORDER BY shed_id, feed_item_key`, tenantID, parkID)
+ORDER BY shed_id, partition_key, feed_item_key`, tenantID, parkID)
 	if err != nil {
 		return fmt.Errorf("feeddirection: load experiment config: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var shedID string
+		var shedID, partitionLabel string
 		var cell domain.ExperimentCell
-		if err := rows.Scan(&shedID, &cell.FeedItemKey, &cell.FeedItemLabel, &cell.AbsoluteKg, &cell.Category); err != nil {
+		if err := rows.Scan(&shedID, &partitionLabel, &cell.FeedItemKey, &cell.FeedItemLabel, &cell.AbsoluteKg, &cell.Category); err != nil {
 			return fmt.Errorf("feeddirection: scan experiment config: %w", err)
 		}
-		snapshot.ExperimentByShedID[shedID] = append(snapshot.ExperimentByShedID[shedID], cell)
+		// Keyed by operational location. A row authored with no partition keys on 'whole' and keeps
+		// the pre-2026-08-07 whole-shed behaviour exactly.
+		key := domain.ExperimentLocationKey(shedID, partitionLabel)
+		snapshot.ExperimentByLocation[key] = append(snapshot.ExperimentByLocation[key], cell)
 	}
 	return rows.Err()
 }

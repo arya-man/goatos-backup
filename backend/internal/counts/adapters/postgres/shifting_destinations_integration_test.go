@@ -30,6 +30,13 @@ const (
 	destRetiredPark  = "00000000-0000-4000-8000-000000003003"
 	// A park with no sheds at all, to prove it still appears (LEFT JOIN, not INNER).
 	destEmptyPark = "00000000-0000-4000-8000-000000003004"
+	// Parent shed + partition catalog used to prove old same-park partition aliases are suppressed.
+	destCastroParentCPT = "00000000-0000-4000-8000-000000004104"
+	// The OTHER alias spelling: a parent "Mandela 1" whose catalog pen is labelled "Part 3", beside
+	// the legacy location literally named "Mandela 1 - Part 3". Both render "Mandela 1 - Part 3",
+	// so the picker showed the same pen twice under two different shed ids.
+	destMandelaParentCPT = "00000000-0000-4000-8000-000000004105"
+	destMandelaPartCPT   = "00000000-0000-4000-8000-000000004106"
 )
 
 func seedDestinationTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -62,6 +69,120 @@ ON CONFLICT (location_id) DO NOTHING`,
 	}
 }
 
+// TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases pins the live STG bug where the
+// operator saw both "Castro 1" and "Castro - 1" in the same park. The first is an old active
+// partition-alias location; the second is the canonical parent shed plus shed_partitions row.
+func TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// TWO separate Exec calls, deliberately. pgx sends a parameterised Exec as a PREPARED statement,
+	// and Postgres refuses more than one command in one of those ("cannot insert multiple commands
+	// into a prepared statement", SQLSTATE 42601). Batched into a single string with a `;` the seed
+	// fails, the test fails IN SETUP, and the assertion below never runs -- so the production change
+	// it is supposed to prove would have gone in unproven.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-CASTRO', 'Castro', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+-- 'manual' because shed_partitions_source (migration 000112) allows only
+-- goat_attested / location_alias / manual. 'manual' is the honest one for a hand-seeded pen.
+VALUES ($1::uuid, $2::uuid, '1', '1', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro partition: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+
+	var labels []string
+	for _, park := range catalog.Parks {
+		if park.ParkID != countsPark {
+			continue
+		}
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destCastroCPT || shed.ShedID == destCastroParentCPT {
+				labels = append(labels, shed.Display)
+			}
+		}
+	}
+	if len(labels) != 1 || labels[0] != "Castro - 1" {
+		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
+	}
+}
+
+// TestShiftingDestinationCatalogSuppressesPartSpelledPartitionAliases is the sibling of the test
+// above for the OTHER alias spelling, and it is the one that was actually shipping duplicates.
+//
+// "Castro 1" normalizes to "castro1", so stripping the parent "castro" leaves "1" -- which equals
+// the catalog's normalized_label and was suppressed. "Mandela 1 - Part 3" normalizes to
+// "mandela1part3", so stripping the parent "mandela1" leaves "part3", which never equalled "3".
+// Every "- Part N" alias therefore survived, and the live picker carried 75 exact-duplicate rows
+// (195 rows for 120 real operational locations) with two different shed ids behind one label.
+func TestShiftingDestinationCatalogSuppressesPartSpelledPartitionAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// Separate Execs for the same prepared-statement reason as the test above.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-MANDELA1', 'Mandela 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destMandelaParentCPT); err != nil {
+		t.Fatalf("seed parent Mandela shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-MANDELA1-P3', 'Mandela 1 - Part 3', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destMandelaPartCPT); err != nil {
+		t.Fatalf("seed legacy Mandela part alias: %v", err)
+	}
+	// The catalog stores the HUMAN label "Part 3" against the matching key "3" -- the exact pairing
+	// that made the remainder comparison fail.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+		countsTenant, destMandelaParentCPT); err != nil {
+		t.Fatalf("seed parent Mandela partition: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+
+	var labels []string
+	for _, park := range catalog.Parks {
+		if park.ParkID != countsPark {
+			continue
+		}
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destMandelaParentCPT || shed.ShedID == destMandelaPartCPT {
+				labels = append(labels, shed.Display)
+			}
+		}
+	}
+	if len(labels) != 1 || labels[0] != "Mandela 1 - Part 3" {
+		t.Fatalf("Mandela destination labels in one park = %v, want only the canonical parent partition \"Mandela 1 - Part 3\"", labels)
+	}
+}
+
 // TestShiftingDestinationCatalogGroupsRepeatedShedNamesByPark is the disambiguation proof against
 // real SQL.
 //
@@ -77,6 +198,14 @@ func TestShiftingDestinationCatalogGroupsRepeatedShedNamesByPark(t *testing.T) {
 	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
 	if err != nil {
 		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+	if len(catalog.ManagementStages) == 0 {
+		t.Fatal("active management-stage vocabulary must be returned with the destination catalog")
+	}
+	for _, stage := range catalog.ManagementStages {
+		if stage == "ICU" || stage == "Quarantine" {
+			t.Fatalf("clinical stage %q must not be offered by a movement form", stage)
+		}
 	}
 
 	byID := map[string]struct {
@@ -162,6 +291,9 @@ func TestShiftingDestinationCatalogIsTenantScoped(t *testing.T) {
 	}
 	if len(catalog.Parks) != 0 {
 		t.Fatalf("foreign tenant saw %d parks, want 0", len(catalog.Parks))
+	}
+	if len(catalog.ManagementStages) != 0 {
+		t.Fatalf("foreign tenant saw %d stages, want 0", len(catalog.ManagementStages))
 	}
 }
 
@@ -249,12 +381,12 @@ ON CONFLICT (goat_id) DO NOTHING`,
 	}
 }
 
-// TestGoatShiftingFactsExcludesExitedMergedAndForeignAnimals proves the membership predicate.
+// TestGoatShiftingFactsKeepsExitedForEligibilityButExcludesMergedAndForeignAnimals proves the
+// distinction the write path needs between a terminal goat (422) and a missing goat (404).
 //
-// Each of these must resolve to NO row, so the service's "did every id resolve" check fails the
-// write closed. An exited or merged animal that still derived an impact would record an authorized
-// movement for an animal that cannot actually be relocated.
-func TestGoatShiftingFactsExcludesExitedMergedAndForeignAnimals(t *testing.T) {
+// Exited animals remain visible with their terminal facts so the service can reject them explicitly.
+// Merged aliases and cross-tenant animals remain invisible and fail the write closed as not found.
+func TestGoatShiftingFactsKeepsExitedForEligibilityButExcludesMergedAndForeignAnimals(t *testing.T) {
 	ctx := context.Background()
 	pool := setupCountsDB(t, ctx)
 	seedCustodianParty(t, ctx, pool)
@@ -289,8 +421,27 @@ UPDATE goats SET merged_into_goat_id = $2::uuid WHERE goat_id = $1::uuid`, merge
 	if err != nil {
 		t.Fatalf("GoatShiftingFacts: %v", err)
 	}
-	if len(facts) != 1 || facts[0].GoatID != liveGoat {
-		t.Fatalf("facts=%+v, want only the live animal %s", facts, liveGoat)
+	if len(facts) != 2 {
+		t.Fatalf("facts=%+v, want live and exited animals", facts)
+	}
+	byID := make(map[string]struct {
+		lifecycle string
+		exited    bool
+	}, len(facts))
+	for _, fact := range facts {
+		byID[fact.GoatID] = struct {
+			lifecycle string
+			exited    bool
+		}{lifecycle: fact.LifecycleStatus, exited: fact.ExitedAt != nil}
+	}
+	if got := byID[liveGoat]; got.lifecycle != "alive" || got.exited {
+		t.Fatalf("live fact=%+v, want lifecycle=alive and no exit stamp", got)
+	}
+	if got := byID[exitedGoat]; got.lifecycle != "dead" || !got.exited {
+		t.Fatalf("exited fact=%+v, want lifecycle=dead with exit stamp", got)
+	}
+	if _, ok := byID[mergedGoat]; ok {
+		t.Fatalf("merged goat %s unexpectedly resolved", mergedGoat)
 	}
 
 	// A foreign tenant's read of a real goat id must also resolve to nothing.

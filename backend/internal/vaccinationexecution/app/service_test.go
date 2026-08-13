@@ -23,6 +23,14 @@ type fakeRepo struct {
 	err         error
 }
 
+func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	return domain.CommandBoardResponse{}, nil
+}
+
+func (r fakeRepo) LiveTracker(_ context.Context, _ domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	return domain.LiveTrackerResponse{}, nil
+}
+
 func (r fakeRepo) ShedSummary(_ context.Context, _ domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -240,7 +248,7 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 			p.ScheduledCount = 2
 			p.InProgressCount = 2
 			p.ScannedCount = 2
-			p.ProofSubmittedCount = 1
+			p.ProofSubmittedCount = 2
 			p.WorkState = domain.WorkStateInProgress
 		}),
 	}
@@ -270,6 +278,9 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 	}
 	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
 		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
+	}
+	if row.AcceptedCount != 0 || row.ReviewCount != 0 {
+		t.Fatalf("accepted/review = %d/%d want 0/0", row.AcceptedCount, row.ReviewCount)
 	}
 }
 
@@ -308,6 +319,9 @@ func TestVaccinationExecutionAcceptedCompletionWinsOverStaleSubmittedProof(t *te
 	}
 	if row.ProofStatus != domain.ProofStatusAccepted || row.VerificationStatus != domain.VerificationStatusVerified {
 		t.Fatalf("proof/verification = %q/%q want accepted/verified", row.ProofStatus, row.VerificationStatus)
+	}
+	if row.AcceptedCount != 2 || row.ReviewCount != 0 {
+		t.Fatalf("accepted/review = %d/%d want 2/0", row.AcceptedCount, row.ReviewCount)
 	}
 	if row.TargetCount != 2 || row.OpenCount != 0 || row.DoneCount != 2 {
 		t.Fatalf("counts = target %d open %d done %d want 2/0/2", row.TargetCount, row.OpenCount, row.DoneCount)
@@ -383,11 +397,15 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 		projection("shed-1", due, 1, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.CompletionRecorded = 1
+			p.PhysicalShed = "Godel 1"
+			p.Partition = "Part 3"
 		}),
 		projection("shed-1", due, 2, func(p *domain.ExecutionProjection) {
 			p.OperatorName = &operator
 			p.CompletedCount = 1
 			p.CompletionAccepted = 1
+			p.PhysicalShed = "Godel 1"
+			p.Partition = "Part 3"
 		}),
 	}})
 
@@ -411,6 +429,12 @@ func TestVaccinationExecutionFiltersWorkStateAndBuildsDrilldown(t *testing.T) {
 	}
 	if len(detail.AnimalStages) != 1 || detail.AnimalStages[0] != "K1" {
 		t.Fatalf("animal stages = %#v want [K1]", detail.AnimalStages)
+	}
+	if detail.PartitionLabel == nil || *detail.PartitionLabel != "Part 3" || detail.OperationalLocationDisplay != "Godel 1 - Part 3" {
+		t.Fatalf("drilldown location = partition %v display %q", detail.PartitionLabel, detail.OperationalLocationDisplay)
+	}
+	if len(detail.Rows) != 2 || detail.Rows[0].PartitionLabel == nil || *detail.Rows[0].PartitionLabel != "Part 3" || detail.Rows[0].OperationalLocationDisplay != "Godel 1 - Part 3" {
+		t.Fatalf("execution row location = %#v", detail.Rows)
 	}
 }
 
@@ -562,6 +586,16 @@ func TestExecutionDisplayCountsUseAggregatedObligations(t *testing.T) {
 	}
 }
 
+func TestExecutionDisplayCountsDoNotTreatScansAsDone(t *testing.T) {
+	target, open, done := executionDisplayCounts(domain.ExecutionProjection{
+		ObligationCount: 2,
+		ScannedCount:    2,
+	})
+	if target != 2 || open != 2 || done != 0 {
+		t.Fatalf("counts=(target=%d open=%d done=%d) want (2,2,0)", target, open, done)
+	}
+}
+
 func projection(shedID string, dueAt time.Time, dose int, mutate func(*domain.ExecutionProjection)) domain.ExecutionProjection {
 	batchID := shedID + "-batch"
 	p := domain.ExecutionProjection{
@@ -662,4 +696,35 @@ func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDatePa
 	if vaccine.TotalDoses != 600 {
 		t.Errorf("Expected 600 total ET+TT doses, got %d", vaccine.TotalDoses)
 	}
+}
+
+// TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone is the completionEvidence fix (required
+// scenario 4's counting half): a rejected animal is outstanding work, so it must land in `open`,
+// not be folded into `done`. A shed of 5 with 1 rejection must report done=4, open=1 -- never
+// done=5/open=0, which hid the redo from the operator's own card.
+func TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    5,
+		CompletedCount:     0,
+		CompletionRecorded: 4,
+		CompletionAccepted: 0,
+		CompletionRejected: 1,
+	}
+	target, open, done := executionDisplayCounts(p)
+	if target != 5 {
+		t.Fatalf("target = %d, want 5", target)
+	}
+	if done != 4 {
+		t.Fatalf("done = %d, want 4 (rejected must NOT count as done)", done)
+	}
+	if open != 1 {
+		t.Fatalf("open = %d, want 1 (the rejected animal is outstanding work)", open)
+	}
+}
+
+// Value receiver: this fake is used as a struct value, not a pointer.
+func (fakeRepo) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
 }

@@ -7,6 +7,97 @@ import (
 	"testing"
 )
 
+func TestHealthDepartmentReceivesHealthModuleByDefault(t *testing.T) {
+	modules := defaultDepartmentModules["health"]
+	want := map[string]bool{
+		"aas_health":     true,
+		"counts":         true,
+		"milk":           true,
+		"feed_direction": true,
+		"vaccination":    true,
+	}
+	if len(modules) != len(want) {
+		t.Fatalf("health default modules = %v, want exactly Health + Counts + Milk + Feed + Vaccination", modules)
+	}
+	for _, module := range modules {
+		if !want[module] {
+			t.Fatalf("health default modules = %v, unexpected module %q", modules, module)
+		}
+		delete(want, module)
+	}
+	if len(want) != 0 {
+		t.Fatalf("health default modules = %v, missing %v", modules, want)
+	}
+}
+
+// TestDefaultDepartmentModulesMatchDecisions pins the seed module map EXACTLY, one entry per
+// recorded maintainer decision. It replaces TestCountsDepartmentsAlsoReceiveMilkModule, which
+// asserted the weaker invariant "any department granted counts is also granted milk".
+//
+// Why the invariant had to go rather than be relaxed: it encoded the 2026-07-31 module split,
+// where Milk Prep and Milk Feeding moved out of Counts into their own "milk" drawer module while
+// keeping their /counts/... routes and CountsWrite authority. Losing them from a bar was always a
+// migration accident then, so counts-implies-milk was a safe proxy. Maintainer decision 2026-08-05
+// removes milk from preventive_care ON PURPOSE, which makes the proxy wrong: it would fail a
+// deliberate decision while still passing any typo that dropped a module it did not name.
+//
+// An exact map is strictly stronger. It catches the accidental loss the old test caught (a dropped
+// module fails the length check), and it also catches an accidental ADDITION, which the old test
+// could not see at all. Every future change to the map is a one-line diff here plus a decision
+// note in defaultDepartmentModules' doc comment.
+func TestDefaultDepartmentModulesMatchDecisions(t *testing.T) {
+	want := map[string][]string{
+		// Maintainer decision 2026-08-05: NO milk and NO aas_health. A PC seat's bar is
+		// Vaccination + Counts + Feed. Milk Prep / Milk Feeding intentionally do not appear.
+		"preventive_care": {"vaccination", "counts", "feed_direction"},
+		// Maintainer decision 2026-07-30, unchanged by the 2026-08-05 PC decision.
+		"health":   {"aas_health", "counts", "milk", "feed_direction", "vaccination"},
+		"feed":     {"feed_direction"},
+		"breeding": {"breeding"},
+	}
+	if len(defaultDepartmentModules) != len(want) {
+		t.Fatalf("defaultDepartmentModules has %d departments, want %d: %v",
+			len(defaultDepartmentModules), len(want), defaultDepartmentModules)
+	}
+	for department, wantModules := range want {
+		gotModules, ok := defaultDepartmentModules[department]
+		if !ok {
+			t.Fatalf("department %q missing from defaultDepartmentModules", department)
+		}
+		got := map[string]bool{}
+		for _, module := range gotModules {
+			got[module] = true
+		}
+		if len(got) != len(gotModules) {
+			t.Fatalf("department %q has duplicate modules: %v", department, gotModules)
+		}
+		for _, module := range wantModules {
+			if !got[module] {
+				t.Fatalf("department %q modules = %v, missing %q", department, gotModules, module)
+			}
+			delete(got, module)
+		}
+		for module := range got {
+			t.Fatalf("department %q modules = %v, unexpected %q", department, gotModules, module)
+		}
+	}
+}
+
+// TestPreventiveCareDropsMilkAndHealth is the named regression for maintainer decision 2026-08-05.
+// The exact-map test above would already fail if either module came back, but it fails with a
+// generic "unexpected module" message; this one states WHY the module must stay out, so a future
+// author who re-adds milk to satisfy the retired counts-implies-milk rule reads the reason in the
+// failure itself rather than re-deriving it from git history.
+func TestPreventiveCareDropsMilkAndHealth(t *testing.T) {
+	for _, module := range defaultDepartmentModules["preventive_care"] {
+		if module == "milk" || module == "aas_health" {
+			t.Fatalf("preventive_care regained %q: maintainer decision 2026-08-05 removed milk and "+
+				"aas_health from the PC bottom bar. The retired counts-implies-milk coupling is NOT a "+
+				"reason to add it back; health keeps both modules instead.", module)
+		}
+	}
+}
+
 func TestValidateStrictRosterRejectsUnresolvedAndMissingOwners(t *testing.T) {
 	mappings := []rosterMappingRow{{center: "CPT", position: "Preventive Care Manager"}}
 	st := stats{MappingRows: 1, PositionSlotsDefined: 1, AssignmentsUnresolved: 1}

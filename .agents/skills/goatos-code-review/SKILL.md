@@ -64,6 +64,17 @@ shape. The kernel is the core of the system; review it first. Its law lives in
 `context/architecture/operational-kernel.md` (golden rule) and
 `context/architecture/operational-kernel-system-design.md` (system design).
 
+Maintainer lock 2026-08-10: this is one event-driven, interlinked
+task/ticketing waterfall, not a pattern modules may replace. Domain state stays
+module-owned, but no feature may introduce, retain as canonical, or exempt a
+private app-visible task authority, scheduler, owner fallback, overdue
+calculation, reminder/escalation ladder, verification queue, or screen-only
+follow-up pipeline. Review every operational
+change against `context/execution/operational-task-kernel-remediation-plan.md`
+and `context/execution/defect-prevention-execution-contract.md`; a feature that
+cannot yet attach to the shared owner/clock/hierarchy/contact/proof/sign-off
+chain remains shadowed or blocked.
+
 ## Scope detection (do this first, before the review pass)
 
 Map the changed paths to which reference(s) to load. **A change that touches
@@ -78,6 +89,7 @@ regardless of which layer changed.
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
 | Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
 | `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
+| Calendar, Control Tower, Action Center, Protocol Adherence, Workflows, admin/mobile execution/proof screens, or new vertical/module onboarding | `docs/architecture/operational-read-model-contract.md` **+** `docs/decisions/operational-location-convention.md` (partition rule + location-bearing schema) **+** `references/aggregates-and-projections.md` **+ consumer lenses** |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
 | **Every review, before flagging anything** | `references/review-lens-ledger.md` (always) — closed decisions + banned patterns; do NOT re-flag a CLOSED/LOCKED item or propose a BANNED one |
@@ -150,6 +162,17 @@ finding. For each fix, answer:
       `consolidated-ledger-defect-closure-program.md` proof-packet gate (see
       "Consolidated-ledger closure gate" below) and require independent
       counter-review before the row is marked fixed.
+- [ ] **Recurrence prevention.** Does the same batch update the canonical rule,
+      add the strongest applicable persistent/contract control, add a
+      failing-before production-path regression, and install a structural guard
+      plus adversarial self-test when the failure is mechanically detectable?
+      Does the real check run from an ordinary affected `make ci-local` job?
+      Does operational recovery expose failures static checks cannot see? If
+      not, the change is source-fixed at best and must remain closure-pending.
+- [ ] **Agent and anti-pattern memory.** If the root pattern can recur in another
+      module, did the change update the closest anti-pattern/decision, relevant
+      build and review routing, and module or always-loaded instructions without
+      duplicating the full spec? A fix known only to the author is not durable.
 
 ## Review priority order
 
@@ -180,26 +203,37 @@ clean the rest is:
    group key, join cardinality, hierarchy mapping, and page-independent totals using
    `references/aggregates-and-projections.md`. See
    `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
-3. **Security / privacy / tenant isolation** — every scoped query filters
+3. **Operational read-model contract** — shared command surfaces and
+   mobile/admin/reporting reads must follow
+   `docs/architecture/operational-read-model-contract.md`: grain-explicit
+   counts, declared disjoint/overlapping buckets, page-independent summaries,
+   stable selected scope identity, backend/OpenAPI/TS/Kotlin contract sync, and
+   cross-surface golden fixtures for new verticals. A screen-local fix that
+   merely hides mismatched Calendar/Control Tower/Protocol Adherence/mobile
+   numbers is a finding.
+4. **Security / privacy / tenant isolation** — every scoped query filters
    `tenant_id`; no secrets/tokens/service-account JSON in logs; input validated
    at boundaries. (Goat identifiers are livestock data, NOT PII — log them.)
-4. **Architecture boundaries** — domain/app/ports/adapters layering; no
+5. **Architecture boundaries** — domain/app/ports/adapters layering; no
    cross-module table writes; vendor SDKs confined to adapters. (`references/backend.md`)
-5. **Business-rule fidelity** — vaccination schedule/gaps, obligation state
+6. **Business-rule fidelity** — vaccination schedule/gaps, obligation state
    machine, defer/re-scope, org/species model. Wrong medical rules are worse than
    wrong code. (`references/business-rules.md`)
-6. **Observability & resilience** — kernel-boundary logging via `platform/observability`,
+7. **Observability & resilience** — kernel-boundary logging via `platform/observability`,
    metrics on new APIs/workers, DLQ + retry bounds, durable notifications.
-7. **UI contract & mock fidelity** — admin-web renders backend-owned contracts;
+8. **UI contract & mock fidelity** — admin-web renders backend-owned contracts;
    ports the mock; passes `check:mock-fidelity`. (`references/frontend.md`)
-8. **Maintainability** — small focused files, explicit errors, tests.
+9. **Maintainability** — small focused files, explicit errors, tests.
 
 ## Consolidated-ledger closure gate
 
-When a change claims to fix any row in
-`context/repo-audits/last-35-commits-consolidated-bug-ledger.md`, load and apply
-`context/repo-audits/consolidated-ledger-defect-closure-program.md` in addition
-to every layer reference selected above. Review the current-SHA proof packet,
+When a change claims to fix a current whole-project row, load
+`context/repo-audits/current-whole-project-remediation-ledger.md` and apply its
+current closure gate in addition to every layer reference selected above.
+Also apply `context/execution/defect-prevention-execution-contract.md` and reject
+closure when an applicable prevention-matrix row is missing or marked N/A
+without a concrete stronger-control reason.
+Review the current-SHA proof packet,
 not only the diff. Reject the closure claim if any applicable real-Postgres,
 retry/idempotency, pagination, contract/API, admin-web, Android Room/offline,
 logout, performance/memory, authorization, architecture, observability, guard
@@ -207,6 +241,18 @@ self-test, ordinary-PR CI, or independent-counter axis is missing. Confirm that
 duplicate-root evidence was merged and every ledger count/status summary was
 reconciled mechanically. A compile, typecheck, screenshot, mock-only test,
 missing/skipped workflow, or prose report is not closure proof.
+
+If the change explicitly names an older `last-35-commits` ID, load that
+historical ledger and its `consolidated-ledger-defect-closure-program.md`
+instead; its namespace is separate. For generic task hierarchy, owner/duty
+clocks, Today/My Tasks, sign-off, or escalation changes, also review against
+`context/execution/operational-task-kernel-remediation-plan.md` and verify the
+checkpoint in `context/execution/operational-kernel-program-state.md` matches the
+integration branch and proof index.
+
+The current ledger records its evidence SHA. Fetch fresh `origin/main` and
+re-adjudicate the selected IDs and migration tail before reviewing a closure;
+do not treat the recorded snapshot as live status.
 
 ## Volatile anchors — verify, don't trust the list below
 
@@ -454,8 +500,10 @@ as a scheduling input.
 
 ## Mandatory review checklist
 
-Every review MUST verify ALL of the following before approval. This is the bind to
-operational invariants that turn "the build is green" into "this is safe to merge":
+Every review MUST verify every applicable row below before approval; an
+inapplicable row must be marked `N/A` with a concrete reason. This is the bind
+to operational invariants that turns "the build is green" into "this is safe to
+merge":
 
 - [ ] **Forward-progress pagination:** cursor is monotonic; next page cannot regress;
       page size never silently changes business completeness of a projection read
@@ -471,9 +519,19 @@ operational invariants that turn "the build is green" into "this is safe to merg
       Tower / Action Center / Protocol Adherence, resolvable (approved/rejected/waived)
 - [ ] **Guard-to-CI wiring:** any new guardrail is registered in the guardrail manifest
       AND wired into `make guardrails` / full local CI (not left as diff-only or disabled)
+- [ ] **Adversarial guard proof:** a new or changed guard fails on the original
+      forbidden fixture plus realistic evasions relevant to the parser (aliases,
+      multiline syntax, raw literals, sibling blocks, renamed helpers, or empty
+      defaults) and passes an allowed fixture
 - [ ] **Guards match deployed configuration:** a guard that reads config must read the
       real deployed values or require explicit configuration in the rule/test (not default
       silently to safe-at-code-review, unsafe-at-runtime)
+- [ ] **Kernel non-deviation:** operational work names its event, stable task
+      identity, real owner (with a separately owned exception when resolution
+      fails), clock, hierarchy, proof,
+      sign-off, acknowledgement/contact policy, close/reopen rollup, shared
+      reads, and reconciliation; no private parallel coordination path was
+      introduced, retained as canonical, or exempted
 
 Do not approve if any leg of this checklist is incomplete. A green build without this
 proof is a false-green confidence gate.
@@ -490,16 +548,17 @@ touch this repo. Before pushing, state and verify the authority tuple:
 - **Remote URL / org / repo** — `git remote -v` resolves to `vgoats/goatos`
   (Mesha/VGoats). Stop if it points at Heva, Slice, `hevaplatform`, or any
   non-Mesha org.
-- **Push path** — the push uses the Mesha PAT path `git mesha-push main` (backed
-  by `MESHA_GITHUB_PAT`, user `ravimesha`, org `vgoats`). **Never** push via a
-  `gh` account — the active `gh` account may be Heva or Slice, which is the wrong
-  org for Goat OS.
+- **Landing path** — ordinary accepted changes use `make land-main`. The
+  whole-ledger/kernel program instead uses the single integration PR and the
+  repo-owned exact-head program-PR landing gate after F0 supplies it. Never use
+  an ambient `gh` identity; the active account may belong to Heva or Slice.
 
 If any leg of the tuple is wrong, correct context before proceeding — do not push.
 
 ### Push
 
-Reviews that end in an accepted change push to `main` via the Mesha/VGoats token:
+Reviews that end in an accepted ordinary change land through the repository
+gate:
 
 ```bash
 # from the goatos checkout root
@@ -507,8 +566,13 @@ make ai-doctor                       # portability gate — must pass before pus
 npm --prefix apps/admin-web run check:mock-fidelity   # if frontend changed
 git add <reviewed paths>             # never git add -A — leave in-flight work alone
 git commit -m "<type>: <what changed>"
-git mesha-push main                  # uses $MESHA_GITHUB_PAT (user ravimesha, org vgoats)
+make land-main
 ```
+
+For the whole-ledger/kernel program, do not run `make land-main` and do not open
+milestone PRs. Keep one integration PR against `main`; after F0, use only its
+exact-head landing gate and verify the merged-main tree equals the tested PR
+head. Review agents remain read-only and never merge.
 
 CI (`.github/workflows/ci.yml`) re-runs `make ai-doctor` + boundary/contract-drift
 guards on push. Generated graphs (`graphify-out/`, `.code-review-graph/`,
@@ -525,3 +589,27 @@ path is the maintainer-local Mesha wiki graph
 (`/Users/ravi/mesha/graphify-out/graph.json`), which lives outside this repo and
 cannot be made repo-relative — do not write the repo-root path in any committed
 doc.
+
+## WEIGHING IS SCAN-AND-SUBMIT (do not re-derive rules)
+
+Assign sheds → individual: scan RFID + weight + video per animal; lump-sum: total
+weight + count + video(s) per shed → submit. **The only business rule is: no double
+scan of the same animal in a bucket before submit.**
+
+NO shed↔RFID validation · NO roster/expected count/denominator/percentage · NO herd
+or goat or clinical lookup · NO vaccine/protocol/obligation rules · NO "shed is empty"
+concept (free-flow cannot know what is in a shed).
+
+If a finding assumes any of those exist, it is invalid — close it and cite ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`. Real weighing
+findings are about PLUMBING: writes landing, evidence being reviewable, failures being
+visible, screens showing honest numbers. Full statement:
+`docs/features/weighing/TRD.md` → "What weighing IS".
+
+For operational coordination, require the shared kernel outside Weighing to
+consume Weighing's durable events outward-only. Verify the materializer is
+receipt-backed, idempotent, version-fenced, bounded, observable, replayable,
+and source-reconciled before its task rows become visible. Reject both failure
+modes: a private Weighing task/scheduler/escalation island, and any inbound
+`task_nodes`, SOP, obligation, roster, herd, lifecycle, or generic-task gate in
+Weighing execution.

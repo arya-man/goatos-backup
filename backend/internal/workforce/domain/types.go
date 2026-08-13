@@ -129,15 +129,21 @@ type DeviceSummary struct {
 	PushTokenHash       *string `json:"push_token_hash"`
 	// FCMToken is the raw FCM registration token the push gateway needs (message.token).
 	// PushTokenHash stays the identity/dedup hash; FCMToken is the delivery address (migration 000171).
-	FCMToken     *string        `json:"fcm_token,omitempty"`
-	AppVersion   string         `json:"app_version"`
-	OSVersion    string         `json:"os_version"`
-	Status       string         `json:"status"`
-	LastSeenAt   string         `json:"last_seen_at"`
-	RegisteredAt string         `json:"registered_at"`
-	RevokedAt    *string        `json:"revoked_at"`
-	Metadata     map[string]any `json:"metadata"`
-	RowVersion   int            `json:"row_version"`
+	FCMToken *string `json:"fcm_token,omitempty"`
+	// NotificationsEnabled is the phone's own report of the OS notification switch
+	// (NotificationManagerCompat.areNotificationsEnabled), refreshed on register and on every
+	// heartbeat. false means push-muted: FCM would accept the send and the OS would drop it, so
+	// the device is not addressed and a drop is never counted as a delivery. nil means the phone
+	// has not reported yet (older build) and is treated as reachable. Migration 000066.
+	NotificationsEnabled *bool          `json:"notifications_enabled,omitempty"`
+	AppVersion           string         `json:"app_version"`
+	OSVersion            string         `json:"os_version"`
+	Status               string         `json:"status"`
+	LastSeenAt           string         `json:"last_seen_at"`
+	RegisteredAt         string         `json:"registered_at"`
+	RevokedAt            *string        `json:"revoked_at"`
+	Metadata             map[string]any `json:"metadata"`
+	RowVersion           int            `json:"row_version"`
 }
 
 type DeviceListResponse struct {
@@ -156,18 +162,25 @@ type RegisterDeviceRequest struct {
 	PushTokenHash       *string `json:"push_token_hash"`
 	// FcmToken is the raw FCM registration token (optional -- backward compatible with clients that
 	// have not yet upgraded to send it; push_token_hash keeps working as the identity/dedup hash).
-	FcmToken   *string        `json:"fcm_token"`
-	AppVersion string         `json:"app_version"`
-	OSVersion  string         `json:"os_version"`
-	Metadata   map[string]any `json:"metadata"`
+	FcmToken *string `json:"fcm_token"`
+	// NotificationsEnabled is the phone's own report of the OS notification switch. Optional:
+	// an older app build omits it and the device stays reachable-unless-proven-muted.
+	NotificationsEnabled *bool          `json:"notifications_enabled"`
+	AppVersion           string         `json:"app_version"`
+	OSVersion            string         `json:"os_version"`
+	Metadata             map[string]any `json:"metadata"`
 }
 
 type HeartbeatDeviceRequest struct {
-	AppVersion    string         `json:"app_version"`
-	OSVersion     string         `json:"os_version"`
-	PushTokenHash *string        `json:"push_token_hash"`
-	FcmToken      *string        `json:"fcm_token"`
-	Metadata      map[string]any `json:"metadata"`
+	AppVersion    string  `json:"app_version"`
+	OSVersion     string  `json:"os_version"`
+	PushTokenHash *string `json:"push_token_hash"`
+	FcmToken      *string `json:"fcm_token"`
+	// NotificationsEnabled re-reports the OS notification switch on every heartbeat, so a person
+	// who switches notifications off (or back on) in system settings after registering is picked
+	// up on the next bootstrap rather than staying wrong until reinstall.
+	NotificationsEnabled *bool          `json:"notifications_enabled"`
+	Metadata             map[string]any `json:"metadata"`
 }
 
 type RevokeDeviceRequest struct {

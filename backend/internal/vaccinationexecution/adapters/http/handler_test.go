@@ -53,6 +53,19 @@ type fakeReader struct {
 	lastShedAnim  domain.ShedAnimalQuery
 	capacityCfg   domain.CapacityConfig
 	optionValues  domain.TaskOptionValuesResponse
+
+	lastCommandBoard domain.CommandBoardQuery
+	lastLiveTracker  domain.LiveTrackerQuery
+}
+
+func (f *fakeReader) VaccinationCommandBoard(_ context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	f.lastCommandBoard = q
+	return domain.CommandBoardResponse{}, nil
+}
+
+func (f *fakeReader) LiveTracker(_ context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	f.lastLiveTracker = q
+	return domain.LiveTrackerResponse{BusinessDate: q.BusinessDate.Format("2006-01-02")}, nil
 }
 
 type fakeWriter struct {
@@ -64,6 +77,7 @@ type fakeWriter struct {
 	lastRescheduleIdemKey string
 	lastAuthorizedParks   []string
 	lastOverride          *obligationdomain.VaccineDriveDateOverride
+	overrideResult        *obligationdomain.VaccineDriveDateOverride
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -190,7 +204,55 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 
 func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
 	w.lastOverride = &override
+	if w.overrideResult != nil {
+		return w.overrideResult, nil
+	}
 	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideReturnsClinicalShiftMetadata(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{overrideResult: &obligationdomain.VaccineDriveDateOverride{
+		TenantID:              testTenantID,
+		ParkID:                "20000000-0000-4000-8000-000000000001",
+		VaccineCode:           "PPR",
+		OriginalDriveDate:     time.Date(2026, 8, 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		RequestedOverrideDate: time.Date(2026, 8, 6, 0, 0, 0, 0, biztime.DefaultLocation()),
+		OverrideDate:          time.Date(2026, 9, 7, 0, 0, 0, 0, biztime.DefaultLocation()),
+		AutoShifted:           true,
+		ShiftReason:           "clinical_spacing_auto_shift",
+		ConflictVaccineLabel:  "Sheep Pox",
+		ConflictDate:          time.Date(2026, 8, 10, 0, 0, 0, 0, biztime.DefaultLocation()),
+		ConflictRule:          "live_live_min_gap",
+		Reason:                "move",
+		CreatedBy:             "30000000-0000-4000-8000-000000000077",
+		CreatedAt:             time.Date(2026, 8, 1, 9, 0, 0, 0, biztime.DefaultLocation()),
+	}}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 8, 1, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-01","override_date":"2026-08-06","reason":"move"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var bodyOut map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &bodyOut); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if bodyOut["requested_override_date"] != "2026-08-06" || bodyOut["applied_override_date"] != "2026-09-07" {
+		t.Fatalf("requested/applied metadata missing: %#v", bodyOut)
+	}
+	if bodyOut["auto_shifted"] != true || bodyOut["shift_reason"] != "clinical_spacing_auto_shift" {
+		t.Fatalf("shift metadata missing: %#v", bodyOut)
+	}
+	if bodyOut["conflicting_vaccine_label"] != "Sheep Pox" || bodyOut["conflicting_date"] != "2026-08-10" {
+		t.Fatalf("conflict metadata missing: %#v", bodyOut)
+	}
 }
 
 func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {
@@ -348,12 +410,17 @@ func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
 	const actorID = "90000000-0000-4000-8000-000000000104"
 	const parkID = "30000000-0000-4000-8000-000000000001"
 	cases := []struct {
-		role  string
-		grant permissions.ActiveGrant
+		role           string
+		grant          permissions.ActiveGrant
+		wantViewerOnly bool
 	}{
-		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}},
-		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}},
-		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}},
+		{permissions.RoleCEOInternal, permissions.ActiveGrant{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}, true},
+		// A PC Director is oversight-only too (maintainer decision): vaccination execution belongs
+		// to the operator the drive is assigned to, so holding task.execute no longer opens a shed
+		// this actor was not assigned. Previously pinned false, which kept the shed card tappable
+		// and produced a scan screen whose every write failed `task_not_assigned`.
+		{permissions.RolePCDirector, permissions.ActiveGrant{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: tenantID}, true},
+		{permissions.RoleParkHead, permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.role, func(t *testing.T) {
@@ -378,8 +445,8 @@ func TestAppVaccinationExecutionLeadershipSkipsOperatorScope(t *testing.T) {
 			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
-			if !resp.ViewerReadOnly {
-				t.Fatalf("leadership response viewerReadOnly = false, want true (read-only oversight; shed open blocked)")
+			if resp.ViewerReadOnly != tc.wantViewerOnly {
+				t.Fatalf("leadership response viewerReadOnly = %v want %v", resp.ViewerReadOnly, tc.wantViewerOnly)
 			}
 		})
 	}
@@ -494,7 +561,7 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&partition_label=Part%202&limit=1", nil)
 	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -506,6 +573,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if reader.lastRoster.OperatorScopeActorID != actorID {
 		t.Fatalf("operator scope actor=%q want %q", reader.lastRoster.OperatorScopeActorID, actorID)
+	}
+	if reader.lastRoster.PartitionLabel != "Part 2" {
+		t.Fatalf("partition label=%q want Part 2", reader.lastRoster.PartitionLabel)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
@@ -845,7 +915,7 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001?limit=10", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001?partition_label=Part%203&limit=10", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
 	}
@@ -854,6 +924,9 @@ func TestGetShedDrilldownReturnsDetail(t *testing.T) {
 	}
 	if reader.last.Limit != 10 {
 		t.Fatalf("limit = %d want 10", reader.last.Limit)
+	}
+	if reader.last.PartitionLabel == nil || *reader.last.PartitionLabel != "Part 3" {
+		t.Fatalf("partition label = %v want Part 3", reader.last.PartitionLabel)
 	}
 }
 
@@ -939,6 +1012,60 @@ func TestRescheduleObligationMapsNotFoundTo404(t *testing.T) {
 	}
 	if env.Code != "not_found" {
 		t.Fatalf("error code = %q want not_found", env.Code)
+	}
+}
+
+// TestRescheduleObligationPrivilegeEscalationUnrelatedTenantWideGrant demonstrates
+// the privilege escalation defect: a caller with a tenant-wide grant that carries
+// an UNRELATED role (e.g., growth_director for weighing only, without vaccination perms)
+// plus a park-scoped operator grant for park A should NOT be able to reschedule an
+// obligation in park B. However, the current buggy code at line 862 treats ANY
+// tenant-wide grant as authorization for ALL modules, allowing cross-park mutation.
+//
+// The defect: `HasTenantWideGrant` checks SCOPE only (tenant + tenantID) and NEVER
+// the ROLE the grant carries. So someone with a tenant-wide growth_director grant
+// (weighing only) plus a park-scoped operator grant gets treated as tenant-wide for
+// vaccination too, even though growth_director has no vaccination permissions.
+//
+// BEFORE fix: authorizedParkIDs remain empty (unrestricted), allowing reschedule
+// of obligations in any park.
+// AFTER fix: authorizedParkIDs are populated from the vaccination-scoped grant,
+// and the write correctly rejects obligations outside that park.
+func TestRescheduleObligationPrivilegeEscalationUnrelatedTenantWideGrant(t *testing.T) {
+	const parkA = "86000000-0000-4000-8000-000000000001"
+	const parkB = "86000000-0000-4000-8000-000000000002"
+	const tenantID = "11000000-0000-4000-8000-000000000000"
+
+	// Setup: actor holds a tenant-wide growth_director grant (weighing only)
+	// plus a park-scoped operator grant for park A only.
+	// Note: growth_director is the weighing-module role and does NOT have
+	// VaccinationCampaign (it has WeighingMonitor, WeighingExecute, etc.).
+	grants := []permissions.ActiveGrant{
+		{Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: tenantID},
+		{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: parkA},
+	}
+
+	// Mock writer that records the authorized park scope passed to it.
+	writer := &fakeWriter{rescheduleID: rescheduleObligationID}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	req := buildRescheduleRequest(t, rescheduleObligationID, "idem-key-escalation", `{"due_at":"`+future+`"}`)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	req = req.WithContext(httpmiddleware.WithAuthGrants(req.Context(), grants))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	// CRITICAL CHECK: The authorized parks passed to the writer should be ONLY [parkA],
+	// NOT empty (unrestricted). An empty slice means "access any park", which is the bug.
+	if len(writer.lastAuthorizedParks) != 1 || writer.lastAuthorizedParks[0] != parkA {
+		t.Fatalf("authorized parks = %#v want [%s]\n\nBUG: unrelated tenant-wide grant (growth_director for weighing) "+
+			"allowed unrestricted access instead of constraining to park-scoped grant (parkA)", writer.lastAuthorizedParks, parkA)
 	}
 }
 
@@ -1238,4 +1365,12 @@ func TestPutCapacityConfigConflict(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// ListAlerts satisfies the Reader boundary for the vaccination alerts feed. The HTTP tests here
+// exercise other routes, so the feed returns an empty page rather than a fixture.
+func (f *fakeReader) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
 }

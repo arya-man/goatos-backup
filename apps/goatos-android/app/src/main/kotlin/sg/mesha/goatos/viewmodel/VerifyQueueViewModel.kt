@@ -16,11 +16,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
+import sg.mesha.goatos.core.ui.operationalLocationLabel
+import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -28,10 +32,14 @@ import sg.mesha.goatos.feature.verify.VerificationQueueRow
 import sg.mesha.goatos.feature.verify.VerifyDriveClosure
 import sg.mesha.goatos.feature.verify.VerifyCategoryOption
 import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
+import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
+import sg.mesha.goatos.feature.verify.VerifyScopeType
+import sg.mesha.goatos.feature.verify.VerifyStatusOption
 import sg.mesha.goatos.feature.verify.VerifyTone
-import sg.mesha.goatos.feature.verify.VerifyModuleTab
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 private const val VERIFY_QUEUE_PAGE_SIZE = 20
@@ -43,6 +51,7 @@ private data class VerifyQueueFlags(
     val closingBatchId: String? = null,
     val closeErrorBatchId: String? = null,
     val closeErrorMessage: String? = null,
+    val hasLoadedOnce: Boolean = false,
 )
 
 private data class VerifyCloseFlags(
@@ -51,17 +60,24 @@ private data class VerifyCloseFlags(
     val closeErrorMessage: String? = null,
 )
 
+private data class VerifyQueueScope(
+    val category: String?,
+    val status: String,
+    val businessDate: String,
+    val missedOnly: Boolean,
+    val parkId: String?,
+    val shedId: String?,
+)
+
 /**
- * The standalone Verifier section's queue state holder (context/architecture/
+ * The verifier-only workspace's reusable queue state holder (context/architecture/
  * verifier-app-and-flow.md). Offline-first (docs/decisions/android-offline-first.md): [state]
  * is fed by [VerificationRepository.observeQueue], a cache-first Room Flow re-subscribed (via
  * [flatMapLatest]) whenever the category filter changes; [refresh] drives the network side of
  * stale-while-revalidate and [loadMore] appends the next ~20-row keyset page into the SAME
- * Room-backed scope (never an in-memory-only accumulation — mobile-guard rule). Category
- * options are derived from the distinct categories the backend has actually returned for THIS
- * verifier, never a client-hardcoded category enum (verification-module-design.md §2.3
- * plug-and-play registry) — only the raw category KEY crosses this boundary; the Compose layer
- * decides how to render an unrecognized key and always owns the "All" chrome string.
+ * Room-backed scope (never an in-memory-only accumulation — mobile-guard rule). Module identity
+ * and page options are rendered from backend registry metadata; Android sends only the selected
+ * page's raw category key back as a disjoint queue filter.
  */
 @HiltViewModel
 class VerifyQueueViewModel @Inject constructor(
@@ -69,34 +85,101 @@ class VerifyQueueViewModel @Inject constructor(
     private val syncRepo: SyncRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
+    private val crashReporter: CrashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
-    private val _selectedModule = MutableStateFlow(VerifyModuleTab.VACCINATION)
+
+    /**
+     * The queue's CATEGORY -- the backend's own vocabulary and the only thing the reads accept.
+     *
+     * Three cases, deliberately distinct:
+     *  - an explicit `?category=` (the verifier Alerts href the backend composes) is passed
+     *    through VERBATIM, so a category this client has never heard of still reads its own rows;
+     *  - an explicit `?module=` is mapped, and an UNRECOGNIZED module resolves to null. The old
+     *    `else -> VACCINATION` fallback meant a Counts or Feed verifier opened their own tab and
+     *    was shown VACCINATION proofs -- a worse failure than showing nothing;
+     *  - no scoping arg at all (the action queue route) keeps the historical vaccination default,
+     *    which is a route that never asked for a module rather than one that asked wrongly.
+     */
+    private val _selectedCategory = MutableStateFlow(
+        run {
+            val category = savedStateHandle.get<String>(CATEGORY_ARG)?.trim()?.lowercase()
+                ?.takeIf { it.isNotBlank() }
+            val moduleKey = savedStateHandle.get<String>(MODULE_ARG)?.trim()?.takeIf { it.isNotBlank() }
+            when {
+                category != null -> category
+                moduleKey != null -> categoryForModuleKey(moduleKey)
+                else -> VACCINATION_CATEGORY
+            }
+        },
+    )
+    private val _selectedStatus = MutableStateFlow(VerificationStatus.PENDING)
+    private val _selectedBusinessDate = MutableStateFlow(LocalDate.now(ZoneId.of("Asia/Kolkata")).toString())
+    private val _missedOnly = MutableStateFlow(false)
     private val _selectedParkId = MutableStateFlow<String?>(null)
     private val _selectedShedId = MutableStateFlow<String?>(null)
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
+    // Set the first time a fetch COMPLETES, whatever it returned. lastSyncedAt cannot serve this
+    // -- an empty result never sets it, so the screen wedged on a spinner over a blank list --
+    // and isRefreshing flips on every later refresh, which yanked already-drawn content away.
+    private val _hasLoadedOnce = MutableStateFlow(false)
+
     private val _isLoadingMore = MutableStateFlow(false)
     private val _closingBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorMessage = MutableStateFlow<String?>(null)
 
-    // flatMapLatest cancels the previous category's Room collection and starts a fresh one the
-    // moment _selectedCategory changes (same pattern as CalendarViewModel's _selectedDay).
+    private val selectedScope: StateFlow<VerifyQueueScope> = combine(
+        combine(_selectedCategory, _selectedStatus, _selectedBusinessDate, _missedOnly) { category, status, date, missed ->
+            arrayOf(category, status, date, missed.toString())
+        },
+        _selectedParkId,
+        _selectedShedId,
+    ) { primary, parkId, shedId ->
+        VerifyQueueScope(
+            category = primary[0],
+            status = primary[1].orEmpty(),
+            businessDate = primary[2].orEmpty(),
+            missedOnly = primary[3].toBoolean(),
+            parkId = parkId,
+            shedId = shedId,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        VerifyQueueScope(
+            category = _selectedCategory.value,
+            status = _selectedStatus.value,
+            businessDate = _selectedBusinessDate.value,
+            missedOnly = false,
+            parkId = null,
+            shedId = null,
+        ),
+    )
+
+    // flatMapLatest cancels the previous filter scope's Room collection immediately.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
-            Triple(module, parkId, shedId)
-        }.flatMapLatest { (module, parkId, shedId) ->
-            if (module == VerifyModuleTab.VACCINATION) {
-                if (isActionQueue) {
-                    repo.observeActionQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
-                } else {
-                    repo.observeQueue(category = VACCINATION_CATEGORY, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
-                }
+        selectedScope.flatMapLatest { scope ->
+            if (scope.category == null) {
+                // The route named a module or category nothing here can serve. Serving NOTHING is
+                // deliberate: the old fallback showed a Counts or Feed verifier VACCINATION proofs,
+                // which is a worse failure than an empty queue. `isUnsupportedModule` says so.
+                flowOf(Resource(data = null))
+            } else if (isActionQueue) {
+                repo.observeActionQueue(category = scope.category, parkId = scope.parkId, shedId = scope.shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
             } else {
-                flowOf(Resource(data = VerificationQueueResponseDto(items = emptyList())))
+                repo.observeQueue(
+                    category = scope.category,
+                    status = scope.status,
+                    businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+                    missed = scope.missedOnly,
+                    parkId = scope.parkId,
+                    shedId = scope.shedId,
+                    limit = VERIFY_QUEUE_PAGE_SIZE,
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
@@ -113,38 +196,95 @@ class VerifyQueueViewModel @Inject constructor(
         _isOffline,
         _isLoadingMore,
         closeFlags,
-    ) { isRefreshing, isOffline, isLoadingMore, closeFlags ->
+        _hasLoadedOnce,
+    ) { values ->
         VerifyQueueFlags(
-            isRefreshing = isRefreshing,
-            isOffline = isOffline,
-            isLoadingMore = isLoadingMore,
-            closingBatchId = closeFlags.closingBatchId,
-            closeErrorBatchId = closeFlags.closeErrorBatchId,
-            closeErrorMessage = closeFlags.closeErrorMessage,
+            isRefreshing = values[0] as Boolean,
+            isOffline = values[1] as Boolean,
+            isLoadingMore = values[2] as Boolean,
+            closingBatchId = (values[3] as VerifyCloseFlags).closingBatchId,
+            closeErrorBatchId = (values[3] as VerifyCloseFlags).closeErrorBatchId,
+            closeErrorMessage = (values[3] as VerifyCloseFlags).closeErrorMessage,
+            hasLoadedOnce = values[4] as Boolean,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueFlags())
 
     val state: StateFlow<VerifyQueueUiState> = combine(
         observedResource,
-        _selectedModule,
-        _selectedParkId,
-        _selectedShedId,
+        selectedScope,
         flags,
-    ) { resource, module, parkId, shedId, flags ->
+    ) { resource, scope, flags ->
         val items = resource.data?.items.orEmpty()
+        val filterOptions = resource.data?.filterOptions
+
+        // Surface a failure only when there is nothing to show. With cached rows we keep
+        // drawing them, because stale work beats a blank screen for an operator in a shed.
+        //
+        // queueFailed and queueError are separate on purpose. The failure is a FACT the
+        // ViewModel knows; the words for it are not the ViewModel's to choose. A literal
+        // English fallback here could never be translated -- this module ships en/hi/kn/te
+        // -- so the fallback copy lives in the string table and is resolved by the
+        // composable. queueError carries ONLY the backend's own explanation when there is
+        // one, per ServerErrorText.kt: the backend owns the copy, the client renders it.
+        val queueFailed = items.isEmpty() && flags.hasLoadedOnce && resource.error != null
+        val queueError = if (queueFailed) resource.error?.serverErrorText()?.display else null
+
         VerifyQueueUiState(
-            rows = items.map { it.toRow() },
-            selectedModule = module,
+            // ONE CARD PER SHED: the backend emits one verification_item per goat, so a naive
+            // items.map here regresses a 40-animal shed into 40 rows. Group first -- [toShedRow]
+            // folds each group's per-animal counts into one row's progress copy, and a legacy
+            // bundled item (sharing no submissionId) still yields its own singleton card.
+            rows = items
+                .groupBy { it.verificationGroupKey() }
+                .map { (groupKey, groupItems) -> groupItems.toShedRow(groupKey) },
+            moduleKey = filterOptions?.moduleKey.orEmpty(),
+            moduleLabel = filterOptions?.moduleLabel.orEmpty(),
+            // Null for a category this client has no dedicated chrome for (counts, feed). The
+            // rows still render generically; only the module-specific grouping stands down.
+            selectedModule = moduleForCategory(scope.category),
+            // The route named a module or category nothing here can serve. Say so instead of
+            // rendering another module's queue or a bare "all caught up".
+            isUnsupportedModule = scope.category == null,
             isActionQueue = isActionQueue,
-            parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, parkId),
-            selectedParkId = parkId,
-            shedOptions = locationOptions("All sheds", resource.data?.filterOptions?.sheds.orEmpty().map { it.id to it.label }, shedId),
-            selectedShedId = shedId,
+            categoryOptions = filterOptions?.pages.orEmpty().map { page ->
+                VerifyCategoryOption(value = page.category, label = page.label)
+            },
+            selectedCategory = scope.category,
+            // The "All" option deliberately carries NO `status` -- it means "do not filter". Reading
+            // `status` alone made that chip send a BLANK status, and the backend silently defaults
+            // a blank status to `pending` (verification/app/service.go), so tapping All showed the
+            // Due queue: empty once everything is decided. Fall back to the option's own key, which
+            // for that row is literally the backend's no-filter sentinel "all". Same defaulting trap
+            // that made an approved item render "No video attached to this item".
+            statusOptions = filterOptions?.statuses.orEmpty().map { option ->
+                VerifyStatusOption(
+                    value = option.status.ifBlank { option.key },
+                    label = option.label,
+                )
+            },
+            selectedStatus = scope.status,
+            selectedBusinessDate = filterOptions?.selectedBusinessDate ?: scope.businessDate,
+            businessTimezone = filterOptions?.businessTimezone ?: "Asia/Kolkata",
+            missedOnly = scope.missedOnly,
+            hasMissed = filterOptions?.hasMissed ?: false,
+            parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, scope.parkId),
+            selectedParkId = scope.parkId,
+            shedOptions = locationOptions(
+                "All sheds",
+                resource.data?.filterOptions?.sheds.orEmpty().map {
+                    it.id to (it.operationalLocationDisplay?.takeIf(String::isNotBlank) ?: it.label)
+                },
+                scope.shedId,
+            ),
+            selectedShedId = scope.shedId,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = resource.lastSyncedAt,
             isOffline = flags.isOffline,
             hasMore = !isActionQueue && resource.data?.nextCursor != null,
             isLoadingMore = flags.isLoadingMore,
+            hasLoadedOnce = flags.hasLoadedOnce,
+            queueFailed = queueFailed,
+            queueError = queueError,
             driveClosures = resource.data?.driveClosures.orEmpty()
                 .filter { it.ready }
                 .map {
@@ -182,74 +322,177 @@ class VerifyQueueViewModel @Inject constructor(
     fun onEvent(event: VerifyQueueEvent) {
         when (event) {
             is VerifyQueueEvent.SelectCategory -> {
-                Unit
+                // The no-op guard comes FIRST: re-selecting the category already showing must
+                // not emit a filter event, or the funnel counts taps that changed nothing.
+                if (event.category == _selectedCategory.value) return
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "category",
+                    action = if (event.category != null) "set" else "cleared",
+                )
+                _selectedCategory.value = event.category
+                _selectedParkId.value = null
+                _selectedShedId.value = null
+                // Reset HERE, at the scope change, not inside refresh(). The old scope's
+                // marker stayed true until refresh() ran its own reset, leaving a window
+                // between this scope change and refresh() completing where a recomposition
+                // could show the OLD scope's confident answer (rows or "Queue clear") as if
+                // it belonged to the new scope -- STALE SCOPE, see
+                // VerifyQueueLoadSequenceTest's "switching scope resets the loaded marker".
+                _hasLoadedOnce.value = false
+                refresh()
             }
             is VerifyQueueEvent.SelectPark -> {
                 _selectedParkId.value = event.parkId
                 _selectedShedId.value = null
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "park",
+                    action = if (event.parkId != null) "set" else "cleared",
+                )
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectShed -> {
                 _selectedShedId.value = event.shedId
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "shed",
+                    action = if (event.shedId != null) "set" else "cleared",
+                )
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
+                refresh()
+            }
+            is VerifyQueueEvent.SelectStatus -> {
+                if (event.status == _selectedStatus.value && !_missedOnly.value) return
+                _selectedStatus.value = event.status
+                _missedOnly.value = false
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
+                refresh()
+            }
+            is VerifyQueueEvent.SelectBusinessDate -> {
+                if (event.businessDate.isBlank()) return
+                _selectedBusinessDate.value = event.businessDate
+                _missedOnly.value = false
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectModule -> {
-                _selectedModule.value = event.module
-                if (event.module == VerifyModuleTab.VACCINATION) refresh()
+                _selectedCategory.value = categoryForModule(event.module)
+                _selectedParkId.value = null
+                _selectedShedId.value = null
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(analytics, dimension = "module", action = "set")
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
+                refresh()
+            }
+            VerifyQueueEvent.ToggleMissed -> {
+                _missedOnly.value = !_missedOnly.value
+                if (_missedOnly.value) _selectedStatus.value = VerificationStatus.PENDING
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
+                refresh()
             }
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
             VerifyQueueEvent.Refresh -> refresh()
             VerifyQueueEvent.LoadMore -> loadMore()
             is VerifyQueueEvent.CloseDrive -> closeDrive(event.batchId)
+            is VerifyQueueEvent.ScrollSummary ->
+                AnalyticsFunnels.trackVerifyQueueScrollSummary(analytics, event.maxScrollIndex, event.rowCount)
         }
     }
 
     private fun refresh() = viewModelScope.launch {
         _isLoadingMore.value = false
         _isRefreshing.value = true
+        // NOTE: hasLoadedOnce is reset at the SCOPE CHANGE call sites (SelectCategory/
+        // SelectPark/SelectShed/SelectStatus/SelectBusinessDate/SelectModule/ToggleMissed/
+        // clearStaleLocationFilters), not here. A same-scope call (pull-to-refresh, Refresh
+        // event) must never blank a legitimately-loaded/empty queue while it re-reads.
         try {
-            if (_selectedModule.value != VerifyModuleTab.VACCINATION) return@launch
-            AnalyticsFunnels.trackVerifyQueueOpened(analytics, VACCINATION_CATEGORY)
+            val scope = currentScope()
+            val category = scope.category ?: return@launch
+            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
-                    category = VACCINATION_CATEGORY,
+                    category = category,
                     parkId = _selectedParkId.value,
                     shedId = _selectedShedId.value,
                     limit = VERIFY_QUEUE_PAGE_SIZE,
                 )
             } else {
                 repo.refreshQueue(
-                    category = VACCINATION_CATEGORY,
-                    parkId = _selectedParkId.value,
-                    shedId = _selectedShedId.value,
+                    category = category,
+                    status = scope.status,
+                    businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+                    missed = scope.missedOnly,
+                    parkId = scope.parkId,
+                    shedId = scope.shedId,
                     limit = VERIFY_QUEUE_PAGE_SIZE,
                 )
             }
-            _isOffline.value = result.isFailure
+            _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
+        } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+            // A repository throw must not escape viewModelScope.launch -- an uncaught
+            // exception here takes the whole app down, not just this screen. Same defect
+            // shape already fixed in SessionViewModel's dev-session bring-up (see the catch
+            // there): record it and resolve to an honest offline/error state instead of
+            // propagating. hasLoadedOnce still flips in `finally` below, so the screen
+            // reaches a real (if degraded) state rather than wedging on the skeleton.
+            runCatching { crashReporter.recordException(t, "verify queue refresh failed") }
+            _isOffline.value = true
         } finally {
             _isRefreshing.value = false
+            // In FINALLY, not after the result: a throw on the way here would leave this false
+            // forever and wedge the screen on a spinner over a blank list.
+            _hasLoadedOnce.value = true
         }
     }
 
     private fun loadMore() = viewModelScope.launch {
+        val scope = currentScope()
+        val category = scope.category ?: return@launch
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
             cursor = cursor,
-            category = VACCINATION_CATEGORY,
-            parkId = _selectedParkId.value,
-            shedId = _selectedShedId.value,
+            category = category,
+            status = scope.status,
+            businessDate = scope.businessDate.takeUnless { scope.missedOnly },
+            missed = scope.missedOnly,
+            parkId = scope.parkId,
+            shedId = scope.shedId,
             limit = VERIFY_QUEUE_PAGE_SIZE,
         )
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isLoadingMore.value = false
+        AnalyticsFunnels.trackVerifyQueueLoadMore(analytics, category, observedResource.value.data?.items?.size ?: 0)
     }
+
+    private fun currentScope() = VerifyQueueScope(
+        category = _selectedCategory.value,
+        status = _selectedStatus.value,
+        businessDate = _selectedBusinessDate.value,
+        missedOnly = _missedOnly.value,
+        parkId = _selectedParkId.value,
+        shedId = _selectedShedId.value,
+    )
 
     private fun closeDrive(batchId: String) = viewModelScope.launch {
         val batchId = batchId.takeIf { it.isNotBlank() } ?: return@launch
         _closingBatchId.value = batchId
         _closeErrorBatchId.value = null
         _closeErrorMessage.value = null
+        AnalyticsFunnels.trackVerifyDriveCloseAttempted(analytics, batchId)
         when (val result = syncRepo.enqueueVerificationBatchClose(batchId)) {
             is AppResult.Ok -> {
                 val error = waitForCloseSync(result.value)
@@ -264,15 +507,21 @@ class VerifyQueueViewModel @Inject constructor(
                     )
                     _isOffline.value = false
                     refresh()
+                    AnalyticsFunnels.trackVerifyDriveCloseSucceeded(analytics, batchId)
                 } else {
                     _closeErrorBatchId.value = batchId
                     _closeErrorMessage.value = error
+                    AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, batchId, error)
                 }
             }
             is AppResult.Err -> {
                 _closingBatchId.value = null
                 _closeErrorBatchId.value = batchId
                 _closeErrorMessage.value = result.message
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification drive close enqueue failed") }
+                }
+                AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, batchId, result.message)
             }
         }
     }
@@ -302,12 +551,16 @@ class VerifyQueueViewModel @Inject constructor(
         if (selectedPark != null && data.filterOptions.parks.orEmpty().none { it.id == selectedPark }) {
             _selectedParkId.value = null
             _selectedShedId.value = null
+            // This is a scope change (the selected park no longer exists in the backend's
+            // options) -- reset at the change, same as the onEvent scope-change handlers above.
+            _hasLoadedOnce.value = false
             refresh()
             return
         }
         val selectedShed = _selectedShedId.value
         if (selectedShed != null && data.filterOptions.sheds.orEmpty().none { it.id == selectedShed }) {
             _selectedShedId.value = null
+            _hasLoadedOnce.value = false
             refresh()
         }
     }
@@ -328,23 +581,172 @@ class VerifyQueueViewModel @Inject constructor(
         return options
     }
 
-    private fun VerificationQueueItem.toRow(): VerificationQueueRow {
-        // Backend-owned display labels: never render raw UUIDs. Use labels when available.
-        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { "Vaccination proof" }
-        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
+    private fun VerifyQueueViewModel.formatCapturedAtIST(raw: String): String {
+        if (raw.isBlank()) return ""
+        return runCatching {
+            val instant = java.time.Instant.parse(raw)
+            val locale = java.util.Locale.getDefault()
+            java.time.format.DateTimeFormatter
+                .ofLocalizedDateTime(
+                    java.time.format.FormatStyle.MEDIUM,
+                    java.time.format.FormatStyle.SHORT
+                )
+                .withLocale(locale)
+                .withZone(java.time.ZoneId.of("Asia/Kolkata"))
+                .format(instant)
+        }.getOrElse { error ->
+            // Falls back to the raw backend timestamp so the row still renders something — but a
+            // malformed `capturedAt` from the backend must not vanish silently either.
+            runCatching { crashReporter.recordException(error, "verification capturedAt format failed") }
+            raw
+        }
+    }
+
+    /**
+     * One card per GROUP (shed submission), not per animal — see [verificationGroupKey]. A
+     * multi-item group (the new per-goat shape) renders shed-level copy with a live
+     * "N goats · M to review" progress line; a single-item group (legacy bundled item, or any
+     * item with no siblings) renders exactly as the old per-item card did, so a queue that has
+     * not migrated to the new shape yet is visually unchanged.
+     */
+    private fun List<VerificationQueueItem>.toShedRow(groupKey: String): VerificationQueueRow {
+        val representative = first()
+        if (size == 1) return representative.toSingleItemRow(groupKey)
+
+        val pendingCount = count { it.status == VerificationStatus.PENDING }
+        // Every item in a group shares one shed/park/operator/category — the shed submission's
+        // own metadata, not any one animal's.
+        // Prefer the backend-COMPOSED location. shedLabel is the bare shed, so a verifier could
+        // not tell "Godel 1 - Part 3" from "Godel 1 - Part 1" -- the wire carried the partition
+        // but this screen kept reading the old field.
+		val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
+			?: operationalLocationLabel(representative.shedLabel, representative.partitionLabel))?.takeIf { it.isNotBlank() }
+        val title = listOfNotNull(shedLabel, "$size goats · $pendingCount to review")
             .joinToString(" · ")
+            .ifBlank { humanizeCategory(representative.category) }
+        val subtitle = listOfNotNull(
+            representative.parkLabel,
+            representative.operatorName,
+            representative.capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) },
+        ).joinToString(" · ")
+        val mediaCount = sumOf { it.media.size }
+        val groupStatusTone = when {
+            all { it.status == VerificationStatus.APPROVED } -> VerifyTone.APPROVED
+            any { it.status == VerificationStatus.REJECTED } -> VerifyTone.REJECTED
+            else -> VerifyTone.PENDING
+        }
         return VerificationQueueRow(
-            id = itemId,
+            id = groupKey,
+            category = representative.category,
+            categoryLabel = humanizeCategory(representative.category),
+            title = title,
+            subtitle = subtitle,
+            scopeType = VerifyScopeType.INDIVIDUAL,
+            shedId = representative.shedId,
+            partitionLabel = representative.partitionLabel,
+            shedLabel = shedLabel.orEmpty(),
+            animalLabel = "",
+            weightLabel = "",
+            mediaCountLabel = when (mediaCount) {
+                0 -> ""
+                1 -> "1 video"
+                else -> "$mediaCount videos"
+            },
+            parkLabel = representative.parkLabel.orEmpty(),
+            operatorLabel = representative.operatorName.orEmpty(),
+            capturedAtLabel = representative.capturedAt,
+            statusTone = groupStatusTone,
+        )
+    }
+
+    private fun VerificationQueueItem.toSingleItemRow(groupKey: String): VerificationQueueRow {
+        // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
+        // category-humanized name is the last-resort fallback so a non-vaccination row never
+        // mislabels as "Vaccination proof".
+        // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
+        // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
+        // Prefer the backend-COMPOSED location. operationalLocationDisplay carries partition labels
+        // so a verifier can tell "Godel 1 - Part 3" from "Godel 1 - Part 1".
+        val displayShedLabel = (operationalLocationDisplay?.takeIf { it.isNotBlank() }
+            ?: shedLabel)?.takeIf { it.isNotBlank() }
+        val title = listOfNotNull(
+            subjectLabel,
+            displayShedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
+        ).joinToString(" · ").ifBlank { humanizeCategory(category) }
+        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
+            .joinToString(" · ")
+        val mediaCount = media.size
+        val firstMedia = media.firstOrNull()
+        val scopeType = weighingScopeType()
+        return VerificationQueueRow(
+            id = groupKey,
             category = category,
             categoryLabel = humanizeCategory(category),
             title = title,
             subtitle = subtitle,
+            scopeType = scopeType,
+            shedId = shedId,
+            partitionLabel = partitionLabel,
+            shedLabel = displayShedLabel ?: subjectLabel.orEmpty(),
+            animalLabel = when (scopeType) {
+                VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
+                VerifyScopeType.LUMP_SUM -> ""
+                VerifyScopeType.OTHER -> ""
+            },
+            weightLabel = firstMedia?.answer.orEmpty(),
+            mediaCountLabel = when (mediaCount) {
+                0 -> ""
+                1 -> "1 video"
+                else -> "$mediaCount videos"
+            },
+            parkLabel = parkLabel.orEmpty(),
+            operatorLabel = operatorName.orEmpty(),
+            capturedAtLabel = capturedAt,
             statusTone = statusTone(status),
         )
     }
+
+    private fun VerificationQueueItem.weighingScopeType(): VerifyScopeType {
+        if (category != WEIGHING_CATEGORY) return VerifyScopeType.OTHER
+        val refType = source.refType.lowercase()
+        val label = listOfNotNull(subjectLabel, shedLabel, media.firstOrNull()?.label)
+            .joinToString(" ")
+            .lowercase()
+        return when {
+            refType.contains("shed") || refType.contains("lump") || label.contains("lump") || label.contains("shed weight") ->
+                VerifyScopeType.LUMP_SUM
+            else ->
+                VerifyScopeType.INDIVIDUAL
+        }
+    }
 }
 
+private const val MODULE_ARG = "module"
+private const val CATEGORY_ARG = "category"
 private const val VACCINATION_CATEGORY = "vaccination_proof"
+private const val WEIGHING_CATEGORY = "weighing_proof"
+private fun categoryForModule(module: VerifyModuleTab): String = when (module) {
+    VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
+    VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
+}
+
+/**
+ * Maps the nav's MODULE key onto the verification CATEGORY. The two vocabularies differ, and an
+ * unknown key returns null rather than a guess -- see [_selectedCategory].
+ */
+private fun categoryForModuleKey(moduleKey: String?): String? =
+    when (moduleKey?.trim()?.lowercase()) {
+        "vaccination" -> VACCINATION_CATEGORY
+        "weighing" -> WEIGHING_CATEGORY
+        else -> null
+    }
+
+/** Which module chrome (if any) this client renders for a category. Null = generic rows only. */
+private fun moduleForCategory(category: String?): VerifyModuleTab? = when (category) {
+    VACCINATION_CATEGORY -> VerifyModuleTab.VACCINATION
+    WEIGHING_CATEGORY -> VerifyModuleTab.WEIGHING
+    else -> null
+}
 
 private fun locationOptions(
     allLabel: String,
@@ -361,6 +763,51 @@ private fun locationOptions(
 
 internal fun humanizeCategory(category: String): String =
     category.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/**
+ * The shed-level grouping key shared by [VerifyQueueViewModel] (one card per shed) and
+ * [VerifyDetailViewModel] (one verdict per animal inside that card).
+ *
+ * The backend emits one verification_item PER GOAT (`source_ref_type=vaccination_goat`), with
+ * every per-goat item produced from one shed submission sharing one `source.submissionId`. A
+ * legacy bundled item (`ref_type=sop_submission`, several clips already under one verdict) sets
+ * no shared submissionId across other items, so it falls back to its OWN item id — a group of
+ * exactly itself, which is what "render/judge as a group-of-one" means for that shape.
+ */
+/**
+ * The shed's work, across redos — NOT one submission.
+ *
+ * A rejected animal is re-scanned and submitted again, and that redo is a NEW submission. Keying
+ * the group on `submissionId` therefore split one shed across two cards the moment anything was
+ * sent back: the original card kept its rejected animal forever and the redo appeared as a
+ * separate one-goat card, so the verifier could never see the shed as a whole.
+ *
+ * `taskId` + `shedId` + normalized partition are stable across redos (all survive a new
+ * submission), so the redone animal lands back on the operational location it belongs to without
+ * merging sibling partitions. `submissionId` remains the fallback for items that carry no
+ * task/shed, and `itemId` the last resort — a group of exactly itself, which renders and is judged
+ * exactly as a single item always was.
+ */
+internal fun VerificationQueueItem.verificationGroupKey(): String {
+    val taskID = source.taskId?.takeIf { it.isNotBlank() }
+    val shedID = shedId?.takeIf { it.isNotBlank() }
+    if (taskID != null && shedID != null) {
+        return "task:$taskID|shed:$shedID|partition:${verificationPartitionKey()}"
+    }
+    val submissionID = source.submissionId?.takeIf { it.isNotBlank() }
+    if (submissionID != null && shedID != null) {
+        return "submission:$submissionID|shed:$shedID|partition:${verificationPartitionKey()}"
+    }
+    return submissionID ?: itemId
+}
+
+private val verificationPartPrefix = Regex("^part\\s+", RegexOption.IGNORE_CASE)
+
+internal fun VerificationQueueItem.verificationPartitionKey(): String {
+    val raw = partitionLabel?.trim().orEmpty()
+    if (raw.isBlank() || raw.equals("whole", ignoreCase = true)) return "whole"
+    return raw.lowercase().replaceFirst(verificationPartPrefix, "").trim()
+}
 
 internal fun statusTone(status: String): VerifyTone = when (status) {
     VerificationStatus.APPROVED -> VerifyTone.APPROVED

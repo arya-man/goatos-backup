@@ -66,7 +66,7 @@ function hasCommandSegment(route) {
 // Narrow, deliberate exceptions: module surfaces whose PATH happens to contain a command/authority
 // segment but which are not a duplicate of that top-level lens.
 //
-// `/feed/config` is the only entry, approved by explicit maintainer decision recorded in
+// `/feed/config`, approved by explicit maintainer decision recorded in
 // backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It is NOT a
 // second Config authority screen: `/config` remains the single generic protocol-rule authority
 // surface, and `/feed/config` authors the ration grid, per-shed factors, session template and
@@ -75,11 +75,20 @@ function hasCommandSegment(route) {
 // protocol rules rather than the ration grid. The backend contract classifies it "module-surface",
 // not "authority-screen", and ships it as a Feed nav leaf.
 //
+// `/health/config`, approved by explicit maintainer decision 2026-08-06 and recorded in
+// docs/decisions/health-config-authoring.md plus the "health" nav group comment in the same backend
+// contract. It is the same shape of exception for the same reason: a treatment protocol is a
+// day-by-day medication document (disease x age band -> ordered steps carrying medicine, dosage,
+// unit and route) owned by the Health module and served by /health-config/*, not a protocol
+// `rule_dsl` row, and `/config?category=health` cannot render a per-day medicine grid. `/config`
+// stays the single generic protocol-rule authority screen; this is classified "module-surface" and
+// ships as a Health nav leaf.
+//
 // Widening this set is a deliberate scope decision (same standing as SUPPORTED_COUNTS_HREFS below),
 // not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
 // No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
 // exempted for any vertical, and none may be.
-const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config"]);
+const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config", "/health/config"]);
 
 function isAllowedRoute(route) {
   if (TOP_LEVEL_COMMAND_ROUTES.has(route)) return true;
@@ -131,25 +140,58 @@ function navLeavesForGroup(sourceFile, text, groupId) {
   return labels.map((label, i) => ({ label, href: hrefs[i] ?? "" }));
 }
 
+function navItemsFromGoSource(text) {
+  return [...text.matchAll(/navItem\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+    .map((m) => ({ id: m[1], label: m[2], href: m[3] }));
+}
+
+function pageHrefsFromGoSource(text) {
+  return new Set([...text.matchAll(/page\(\s*"[^"]+"\s*,\s*"([^"]+)"/g)].map((m) => m[1]));
+}
+
 const pageFiles = [];
 walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
+const pageRoutes = new Set(pageFiles.map(normalizeRouteFromPage).filter(Boolean));
 
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Counts has two real pages in this slice — Herd Register (the per-goat
-// register) and Counts Breakdown (the farm x stage x breed x gender x shed census). Every other broad Counts
+// create new unsupported route trees. Counts has three real pages in this slice — Herd Register (the per-goat
+// register), Counts Breakdown (the farm x stage x breed x gender x shed census), and Milk Preparation
+// (the current K1/K2/K3 preparation worklist). Every other broad Counts
 // label from the mock must still route into one of those or a top-level command lens.
 //
 // SUPPORTED_COUNTS_HREFS is an allowlist on purpose: widening it is a deliberate scope decision recorded in
 // context/frontend/current-admin-web-scope.md, not a routine edit. Tagging & identity, Weights & ADG, and
 // Count reconciliation remain out of scope and must not be added here without that doc changing too.
-const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/action-center"]);
+const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/counts/milk-preparation", "/action-center"]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
 if (existsSync(visibleIaFile)) {
   const visibleIaText = stripComments(readFileSync(visibleIaFile, "utf8"));
+  if (visibleIaFile.endsWith(".go")) {
+    const pageHrefs = pageHrefsFromGoSource(visibleIaText);
+    const navItems = [
+      ...navItemsFromGoSource(visibleIaText),
+      ...[...visibleIaText.matchAll(/navLeaf(?:Domain)?\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+        .map((m) => ({ id: m[1], label: m[2], href: m[3] })),
+    ];
+    for (const item of navItems) {
+      if (!pageHrefs.has(item.href)) {
+        findings.push(
+          `${visibleIaFile} publishes nav item ${item.id} (${item.label}) -> ${item.href}, ` +
+            "but no AdminWebPageContract page(...) publishes that href.",
+        );
+      }
+      if (!pageRoutes.has(item.href)) {
+        findings.push(
+          `${visibleIaFile} publishes nav item ${item.id} (${item.label}) -> ${item.href}, ` +
+            `but apps/admin-web has no matching page.tsx route. Current routes: [${[...pageRoutes].sort().join(", ")}].`,
+        );
+      }
+    }
+  }
   const countsLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "counts");
   if (!countsLeaves) {
     findings.push(
@@ -395,6 +437,8 @@ const SCOPE_AWARE_FILES = new Set([
   "features/preventive-care-vaccination/execution-section.tsx",
   "features/vaccination-execution/execution-board.tsx",
   "features/vaccination-execution/shed-drilldown.tsx",
+  "features/vaccination-live-tracker/live-tracker-board.tsx",
+  "features/vaccination-live-tracker/params.ts",
 ]);
 const SCOPE_KEY_READ = /\bone\([^,]+,\s*["'`](?:park|as_of|range|scope_mode|date_from|date_to)["'`]\)|\.get\(\s*["'`](?:park|as_of|range|scope_mode|date_from|date_to)["'`]\s*\)/;
 const MANUAL_QS = /new URLSearchParams\(/;

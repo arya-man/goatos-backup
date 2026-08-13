@@ -5,6 +5,7 @@ import { parseScope } from "@/lib/scope";
 import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/vaccination-sheds";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { VaccinationFullSchedule, VaccinationFullScheduleSkeleton, vaccinationScheduleYear } from "./full-vaccine-schedule";
+import { VaccinationCommandBoard, VaccinationCommandBoardSkeleton } from "./command-board";
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -52,20 +53,10 @@ export function VaccinationOperationsPage({
         </Suspense>
       ) : (
         <>
-      {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="bd">
-          <div className="chain" tabIndex={0} role="group" aria-label={copy(pageContract, "section.drive_flow.aria")}>
-            {driveSteps.map((c) => (
-              <div className="cstep" key={c.key} style={{ cursor: "default" }}>
-                <div className="s">{c.step}</div>
-                <b>{c.title}</b>
-                <div className="d">{c.detail}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
+      <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
+        <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
+      </Suspense>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}

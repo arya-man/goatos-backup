@@ -2,13 +2,14 @@ import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
-import { copy, optionGroup, optionalCopy, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   TONE_SWATCH,
   type Tone,
 } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 
 export { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
@@ -44,9 +45,9 @@ function driveCapacityTag(pageContract: AdminUiPageContract, row: ActionCenterOb
       return {
         tone: "dng",
         label: copy(pageContract, "label.drive_over_cap_required"),
-        title: optionalCopy(pageContract, "tooltip.drive_over_cap_required")
-          ?.replace("{animals}", String(animals))
-          .replace("{slots}", String(slots)) ?? "",
+        title: copy(pageContract, "tooltip.drive_over_cap_required")
+          .replace("{animals}", String(animals))
+          .replace("{slots}", String(slots)),
       };
     }
     case "medical_defer":
@@ -98,7 +99,8 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
   const progress = row.expected_count > 0 ? `${row.completed_count}/${row.expected_count} ${copy(pageContract, "label.done_suffix")}` : null;
   const showBlocker = blocker && !operatorMissing;
   const fallbackEvent = copy(pageContract, "label.vaccination");
-  const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${row.shed_name || copy(pageContract, "label.shed_fallback")}`;
+  const shedDisplay = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label });
+  const openLabel = `${copy(pageContract, "label.open_work_item_for")} ${shedDisplay || copy(pageContract, "label.shed_fallback")}`;
   const parkDisplay = optionalOption(pageContract, "park_display_chips", row.park_id);
   const parkLabel = parkDisplay?.label || row.park_name || row.park_id;
   const parkTone = (parkDisplay?.tone || "info") as Tone;

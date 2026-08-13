@@ -71,8 +71,26 @@ Operational kernel golden rule
 Operational kernel system design and diagram
   context/architecture/operational-kernel-system-design.md
 
+Current whole-project remediation ledger (snapshot recorded inside)
+  context/repo-audits/current-whole-project-remediation-ledger.md
+
+Operational task-kernel remediation and rollout plan
+  context/execution/operational-task-kernel-remediation-plan.md
+
+Mandatory defect-prevention, kernel non-deviation, single-integration-PR, and closure contract
+  context/execution/defect-prevention-execution-contract.md
+
+Persistent multi-session program checkpoint and dependency state
+  context/execution/operational-kernel-program-state.md
+
 Operational kernel 5k-to-50k deployment envelope and reversible consolidation ADR
   docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+
+Governing operational task-kernel non-deviation ADR
+  docs/decisions/operational-task-kernel-non-deviation.md
+
+Governing task timing, alerting, violation, appeal, Director/CEO, and HR boundary ADR
+  docs/decisions/task-timing-alerting-violations-and-appeals.md
 
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
@@ -109,6 +127,9 @@ Goat OS agent skill bundle and reference map
 
 Environment, load testing, and doc hygiene
   context/execution/env-load-test-and-doc-hygiene.md
+
+Counts, Shifting, and Feed development documentation audit (2026-07-19 to 2026-07-23)
+  context/execution/counts-shifting-feed-development-doc-audit-2026-07-23.md
 
 Disposable GCP one-million scale test setup, evidence, cleanup, and publication handoff
   context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md
@@ -231,6 +252,9 @@ context/frontend/
 context/repo-audits/
   current repo inventory, migration notes, consolidated defect ledger, and the
   mandatory cross-layer defect-closure program
+
+Current whole-project remediation queue
+  context/repo-audits/current-whole-project-remediation-ledger.md
 
 Consolidated last-35-commits bug ledger
   context/repo-audits/last-35-commits-consolidated-bug-ledger.md

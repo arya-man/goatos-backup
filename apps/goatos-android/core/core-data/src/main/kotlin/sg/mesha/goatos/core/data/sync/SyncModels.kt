@@ -15,6 +15,11 @@ enum class SyncItemStatus { QUEUED, IN_FLIGHT, SUCCEEDED, FAILED }
 data class SyncQueueItem(
     val id: String,
     val opType: String,
+    /** The write's idempotency key -- the ONLY field that identifies WHICH capture this row is.
+     *  [id] is the outbox row's own uuid and [groupKey] is the shed scope, so a caller that needs
+     *  to map a failed write back to the animal it came from must join on this. Reading the tag
+     *  out of [id] instead compiles, never matches, and silently disables the feature built on it. */
+    val idempotencyKey: String,
     val groupKey: String,
     val status: SyncItemStatus,
     val attemptCount: Int,
@@ -27,6 +32,7 @@ data class SyncQueueItem(
     val createdAt: Long,
     val updatedAt: Long,
     val lastError: String?,
+    val localFilePath: String? = null,
     /** Raw JSON of the last successful app-api response (mirrors
      *  [sg.mesha.goatos.core.database.outbox.OutboxEntity.resultJson]) — lets a caller decode
      *  the original server result (e.g. a registered proof's server id) on a SUCCEEDED item
@@ -38,7 +44,38 @@ data class SyncQueueItem(
      *  (business rejection, not exhausted retries) and is reported separately so the UI can
      *  tell the two apart (e.g. render CONFLICT vs DEAD_LETTER banners). */
     val isDeadLetter: Boolean get() = status == SyncItemStatus.FAILED && !conflict && attemptCount >= maxAttempts
+
+    /** True when the sync engine will still attempt this write: QUEUED, IN_FLIGHT, or a
+     *  non-conflict FAILED row that is still inside its retry budget. Mirrors
+     *  [sg.mesha.goatos.core.database.outbox.OutboxDao.observeActive] / `eligibleForDrain`
+     *  EXACTLY, and exists so callers stop using "a row exists under this key" as a proxy for
+     *  "this write is still going to be sent". They are not the same: a dead-lettered
+     *  ([conflict]) or attempt-exhausted ([isDeadLetter]) row is present but will never be
+     *  re-claimed by a drain, so treating its presence as "queued" strands the write. */
+    val isActive: Boolean
+        get() = status == SyncItemStatus.QUEUED ||
+            status == SyncItemStatus.IN_FLIGHT ||
+            (status == SyncItemStatus.FAILED && !conflict && attemptCount < maxAttempts)
 }
+
+/**
+ * A locally durable Health case-open write that has not reached the backend yet.
+ *
+ * This is intentionally separate from a Health treatment session: the backend remains the owner
+ * of session ids, treatment steps, and action-summary totals. The Health list may render this
+ * model as a pending report, but it must never manufacture a canonical work item from it.
+ */
+data class PendingHealthCaseOpen(
+    val outboxItemId: String,
+    val goatId: String,
+    val goatDisplayId: String,
+    val diseaseKey: String,
+    val diseaseName: String,
+    val ageBand: String,
+    val startDate: String,
+    val syncStatus: SyncItemStatus,
+    val lastError: String?,
+)
 
 /**
  * The public sync-status snapshot — **the UI integration point**. The sync-status overlay

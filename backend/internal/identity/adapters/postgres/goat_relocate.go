@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
@@ -86,21 +88,21 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		return ports.RelocateGoatsResult{}, err
 	}
 
-	// Resolve the DESTINATION TAG the moved animals adopt (maintainer decision 2026-07-19): a shed is
-	// homogeneous, so shifting into it makes the animal JOIN that shed's operational cohort. This is
-	// the single, set-based place the tag is decided for the whole group — occupied sheds DERIVE it,
-	// empty sheds REQUIRE it from the command — so relocating N animals to one shed reads the tag
-	// once, never per-goat.
-	profile, err := r.resolveDestinationTag(ctx, tx, cmd)
+	// The raise-time request owns the optional stage transition. Sheds may contain mixed management
+	// stages, so neither residents nor shed_profiles are stage authority for a move.
+	stageResolution, err := r.resolveDestinationTag(ctx, tx, cmd)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
-	// effectiveStage is the CONFIGURED destination cohort; destination_profile_id and
-	// destination_profile_row_version are the SNAPSHOT of the profile that authorised this cohort,
-	// persisted onto the goat.stage_changed identity event + outbox payload so a completion is
-	// provably reproducible under the exact reviewed profile and Vaccination rescope can consume the
-	// profile provenance (shifting_completion_to_vaccination contract requirement #2/#7).
-	effectiveStage := profile.stage
+	// The raise request snapshots the explicit target. An empty value means preserve each animal's
+	// current stage; the destination shed and its residents never infer or override it.
+	effectiveStage := stageResolution.stage
+	// KID/ADULT RIDES ALONG WITH THE COHORT TAG (maintainer decision 2026-08-05). age_band is a
+	// property of the stage, read from the tenant's stage vocabulary, so an animal that adopts an
+	// adult cohort at the destination stops being a kid in the SAME write that moves it. Empty when
+	// the stage is unclassified (clinical tags carry NULL age_band) -- then age_band is preserved
+	// exactly like the stage itself.
+	effectiveAgeBand := stageResolution.ageBand
 
 	reason := cmd.Reason
 	if reason == "" {
@@ -137,81 +139,132 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	// in their own statement BEFORE applyRelocation enqueues the matching outbox rows, for exactly the
 	// reason insertRelocationIdentityEvents documents: outbox_messages_validate_event_tenant_trg
 	// requires the goat_identity_events row to already exist.
-	stageGoatIDs, stageEventIDs, err := r.insertStageChangeIdentityEvents(ctx, tx, cmd, effectiveStage, reason, occurredAt, assignedGoatIDs, profile)
-	if err != nil {
-		return ports.RelocateGoatsResult{}, err
+	var stageGoatIDs, stageEventIDs []string
+	if effectiveStage != "" {
+		stageGoatIDs, stageEventIDs, err = r.insertStageChangeIdentityEvents(ctx, tx, cmd, effectiveStage, reason, occurredAt, assignedGoatIDs)
+		if err != nil {
+			return ports.RelocateGoatsResult{}, err
+		}
 	}
 
-	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs, profile)
+	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, effectiveAgeBand, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
 	sort.Strings(moved)
+
+	// OperationalLocation = park + physical shed + optional partition (backend/internal/platform/
+	// oploc). goats.shed_id/park_id above always carries the PARENT physical shed; the partition half
+	// lives here, in goat_shed_partitions, and must move atomically with the shed/park write -- in the
+	// SAME transaction -- or a reader combining the two tables would observe an animal whose shed says
+	// "moved" but whose partition still names its old location.
+	if err := r.upsertGoatShedPartitionsInTx(ctx, tx, cmd, moved); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+	// Re-derive vaccination_drive_assignment_members for whichever moved goats still have open,
+	// BATCHED obligations. A cross-shed move is separately re-scoped by the async
+	// goat.location.changed consumer (SM-2), which unbatches those obligations outright, so this call
+	// is typically a no-op for that case; a SAME-shed partition-only move has no shed change to
+	// trigger that async path at all, so this is the only place that keeps drive-assignment
+	// membership (and its counters) correct for it. See
+	// obligationpg.SyncDriveAssignmentMembershipForGoatsInTx.
+	if err := obligationpg.SyncDriveAssignmentMembershipForGoatsInTx(ctx, tx, cmd.TenantID, moved); err != nil {
+		return ports.RelocateGoatsResult{}, fmt.Errorf("identity: relocate goats: sync drive assignment membership: %w", err)
+	}
 	return ports.RelocateGoatsResult{MovedGoatIDs: moved}, nil
 }
 
-// destinationProfile is the destination shed's AUTHORITATIVE operational profile: the active
-// shed_profiles row joined through animal_stage_lookup. It is the single source of truth for the
-// cohort a moved animal adopts. Its identity and row_version are snapshotted so a completion executes
-// under the exact profile that was reviewed, and so the goat.stage_changed event can carry the
-// profile provenance that Vaccination rescope consumes.
-type destinationProfile struct {
-	stage                        string
-	destinationProfileID         string
-	destinationProfileRowVersion int32
+// upsertGoatShedPartitionsInTx writes the destination operational location's partition half for
+// every moved goat: goat_shed_partitions.shed_id/partition_label/source_shed_name. PRIMARY KEY
+// (tenant_id, goat_id) makes this a straightforward upsert -- every goat carries at most one
+// partition row, mirroring its current shed_id at all times, whether or not that shed is actually
+// partitioned (a non-partitioned destination writes the 'whole' sentinel, never a synthesized
+// business label -- see oploc.WholeSentinel/Display).
+//
+// cmd.DestinationPartitionLabel is nil for a genuinely non-partitioned destination (or for an
+// existing caller that has not been updated to supply it, which preserves today's behaviour: those
+// callers already only ever moved goats into non-partitioned sheds). cmd.DestinationShedName, when
+// supplied, avoids a redundant shed-name lookup the caller may already have; when blank this reads
+// the name from `locations` so source_shed_name is a real display string and not the shed uuid.
+func (r *Repository) upsertGoatShedPartitionsInTx(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, goatIDs []string) error {
+	if len(goatIDs) == 0 {
+		return nil
+	}
+	partitionLabel := oploc.WholeSentinel
+	if cmd.DestinationPartitionLabel != nil {
+		if trimmed := strings.TrimSpace(*cmd.DestinationPartitionLabel); trimmed != "" {
+			partitionLabel = trimmed
+		}
+	}
+	shedName := strings.TrimSpace(cmd.DestinationShedName)
+	if shedName == "" {
+		if err := tx.QueryRow(ctx, `SELECT name FROM locations WHERE tenant_id = $1::uuid AND location_id = $2::uuid`,
+			cmd.TenantID, cmd.ToShedID).Scan(&shedName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("identity: relocate goats: destination shed name: %w", err)
+		}
+	}
+	sourceShedName := oploc.OperationalLocation{
+		ParkID: cmd.ToParkID, ShedID: cmd.ToShedID, ShedName: shedName, PartitionLabel: partitionLabel,
+	}.Display()
+	if strings.TrimSpace(sourceShedName) == "" {
+		// goat_shed_partitions_source_nonblank requires a non-blank value; a shed name lookup miss
+		// (should not happen -- ensureShedUnderPark already verified the shed exists) still leaves the
+		// write satisfying the constraint rather than failing the whole relocation on a cosmetic field.
+		sourceShedName = cmd.ToShedID
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+SELECT $1::uuid, g.goat_id, $2::uuid, $3, $4, now()
+FROM unnest($5::uuid[]) AS g(goat_id)
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+    shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now()`,
+		cmd.TenantID, cmd.ToShedID, partitionLabel, sourceShedName, goatIDs); err != nil {
+		return fmt.Errorf("identity: relocate goats: upsert goat_shed_partitions: %w", err)
+	}
+	return nil
 }
 
-// resolveDestinationTag resolves the cohort the moved animals adopt at the destination shed from the
-// shed's CONFIGURED profile, never from whoever happens to be standing in it (domain-event-architecture
-// shifting_completion_to_vaccination contract: resident goats are observations, not configuration
-// authority). It is set-based: ONE read of the destination shed's profile for the whole group.
-//
-//   - The authority is the active shed_profiles row for the destination shed, joined through
-//     animal_stage_lookup to its stage_code. The profile's identity (destination_profile_id) and
-//     destination_profile_row_version are snapshotted for provenance and revalidation.
-//   - A destination shed with NO active configured profile FAILS CLOSED
-//     (ErrDestinationProfileMissing) rather than inventing a cohort from residents — this is exactly
-//     the empty/spare-shed case the resident-inference approach could not handle safely.
-//   - A supplied DestinationTag is a request that must AGREE with the configured profile.
-func (r *Repository) resolveDestinationTag(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) (destinationProfile, error) {
-	var prof destinationProfile
-	err := tx.QueryRow(ctx, `
-SELECT a.stage_code,
-       sp.location_id::text AS destination_profile_id,
-       sp.row_version       AS destination_profile_row_version
-FROM shed_profiles sp
-JOIN animal_stage_lookup a
-  ON a.tenant_id = sp.tenant_id
- AND a.animal_stage_id = sp.animal_stage_id
- AND a.status = 'active'
-WHERE sp.tenant_id = $1::uuid
-  AND sp.location_id = $2::uuid`,
-		cmd.TenantID, cmd.ToShedID).Scan(&prof.stage, &prof.destinationProfileID, &prof.destinationProfileRowVersion)
+// destinationStageResolution is the canonical active stage selected when the shifting was raised.
+// It deliberately carries no shed-profile provenance because destination sheds may be mixed-stage.
+type destinationStageResolution struct {
+	stage string
+	// ageBand is the kid/adult classification the tenant's stage vocabulary attaches to that stage
+	// ('kid', 'adult', or "" when the stage is deliberately unclassified). It is read here, from the
+	// same animal_stage_lookup row that canonicalizes the stage code, so the two answers can never
+	// disagree about the same tag.
+	ageBand string
+}
+
+// resolveDestinationTag validates the explicit raise-time target. An empty target means preserve
+// each goat's current management_stage (legacy and keep-current requests).
+func (r *Repository) resolveDestinationTag(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) (destinationStageResolution, error) {
+	stage := strings.TrimSpace(cmd.DestinationTag)
+	if stage == "" {
+		return destinationStageResolution{}, nil
+	}
+	var canonical, ageBand string
+	err := tx.QueryRow(ctx, `SELECT stage_code, COALESCE(age_band, '') FROM animal_stage_lookup
+WHERE tenant_id=$1::uuid AND status='active' AND lower(stage_code)=lower($2)
+ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical, &ageBand)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Fail closed: a shed with no active configured profile has no authority to assign a cohort.
-		return destinationProfile{}, ports.ErrDestinationProfileMissing
+		return destinationStageResolution{}, ports.ErrDestinationTagConflict
 	}
 	if err != nil {
-		return destinationProfile{}, fmt.Errorf("identity: relocate goats: read destination shed profile: %w", err)
+		return destinationStageResolution{}, fmt.Errorf("identity: validate requested management stage: %w", err)
 	}
-	if strings.TrimSpace(prof.stage) == "" {
-		return destinationProfile{}, ports.ErrDestinationProfileMissing
-	}
-
-	// A supplied tag is a request that must AGREE with the shed's configured profile; it can never
-	// override it.
-	if supplied := strings.TrimSpace(cmd.DestinationTag); supplied != "" && !strings.EqualFold(supplied, prof.stage) {
-		return destinationProfile{}, ports.ErrDestinationTagConflict
-	}
+	resolved := destinationStageResolution{stage: canonical, ageBand: ageBand}
 
 	// Clinical fail-closed. Movement never invents clinical truth: a profile naming a clinical state
 	// (sick/under_treatment/recovering/quarantine/icu -- protocol/domain.MandatoryClinicalDeferStates,
 	// reused not re-hardcoded) is rejected. The animal's clinical state is set by its owning clinical
 	// flow; the move then follows an already-diagnosed animal. See ports.ErrClinicalDestinationTag.
-	if isClinicalDestinationStage(prof.stage) {
-		return destinationProfile{}, ports.ErrClinicalDestinationTag
+	if isClinicalDestinationStage(canonical) {
+		return destinationStageResolution{}, ports.ErrClinicalDestinationTag
 	}
-	return prof, nil
+	return resolved, nil
 }
 
 // clinicalStageKey normalizes a free-text management_stage for comparison against the canonical
@@ -332,7 +385,7 @@ RETURNING goat_id::text, identity_event_id::text`
 // ("<prefix>:stage:<goat_id>") so it can never collide with the location event's key.
 func (r *Repository) insertStageChangeIdentityEvents(
 	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, effectiveStage, reason string, occurredAt time.Time,
-	assignedGoatIDs []string, profile destinationProfile,
+	assignedGoatIDs []string,
 ) ([]string, []string, error) {
 	const stageEventsSQL = `
 WITH targets AS (
@@ -365,11 +418,7 @@ SELECT
         'reason', $7::text,
         'current_park_id', $8::text,
         'current_shed_id', $9::text,
-        -- Provenance snapshot: the authoritative destination shed_profiles row + its row_version
-        -- that resolved this cohort. Persisted so the reclassification is reproducible under the
-        -- exact reviewed profile and Vaccination rescope can trust the profile identity.
-        'destination_profile_id', $11::text,
-        'destination_profile_row_version', $12::int,
+        'management_stage_source', 'shifting_raise_request',
         'scope_type', 'goat',
         'scope_id', t.goat_id::text
     ),
@@ -379,18 +428,16 @@ FROM targets t
 RETURNING goat_id::text, identity_event_id::text`
 
 	rows, err := tx.Query(ctx, stageEventsSQL,
-		cmd.TenantID,                         // $1
-		assignedGoatIDs,                      // $2 (only the locked, movable set)
-		effectiveStage,                       // $3
-		goatStageChangedEventType,            // $4
-		occurredAt,                           // $5
-		cmd.ActorID,                          // $6
-		reason,                               // $7
-		cmd.ToParkID,                         // $8
-		cmd.ToShedID,                         // $9
-		cmd.OutboxIdempotencyPrefix,          // $10
-		profile.destinationProfileID,         // $11
-		profile.destinationProfileRowVersion, // $12
+		cmd.TenantID,                // $1
+		assignedGoatIDs,             // $2 (only the locked, movable set)
+		effectiveStage,              // $3
+		goatStageChangedEventType,   // $4
+		occurredAt,                  // $5
+		cmd.ActorID,                 // $6
+		reason,                      // $7
+		cmd.ToParkID,                // $8
+		cmd.ToShedID,                // $9
+		cmd.OutboxIdempotencyPrefix, // $10
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("identity: relocate goats: record stage-change events: %w", err)
@@ -424,12 +471,14 @@ RETURNING goat_id::text, identity_event_id::text`
 // cover exactly the same animals by construction -- they cannot drift apart. The rows are already
 // locked FOR UPDATE by the first statement, so re-deriving them here is stable.
 // It also, in the SAME statement, writes the destination cohort tag onto every moved animal
-// (management_stage = $16) and enqueues the goat.stage_changed outbox row for the reclassified subset
-// (the (goat_id, stage_event_id) pairs from insertStageChangeIdentityEvents). Shed and tag move
-// together atomically: a goat can never land in the destination shed still carrying its old cohort.
+// (management_stage = $16), the kid/adult band that tag carries (age_band = $19), and enqueues the
+// goat.stage_changed outbox row for the reclassified subset (the (goat_id, stage_event_id) pairs
+// from insertStageChangeIdentityEvents). Shed, tag and band move together atomically: a goat can
+// never land in the destination shed still carrying its old cohort, nor sit in an adult cohort
+// still counted as a kid.
 func (r *Repository) applyRelocation(
 	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, reason string, occurredAt time.Time,
-	effectiveStage string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string, profile destinationProfile,
+	effectiveStage, effectiveAgeBand string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string,
 ) ([]string, error) {
 	// NOT compute-on-read. This is a single set-based WRITE for one bounded shifting completion
 	// (<= MaxRelocateGoatsPerCommand animals): the CTEs are data-modifying (bulk UPDATE of
@@ -449,8 +498,12 @@ stage_assigned AS (
 ),
 targets AS (
     SELECT g.goat_id, g.current_location_id AS from_location_id, g.park_id AS from_park_id,
-           g.shed_id AS from_shed_id, g.farm_id, COALESCE(g.management_stage, '') AS from_stage
+           g.shed_id AS from_shed_id, gsp.partition_label AS from_partition_label,
+           g.farm_id, COALESCE(g.management_stage, '') AS from_stage
     FROM goats g
+    LEFT JOIN goat_shed_partitions gsp
+      ON gsp.tenant_id = g.tenant_id
+     AND gsp.goat_id = g.goat_id
     WHERE g.tenant_id = $1::uuid
       AND g.goat_id = ANY($12::uuid[])
       AND g.merged_into_goat_id IS NULL
@@ -471,7 +524,12 @@ moved AS (
     SET current_location_id = $2::uuid,
         park_id             = $3::uuid,
         shed_id             = $2::uuid,
-        management_stage    = $16::text,
+        management_stage    = CASE WHEN $16::text = '' THEN g.management_stage ELSE $16::text END,
+        -- Kid/adult follows the cohort tag it is a property of. Guarded on the SAME "is there a
+        -- destination tag" condition ($16) as management_stage, and additionally on the band being
+        -- classified ($20), so a keep-current move and an unclassified/clinical tag both leave the
+        -- animal's existing band untouched rather than blanking it.
+        age_band            = CASE WHEN $16::text = '' OR $20::text = '' THEN g.age_band ELSE $20::text END,
         updated_at          = $4::timestamptz,
         row_version         = row_version + 1
     FROM identified i
@@ -480,9 +538,11 @@ moved AS (
 ),
 history AS (
     INSERT INTO goat_location_history (
-        tenant_id, goat_id, from_location_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+        tenant_id, goat_id, from_location_id, from_partition_label, to_location_id, to_partition_label,
+        reason, occurred_at, actor_id, source_record_id
     )
-    SELECT $1::uuid, i.goat_id, i.from_location_id, $2::uuid, $5, $4::timestamptz, $6::uuid, $7
+    SELECT $1::uuid, i.goat_id, i.from_location_id, nullif(i.from_partition_label, ''),
+           $2::uuid, nullif($21::text, ''), $5, $4::timestamptz, $6::uuid, $7
     FROM identified i
 ),
 events AS (
@@ -527,8 +587,10 @@ events AS (
                 'from_location_id', i.from_location_id::text,
                 'from_park_id', i.from_park_id::text,
                 'from_shed_id', i.from_shed_id::text,
+                'from_partition_label', i.from_partition_label,
                 'to_park_id', $3::text,
                 'to_shed_id', $2::text,
+                'to_partition_label', nullif($21::text, ''),
                 'reason', $5::text,
                 'scope_type', 'shed',
                 'scope_id', $2::text
@@ -584,11 +646,7 @@ events_stage AS (
                 'reason', $5::text,
                 'current_park_id', $3::text,
                 'current_shed_id', $2::text,
-                -- Provenance snapshot mirrored onto the outbox payload so a downstream consumer
-                -- (Vaccination rescope, feed, audit) sees the exact destination profile + version
-                -- that authorised this reclassification.
-                'destination_profile_id', $20::text,
-                'destination_profile_row_version', $21::int,
+                'management_stage_source', 'shifting_raise_request',
                 'scope_type', 'goat',
                 'scope_id', s.goat_id::text
             )
@@ -602,27 +660,27 @@ events_stage AS (
 SELECT goat_id::text FROM moved`
 
 	rows, err := tx.Query(ctx, relocateSQL,
-		cmd.TenantID,                         // $1
-		cmd.ToShedID,                         // $2
-		cmd.ToParkID,                         // $3
-		occurredAt,                           // $4
-		reason,                               // $5
-		cmd.ActorID,                          // $6
-		cmd.OutboxIdempotencyPrefix,          // $7 (goat_location_history.source_record_id)
-		eventSchemaVersion,                   // $8
-		goatLifecycleTopic,                   // $9
-		eventSchemaRef,                       // $10
-		cmd.OutboxIdempotencyPrefix,          // $11
-		assignedGoatIDs,                      // $12
-		assignedEventIDs,                     // $13
-		goatMovedEventType,                   // $14
-		cmd.TraceID,                          // $15
-		effectiveStage,                       // $16 (destination cohort tag written onto every moved animal)
-		stageGoatIDs,                         // $17 (reclassified subset only)
-		stageEventIDs,                        // $18
-		goatStageChangedEventType,            // $19
-		profile.destinationProfileID,         // $20 (snapshot: authoritative destination profile)
-		profile.destinationProfileRowVersion, // $21 (snapshot: profile row_version at authorisation)
+		cmd.TenantID,                // $1
+		cmd.ToShedID,                // $2
+		cmd.ToParkID,                // $3
+		occurredAt,                  // $4
+		reason,                      // $5
+		cmd.ActorID,                 // $6
+		cmd.OutboxIdempotencyPrefix, // $7 (goat_location_history.source_record_id)
+		eventSchemaVersion,          // $8
+		goatLifecycleTopic,          // $9
+		eventSchemaRef,              // $10
+		cmd.OutboxIdempotencyPrefix, // $11
+		assignedGoatIDs,             // $12
+		assignedEventIDs,            // $13
+		goatMovedEventType,          // $14
+		cmd.TraceID,                 // $15
+		effectiveStage,              // $16 (destination cohort tag written onto every moved animal)
+		stageGoatIDs,                // $17 (reclassified subset only)
+		stageEventIDs,               // $18
+		goatStageChangedEventType,   // $19
+		effectiveAgeBand,            // $20 (kid/adult band carried by that cohort tag; "" = leave as-is)
+		stringValue(cmd.DestinationPartitionLabel), // $21
 	)
 	if err != nil {
 		return nil, fmt.Errorf("identity: relocate goats: %w", err)

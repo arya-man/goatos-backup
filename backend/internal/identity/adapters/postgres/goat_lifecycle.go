@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 const (
@@ -53,6 +56,7 @@ type goatMutationState struct {
 	FarmID             *string
 	ParkID             *string
 	ShedID             *string
+	PartitionLabel     *string
 }
 
 func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
@@ -110,9 +114,6 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
 		return nil, ports.ErrWriteConflict
 	}
-	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID {
-		return nil, ports.ErrWriteConflict
-	}
 	// Locked business rule (maintainer decision 2026-07-19): goats NEVER move between
 	// parks. A placed goat may only move shed-to-shed WITHIN its current park; leaving
 	// a park is a terminal exit (transferred/sold) via the exit flow, never a move.
@@ -121,6 +122,15 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	// no prior park (initial placement) is not a move and passes.
 	if state.ParkID != nil && *state.ParkID != cmd.ToParkID {
 		return nil, ports.ErrCrossParkMove
+	}
+
+	toPartitionLabel, err := r.resolveMoveDestinationPartition(ctx, tx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID &&
+		oploc.SamePartition(stringValue(state.PartitionLabel), stringValue(toPartitionLabel)) {
+		return nil, ports.ErrWriteConflict
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -136,24 +146,52 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO goat_location_history (
-  tenant_id, goat_id, from_location_id, to_location_id, reason, occurred_at, actor_id, source_record_id
+  tenant_id, goat_id, from_location_id, from_partition_label, to_location_id, to_partition_label,
+  reason, occurred_at, actor_id, source_record_id
 ) VALUES (
-  $1::uuid, $2::uuid, nullif($3::text, '')::uuid, $4::uuid, $5, $6::timestamptz, $7::uuid, $8
+  $1::uuid, $2::uuid, nullif($3::text, '')::uuid, nullif($4::text, ''), $5::uuid, nullif($6::text, ''),
+  $7, $8::timestamptz, $9::uuid, $10
 )`,
-		cmd.TenantID, cmd.GoatID, stringValue(state.CurrentLocation), cmd.ToShedID, goatLocationHistoryReasonMove, cmd.OccurredAt, cmd.ActorID, cmd.StoredIdempotencyKey); err != nil {
+		cmd.TenantID, cmd.GoatID, stringValue(state.CurrentLocation), stringValue(state.PartitionLabel),
+		cmd.ToShedID, stringValue(toPartitionLabel), goatLocationHistoryReasonMove, cmd.OccurredAt,
+		cmd.ActorID, cmd.StoredIdempotencyKey); err != nil {
 		return nil, err
+	}
+	// The animal's PEN moves with it, in this same transaction. Two cases, and the DELETE half
+	// matters as much as the upsert: a move to a shed with no pen named must CLEAR any pen the
+	// animal used to occupy, or it keeps a goat_shed_partitions row pointing at the shed it just
+	// left and every partition-aware read reports it in the wrong place.
+	if toPartitionLabel != nil {
+		label := strings.TrimSpace(*toPartitionLabel)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, now())
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+    shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now()`,
+			cmd.TenantID, cmd.GoatID, cmd.ToShedID, label, cmd.ToShedID); err != nil {
+			return nil, fmt.Errorf("identity: move goat: upsert goat_shed_partitions: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx,
+		`DELETE FROM goat_shed_partitions WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID); err != nil {
+		return nil, fmt.Errorf("identity: move goat: clear goat_shed_partitions: %w", err)
 	}
 
 	payload := map[string]any{
-		"goat_id":          cmd.GoatID,
-		"from_park_id":     stringValue(state.ParkID),
-		"from_shed_id":     stringValue(state.ShedID),
-		"to_park_id":       cmd.ToParkID,
-		"to_shed_id":       cmd.ToShedID,
-		"scope_type":       "shed",
-		"scope_id":         cmd.ToShedID,
-		"reason":           cmd.Reason,
-		"row_version_from": cmd.RowVersion,
+		"goat_id":              cmd.GoatID,
+		"from_park_id":         stringValue(state.ParkID),
+		"from_shed_id":         stringValue(state.ShedID),
+		"from_partition_label": stringValue(state.PartitionLabel),
+		"to_park_id":           cmd.ToParkID,
+		"to_shed_id":           cmd.ToShedID,
+		"to_partition_label":   stringValue(toPartitionLabel),
+		"scope_type":           "shed",
+		"scope_id":             cmd.ToShedID,
+		"reason":               cmd.Reason,
+		"row_version_from":     cmd.RowVersion,
 	}
 	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
 		TenantUUID:     tenantUUID,
@@ -1108,11 +1146,19 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 	var state goatMutationState
 	var mergedInto, currentLocation, farmID, parkID, shedID pgtype.UUID
 	err := tx.QueryRow(ctx, `
-	SELECT lifecycle_status, merged_into_goat_id, COALESCE(management_stage, ''), COALESCE(health_status, ''), COALESCE(reproductive_status, ''), row_version,
-	       current_location_id, farm_id, park_id, shed_id
-	FROM goats
-	WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
-	FOR UPDATE`, tenantID, goatID).Scan(
+	SELECT g.lifecycle_status, g.merged_into_goat_id, COALESCE(g.management_stage, ''), COALESCE(g.health_status, ''), COALESCE(g.reproductive_status, ''), g.row_version,
+	       g.current_location_id, g.farm_id, g.park_id, g.shed_id, gsp.partition_label
+	FROM goats g
+	LEFT JOIN goat_shed_partitions gsp
+	  ON gsp.tenant_id = g.tenant_id
+	 AND gsp.goat_id = g.goat_id
+	WHERE g.tenant_id = $1::uuid AND g.goat_id = $2::uuid
+	-- FOR UPDATE OF g, not a bare FOR UPDATE. Postgres refuses a locking clause on the NULLABLE side
+	-- of an outer join ("FOR UPDATE cannot be applied to the nullable side of an outer join",
+	-- SQLSTATE 0A000), and gsp is exactly that: a goat with no partition row must still be lockable.
+	-- Naming g locks only the row this mutation actually mutates, which is also the correct scope --
+	-- the partition is read here for context, never written by this path.
+	FOR UPDATE OF g`, tenantID, goatID).Scan(
 		&state.LifecycleStatus,
 		&mergedInto,
 		&state.ManagementStage,
@@ -1123,6 +1169,7 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 		&farmID,
 		&parkID,
 		&shedID,
+		&state.PartitionLabel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return state, ports.ErrNotFound
@@ -1136,6 +1183,48 @@ func lockGoatForLifecycleMutation(ctx context.Context, tx pgx.Tx, tenantID, goat
 	state.ParkID = uuidStringPtr(parkID)
 	state.ShedID = uuidStringPtr(shedID)
 	return state, nil
+}
+
+func (r *Repository) resolveMoveDestinationPartition(ctx context.Context, tx pgx.Tx, cmd ports.MoveGoatCommand) (*string, error) {
+	if cmd.ToPartitionLabel != nil {
+		label := strings.TrimSpace(*cmd.ToPartitionLabel)
+		if label == "" {
+			return nil, ports.ErrPartitionRequired
+		}
+		var canonical string
+		err := tx.QueryRow(ctx, `
+SELECT partition_label
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND status = 'active'
+  AND regexp_replace(lower(btrim(partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3)), '^part[[:space:]]+', '')
+ORDER BY partition_label
+LIMIT 1`, cmd.TenantID, cmd.ToShedID, label).Scan(&canonical)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ports.ErrPartitionNotInShed
+		}
+		if err != nil {
+			return nil, fmt.Errorf("identity: move goat: check shed_partitions: %w", err)
+		}
+		return &canonical, nil
+	}
+	var hasPartitions bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM shed_partitions
+  WHERE tenant_id = $1::uuid
+    AND shed_id = $2::uuid
+    AND status = 'active'
+)`, cmd.TenantID, cmd.ToShedID).Scan(&hasPartitions); err != nil {
+		return nil, fmt.Errorf("identity: move goat: check destination partition requirement: %w", err)
+	}
+	if hasPartitions {
+		return nil, ports.ErrPartitionRequired
+	}
+	return nil, nil
 }
 
 func exitedLifecycleStatus(status string) bool {

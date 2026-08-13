@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,20 +58,29 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
  *
  * Renders nothing once every OS-required permission is already granted, so a returning
  * operator's login screen stays uncluttered (no dead/static UI — repo standing rule).
+ *
+ * This composable owns no analytics client (no Hilt in this module — see feature-auth's
+ * `build.gradle.kts`): [onGateShown]/[onPermissionAnswered] report every render-with-a-gap and
+ * every grant/deny to the host (`LoginScreen` -> `MainActivity`, which holds the injected
+ * [sg.mesha.goatos.core.analytics.AnalyticsPort]), the same pattern
+ * [RoleBasedPermissionGate] already uses for the mandatory gate. A denied camera permission here
+ * is exactly why an operator "can't record" later, and today nothing at all surfaces that.
  */
 @Composable
 fun PermissionGateCard(
     modifier: Modifier = Modifier,
+    onGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
     val required = remember { AppPermission.requiredForSdkInt() }
     if (required.isEmpty()) return
 
-    // Only knowable as "permanently denied" AFTER a real request this session — before
-    // that, shouldShowRationale is also false but just means "never asked" (see
-    // PermissionGrantResolver's kdoc).
-    var hasRequestedOnce by rememberSaveable { mutableStateOf(false) }
+    // Only knowable as "permanently denied" after repeated real requests — before the
+    // first, shouldShowRationale is also false but just means "never asked", and after a
+    // single denial some phones report it false too (see PermissionGrantResolver's kdoc).
+    var requestRounds by rememberSaveable { mutableStateOf(0) }
     var grantedSnapshot by remember {
         mutableStateOf(required.associateWith { isPermissionGranted(context, it) })
     }
@@ -83,9 +93,14 @@ fun PermissionGateCard(
     // the gate outright.
     val registryOwner = LocalActivityResultRegistryOwner.current
     val launcher: ActivityResultLauncher<Array<String>>? = if (registryOwner != null) {
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            hasRequestedOnce = true
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            requestRounds += 1
             grantedSnapshot = required.associateWith { permission -> isPermissionGranted(context, permission) }
+            // Report every answer the OS actually returned — only the still-missing permissions
+            // were launched, so this never reports one already granted in an earlier round.
+            // `results` keys are already manifest permission strings (RequestMultiplePermissions'
+            // contract), not [AppPermission].
+            results.forEach { (manifestPermission, granted) -> onPermissionAnswered(manifestPermission, granted) }
         }
     } else {
         null
@@ -96,7 +111,7 @@ fun PermissionGateCard(
         val rationaleOk = activity?.let { shouldShowRationale(it, permission) } ?: true
         permission to PermissionGrantResolver.resolve(
             isGranted = granted,
-            hasRequestedOnce = hasRequestedOnce,
+            requestCount = requestRounds,
             shouldShowRationale = rationaleOk,
         )
     }
@@ -104,6 +119,13 @@ fun PermissionGateCard(
     if (statuses.all { it.second == PermissionGrantState.GRANTED }) return
 
     val needsRequest = statuses.filter { it.second == PermissionGrantState.DENIED }.map { it.first }
+    val stillMissing = statuses.filter { it.second != PermissionGrantState.GRANTED }.map { it.first.manifestPermission }
+
+    // Fire once per DISTINCT missing set, not on every recomposition — keyed on the resolved
+    // list so a parent recompose that leaves the same gap in place never double-counts it.
+    LaunchedEffect(stillMissing) {
+        if (stillMissing.isNotEmpty()) onGateShown(stillMissing)
+    }
 
     MeshaCard(modifier = modifier) {
         MeshaSectionLabel(text = stringResource(R.string.perm_gate_title))
@@ -157,7 +179,7 @@ private fun PermissionRow(
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = labelFor(permission), color = MeshaColors.Ink, style = MeshaType.body.copy(fontWeight = FontWeight.W600))
+            Text(text = labelFor(permission), color = MeshaColors.Ink, style = MeshaType.bodyStrong)
             Text(text = rationaleFor(permission), color = MeshaColors.Faint, style = MeshaType.caption)
         }
         Spacer(Modifier.width(8.dp))
@@ -170,7 +192,7 @@ private fun PermissionRow(
                 Text(
                     text = stringResource(R.string.perm_status_open_settings),
                     color = MeshaColors.Danger,
-                    style = MeshaType.caption.copy(fontWeight = FontWeight.W700),
+                    style = MeshaType.pill,
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .clickable(onClick = onOpenSettings),
@@ -188,19 +210,25 @@ private fun appSettingsIntent(packageName: String): Intent =
 private fun iconFor(permission: AppPermission): ImageVector = when (permission) {
     AppPermission.CAMERA -> MeshaIcons.Video
     AppPermission.BLUETOOTH_CONNECT -> MeshaIcons.Bluetooth
+    AppPermission.BLUETOOTH_SCAN -> MeshaIcons.Bluetooth
     AppPermission.NOTIFICATIONS -> MeshaIcons.Bell
+    AppPermission.LOCATION -> MeshaIcons.Home
 }
 
 @Composable
 private fun labelFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_label_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_label_bluetooth)
+    AppPermission.BLUETOOTH_SCAN -> stringResource(R.string.perm_label_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_label_notifications)
+    AppPermission.LOCATION -> stringResource(R.string.perm_label_location)
 }
 
 @Composable
 private fun rationaleFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_rationale_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_rationale_bluetooth)
+    AppPermission.BLUETOOTH_SCAN -> stringResource(R.string.perm_rationale_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_rationale_notifications)
+    AppPermission.LOCATION -> stringResource(R.string.perm_rationale_location)
 }

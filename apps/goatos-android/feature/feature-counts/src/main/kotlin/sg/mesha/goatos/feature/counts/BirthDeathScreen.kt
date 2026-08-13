@@ -32,10 +32,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Clock
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.ZoneId
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
  * Record a birth or a death (`/counts/birth-death`) — a hosted destination with Up/Back.
@@ -65,6 +68,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 enum class BirthDeathMode { BIRTH, DEATH }
 
+/** Whether the newborn's tag is a permanent RFID or a provisional temporary tag. */
+const val BIRTH_ID_KIND_PERMANENT = "permanent"
+const val BIRTH_ID_KIND_TEMPORARY = "temporary"
+
 /**
  * Draft fields for both modes.
  *
@@ -77,18 +84,38 @@ enum class BirthDeathMode { BIRTH, DEATH }
 @Immutable
 data class BirthDeathUiState(
     val mode: BirthDeathMode = BirthDeathMode.BIRTH,
-    // Birth — identity + dates (free text)
+    // Birth — identity + dates
+    /** [BIRTH_ID_KIND_PERMANENT] (RFID) or [BIRTH_ID_KIND_TEMPORARY] (provisional tag). */
+    val idKind: String = BIRTH_ID_KIND_PERMANENT,
     val tag: String = "",
-    val secondTag: String = "",
+    /**
+     * An optional SECOND permanent RFID (animal_identifier_2) for the permanent-RFID path only — a
+     * newborn given two ear tags. Blank = attach only the primary. Only sent in
+     * [BIRTH_ID_KIND_PERMANENT] mode; a temporary tag never carries a second permanent RFID.
+     */
+    val tag2: String = "",
+    /**
+     * Which permanent-RFID field is currently listening to the Bluetooth reader
+     * ([BirthDeathField.TAG] or [BirthDeathField.TAG2]), or null when nothing is scanning. Only one
+     * field at a time — Android holds a single BT-HID connection either way.
+     */
+    val scanningField: BirthDeathField? = null,
     val species: String = "goat",
     val sex: String = "female",
+    // Breed is CHOSEN from the herd's own backend-supplied breed vocabulary (the same Room-cached
+    // Counts facet the census filter uses), never typed. [breed] holds the selected facet key.
     val breed: String = "",
+    val breedOptions: List<CountsFilterOptionUi> = emptyList(),
     val dob: String = "",
+    // Entry date (the day this record is made). Defaults to today's business date (stamped by the
+    // ViewModel) but is editable via the M3 date picker. The backend enforces dob <= entry_date.
     val entryDate: String = "",
     // Birth — placement (park -> shed cascade, ids chosen from the destinations catalog)
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val parkId: String = "",
     val shedId: String = "",
+    /** The pen within [shedId], or null for a shed-level placement. See AddBirthState. */
+    val partitionLabel: String? = null,
     /** Set when the destination catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
     val damId: String = "",
@@ -105,15 +132,31 @@ data class BirthDeathUiState(
     val canSubmit: Boolean = false,
     val validationMessage: String? = null,
     val result: CountsWriteResultUi = CountsWriteResultUi(),
+    /**
+     * Transient success confirmation shown after a synced write auto-clears the form, so the operator
+     * sees the record landed on a fresh form. Cleared when they start the next entry.
+     */
+    val lastRecordedMessage: String? = null,
 ) {
     /** The sheds of the currently chosen park — the second placement dropdown's whole option set. */
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
+
+    /** The composite dropdown key for the current selection; shed alone is not unique. */
+    val shedOptionKey: String
+        get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
 }
 
 sealed interface BirthDeathEvent {
     data class SelectMode(val mode: BirthDeathMode) : BirthDeathEvent
     data class EditField(val field: BirthDeathField, val value: String) : BirthDeathEvent
+
+    /**
+     * Start/stop the Bluetooth RFID reader for one permanent-identifier field
+     * ([BirthDeathField.TAG] / [BirthDeathField.TAG2]). Tapping the field that is already scanning
+     * stops it; tapping the other one hands the reader over.
+     */
+    data class ToggleRfidScan(val field: BirthDeathField) : BirthDeathEvent
 
     // Birth placement — park -> shed cascade. Choosing a park resets the shed.
     data class SelectPark(val parkId: String) : BirthDeathEvent
@@ -125,13 +168,33 @@ sealed interface BirthDeathEvent {
     data class SelectAnimal(val goatId: String) : BirthDeathEvent
 
     data object Submit : BirthDeathEvent
+
+    /** Reset the form after a committed write so the operator can record the next animal. */
+    data object RecordAnother : BirthDeathEvent
     data object Back : BirthDeathEvent
 }
 
-/** The remaining free-text fields. Placement and the death target are NOT here — they are chosen. */
+/**
+ * Editable birth/death fields. Placement, the death target, and breed are NOT free text — they are
+ * chosen from backend-owned vocabularies. Entry date is not here either: it is stamped
+ * automatically to the day the entry is recorded (see [BirthDeathViewModel]).
+ */
 enum class BirthDeathField {
-    TAG, SECOND_TAG, SPECIES, SEX, BREED, DOB, ENTRY_DATE, DAM_ID, REASON,
+    ID_KIND, TAG, TAG2, SPECIES, SEX, BREED, DOB, ENTRY_DATE, DAM_ID, REASON,
 }
+
+/** The zone the whole counts/birth-death path stamps entry dates on (BirthDeathViewModel,
+ *  AddBirthViewModel) -- never UTC. See A24. */
+private val BIRTH_DEATH_BUSINESS_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
+
+/**
+ * Today's Asia/Kolkata business date, as an ISO string. A [clock] parameter (rather than the bare
+ * `LocalDate.now(ZoneId)` call this replaced) so a test can simulate a wall-clock instant -- e.g.
+ * 01:00 IST, which is still the PREVIOUS day in UTC -- without needing to change the device's
+ * system clock.
+ */
+internal fun birthEntryIstBusinessDate(clock: Clock = Clock.systemUTC()): String =
+    LocalDate.now(clock.withZone(BIRTH_DEATH_BUSINESS_ZONE)).toString()
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -149,8 +212,13 @@ fun BirthDeathScreen(
     // already entered or cleared.
     LaunchedEffect(state.mode) {
         if (state.mode == BirthDeathMode.BIRTH && state.entryDate.isBlank()) {
-            val today = LocalDate.now(ZoneOffset.UTC).toString()
-            onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, today))
+            // A24: the rest of the counts/birth-death path (BirthDeathViewModel.todayBusinessDate,
+            // AddBirthViewModel.IST) stamps entry date on the Asia/Kolkata business day, never UTC.
+            // This LaunchedEffect used to prefill UTC's date and there is no server-side rescue for
+            // it (BirthDeathViewModel only substitutes the business date when entryDate is BLANK,
+            // and this effect had already filled it) -- between 00:00-05:29 IST that recorded the
+            // PREVIOUS business date.
+            onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, birthEntryIstBusinessDate()))
         }
     }
 
@@ -178,6 +246,12 @@ fun BirthDeathScreen(
                 )
             }
             item(key = "result") { CountsResultBanner(state.result) }
+            // A synced write clears the form and leaves this confirmation above the fresh entry.
+            state.lastRecordedMessage?.let { message ->
+                item(key = "recorded") {
+                    CountsResultBanner(CountsWriteResultUi(CountsWriteStatus.SYNCED, message))
+                }
+            }
 
             when (state.mode) {
                 BirthDeathMode.BIRTH -> birthFields(state, onEvent)
@@ -186,27 +260,46 @@ fun BirthDeathScreen(
 
             state.validationMessage?.let { message ->
                 item(key = "validation") {
-                    Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                    Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                 }
             }
             item(key = "submit") {
-                CountsSubmitButton(
-                    label = stringResource(
-                        if (state.mode == BirthDeathMode.BIRTH) {
-                            R.string.counts_submit_birth
-                        } else {
-                            R.string.counts_submit_death
-                        },
-                    ),
-                    enabled = state.canSubmit,
-                    onClick = { onEvent(BirthDeathEvent.Submit) },
-                )
+                // Once the write is committed (queued offline or synced) the form is locked; swap the
+                // Submit button for a "Record another" action that clears the form for the next animal
+                // instead of leaving a disabled button and stale values on screen.
+                val committed = state.result.status == CountsWriteStatus.QUEUED ||
+                    state.result.status == CountsWriteStatus.SYNCED
+                if (committed) {
+                    CountsSubmitButton(
+                        label = stringResource(
+                            if (state.mode == BirthDeathMode.BIRTH) {
+                                R.string.counts_record_another_birth
+                            } else {
+                                R.string.counts_record_another_death
+                            },
+                        ),
+                        enabled = true,
+                        onClick = { onEvent(BirthDeathEvent.RecordAnother) },
+                    )
+                } else {
+                    CountsSubmitButton(
+                        label = stringResource(
+                            if (state.mode == BirthDeathMode.BIRTH) {
+                                R.string.counts_submit_birth
+                            } else {
+                                R.string.counts_submit_death
+                            },
+                        ),
+                        enabled = state.canSubmit,
+                        onClick = { onEvent(BirthDeathEvent.Submit) },
+                    )
+                }
             }
             item(key = "offline-note") {
                 Text(
                     text = stringResource(R.string.counts_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.caption,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -219,14 +312,50 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
     onEvent: (BirthDeathEvent) -> Unit,
 ) {
     item(key = "birth-identity") {
-        var expanded by remember { mutableStateOf(state.secondTag.isNotBlank() || state.breed.isNotBlank()) }
+        val isTemporary = state.idKind == BIRTH_ID_KIND_TEMPORARY
         FormGroupCard(title = stringResource(R.string.counts_group_identity)) {
-            CountsTextField(
-                value = state.tag,
-                onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
-                label = stringResource(R.string.counts_field_tag1),
-                required = true,
+            // Permanent RFID vs temporary tag: a kid born before its permanent RFID is available is
+            // recorded with a provisional tag now and promoted by the final "Tag the kid" action.
+            CountsSegmented(
+                options = listOf(
+                    BIRTH_ID_KIND_PERMANENT to stringResource(R.string.counts_id_kind_permanent),
+                    BIRTH_ID_KIND_TEMPORARY to stringResource(R.string.counts_id_kind_temporary),
+                ),
+                selectedKey = state.idKind,
+                onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.ID_KIND, it)) },
             )
+            // The permanent path is scannable: the operator holds the Bluetooth reader to the ear
+            // tag instead of typing a 15-digit RFID in a shed. A TEMPORARY tag is a hand-written
+            // provisional label with nothing to read, so it stays a plain typed field.
+            if (isTemporary) {
+                CountsTextField(
+                    value = state.tag,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
+                    label = stringResource(R.string.counts_field_temp_tag),
+                    required = true,
+                )
+            } else {
+                CountsRfidField(
+                    value = state.tag,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG, it)) },
+                    label = stringResource(R.string.counts_field_tag1),
+                    scanning = state.scanningField == BirthDeathField.TAG,
+                    onToggleScan = { onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG)) },
+                    required = true,
+                )
+                // A newborn given two permanent ear tags carries an optional second RFID
+                // (animal_identifier_2). Only offered on the permanent path — a provisional temporary
+                // tag never carries a second permanent RFID (the backend rejects that pairing).
+                CountsRfidField(
+                    value = state.tag2,
+                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.TAG2, it)) },
+                    label = stringResource(R.string.counts_field_tag2),
+                    scanning = state.scanningField == BirthDeathField.TAG2,
+                    onToggleScan = { onEvent(BirthDeathEvent.ToggleRfidScan(BirthDeathField.TAG2)) },
+                    required = false,
+                    supporting = stringResource(R.string.counts_hint_tag2),
+                )
+            }
             CountsSegmented(
                 options = listOf(
                     "goat" to stringResource(R.string.counts_species_goat),
@@ -243,27 +372,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 selectedKey = state.sex,
                 onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SEX, it)) },
             )
-            FormExpanderToggle(expanded = expanded, onToggle = { expanded = !expanded })
-            if (expanded) {
-                CountsTextField(
-                    value = state.secondTag,
-                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.SECOND_TAG, it)) },
-                    label = stringResource(R.string.counts_field_tag2),
-                )
-                CountsTextField(
-                    value = state.breed,
-                    onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
-                    label = stringResource(R.string.counts_field_breed),
-                )
-            }
+            // Breed is chosen from the herd's own backend breed vocabulary (never typed). The list is
+            // the same Room-cached Counts facet the census filter uses; the facet key is submitted.
+            val selectedBreedLabel = state.breedOptions.firstOrNull { it.key == state.breed }?.label
+            CountsDropdownField(
+                label = stringResource(R.string.counts_field_breed),
+                selectedLabel = selectedBreedLabel,
+                placeholder = stringResource(R.string.counts_select_breed),
+                options = state.breedOptions.map { CountsDropdownOption(it.key, it.label, it.count) },
+                onSelect = { onEvent(BirthDeathEvent.EditField(BirthDeathField.BREED, it)) },
+                // Disabled until the vocabulary is cached so an operator cannot open an empty menu.
+                enabled = state.breedOptions.isNotEmpty(),
+            )
         }
     }
     item(key = "birth-dates") {
         FormGroupCard(title = stringResource(R.string.counts_group_dates)) {
             // The backend requires dob <= entry_date and rejects a violation; the hint states the
-            // rule so an operator can fix it before submitting, but the server stays the
-            // authority. Both fields write the SAME YYYY-MM-DD ISO string the identity wire
-            // contract already expects -- the M3 date picker changes only how it is entered.
+            // rule so an operator can fix it before submitting, but the server stays the authority.
+            // Entry date defaults to today (stamped by the ViewModel) and is editable via the M3
+            // picker. Both fields write the SAME YYYY-MM-DD ISO string the wire contract expects.
             CountsDateField(
                 value = state.dob,
                 onValueChange = { onEvent(BirthDeathEvent.EditField(BirthDeathField.DOB, it)) },
@@ -297,21 +425,24 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 enabled = state.destinationParks.isNotEmpty(),
             )
             val sheds = state.shedsForSelectedPark
-            val selectedShed = sheds.firstOrNull { it.shedId == state.shedId }
+            // Composite key + backend label, same rule as AddBirthScreen: the destinations feed
+            // is one row PER PARTITION, so shedId is not unique and a bare name renders one shed
+            // ten identical times.
+            val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
             CountsDropdownField(
                 label = stringResource(R.string.counts_field_shed),
-                selectedLabel = selectedShed?.name,
+                selectedLabel = selectedShed?.displayLabel,
                 placeholder = if (state.parkId.isBlank()) {
                     stringResource(R.string.counts_select_farm_first)
                 } else {
                     stringResource(R.string.counts_select_shed)
                 },
-                options = sheds.map { CountsDropdownOption(it.shedId, it.name) },
+                options = sheds.map { CountsDropdownOption(it.optionKey, it.displayLabel) },
                 onSelect = { onEvent(BirthDeathEvent.SelectShed(it)) },
                 enabled = sheds.isNotEmpty(),
             )
             state.destinationsMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
             FormExpanderToggle(expanded = damExpanded, onToggle = { damExpanded = !damExpanded }, label = stringResource(R.string.counts_field_dam_optional))
             if (damExpanded) {
@@ -358,8 +489,7 @@ private fun FormExpanderToggle(expanded: Boolean, onToggle: () -> Unit, label: S
         Text(
             text = label ?: stringResource(R.string.counts_more_fields),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
             modifier = Modifier.weight(1f),
         )
         Icon(
@@ -399,7 +529,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
                 onClick = { onEvent(BirthDeathEvent.LookupAnimals) },
             )
             state.animalLookupMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
         }
     }
@@ -435,7 +565,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
             Text(
                 text = stringResource(R.string.counts_death_guardrail_note),
                 color = MeshaColors.Faint,
-                fontSize = 11.sp,
+                style = MeshaType.caption,
             )
         }
     }
@@ -459,29 +589,32 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
         Text(
             text = stringResource(R.string.counts_group_recording_death_for),
             color = MeshaColors.Faint,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pill,
         )
         Text(
             text = animal.displayId.ifBlank { animal.tag },
             color = MeshaColors.Ink,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.W800,
+            style = MeshaType.screenTitle,
         )
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
         }
         // Park and shed as separate labelled facts when the backend supplies them, else its own
-        // composed location string — the app never assembles a location label of its own.
-        val hasParts = animal.parkName.isNotBlank() || animal.shedName.isNotBlank()
-        if (hasParts) {
+        // composed location string — the app never assembles a location label of its own. The shed
+        // fact carries the partition (operationalLocationLabel: "Castro 2", never bare "Castro") —
+        // a death record is terminal, so an operator confirming the wrong-looking shed here cannot
+        // be corrected later (AGENTS.md: OperationalLocation = park + shed + partition).
+        // Check shedId (uuid) rather than shedName to determine if location information exists.
+        val hasLocationInfo = animal.parkId.isNotBlank() || animal.shedId.isNotBlank()
+        if (hasLocationInfo) {
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_park),
                 value = animal.parkName.ifBlank { stringResource(R.string.counts_location_unknown) },
             )
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_shed),
-                value = animal.shedName.ifBlank { stringResource(R.string.counts_location_unknown) },
+                value = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                    .ifBlank { stringResource(R.string.counts_location_unknown) },
             )
         } else if (animal.locationLabel.isNotBlank()) {
             ReadOnlyFact(

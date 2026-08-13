@@ -24,19 +24,35 @@ const (
 // ---------------------------------------------------------------------------
 
 type fakeConfigRepo struct {
-	snapshot domain.ConfigSnapshot
-	sheds    []ports.Shed
+	snapshot  domain.ConfigSnapshot
+	sheds     []ports.Shed
+	parks     []ports.Park
+	parkCalls int
 
 	// Call counters. These are the assertion for the read shape: the orchestration must issue a
 	// CONSTANT number of reads regardless of how many sheds or grains are on the page. A counter
 	// that scales with the page is the N+1 fan-out the scale rules ban -- and it is invisible to a
 	// raw-driver check, because the query sits an adapter layer below the loop.
-	snapshotCalls int
-	shedCalls     int
+	snapshotCalls        int
+	shedCalls            int
+	sessionTemplateCalls int
 
 	lastShedQuery ports.ShedScopeQuery
+	shedQueries   []ports.ShedScopeQuery
 	lastAsOf      time.Time
 	err           error
+}
+
+func (f *fakeConfigRepo) ListParks(_ context.Context, _ string) ([]ports.Park, error) {
+	f.parkCalls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.parks != nil {
+		return f.parks, nil
+	}
+	// Default single-park tenant so an explicit-park request and default-park resolution both work.
+	return []ports.Park{{ParkID: testPark, Label: "CPT"}}, nil
 }
 
 func (f *fakeConfigRepo) LoadConfigSnapshot(_ context.Context, _, _ string, asOf time.Time) (domain.ConfigSnapshot, error) {
@@ -48,9 +64,20 @@ func (f *fakeConfigRepo) LoadConfigSnapshot(_ context.Context, _, _ string, asOf
 	return f.snapshot, nil
 }
 
+func (f *fakeConfigRepo) ListSessionTemplates(_ context.Context, _, _ string, _ time.Time) ([]domain.SessionTemplate, error) {
+	f.sessionTemplateCalls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	// Mirror the snapshot's own session split so the filter vocabulary matches what the sheet can
+	// contain, without counting as a snapshot read.
+	return f.snapshot.Sessions, nil
+}
+
 func (f *fakeConfigRepo) ListShedScope(_ context.Context, q ports.ShedScopeQuery) (ports.ShedScope, error) {
 	f.shedCalls++
 	f.lastShedQuery = q
+	f.shedQueries = append(f.shedQueries, q)
 	if f.err != nil {
 		return ports.ShedScope{}, f.err
 	}
@@ -120,7 +147,7 @@ func testSnapshot() domain.ConfigSnapshot {
 				Items: []domain.FeedItem{{Label: "Concentrate", Key: "concentrate"}},
 			},
 		},
-		ExperimentByShedID: map[string][]domain.ExperimentCell{},
+		ExperimentByLocation: map[string][]domain.ExperimentCell{},
 	}
 }
 
@@ -170,8 +197,11 @@ func TestPreviewIssuesAConstantNumberOfReadsRegardlessOfPageSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if config.shedCalls != 1 {
-		t.Fatalf("shed page reads = %d, want exactly 1", config.shedCalls)
+	// Two shed-scope reads, both page-size-independent: one inside generate (the filtered scope the
+	// sheet is built from) and one in buildFilters (the park's UNFILTERED shed catalog, the farm/shed
+	// filter vocabulary). Neither scales with page size, which is what this test guards against.
+	if config.shedCalls != 2 {
+		t.Fatalf("shed reads = %d, want exactly 2 (generate scope + filter vocabulary)", config.shedCalls)
 	}
 	if config.snapshotCalls != 1 {
 		t.Fatalf("config snapshot reads = %d, want exactly 1 (once per request, never per shed)", config.snapshotCalls)
@@ -184,9 +214,59 @@ func TestPreviewIssuesAConstantNumberOfReadsRegardlessOfPageSize(t *testing.T) {
 	if len(counts.requestedIDs) != 1 || len(counts.requestedIDs[0]) != 2 {
 		t.Fatalf("batched shed ids = %v, want one call naming both sheds", counts.requestedIDs)
 	}
-	// Two sheds x two sessions; Shed A has two grains, Shed B one -> (2+1) x 2 = 6 rows.
-	if len(page.Items) != 6 {
-		t.Fatalf("rows = %d, want 6", len(page.Items))
+	// Two sheds x two sessions = 4 rows. The sheet is ONE row per operational location per session,
+	// so shed A's two ration grains arrive merged rather than as two rows.
+	if len(page.Items) != 4 {
+		t.Fatalf("rows = %d, want 4 (2 pens x 2 sessions)", len(page.Items))
+	}
+}
+
+// THE END-TO-END PROOF OF THE SHEET GRAIN (maintainer decision 2026-08-10). Shed A holds two ration
+// grains -- 10 adult Beetal on the 200 g/head rate and 6 kids on the 100 g/head rate. It used to
+// print as TWO rows per session, which an operator had to re-add at the pen door and which pointed
+// at ONE completion between them. It is now one row whose columns name both cohorts and whose
+// quantity is their sum.
+func TestPreviewServesOneMergedRowPerPenPerSession(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	var shedARows []domain.DirectionRow
+	for _, row := range page.Items {
+		if row.ShedID == shedA {
+			shedARows = append(shedARows, row)
+		}
+	}
+	if len(shedARows) != 2 {
+		t.Fatalf("shed A rows = %d, want 2 (one per session, NOT one per ration grain): %+v", len(shedARows), shedARows)
+	}
+
+	row := shedARows[0]
+	if row.HeadCount != 16 {
+		t.Errorf("head count = %d, want 16 (10 adults + 6 kids in the pen)", row.HeadCount)
+	}
+	// Both cohorts named, dominant first -- the operator still sees what is standing in the pen.
+	if row.ShedTag != "Non-Pregnant + F2-Male" {
+		t.Errorf("shed tag = %q, want %q", row.ShedTag, "Non-Pregnant + F2-Male")
+	}
+	if row.RationGroup != "Beetal/Sirohi + Kid" {
+		t.Errorf("ration group = %q, want %q", row.RationGroup, "Beetal/Sirohi + Kid")
+	}
+	// 10 x 200 g x 0.5 = 1000 g, plus 6 x 100 g x 0.5 = 300 g -> 1.300 kg for the pen this session.
+	if row.SessionTotalKg != "1.300" {
+		t.Errorf("session total = %q, want 1.300 (both grains summed)", row.SessionTotalKg)
+	}
+	if len(row.Items) != 1 || row.Items[0].QuantityKg == nil || *row.Items[0].QuantityKg != "1.300" {
+		t.Errorf("items = %+v, want a single merged Concentrate cell of 1.300", row.Items)
+	}
+	if row.Blocked {
+		t.Error("row reports a gap; every cell in this fixture is authored")
 	}
 }
 
@@ -211,9 +291,10 @@ func TestPagingBySheDKeepsEachShedsGrainsWhole(t *testing.T) {
 			t.Fatalf("page 1 contains shed %q; a page must not mix sheds when limit=1", row.ShedID)
 		}
 	}
-	// Shed A's two grains x two sessions, all present on one page.
-	if len(first.Items) != 4 {
-		t.Fatalf("page 1 rows = %d, want all 4 of shed A's rows", len(first.Items))
+	// Shed A's merged row for each of the two sessions, both present on one page. A shed's sessions
+	// must not straddle a boundary either: two half-sheets each read as a complete instruction.
+	if len(first.Items) != 2 {
+		t.Fatalf("page 1 rows = %d, want both of shed A's session rows", len(first.Items))
 	}
 	// The session totals are therefore complete, not halved by a boundary.
 	if first.Items[0].SessionTotalKg == "0.000" {
@@ -269,8 +350,9 @@ func TestPreviewSummaryIsInvariantToPageSize(t *testing.T) {
 	if want.ShedCount != 2 {
 		t.Fatalf("whole-set shed_count = %d, want 2", want.ShedCount)
 	}
-	if want.RowCount != 6 {
-		t.Fatalf("whole-set row_count = %d, want 6 (3 grains x 2 sessions)", want.RowCount)
+	// The summary describes exactly what the sheet renders: one row per pen per session.
+	if want.RowCount != 4 {
+		t.Fatalf("whole-set row_count = %d, want 4 (2 pens x 2 sessions)", want.RowCount)
 	}
 
 	for i, got := range summaries {
@@ -355,6 +437,157 @@ func TestPackingSummaryIsInvariantToPageSize(t *testing.T) {
 	}
 }
 
+// The packing worklist honours the session filter: session=1 returns only session-1 lines, exactly
+// as the preview does. The test snapshot is 2 sheds x 2 sessions (Morning=1, Evening=2), so an
+// unfiltered worklist is 4 lines and session=1 is 2.
+//
+// The filter was removed on 2026-08-10 when a line became a pen-day, and restored on 2026-08-11 with
+// the session grain. A packer works one bag at a time, so narrowing to the session in front of them
+// is real work, not decoration.
+func TestPackingWorklistFiltersBySession(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	all, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist(all sessions): %v", err)
+	}
+	if len(all.Items) != 4 {
+		t.Fatalf("unfiltered worklist = %d lines, want 4 (2 sheds x 2 sessions)", len(all.Items))
+	}
+
+	one, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(), SessionNo: 1, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist(session=1): %v", err)
+	}
+	if len(one.Items) != 2 {
+		t.Fatalf("session=1 worklist = %d lines, want 2 (2 sheds x 1 session)", len(one.Items))
+	}
+	for _, row := range one.Items {
+		if row.SessionNo != 1 {
+			t.Fatalf("session=1 filter returned a session %d line: %+v", row.SessionNo, row)
+		}
+	}
+	// The summary follows the filter too, so it never over-reports the store draw for one session.
+	if one.Summary.LineCount != 2 {
+		t.Fatalf("session=1 summary line_count = %d, want 2", one.Summary.LineCount)
+	}
+
+	// The UNFILTERED store draw counts BOTH sessions of every shed -- the crew carries out the
+	// morning bag AND the evening bag. Recomputed from the served lines so the assertion is
+	// independent of the summary's own fold rather than restating it.
+	wantByItem := map[string]int64{}
+	for _, row := range all.Items {
+		for _, item := range row.Items {
+			if item.QuantityKg == nil {
+				continue
+			}
+			wantByItem[item.FeedItem] += kgToGrams(t, *item.QuantityKg)
+		}
+	}
+	if len(wantByItem) == 0 {
+		t.Fatal("fixture served no resolved quantities; the draw assertion would be vacuous")
+	}
+	for _, total := range all.Summary.TotalKgByFeedItem {
+		if grams := kgToGrams(t, total.QuantityKg); grams != wantByItem[total.FeedItem] {
+			t.Fatalf("store draw for %s = %q, want the sum of BOTH sessions (%d g)",
+				total.FeedItem, total.QuantityKg, wantByItem[total.FeedItem])
+		}
+	}
+}
+
+// The session filter must hold on the FROZEN path too -- the one a packer actually reads.
+//
+// The sibling test above proves it on the DRAFT path, where the session narrows generation itself, so
+// it passes even when the served path ignores the filter completely. That is exactly what shipped:
+// restoring the `session` query parameter without restoring servePacking's filterPreviewRows call
+// answered `session=1` with 200 and BOTH of every pen's bags, and since the session is part of the
+// client's Room cache key those two bags were then cached AS session 1.
+//
+// Driven through PackingWorklist with no Draft flag and a clock past the 07:00 gate, so the sheet is
+// genuinely issued and read back from the issue store.
+func TestFrozenPackingWorklistFiltersBySession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	// 08:00 IST: normal has fired, so the sheet is frozen and served rather than generated.
+	svc, store := newTwoWorkflowService(8)
+
+	q := domain.PackingQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget(), Limit: 50}
+	all, err := svc.PackingWorklist(ctx, q)
+	if err != nil {
+		t.Fatalf("PackingWorklist(all sessions): %v", err)
+	}
+	if len(store.headers) == 0 {
+		t.Fatal("nothing was frozen; this test would be exercising the draft path it exists to bypass")
+	}
+	if len(all.Items) != 4 {
+		t.Fatalf("unfiltered frozen worklist = %d lines, want 4 (2 sheds x 2 sessions)", len(all.Items))
+	}
+
+	one := q
+	one.SessionNo = 1
+	page, err := svc.PackingWorklist(ctx, one)
+	if err != nil {
+		t.Fatalf("PackingWorklist(session=1): %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("frozen session=1 worklist = %d lines, want 2 -- the filter is not applied to served rows",
+			len(page.Items))
+	}
+	for _, row := range page.Items {
+		if row.SessionNo != 1 {
+			t.Fatalf("frozen session=1 returned a session %d line: %+v", row.SessionNo, row)
+		}
+	}
+	// The summary follows the filter, so one session's store draw is never reported as the day's.
+	if page.Summary.LineCount != 2 {
+		t.Fatalf("frozen session=1 summary line_count = %d, want 2", page.Summary.LineCount)
+	}
+	if page.Summary.LineCount >= all.Summary.LineCount {
+		t.Fatalf("one session's line_count (%d) is not smaller than the day's (%d); the summary ignored the filter",
+			page.Summary.LineCount, all.Summary.LineCount)
+	}
+}
+
+// The feed read exposes the served park's session split as backend-owned filter vocabulary, on both
+// surfaces, so the client renders its session picker from the contract and holds no session list of
+// its own (the golden frontend rule).
+func TestFeedFiltersExposeSessionVocabulary(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+
+	preview, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	packing, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	want := []domain.FeedFilterSession{{SessionNo: 1, Label: "Morning"}, {SessionNo: 2, Label: "Evening"}}
+	for name, got := range map[string][]domain.FeedFilterSession{
+		"preview": preview.Filters.Sessions,
+		"packing": packing.Filters.Sessions,
+	} {
+		if len(got) != len(want) {
+			t.Fatalf("%s sessions = %+v, want %+v", name, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s sessions[%d] = %+v, want %+v", name, i, got[i], want[i])
+			}
+		}
+	}
+}
+
 // The summary must equal the rows an operator can page through to check it. If the two ever
 // disagree the number is unverifiable, which is how the original defect survived review.
 func TestSummaryTotalsEqualTheSumOfEveryPagedRow(t *testing.T) {
@@ -418,8 +651,17 @@ func TestShedFilterNarrowsToOneShed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if config.lastShedQuery.ShedID != shedB {
-		t.Fatalf("shed filter was not pushed into the shed scope read: %+v", config.lastShedQuery)
+	// The GENERATION shed-scope read must carry the shed filter. buildFilters issues a second,
+	// deliberately UNFILTERED shed read afterwards (the farm/shed filter vocabulary must list every
+	// shed, not just the selected one), so assert against the set of reads rather than the last one.
+	pushedFilter := false
+	for _, q := range config.shedQueries {
+		if q.ShedID == shedB {
+			pushedFilter = true
+		}
+	}
+	if !pushedFilter {
+		t.Fatalf("shed filter was not pushed into any shed scope read: %+v", config.shedQueries)
 	}
 	for _, row := range page.Items {
 		if row.ShedID != shedB {
@@ -477,13 +719,6 @@ func TestQueryValidationFailsClosed(t *testing.T) {
 		{
 			name:  "missing tenant",
 			query: domain.PreviewQuery{Draft: true, ParkID: testPark, TargetDate: targetDate()},
-			want:  ports.ErrParkRequired,
-		},
-		{
-			// The ration grid, the session split and the dispatch clock are ALL park-scoped, so a
-			// tenant-wide generation would mix two parks' rations into one document.
-			name:  "missing park",
-			query: domain.PreviewQuery{Draft: true, TenantID: testTenant, TargetDate: targetDate()},
 			want:  ports.ErrParkRequired,
 		},
 		{
@@ -555,6 +790,40 @@ func TestRepositoryErrorsPropagateRatherThanReturningAnEmptyPage(t *testing.T) {
 	}
 }
 
+// TestMissingParkDefaultsToTenantsFirstPark pins the mobile-first behavior: an omitted park_id is
+// resolved to the tenant's first park (never a tenant-wide sheet, which would mix parks), so the
+// client's first load has a sheet to render instead of a park-required error. The served park is
+// echoed back in the filter options so the client shows the right park as active.
+func TestMissingParkDefaultsToTenantsFirstPark(t *testing.T) {
+	t.Parallel()
+	service, _, _ := newTestService()
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview with no park should default to the first park, got: %v", err)
+	}
+	if page.Filters.ServedParkID != testPark {
+		t.Fatalf("served park = %q, want the defaulted first park %q", page.Filters.ServedParkID, testPark)
+	}
+	if len(page.Filters.Parks) == 0 {
+		t.Fatal("filter options must carry the farm vocabulary")
+	}
+}
+
+// TestMissingParkWithNoParksFailsClosed keeps the closed-fail for a tenant that genuinely has no
+// parks: there is no park to default to, so a sheet must not be fabricated.
+func TestMissingParkWithNoParksFailsClosed(t *testing.T) {
+	t.Parallel()
+	config := &fakeConfigRepo{parks: []ports.Park{}}
+	service := NewService(config, &fakeCountsReader{}).WithNowFunc(func() time.Time { return targetDate() })
+	if _, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+	}); !errors.Is(err, ports.ErrParkRequired) {
+		t.Fatalf("err = %v, want ErrParkRequired when the tenant has no parks", err)
+	}
+}
+
 func TestParkNotFoundPropagates(t *testing.T) {
 	t.Parallel()
 	config := &fakeConfigRepo{err: ports.ErrParkNotFound}
@@ -606,11 +875,16 @@ func TestPackingWorklistAgreesWithThePreviewExactly(t *testing.T) {
 		}
 	}
 
+	// Both surfaces are per shed-SESSION, so the lines correspond one for one.
 	if len(packing.Items) != len(expected) {
 		t.Fatalf("packing lines = %d, want %d (one per shed per session)", len(packing.Items), len(expected))
 	}
 	for _, line := range packing.Items {
-		want := expected[key{line.ShedID, line.SessionNo}]
+		want, ok := expected[key{line.ShedID, line.SessionNo}]
+		if !ok {
+			t.Fatalf("packing carries shed %s session %d, which the preview never emitted",
+				line.ShedID, line.SessionNo)
+		}
 		grams := kgToGrams(t, line.TotalKg)
 		if grams != want {
 			t.Fatalf("shed %s session %d packing total = %d g, preview sum = %d g",
@@ -711,5 +985,91 @@ func TestPreviewAllowsTodayAndFutureBusinessDate(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("Preview(%s) unexpected error: %v", tc.name, err)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Park filter vocabulary vs. the caller's own scope
+// ---------------------------------------------------------------------------
+
+const testParkB = "00000000-0000-4000-8000-000000003002"
+
+// twoParkService is a tenant with TWO parks, so "the whole catalog" and "the caller's own park" are
+// distinguishable answers. A single-park fixture cannot fail this test.
+func twoParkService() (*Service, *fakeConfigRepo) {
+	service, config, _ := newTestService()
+	config.parks = []ports.Park{{ParkID: testPark, Label: "CPT"}, {ParkID: testParkB, Label: "CBE"}}
+	return service, config
+}
+
+// TestFeedFiltersOfferOnlyTheCallersAuthorizedParks is the fix for the defect where a park-scoped
+// operator's farm dropdown listed EVERY active park in the tenant. The route already clamps a
+// REQUESTED park to the caller's grant (403 park_scope_forbidden), so the extra options were dead
+// choices: picking one produced an error rather than a sheet. An option a principal cannot open must
+// not be offered at all -- a dropdown is a statement about what this person may do.
+func TestFeedFiltersOfferOnlyTheCallersAuthorizedParks(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	preview, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testPark},
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	packing, err := service.PackingWorklist(context.Background(), domain.PackingQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testPark},
+	})
+	if err != nil {
+		t.Fatalf("PackingWorklist: %v", err)
+	}
+	for name, got := range map[string][]domain.FeedFilterPark{
+		"preview": preview.Filters.Parks,
+		"packing": packing.Filters.Parks,
+	} {
+		if len(got) != 1 || got[0].ParkID != testPark {
+			t.Fatalf("%s parks = %+v, want only the caller's authorized park %q", name, got, testPark)
+		}
+	}
+}
+
+// TestFeedFiltersOfferEveryParkForATenantWideCaller is the other half: a CEO/director holding a
+// tenant-wide grant reaches the service with NO authorized-park list (the resolver returns an empty
+// set for tenant-wide scope), and must still see the whole catalog. Without this, the narrowing
+// above would silently blank leadership's own farm picker.
+func TestFeedFiltersOfferEveryParkForATenantWideCaller(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, ParkID: testPark, TargetDate: targetDate(),
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if len(page.Filters.Parks) != 2 {
+		t.Fatalf("tenant-wide parks = %+v, want the whole catalog (2 parks)", page.Filters.Parks)
+	}
+}
+
+// TestDefaultParkIsChosenFromTheCallersAuthorizedParks closes the sibling gap in the default-park
+// pick. resolveParkID defaulted an omitted park_id to the tenant's FIRST park, which for an operator
+// scoped to the second park is a park they may not read -- the caller would be served, and would
+// then be shown, someone else's farm.
+func TestDefaultParkIsChosenFromTheCallersAuthorizedParks(t *testing.T) {
+	t.Parallel()
+	service, _ := twoParkService()
+
+	page, err := service.Preview(context.Background(), domain.PreviewQuery{Draft: true,
+		TenantID: testTenant, TargetDate: targetDate(),
+		AuthorizedParkIDs: []string{testParkB},
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if page.Filters.ServedParkID != testParkB {
+		t.Fatalf("served park = %q, want the caller's own park %q, never the tenant's first park", page.Filters.ServedParkID, testParkB)
 	}
 }

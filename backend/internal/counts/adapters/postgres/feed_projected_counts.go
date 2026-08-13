@@ -30,12 +30,18 @@ const (
 // applying this to an already-normalized breed_key is a no-op rather than a second transform.
 const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '_', 'g'))`
 
+// feedPartitionKeyExpr normalizes a partition label to a comparison key. It mirrors the Go
+// platform/oploc.NormalizePartition exactly:
+// regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', ”)
+// NULL, ”, and 'whole' all collapse to 'whole' because all three mean "not partitioned".
+const feedPartitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')`
+
 // scale-guard:ignore: 5k-50k-envelope — canonical indexed read per
 // docs/decisions/operational-kernel-5k-50k-scale-envelope.md. The live-herd census and the
 // approved-but-unexecuted movement set are both served directly from canonical SQL at the current
 // release envelope; this screen earns its own projection only under that ADR's scale-out ladder.
 //
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to authorization_state='authorized' AND event_status='authorized' so an already-executed ('applied') movement is structurally excluded and cannot be counted twice; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort (dest_cohort: the shed's single distinct live management_stage, falling back to the source stage_tag only for an empty/mixed shed) so a cross-profile K1->K2 move projects -N K1 at the source and +N K2 at the destination rather than +N K1 into the K2 shed -- resident-inference bridge until public.shed_profiles.animal_stage_id is seeded; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT, dest_cohort is a strict 1:{0,1} per-shed lookup LEFT JOINed onto the destination leg (never fans out), and locations is joined twice after aggregation on the (tenant_id, location_id) primary key as a strict 1:{0,1} label lookup; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset, and the overdue event-id array is aggregated per grain rather than per page; scope=tenant_id on goats, shifting_events, shifting_event_impacts and both locations joins, plus optional park/shed equality predicates AND an optional shed-SET (= ANY) predicate, every one of them applied to the live side and to BOTH movement legs so a shed-scoped page cannot show a delta sourced from a shed the same filter excluded
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL and lifecycle_status pinned (default 'alive'), FULL OUTER JOINed to shifting_events restricted to movements that are not yet applied -- either authorization_state='authorized' (ordinary event_status='authorized', plus rollout-compatible authorized+pending_verification) or authorization_state='pending' AND event_status='pending' (raised, not yet approved, per the 2026-08-10 decision); the two branches are disjoint on authorization_state so one movement contributes exactly once, and an already-executed ('applied'), rejected or canceled movement is structurally excluded; group_key=(park_id, shed_id, normalized management_stage, normalized breed, normalized sex) applied identically to both sides via feedGrainNormSQL, with raw labels carried alongside for display only; leg_tag=the SOURCE leg carries the impact's stage_tag (the cohort the animals leave with) while the DESTINATION leg carries the destination shed's own inferred cohort; join_cardinality=shifting_event_impacts is 1:N per event and is PRE-AGGREGATED in the delta CTE before the join to live, so the movement legs cannot fan out the live COUNT; pagination=total_rows is a COUNT window function over the FULL combined set and is invariant to limit/offset; scope=tenant_id on every side plus optional park/shed equality and shed-set predicates
 //
 // Expanded rationale:
 //
@@ -44,13 +50,11 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	               count_base_anchors replay. merged_into_goat_id IS NULL keeps a merged animal
 //	               from being counted under both identities.
 //
-//	               The delta set is deliberately NARROW: only movements that are both authorized
-//	               AND still unexecuted. 'applied' movements are EXCLUDED, and that exclusion is
-//	               the single most important predicate in this statement. A completed shifting has
-//	               already relocated its animals in goats (CompleteShiftingEvent does the
-//	               relocation and the status flip in one transaction), so it is ALREADY reflected
-//	               in current_head_count. Including it would add the same animals a second time
-//	               and over-feed the destination shed.
+//	               The delta set is every not-yet-applied movement in one of two disjoint states:
+//	               Park Head-AUTHORIZED (new rows are 'authorized'; authorized+pending_verification is
+//	               retained only for an in-flight pre-000049 row), or RAISED and still awaiting
+//	               approval (2026-08-10). 'applied' is already represented by goats; 'rejected' and
+//	               'canceled' are excluded, so a movement that is turned down stops feeding a shed.
 //	group_key    = park x shed x stage x breed x sex, normalized on both sides. See
 //	               feedGrainNormSQL for why raw equality is not safe here.
 //	join_card    = the danger is shifting_event_impacts: one event has MANY impact rows, so
@@ -72,13 +76,11 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 //	$3  park_id filter   ('' = all)
 //	$4  shed_id filter   ('' = all)
 //	$5  target feed date D (YYYY-MM-DD, business calendar)
-//	$6  high-priority lead days (domain.FeedShiftingHighPriorityLeadDays)
-//	$7  standard lead days  (domain.FeedShiftingStandardLeadDays)
-//	$8  business timezone   (biztime.DefaultTimezone)
-//	$9  limit
-//	$10 offset
-//	$11 shed_id SET filter (empty array = no set filter)
-//	$12 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
+//	$6  business timezone   (biztime.DefaultTimezone)
+//	$7  limit
+//	$8  offset
+//	$9  shed_id SET filter (empty array = no set filter)
+//	$10 breed filter, normalized with feedGrainNormSQL by the caller ('' = all breeds)
 var feedProjectedShedCountsBaseSQL = `
 WITH live AS MATERIALIZED (
   SELECT
@@ -90,8 +92,15 @@ WITH live AS MATERIALIZED (
     ` + fmt.Sprintf(feedGrainNormSQL, "g.management_stage") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.sex") + ` AS sex_key,
+    -- projection-review: membership=canonical live goats for the tenant, LEFT JOINed 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)) so an animal cannot be duplicated; group_key=the previous feed grain PLUS the normalized partition key, which SPLITS a shed's projected head count across its pens instead of multiplying it; join_cardinality=every other join here is a label/config lookup on a primary key, 1:{0,1}, and the shifting-delta side is pre-aggregated before it meets the live side; pagination=none, the feed sheet is a whole-scope projection consumed in full; scope=tenant plus the caller's park/shed/business-date predicates
+    ` + feedPartitionKeyExpr + ` AS partition_key,
+    min(gsp.partition_label) AS partition_label_raw,
     count(*) AS head_count
   FROM goats g
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+  -- A goat with no row here is not partitioned and normalizes to 'whole'.
+  LEFT JOIN goat_shed_partitions gsp
+         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -101,36 +110,79 @@ WITH live AS MATERIALIZED (
     -- so the ordinary index on g.shed_id remains usable. Casting the column to
     -- text on the left-hand side instead would disable that index -- the
     -- non-sargable-cast anti-pattern.
-    AND (cardinality($11::uuid[]) = 0 OR g.shed_id = ANY($11::uuid[]))
-    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $12)
+    AND (cardinality($9::uuid[]) = 0 OR g.shed_id = ANY($9::uuid[]))
+    AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $10)
   GROUP BY g.park_id, g.shed_id,
-           COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
+           COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
+           ` + feedPartitionKeyExpr + `
 ),
--- Approved but NOT yet executed movements, with the feed-effective business date the timing rule
--- gives each one. The lead days arrive as BIND PARAMETERS from domain.FeedShiftingLeadDays rather
--- than as SQL literals, so the business rule has exactly one definition (Go) and this statement
--- only has to know which priority string is the fast one.
+-- Movements that are NOT yet executed, in two DISJOINT branches keyed on authorization_state, so a
+-- movement contributes exactly once as it travels from raised to approved.
 --
--- authorized_at is the approval stamp -- the moment a park head said the movement MAY happen. It
--- is deliberately NOT raised_at (when someone asked) and NOT effective_at (an authored intent
--- date): the feed lead time runs from the decision, so the clock starts at authorization.
+-- BRANCH 1 -- AUTHORIZED, feed-effective from the authorization business date. Maintainer decision
+-- 2026-07-27, unchanged: there is NO lead time and NO priority branch here -- an approved movement is
+-- a pending feed input the moment it is authorized (domain.FeedShiftingEffectiveBusinessDate).
+-- authorized_at is the approval stamp, deliberately NOT effective_at (an authored intent date).
+-- 'applied' is already in current_head_count. The authorized+pending_verification arm is a rollout
+-- compatibility shape for a pre-000049 completed row.
+--
+-- BRANCH 2 -- RAISED, not yet approved, feed-effective from the ACTIONS lead time. Maintainer
+-- decision 2026-08-10; see the branch's own comment and
+-- domain.FeedShiftingRaisedEffectiveBusinessDate.
 --
 -- The date is derived in Asia/Kolkata, never UTC. An approval at 20:00 UTC is already the next
--- day in India, and a UTC-derived date would start the lead a day late.
+-- day in India, and a UTC-derived date would put the movement on the wrong feed day.
 pending_event AS (
   SELECT
     se.shifting_event_id,
     se.source_park_id,
     se.source_shed_id,
+    se.source_partition_label,
     se.destination_park_id,
     se.destination_shed_id,
-    ((se.authorized_at AT TIME ZONE $8)::date
-       + (CASE WHEN se.priority = 'high' THEN $6::int ELSE $7::int END)) AS feed_effective_date
+    se.destination_partition_label,
+    (se.authorized_at AT TIME ZONE $6)::date AS feed_effective_date
   FROM shifting_events se
   WHERE se.tenant_id = $1::uuid
     AND se.authorization_state = 'authorized'
-    AND se.event_status = 'authorized'
+    AND (se.event_status = 'authorized'
+         OR (se.event_status = 'pending_verification' AND se.authorization_state = 'authorized'))
     AND se.authorized_at IS NOT NULL
+  UNION ALL
+  -- RAISED BUT NOT YET APPROVED (maintainer decision 2026-08-10, superseding the approval half of
+  -- 2026-07-27). See domain.FeedShiftingRaisedEffectiveBusinessDate for the full rationale.
+  --
+  -- Approval no longer starts the feed clock; only REJECTION stops it. A movement raised at 09:00 is
+  -- due tomorrow, but tomorrow's normal sheet was issued at 07:00 and is already being packed --
+  -- waiting for the park head meant the destination pen was packed for the head count it had at
+  -- breakfast and the arriving animals had no feed.
+  --
+  -- authorization_state='pending' is the ONLY state that qualifies: 'rejected' and 'authorized' are
+  -- both excluded here (the latter is the branch above, so a movement cannot be counted twice as it
+  -- moves from raised to approved). event_status='pending' excludes 'canceled', 'rejected' and
+  -- 'unresolved' by construction -- a withdrawn movement stops feeding a shed immediately.
+  --
+  -- The date is the ACTIONS lead time, not the raise day: low priority raised before 13:30 IST is
+  -- due tomorrow, at or after 13:30 the day after, high priority immediately. Derived in
+  -- Asia/Kolkata via $6 -- a raise stamped 09:00 UTC is already 14:30 in India and is therefore
+  -- AFTER the cutoff, which a UTC-derived comparison would get backwards.
+  SELECT
+    se.shifting_event_id,
+    se.source_park_id,
+    se.source_shed_id,
+    se.source_partition_label,
+    se.destination_park_id,
+    se.destination_shed_id,
+    se.destination_partition_label,
+    CASE
+      WHEN se.priority = 'high' THEN (se.raised_at AT TIME ZONE $6)::date
+      WHEN (se.raised_at AT TIME ZONE $6)::time < TIME '13:30' THEN (se.raised_at AT TIME ZONE $6)::date + 1
+      ELSE (se.raised_at AT TIME ZONE $6)::date + 2
+    END AS feed_effective_date
+  FROM shifting_events se
+  WHERE se.tenant_id = $1::uuid
+    AND se.authorization_state = 'pending'
+    AND se.event_status = 'pending'
 ),
 -- The destination shed's own operational cohort, so the DESTINATION leg of a movement is tagged
 -- with the tag the animals ADOPT on arrival, not the SOURCE stage they leave with. A cross-profile
@@ -152,27 +204,42 @@ pending_event AS (
 dest_cohort AS (
   SELECT
     g.shed_id,
+    -- projection-review: membership=the destination-cohort side of the feed projection, drawn from the same canonical live-goat set and LEFT JOINed 1:{0,1} to each animal's own goat_shed_partitions row; group_key=the existing destination grain PLUS the normalized partition key, so a destination shed's projected cohort is resolved per pen instead of being inferred shed-wide; join_cardinality=1:{0,1} on the partition PK and primary-key label lookups elsewhere, so no branch can fan an animal out; pagination=none, the projection is consumed whole; scope=tenant plus the caller's park/shed/business-date predicates
+    ` + feedPartitionKeyExpr + ` AS partition_key,
+    min(gsp.partition_label) AS partition_label_raw,
     CASE WHEN count(DISTINCT COALESCE(g.management_stage, '')) = 1
          THEN min(g.management_stage) END AS cohort_stage
   FROM goats g
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+  LEFT JOIN goat_shed_partitions gsp
+         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
     AND g.management_stage IS NOT NULL
     AND btrim(g.management_stage) <> ''
-  GROUP BY g.shed_id
+  GROUP BY g.shed_id, ` + feedPartitionKeyExpr + `
 ),
 -- One row per (movement, impact, direction). Source loses head_count, destination gains it.
 --
--- feed_effective_date <= D, never = D. An OVERDUE movement -- due for feed days ago and still not
--- executed -- therefore keeps counting on every later day instead of silently dropping out of the
--- projection and quietly de-feeding a shed whose animals are still expected.
+-- feed_effective_date <= D, never = D: a movement counts on its authorization day and every later
+-- day until executed. An OVERDUE movement -- authorized days ago and still not executed -- therefore
+-- keeps counting instead of silently dropping out and quietly de-feeding a shed whose animals are
+-- still expected. (Overdue itself is the tighter < D-1 test in the delta CTE below; counting here is
+-- the wider <= D.)
 pending_leg AS (
   SELECT
     p.shifting_event_id,
     p.feed_effective_date,
     p.source_park_id AS park_id,
     p.source_shed_id AS shed_id,
+    regexp_replace(lower(btrim(COALESCE(p.source_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    -- The RAW label travels alongside the normalized key, exactly as the live side carries
+    -- min(gsp.partition_label). partition_key is a matching key ('whole' is never copy); the raw
+    -- label is what a shed row is allowed to DISPLAY. Without it the combined CTE referenced a
+    -- d.partition_label_raw that this CTE never produced, and the whole query failed with
+    -- "column d.partition_label_raw does not exist".
+    p.source_partition_label  AS partition_label_raw,
     COALESCE(i.stage_tag, '') AS stage_label,
     i.breed_label             AS breed_label,
     COALESCE(i.sex, '')       AS sex_label,
@@ -189,6 +256,8 @@ pending_leg AS (
     p.feed_effective_date,
     p.destination_park_id,
     p.destination_shed_id,
+    regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    p.destination_partition_label,
     -- DESTINATION tag, not the source stage_tag: the animals adopt the destination shed's cohort on
     -- arrival. Falls back to the source tag only when the destination shed is empty/mixed and its
     -- cohort cannot be inferred (bridge limitation until shed_profiles is seeded -- see dest_cohort).
@@ -202,6 +271,7 @@ pending_leg AS (
    AND i.shifting_event_id = p.shifting_event_id
   LEFT JOIN dest_cohort dc
     ON dc.shed_id = p.destination_shed_id
+   AND dc.partition_key = regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
   WHERE p.feed_effective_date <= $5::date
 ),
 -- Pre-aggregate the legs to ONE row per grain BEFORE joining the live herd. This is what keeps a
@@ -210,17 +280,27 @@ delta AS (
   SELECT
     l.park_id,
     l.shed_id,
+    l.partition_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.stage_label") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.sex_label") + ` AS sex_key,
+    -- Aggregated the same way as the live side's min(gsp.partition_label): the rows in this group
+    -- all share one partition_key, so min() picks that partition's own raw label rather than
+    -- inventing one. The combined CTE COALESCEs live's label ahead of this, so this only supplies a
+    -- label for a delta-only row -- a destination shed holding none of the grain today, which is
+    -- exactly the row the feed team most needs to see and the one a LEFT JOIN would have dropped.
+    min(l.partition_label_raw) AS partition_label_raw,
     min(l.stage_label) AS stage_label,
     min(l.breed_label) AS breed_label,
     min(l.sex_label)   AS sex_label,
     sum(l.signed_head) AS pending_delta,
-    bool_or(l.feed_effective_date < $5::date) AS overdue_pending,
+    -- Overdue = authorized BEFORE the packing day (feed day - 1) and still unexecuted, i.e. pending
+    -- across at least one full cycle. A move authorized on the packing day is expected to execute
+    -- that same day and is NOT overdue, so a zero-lead projection does not flag every fresh move.
+    bool_or(l.feed_effective_date < ($5::date - 1)) AS overdue_pending,
     COALESCE(
       array_agg(DISTINCT l.shifting_event_id::text)
-        FILTER (WHERE l.feed_effective_date < $5::date),
+        FILTER (WHERE l.feed_effective_date < ($5::date - 1)),
       ARRAY[]::text[]
     ) AS overdue_event_ids
   FROM pending_leg l
@@ -228,9 +308,9 @@ delta AS (
     AND ($4 = '' OR l.shed_id = NULLIF($4, '')::uuid)
     -- Applied to the movement legs too, on the same terms as the live side: a
     -- shed-set page must not show a delta sourced from a shed the page excluded.
-    AND (cardinality($11::uuid[]) = 0 OR l.shed_id = ANY($11::uuid[]))
-    AND ($12 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $12)
-  GROUP BY 1, 2, 3, 4, 5
+    AND (cardinality($9::uuid[]) = 0 OR l.shed_id = ANY($9::uuid[]))
+    AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $10)
+  GROUP BY 1, 2, 3, 4, 5, 6
 ),
 -- FULL OUTER, not LEFT. A destination shed that holds none of this grain today has no live row at
 -- all, and a LEFT JOIN from live would drop the incoming animals entirely -- the exact shed the
@@ -239,6 +319,8 @@ combined AS (
   SELECT
     COALESCE(lv.park_id, d.park_id)                  AS park_id,
     COALESCE(lv.shed_id, d.shed_id)                  AS shed_id,
+    COALESCE(lv.partition_key, d.partition_key, 'whole') AS partition_key,
+    COALESCE(lv.partition_label_raw, d.partition_label_raw, NULL) AS partition_label_raw,
     COALESCE(lv.management_stage, d.stage_label, '') AS management_stage,
     COALESCE(lv.breed, d.breed_label, '')            AS breed,
     COALESCE(lv.sex, d.sex_label, '')                AS sex,
@@ -250,6 +332,7 @@ combined AS (
   FULL OUTER JOIN delta d
     ON  d.park_id   IS NOT DISTINCT FROM lv.park_id
     AND d.shed_id   IS NOT DISTINCT FROM lv.shed_id
+    AND d.partition_key IS NOT DISTINCT FROM lv.partition_key
     AND d.stage_key = lv.stage_key
     AND d.breed_key = lv.breed_key
     AND d.sex_key   = lv.sex_key
@@ -259,6 +342,7 @@ SELECT
   COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
   c.shed_id::text,
   COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  COALESCE(c.partition_label_raw, '') AS partition_label,
   c.management_stage,
   c.breed,
   c.sex,
@@ -289,6 +373,7 @@ ORDER BY
   GREATEST(c.current_head_count + c.pending_delta, 0) DESC,
   COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(c.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  c.partition_key,
   c.management_stage,
   c.breed,
   c.sex
@@ -305,6 +390,7 @@ const feedProjectedCountsOrderByIdentity = `
 ORDER BY
   COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(c.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  c.partition_key,
   c.management_stage,
   c.breed,
   c.sex
@@ -322,7 +408,7 @@ var (
 // justification rather than inheriting one from a 150-line statement.
 //
 // scale-guard:ignore: OFFSET walks the PRE-AGGREGATED grain set (distinct park/shed/stage/breed/sex combinations, tens to low thousands at this envelope), never canonical goats rows; the service rejects offset > 5000 outright.
-const feedProjectedCountsPagingSQL = `LIMIT $9 OFFSET $10`
+const feedProjectedCountsPagingSQL = `LIMIT $7 OFFSET $8`
 
 // ProjectedShedCountsForFeed serves the live-herd feed projection: what each shed grain will hold
 // on feed day D, given the movements that are approved but not yet executed.
@@ -376,8 +462,6 @@ func (r *Repository) ProjectedShedCountsForFeed(
 		ptrValue(req.ParkID),
 		ptrValue(req.ShedID),
 		targetDate.Format("2006-01-02"),
-		domain.FeedShiftingHighPriorityLeadDays,
-		domain.FeedShiftingStandardLeadDays,
 		biztime.DefaultTimezone,
 		limit,
 		offset,
@@ -409,6 +493,7 @@ func (r *Repository) ProjectedShedCountsForFeed(
 			&row.ParkLabel,
 			&row.ShedID,
 			&row.ShedLabel,
+			&row.PartitionLabel,
 			&row.ManagementStage,
 			&row.Breed,
 			&row.Sex,

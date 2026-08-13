@@ -110,11 +110,22 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	return oldest.Time, true, nil
 }
 
-// SuppressInvalidRecipient removes a provider-rejected raw recipient reference from future push
-// fanout and suppresses still-pending rows already addressed to that reference. For FCM, Firebase
-// returns NotRegistered/UNREGISTERED when a token was rotated, deleted, or belongs to a dead install.
-// Keep the device row active: the Android heartbeat/register path can write the next live token for
-// the same device id/app install on the next launch or login.
+// SuppressInvalidRecipient marks a provider-rejected FCM token as dead. The CALLER
+// (isInvalidFCMRecipientResponse) has already filtered out ambiguous/payload-level errors, so by
+// the time this runs the token itself is confirmed gone (UNREGISTERED/NOT_REGISTERED) or
+// explicitly named invalid by FCM. Even so, this function deliberately clears ONLY the push
+// binding (fcm_token) -- it must NEVER touch `status`/`revoked_at`/`revoked_by`. Those columns are
+// the device's ability to authenticate and bootstrap, which is a distinct, deliberate admin/
+// security action (see workforce RevokeDevice) and must never be a side effect of a push delivery
+// failure. A prior version of this function also set status='revoked' here, which meant a single
+// bad push (or a payload bug that fooled the recipient check) could brick every addressed phone's
+// login with no self-heal path (P0 device-lockout incident). The device stays 'active' and able to
+// authenticate; it simply stops receiving pushes on the dead token until it registers a fresh one
+// (Android register/heartbeat path already upserts a new fcm_token and requires no unlock). The row
+// records WHEN and WHY the token was invalidated (fcm_invalidated_at/reason) purely for observability.
+// Additionally, all pending notification requests addressed to this dead token are suppressed to
+// avoid wasting dispatch retries. Idempotent: re-running against an already-cleared token matches
+// zero rows on the device update (fcm_token is already NULL) and is a no-op.
 func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, recipientRef, reason string, now time.Time) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -132,12 +143,16 @@ func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, rec
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Deliberately no `status`/`revoked_at`/`revoked_by` write here -- see the function comment.
+	// Matches regardless of current status (not just 'active') so a device already sitting in a
+	// stale non-active state from before this fix still gets its dead token cleared instead of
+	// silently skipped.
 	if _, err := tx.Exec(ctx, `
 UPDATE workforce_member_devices
 SET fcm_token = NULL,
     metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
       'fcm_invalidated_at', $3::timestamptz,
-      'fcm_invalidated_reason', $4
+      'fcm_invalidated_reason', $4::text
     ),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
@@ -147,7 +162,7 @@ WHERE tenant_id = $1::uuid
 	tag, err := tx.Exec(ctx, `
 UPDATE notification_requests
 SET status = 'suppressed',
-    failure_reason = COALESCE(NULLIF(failure_reason, ''), $3),
+    failure_reason = $3,
     next_attempt_at = NULL,
     lease_token = NULL,
     leased_at = NULL,
@@ -155,7 +170,7 @@ SET status = 'suppressed',
 WHERE tenant_id = $1::uuid
   AND recipient_ref = $2
   AND channel = 'push_fcm'
-  AND status IN ('queued', 'failed')`, tenantID, recipientRef, reason, now)
+  AND status IN ('queued', 'failed', 'exhausted')`, tenantID, recipientRef, reason, now)
 	if err != nil {
 		return 0, fmt.Errorf("notification: suppress invalid recipient requests: %w", err)
 	}
@@ -272,7 +287,56 @@ claimed AS (
     COALESCE(nr.target_id::text, ''),
     nr.notification_type,
     nr.channel,
-    COALESCE(nr.recipient_ref, ''),
+    -- Live recipient-address resolution (BUG: recipient_ref used to be a frozen snapshot of the
+    -- FCM token AT CREATION TIME, so any push queued/retried/requeued across a token rotation
+    -- (reinstall, app data clear) addressed a token no device holds anymore -- see
+    -- SuppressInvalidRecipient's doc and the requeue tool's doc for the same defect from the
+    -- suppression/recovery side). For a push_fcm row addressed at a workforce member
+    -- (context->>'member_id', already the calendar/verification producers' contract -- see the
+    -- notification_requests_weighing_alerts_idx partial index on this same expression), resolve
+    -- the CURRENT reachable device live, at the moment of claim, instead of trusting the frozen
+    -- column. Multi-device rule: a member may hold several active devices (reinstall without sign
+    -- out, a second phone); this picks exactly ONE -- the most recently active reachable device
+    -- (ORDER BY last_seen_at DESC, device_id ASC deterministic tiebreak) -- rather than fanning
+    -- out to all of them, because one notification_requests row has exactly one lease and one
+    -- MarkSent/MarkFailed transition; fanning one row's outcome across N independent HTTP calls to
+    -- FCM would make "sent" ambiguous the moment one device's send succeeds and another's fails
+    -- (which ledger entry/status wins?). The reachable partial index
+    -- (workforce_member_devices_push_reachable_idx: status='active' AND fcm_token IS NOT NULL AND
+    -- notifications_enabled IS DISTINCT FROM false) already scopes exactly the "reachable" set this
+    -- needs. The stored recipient_ref column is deliberately left UNTOUCHED by this query (no UPDATE
+    -- of the column, only of what is RETURNED) -- it stays the durable audit record of what the
+    -- request was originally addressed to; ListExhausted/the requeue tool still show that original
+    -- value for operator review. When member_id is present but no reachable device resolves, the
+    -- sentinel 'no-active-device:<member_id>' is returned instead of silently falling back to the
+    -- stale recipient_ref -- gateway.setFCMTarget recognizes this prefix and fails loudly with
+    -- ports.ErrRecipientNoActiveDevice (never looks like a successful send, never conflated with
+    -- ErrRecipientUnusable's "not a device token" message, which would misreport a resolvable
+    -- addressing gap as a malformed identifier). This also naturally composes with
+    -- SuppressInvalidRecipient: once a dead token is cleared (fcm_token set NULL), the reachable
+    -- index no longer matches that device row, so the NEXT claim of a retried/requeued row for the
+    -- same member resolves straight to whatever fresh token the device registered, with no code
+    -- path ever retrying the dead token again. Non-push_fcm channels and rows with no member_id in
+    -- context (email/slack/webhook/incident, or legacy rows predating this contract) are entirely
+    -- unaffected: they keep using the stored recipient_ref exactly as before.
+    CASE
+      WHEN nr.channel = 'push_fcm' AND (nr.context->>'member_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
+        COALESCE(
+          (
+            SELECT d.fcm_token
+            FROM workforce_member_devices d
+            WHERE d.tenant_id = nr.tenant_id
+              AND d.workforce_member_id = (nr.context->>'member_id')::uuid
+              AND d.status = 'active'
+              AND d.fcm_token IS NOT NULL
+              AND d.notifications_enabled IS DISTINCT FROM false
+            ORDER BY d.last_seen_at DESC, d.device_id ASC
+            LIMIT 1
+          ),
+          'no-active-device:' || (nr.context->>'member_id')
+        )
+      ELSE COALESCE(nr.recipient_ref, '')
+    END,
     nr.title,
     nr.body,
     nr.status,
@@ -501,6 +565,234 @@ RETURNING
 		return err
 	}
 	return nil
+}
+
+var _ ports.RequeueRepository = (*Repository)(nil)
+
+// ListExhausted is the read-only visibility surface for exhausted notifications: the same
+// question `SELECT * FROM notification_requests WHERE status = 'exhausted'` answers, but shaped
+// for an operator deciding what (if anything) to requeue. It is what cmd/notification-requeue
+// -mode list runs, and it never mutates.
+func (r *Repository) ListExhausted(ctx context.Context, query ports.ExhaustedQuery) ([]ports.ExhaustedNotification, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  notification_request_id::text,
+  tenant_id::text,
+  calendar_event_id,
+  target_type,
+  COALESCE(target_id::text, ''),
+  notification_type,
+  channel,
+  COALESCE(recipient_ref, ''),
+  COALESCE(failure_reason, ''),
+  delivery_attempts,
+  requeue_count,
+  requested_at,
+  updated_at
+FROM notification_requests
+WHERE tenant_id = $1::uuid
+  AND status = 'exhausted'
+  AND ($2 = '' OR notification_type = $2)
+  AND ($3::timestamptz IS NULL OR requested_at >= $3::timestamptz)
+  AND ($4::timestamptz IS NULL OR requested_at <= $4::timestamptz)
+ORDER BY requested_at ASC, notification_request_id
+LIMIT $5`,
+		query.TenantID, query.NotificationType, nullableTime(query.Since), nullableTime(query.Until), limit)
+	if err != nil {
+		return nil, fmt.Errorf("notification: list exhausted: %w", err)
+	}
+	defer rows.Close()
+	var out []ports.ExhaustedNotification
+	for rows.Next() {
+		var item ports.ExhaustedNotification
+		if err := rows.Scan(
+			&item.NotificationRequestID,
+			&item.TenantID,
+			&item.CalendarEventID,
+			&item.TargetType,
+			&item.TargetID,
+			&item.NotificationType,
+			&item.Channel,
+			&item.RecipientRef,
+			&item.FailureReason,
+			&item.DeliveryAttempts,
+			&item.RequeueCount,
+			&item.RequestedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RequeueExhausted is the operator-driven recovery path for the "exhausted rows can never be
+// re-picked" defect: ClaimDue only ever claims status IN ('queued','failed'), and nothing else in
+// the codebase moves a row out of 'exhausted'. This is the one place that does.
+//
+// Scoping (why it can never blanket-requeue the world): TenantID and NotificationType are both
+// mandatory — there is no all-tenants and no all-types mode. The Since/Until window further
+// bounds by requested_at, and an explicit NotificationRequestIDs list (if given) intersects on
+// top of all of the above rather than replacing it, so a caller can never widen scope by mixing
+// modes. In practice an operator fixes ONE misconfigured channel (the failure this exists for)
+// and requeues ONE tenant's ONE notification_type over a bounded recent window.
+//
+// Idempotency: the UPDATE's WHERE clause requires status = 'exhausted'. A row that a first call
+// already moved to 'queued' no longer matches on a second, identical call — running the same
+// requeue twice (same params) requeues nothing the second time. requeue_count is incremented (not
+// just set) precisely so a genuinely repeated requeue of the SAME row across separate operator
+// invocations is visible in ListExhausted/audit rather than looking like a fresh one.
+//
+// Relevance ("must not resurrect a notification whose subject is no longer relevant"): the one
+// case this repository can check generically, without importing another module's domain, is
+// target_type = 'verification_item' (the shape verification/notificationbridge uses for every
+// rework/pending push, including the vaccination-proof-rejection defect this was written for).
+// The "still outstanding" status differs by notification_type (see the CASE below): a 'rework'
+// push reports the verdict itself, which STAYS 'rejected' for the life of that item -- a
+// resubmitted proof creates a NEW item_id rather than flipping the old one back to pending (see
+// verification/adapters/postgres/repository.go's verdict handling), so 'rejected' is a durable,
+// correct relevance check for it. A 'verification_pending' push instead reports "a verifier still
+// owes a decision", which is only true while status = 'pending'; once a verdict has landed either
+// way that push is stale and must NOT be resurrected. Rows whose target_type is anything else, or
+// whose notification_type has no known-relevant status for verification_item, have no cheap
+// generic relevance check here, so a BROAD sweep skips them entirely; they are requeued only when
+// the operator passes their ids explicitly, having read ListExhausted's output (which includes
+// calendar_event_id/target) first. That keeps "I could not check this, so I will not resurrect it
+// behind your back" the default, while leaving every row recoverable by name.
+func (r *Repository) RequeueExhausted(ctx context.Context, params ports.RequeueParams) (ports.RequeueResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tenantID := strings.TrimSpace(params.TenantID)
+	notificationType := strings.TrimSpace(params.NotificationType)
+	if tenantID == "" {
+		return ports.RequeueResult{}, fmt.Errorf("notification: requeue exhausted: tenant-id is required")
+	}
+	if notificationType == "" {
+		return ports.RequeueResult{}, fmt.Errorf("notification: requeue exhausted: notification-type is required")
+	}
+	now := params.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	requeuedBy := strings.TrimSpace(params.RequeuedBy)
+	if requeuedBy == "" {
+		requeuedBy = "operator"
+	}
+	var idFilter []string
+	if len(params.NotificationRequestIDs) > 0 {
+		idFilter = params.NotificationRequestIDs
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+UPDATE notification_requests nr
+SET status = 'queued',
+    delivery_attempts = 0,
+    next_attempt_at = NULL,
+    lease_token = NULL,
+    leased_at = NULL,
+    failure_reason = 'requeued: ' || COALESCE(NULLIF(nr.failure_reason, ''), 'unknown'),
+    requeued_at = $6::timestamptz,
+    requeued_by = $7,
+    requeue_count = nr.requeue_count + 1,
+    updated_at = $6::timestamptz
+WHERE nr.tenant_id = $1::uuid
+  AND nr.notification_type = $2
+  AND nr.status = 'exhausted'
+  AND nr.requested_at >= $3::timestamptz
+  AND nr.requested_at <= $4::timestamptz
+  AND (COALESCE(array_length($5::uuid[], 1), 0) = 0 OR nr.notification_request_id = ANY($5::uuid[]))
+  AND (
+    -- A target we cannot relevance-check generically is requeued ONLY when the operator named
+    -- its id explicitly (having read ListExhausted first) OR its notification_type is one this
+    -- repository knows has NO external resolvable state to go stale in the first place. The
+    -- earlier form here was a bare target_type <> 'verification_item', which made the whole
+    -- predicate unconditionally true for every other target -- the exact OPPOSITE of the "no
+    -- known-relevant status, so treat as not-yet-relevant" rule the comment above claims. Live,
+    -- that meant a blanket -notification-type escalation requeue would resurrect batch
+    -- escalations whose underlying condition may since have resolved, with no check at all.
+    --
+    -- 'reminder' (target_type='cohort', no target_id) is the one type proven safe to requeue on
+    -- scope alone: a reminder reports nothing but "this cohort's window is due", which has no
+    -- separate domain lifecycle to fall stale behind -- its entire relevance IS the operator's
+    -- own Since/Until window, already enforced by the requested_at bounds above. That is why it
+    -- was found to be PERMANENTLY unrecoverable (this repo's own test) rather than merely
+    -- requiring an id: with target_type<>'verification_item' and no ids ever supplied for a
+    -- cohort-wide reminder sweep, neither branch of this predicate could ever match it. Every
+    -- other non-verification_item notification_type (escalation today, and any future one) still
+    -- requires explicit ids, so that hole stays closed.
+    (nr.target_type <> 'verification_item' AND (nr.notification_type = 'reminder' OR COALESCE(array_length($5::uuid[], 1), 0) > 0))
+    OR EXISTS (
+      SELECT 1 FROM verification_items vi
+      WHERE vi.tenant_id = nr.tenant_id
+        AND vi.item_id = nr.target_id
+        -- The "still outstanding" verification_items.status depends on WHICH fact the
+        -- notification is reporting, not a single fixed status: a 'rework' push reports the
+        -- verdict itself, which stays true for the life of that item ('rejected' -- see the
+        -- doc comment above; a resubmission opens a NEW item_id rather than resetting this
+        -- one). A 'verification_pending' push instead reports "a verifier still owes a
+        -- decision on this item", which is true only while the item is 'pending' -- once a
+        -- verdict lands (approved/rejected) that decision has already been made by the time
+        -- an operator gets around to requeuing, and resurrecting the "you have a review
+        -- pending" push would be actively misleading. Any other notification_type addressed
+        -- at a verification_item (there are none today) has no known-relevant status here and
+        -- is treated as not-yet-relevant rather than guessed at.
+        -- 'verification_approved' reports the accepted verdict to the operator who did the
+        -- work. Like 'rework' it is a statement about a verdict that has ALREADY landed, so it
+        -- stays true for the life of the item and is safe to resurrect while the item is
+        -- 'approved'. It was missing from this CASE, which meant every approval push that
+        -- failed was permanently unrecoverable -- found live: a real approval exhausted while
+        -- the dispatcher lacked FCM config, and a -notification-type verification_approved
+        -- returned requeued=0 with no explanation.
+        AND vi.status = CASE nr.notification_type
+              WHEN 'rework' THEN 'rejected'
+              WHEN 'verification_pending' THEN 'pending'
+              WHEN 'verification_approved' THEN 'approved'
+              ELSE NULL
+            END
+    )
+  )`,
+		tenantID, notificationType, requeueSince(params.Since), requeueUntil(params.Until, now), idFilter, now, requeuedBy)
+	if err != nil {
+		return ports.RequeueResult{}, fmt.Errorf("notification: requeue exhausted: %w", err)
+	}
+	return ports.RequeueResult{Requeued: int(tag.RowsAffected())}, nil
+}
+
+func requeueSince(since time.Time) time.Time {
+	if since.IsZero() {
+		// Effectively unbounded on the low end: notification_requests has no rows before the
+		// system's own epoch, so this never matches on `requested_at < zero-value`.
+		return time.Unix(0, 0).UTC()
+	}
+	return since.UTC()
+}
+
+func requeueUntil(until, now time.Time) time.Time {
+	if until.IsZero() {
+		return now
+	}
+	return until.UTC()
+}
+
+func nullableTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	tt := t.UTC()
+	return &tt
 }
 
 // insertDeliveryAttempt appends one immutable row to the per-attempt delivery ledger. attemptNo

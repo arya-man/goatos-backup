@@ -24,6 +24,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -32,11 +34,17 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/feedconfig/domain"
 	"github.com/vgoats/goatos/backend/internal/feedconfig/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // writeLogIdempotencyConstraint is the unique index whose violation means "another transaction
 // committed this same client key first".
 const writeLogIdempotencyConstraint = "feed_config_write_log_idempotency_uidx"
+
+// feedItemNaturalKeyConstraint is the unique index on (tenant_id, feed_item_key). Its violation
+// means another transaction added the same feed item between our duplicate pre-read and our insert,
+// which is reported to the author as "already exists" rather than as a server error.
+const feedItemNaturalKeyConstraint = "feed_item_catalog_natural_key_uidx"
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -84,19 +92,62 @@ SELECT ration_rate_id::text,
        valid_from::text,
        valid_to::text,
        source_system
-FROM feed_ration_rates
+FROM feed_ration_rates r
 WHERE tenant_id = $1::uuid
   AND park_id = $2::uuid
   AND valid_to IS NULL
+  -- RETIRED feed items drop out of the grid, because they have already dropped out of the FEED.
+  -- Generation loads the catalog with status = 'active'
+  -- (feeddirection/adapters/postgres.loadFeedItems), so a retired item's rate can no longer reach a
+  -- sheet; leaving it on the authoring screen would show an in-force quantity that nothing will ever
+  -- serve. This mirrors that predicate deliberately -- the config screen and the feed sheet must not
+  -- disagree about what is fed. The rate ROW is untouched and returns the moment the item is
+  -- restored; only the reading of it is scoped.
+  AND EXISTS (
+        SELECT 1 FROM feed_item_catalog c
+        WHERE c.tenant_id = r.tenant_id
+          AND c.feed_item_key = r.feed_item_key
+          AND c.status = 'active')
   AND ($3::text IS NULL OR ration_group_key = feed_config_norm($3))
   AND ($4::text IS NULL OR shed_tag_key = feed_config_norm($4))
-  AND ($5::text IS NULL OR feed_item_key = feed_config_norm($5))
+  -- Feed items are a SET. The stored key stays BARE on the left of the comparison so the
+  -- natural-key index is still usable; it is the BOUND ARRAY that is normalized, element by
+  -- element, rather than wrapping the column in feed_config_norm() (which would be the
+  -- non-SARGable, column-side-function shape the scale rules ban).
+  AND ($5::text[] IS NULL OR feed_item_key = ANY (
+        SELECT feed_config_norm(item) FROM unnest($5::text[]) AS t(item)))
+  -- Breed resolves through the breed -> ration-group map BEFORE it touches this table, because a
+  -- breed is not a group: Beetal and Sirohi both live in "Beetal/Sirohi". The subquery hits
+  -- feed_ration_groups_natural_key_uidx (tenant_id, breed_key) and returns at most one row; a breed
+  -- that maps to nothing yields NULL, so the predicate is NULL and NO rows match -- an unknown
+  -- breed must narrow to nothing, never widen to everything.
+  AND ($6::text IS NULL OR ration_group_key = (
+        SELECT g.ration_group_key FROM feed_ration_groups g
+        WHERE g.tenant_id = $1::uuid AND g.breed_key = feed_config_norm($6)))
+  -- The authored rate itself. The operator is a CLOSED ENUM validated in the service, so this CASE
+  -- is exhaustive over the values that can reach it; an unrecognized one cannot arrive here, and
+  -- the comparison is done in numeric so an exact decimal string is never float-compared.
+  AND ($7::text IS NULL OR CASE $7::text
+        WHEN 'gt'  THEN grams_per_head >  $8::numeric
+        WHEN 'gte' THEN grams_per_head >= $8::numeric
+        WHEN 'eq'  THEN grams_per_head =  $8::numeric
+        WHEN 'lte' THEN grams_per_head <= $8::numeric
+        WHEN 'lt'  THEN grams_per_head <  $8::numeric
+        WHEN 'neq' THEN grams_per_head <> $8::numeric
+      END)
 ORDER BY ration_group_label, shed_tag_label, feed_item_label, ration_rate_id
-LIMIT $6 OFFSET $7`
+LIMIT $9 OFFSET $10`
 
+	var gramsOp, gramsValue *string
+	if q.GramsCompare != nil {
+		op := string(q.GramsCompare.Op)
+		value := q.GramsCompare.Value
+		gramsOp, gramsValue = &op, &value
+	}
 	rows, err := r.pool.Query(ctx, query,
 		q.TenantID, q.ParkID,
-		nullIfEmpty(q.RationGroup), nullIfEmpty(q.ShedTag), nullIfEmpty(q.FeedItem),
+		nullIfEmpty(q.RationGroup), nullIfEmpty(q.ShedTag), nullIfEmptySlice(q.FeedItems),
+		nullIfEmpty(q.Breed), gramsOp, gramsValue,
 		q.Page.Limit+1, q.Page.Offset)
 	if err != nil {
 		return domain.RationRatePage{}, fmt.Errorf("feedconfig: list ration rates: %w", err)
@@ -151,6 +202,36 @@ LIMIT $2 OFFSET $3`
 		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list ration groups: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, page.Limit)
+
+	// The group labels a picker may actually offer, read from the RATES rather than from the breed map
+	// above. The map is adult breeds only, so 'Kid' -- a real group carrying real authored rates --
+	// exists in no row of it, and a picker built from it cannot reach those rates at all.
+	//
+	// scale-guard:ignore: DISTINCT over the authored rate table, which is config and not herd data (~1442 in-force rows for the whole tenant, 7 distinct labels); it cannot grow with animals and the result is a vocabulary, not a page.
+	const groupsQuery = `
+SELECT DISTINCT ration_group_label
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid
+  AND valid_to IS NULL
+ORDER BY ration_group_label`
+
+	groupRows, err := r.pool.Query(ctx, groupsQuery, tenantID)
+	if err != nil {
+		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list authored ration groups: %w", err)
+	}
+	defer groupRows.Close()
+
+	out.RationGroups = []string{}
+	for groupRows.Next() {
+		var label string
+		if err := groupRows.Scan(&label); err != nil {
+			return domain.RationGroupPage{}, fmt.Errorf("feedconfig: scan authored ration group: %w", err)
+		}
+		out.RationGroups = append(out.RationGroups, label)
+	}
+	if err := groupRows.Err(); err != nil {
+		return domain.RationGroupPage{}, fmt.Errorf("feedconfig: list authored ration groups: %w", err)
+	}
 	return out, nil
 }
 
@@ -369,34 +450,131 @@ LIMIT $5 OFFSET $6`
 // restored, and hiding them would make an accidental withdrawal invisible on the very screen that
 // owns the decision.
 //
-// Ordered by (shed_id, feed_item_key) so the walk matches
-// feed_experiment_config_natural_key_uidx (tenant_id, park_id, shed_id, feed_item_key) -- the
-// predicate hits its leading columns and the sort is a prefix-ordered read of the same index, so no
-// separate sort is needed. Ordering by feed_item_LABEL instead would silently force one.
+// Ordered by (shed_id, partition_key, feed_item_key) so the walk matches
+// feed_experiment_config_natural_key_uidx
+// (tenant_id, park_id, shed_id, partition_key, feed_item_key) -- the predicate hits its leading
+// columns and the sort is a prefix-ordered read of the same index, so no separate sort is needed.
+// Ordering by feed_item_LABEL instead would silently force one.
+//
+// partition_key is in the ORDER BY, not just the index: a partitioned shed authors one cell per
+// PEN, so leaving it out interleaves ten pens' cells by feed item and the screen shows ten
+// indistinguishable rows of the same item.
+//
+// The locations join supplies the shed NAME so the backend can compose the operator-facing
+// location itself (the backend-owns-labels rule). LEFT JOIN, not INNER: a config row whose shed
+// row is missing degrades to a bare label rather than vanishing from the author's screen.
 func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// scale-guard:ignore: bounded LIMIT/OFFSET over one park's hand-authored experiment sheds (17 sheds x 5 items per live park); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
-	const query = `
-SELECT experiment_config_id::text,
-       park_id::text,
-       shed_id::text,
-       feed_item_label,
-       absolute_kg::text,
-       head_count,
-       experiment_category,
-       status
-FROM feed_experiment_config
-WHERE tenant_id = $1::uuid
-  AND park_id = $2::uuid
-  AND ($3::uuid IS NULL OR shed_id = $3::uuid)
-  AND ($4::text IS NULL OR status = $4::text)
-ORDER BY shed_id, feed_item_key, experiment_config_id
-LIMIT $5 OFFSET $6`
+	// park_id is OPTIONAL here, unlike every other read on this screen. The ration grid, the session
+	// split and the dispatch clock are park-OWNED and have no cross-park meaning, but an experiment
+	// cell already carries its own park_id, so the authored inventory can legitimately be listed for
+	// the whole tenant. That is what lets a company-wide scope show all 35 pens instead of silently
+	// showing one park's 17 -- the defect this widening fixes.
+	//
+	// The park is JOINED for its name, not composed client-side, because a cross-park list must say
+	// which park each row belongs to and the shed NAME cannot carry that (Castro, Gandhi and Yashoda
+	// each exist in both parks -- keying or labelling on the name alone merges them).
+	//
+	// ORDER BY leads with park so a cross-park page groups rather than interleaves, and still sorts
+	// by shed/partition/item beneath it so a single-park read is byte-identical to what it was.
+	//
+	// scale-guard:ignore: bounded LIMIT/OFFSET over the tenant's hand-authored experiment sheds (35 pens x 5 items across both live parks); the operator authors these by hand so the set cannot grow with herd size, and the service rejects offset > 5000.
+	// The cell-level predicate, written ONCE and interpolated into both places it must hold.
+	//
+	// It has to appear twice: in the pen-ranking CTE, so a pen with no matching cell is not counted
+	// or paged; and in the final select, so only the matching cells of a surviving pen come back.
+	// Writing it out twice by hand is how the two drift, and the failure mode is silent and
+	// off-by-a-page -- the ranked pen count would include pens the outer select then returns no rows
+	// for, so `has_more` and the page would disagree about how many pens exist.
+	//
+	// A CONST fragment, never caller input: every value is a bind parameter, and only the shape is
+	// interpolated.
+	const experimentCellPredicate = `
+      AND ($7::text[] IS NULL OR c.feed_item_key = ANY (
+            SELECT feed_config_norm(item) FROM unnest($7::text[]) AS t(item)))
+      AND ($8::text IS NULL OR feed_config_norm(c.experiment_category) = feed_config_norm($8))
+      AND ($9::text IS NULL OR CASE $9::text
+            WHEN 'gt'  THEN c.absolute_kg >  $10::numeric
+            WHEN 'gte' THEN c.absolute_kg >= $10::numeric
+            WHEN 'eq'  THEN c.absolute_kg =  $10::numeric
+            WHEN 'lte' THEN c.absolute_kg <= $10::numeric
+            WHEN 'lt'  THEN c.absolute_kg <  $10::numeric
+            WHEN 'neq' THEN c.absolute_kg <> $10::numeric
+          END)`
 
-	rows, err := r.pool.Query(ctx, query, q.TenantID, q.ParkID,
-		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit+1, q.Page.Offset)
+	// projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, status, feed-item, arm and absolute-kg filters; group_key=(park_id,shed_id,partition_key) operational pen; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key and each location join is 0:1; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count; scope=tenant is mandatory with optional exact park/shed/status filters and cell-level feed-item/arm/kg filters applied IDENTICALLY (one shared const predicate) to the pen membership set and to the returned cells, so the paged pen count and the returned rows range over the same key set
+	query := `
+WITH ranked_pens AS (
+  SELECT p.*,
+         row_number() OVER (
+           ORDER BY p.park_name, p.park_id, p.shed_id, p.partition_key
+         ) AS pen_number,
+         count(*) OVER () AS pen_count
+  FROM (
+    SELECT DISTINCT c.park_id,
+           COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
+           c.shed_id,
+           c.partition_key
+    FROM feed_experiment_config c
+    LEFT JOIN locations park
+           ON park.tenant_id = c.tenant_id
+          AND park.location_id = c.park_id
+    WHERE c.tenant_id = $1::uuid
+      AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
+      AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
+      AND ($4::text IS NULL OR c.status = $4::text)
+      -- One PEN, not a whole shed. NULL means no partition filter at all; partitionKeyMatch is only
+      -- reached for a real label, so a blank can never be read as the 'whole' key of an undivided
+      -- shed. An undivided shed needs no partition anyway -- it has exactly one pen, which shed_id
+      -- alone already selects.
+      AND ($11::text IS NULL OR c.partition_key = ` + partitionKeyMatch("$11") + `)` + experimentCellPredicate + `
+  ) p
+), page_pens AS (
+  SELECT *, pen_count > ($6::bigint + $5::bigint) AS has_more
+  FROM ranked_pens
+  WHERE pen_number > $6::bigint AND pen_number <= ($6::bigint + $5::bigint)
+)
+SELECT c.experiment_config_id::text,
+       c.park_id::text,
+       p.park_name,
+       c.shed_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
+       COALESCE(c.partition_label, '') AS partition_label,
+       c.feed_item_label,
+       c.absolute_kg::text,
+       c.head_count,
+       c.experiment_category,
+       c.status,
+       p.has_more
+FROM page_pens p
+JOIN feed_experiment_config c
+  ON c.park_id = p.park_id
+ AND c.shed_id = p.shed_id
+ AND c.partition_key = p.partition_key
+LEFT JOIN locations shed
+       ON shed.tenant_id = c.tenant_id
+      AND shed.location_id = c.shed_id
+WHERE c.tenant_id = $1::uuid
+  AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
+  AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
+  AND ($4::text IS NULL OR c.status = $4::text)
+  AND ($11::text IS NULL OR c.partition_key = ` + partitionKeyMatch("$11") + `)` + experimentCellPredicate + `
+ORDER BY p.pen_number, c.feed_item_key, c.experiment_config_id`
+
+	var kgOp, kgValue *string
+	if q.KgCompare != nil {
+		op := string(q.KgCompare.Op)
+		value := q.KgCompare.Value
+		kgOp, kgValue = &op, &value
+	}
+	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID),
+		nullIfEmpty(q.ShedID), nullIfEmpty(q.Status), q.Page.Limit, q.Page.Offset,
+		nullIfEmptySlice(q.FeedItems), nullIfEmpty(q.ExperimentCategory), kgOp, kgValue,
+		// Blank binds as NULL, i.e. no partition filter — never as the 'whole' key. An undivided
+		// shed has exactly one pen and is already selected by shed_id alone.
+		nullIfEmpty(q.PartitionLabel))
 	if err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
 	}
@@ -405,18 +583,219 @@ LIMIT $5 OFFSET $6`
 	out := domain.ExperimentConfigPage{Items: []domain.ExperimentConfig{}, Limit: q.Page.Limit, Offset: q.Page.Offset}
 	for rows.Next() {
 		var item domain.ExperimentConfig
+		var hasMore bool
 		// head_count stays a pointer all the way to the wire: NULL means the population was not
 		// recorded alongside the quantity, and rendering that as 0 would state the shed is empty.
 		var headCount *int32
-		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ShedID, &item.FeedItemLabel,
-			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status); err != nil {
+		if err := rows.Scan(&item.ExperimentConfigID, &item.ParkID, &item.ParkName, &item.ShedID,
+			&item.ShedName, &item.PartitionLabel, &item.FeedItemLabel,
+			&item.AbsoluteKg, &headCount, &item.ExperimentCategory, &item.Status, &hasMore); err != nil {
 			return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: scan experiment config: %w", err)
 		}
 		item.HeadCount = headCount
+		// Compose through oploc so this screen reads identically to every other surface, and so the
+		// 'whole' sentinel can never reach a client. Constructed from the row's OWN authored label
+		// rather than ResolveShedLocation, whose agree-or-go-bare rule is for inferring a shed's
+		// partition from its animals -- here the pen is explicitly authored on the row.
+		if !oploc.IsPartitioned(item.PartitionLabel) {
+			item.PartitionLabel = ""
+		}
+		item.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedID:         item.ShedID,
+			ShedName:       item.ShedName,
+			PartitionLabel: item.PartitionLabel,
+		}.Display()
+		out.HasMore = hasMore
 		out.Items = append(out.Items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ExperimentConfigPage{}, fmt.Errorf("feedconfig: list experiment config: %w", err)
+	}
+	return out, nil
+}
+
+// UpsertExperimentConfigBatch enrolls every feed item of ONE previously-unconfigured pen in a
+// single statement inside a single transaction. Existing pens fail closed so a stale form cannot
+// present a subset as a complete enrollment; individual cells have an explicit edit path.
+//
+// ONE STATEMENT, NOT A LOOP. The cells are passed as parallel arrays and expanded with UNNEST, so N
+// authored items cost one round trip rather than N (the banned n-plus-one shape), and every cell
+// lands or none does. The two arrays are built from the SAME ordered slice in the caller, so index i
+// is always the same cell in both -- building one from a filtered copy and the other from the
+// original is the parallel-array grain bug that silently pairs a quantity with the wrong feed item.
+//
+// There is deliberately no ON CONFLICT update: the shed lock and existence check make this a
+// create-only enrollment. An existing natural key means the caller's view is stale, never that an
+// arbitrary submitted subset should overwrite the authoritative cells already stored for the pen.
+func (r *Repository) UpsertExperimentConfigBatch(ctx context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindExperimentConfig, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
+			return writeEffect{}, err
+		}
+		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
+		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+			return writeEffect{}, err
+		}
+		var alreadyConfigured bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM feed_experiment_config
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+    AND partition_key = `+partitionKeyMatch("$4")+`
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&alreadyConfigured); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen enrollment: %w", err)
+		}
+		if alreadyConfigured {
+			return writeEffect{}, ports.ErrExperimentPenAlreadyConfigured
+		}
+
+		items := make([]string, 0, len(cmd.Cells))
+		kgs := make([]string, 0, len(cmd.Cells))
+		for _, cell := range cmd.Cells {
+			items = append(items, cell.FeedItemLabel)
+			kgs = append(kgs, cell.AbsoluteKg)
+		}
+
+		// RETURNING every affected row id, ordered by the generated feed_item_key so the ledger's
+		// representative row is deterministic across replays rather than whichever row the executor
+		// happened to touch first.
+		rows, err := tx.Query(ctx, `
+INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label,
+                                    absolute_kg, head_count, experiment_category, status, created_by)
+SELECT $1::uuid, $2::uuid, $3::uuid, nullif(btrim($4),''), cell.item,
+       cell.kg::numeric, $5, $6, 'active', nullif($7,'')::uuid
+FROM unnest($8::text[], $9::text[]) AS cell(item, kg)
+RETURNING experiment_config_id::text, feed_item_key`,
+			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel,
+			cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef), items, kgs)
+		if err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
+		}
+		defer rows.Close()
+
+		type touched struct{ id, key string }
+		written := make([]touched, 0, len(cmd.Cells))
+		for rows.Next() {
+			var t touched
+			if err := rows.Scan(&t.id, &t.key); err != nil {
+				return writeEffect{}, fmt.Errorf("feedconfig: scan batch experiment config: %w", err)
+			}
+			written = append(written, t)
+		}
+		if err := rows.Err(); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert experiment config: %w", err)
+		}
+		// Every cell must have produced a row. A short count means a conflict target did not match
+		// what the caller believed it was addressing, and silently reporting success on a partial
+		// enrolment is precisely the underfeed this whole write exists to prevent.
+		if len(written) != len(cmd.Cells) {
+			return writeEffect{}, fmt.Errorf("feedconfig: batch upsert wrote %d of %d cells", len(written), len(cmd.Cells))
+		}
+		sort.Slice(written, func(i, j int) bool { return written[i].key < written[j].key })
+
+		// 'inserted' rather than a per-cell outcome: the ledger records one authoring ACT, and this
+		// act's meaning is "this pen's quantities are now these". The result row is the pen's
+		// lowest-keyed cell, which the constraint requires to be non-NULL for this outcome.
+		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: written[0].id}, nil
+	})
+}
+
+// ListPens returns every operational location in scope -- each shed, and each pen of a subdivided
+// shed -- flagged with whether it already carries experiment configuration.
+//
+// park_id is OPTIONAL, matching the experiment read: omitted means the whole tenant, which is what
+// the enroller needs when the top bar is company-wide. Each row carries its OWN park_id so the
+// caller can group by park without a second lookup.
+//
+// LEFT JOIN, not INNER. An undivided shed has no shed_partitions row at all and must still appear
+// exactly once, as itself; an INNER JOIN would silently drop every whole-shed location and leave the
+// enroller unable to offer them.
+//
+// partition_label is selected, NEVER normalized_label. They look interchangeable and are not:
+// 'Part 3' is the human label and '3' is the scrubbed matching key, and selecting the key renders
+// 'Mandela 2 - 3' to an operator. This is the defect that shipped, was fixed, and was reintroduced
+// hours later by a hand-written query in another module -- see AGENTS.md rule 5a.
+//
+// The experiment flag is an EXISTS correlated on (shed_id, partition_key), the same natural key the
+// experiment table is unique on, so it cannot disagree with what the enroller's filter should do.
+// Matching on shed_id alone is precisely the bug being fixed.
+//
+// No per-animal table is touched. A pen holding zero animals is real, is listed, and is usually the
+// one about to be filled -- deriving this catalog from goat placement is what hides it.
+func (r *Repository) ListPens(ctx context.Context, q domain.PenQuery) (domain.PenPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// scale-guard:ignore: bounded LIMIT/OFFSET over ONE park's location catalog (two live parks hold ~20 sheds and ~40 pens each); the set is authored infrastructure and cannot grow with herd size. Served by the locations parent index and shed_partitions' own (tenant_id, shed_id) key.
+	const query = `
+SELECT shed.parent_location_id::text AS park_id,
+       shed.location_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
+       COALESCE(sp.partition_label, '') AS partition_label,
+       EXISTS (
+         SELECT 1 FROM feed_experiment_config e
+         WHERE e.tenant_id = shed.tenant_id
+           AND e.shed_id = shed.location_id
+           AND e.partition_key = CASE
+                 WHEN sp.partition_label IS NULL OR btrim(sp.partition_label) = '' THEN 'whole'
+                 ELSE feed_config_norm(sp.partition_label)
+               END
+       ) AS has_experiment_config
+FROM locations shed
+LEFT JOIN shed_partitions sp
+       ON sp.tenant_id = shed.tenant_id
+      AND sp.shed_id = shed.location_id
+      AND sp.status = 'active'
+WHERE shed.tenant_id = $1::uuid
+  AND ($2::uuid IS NULL OR shed.parent_location_id = $2::uuid)
+  AND shed.location_type = 'shed'
+  AND shed.status = 'active'
+  AND (
+    sp.normalized_label IS NOT NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM shed_partitions any_sp
+      WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id
+    )
+  )
+ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,
+         sp.normalized_label NULLS FIRST
+LIMIT $3 OFFSET $4`
+
+	rows, err := r.pool.Query(ctx, query, q.TenantID, nullIfEmpty(q.ParkID), q.Page.Limit+1, q.Page.Offset)
+	if err != nil {
+		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
+	}
+	defer rows.Close()
+
+	out := domain.PenPage{Items: []domain.Pen{}, Limit: q.Page.Limit, Offset: q.Page.Offset}
+	for rows.Next() {
+		// ParkID comes from the ROW, never copied from the query: with park_id omitted there is no
+		// park on the query to copy, and a blank one leaves the enroller unable to tell which park a
+		// pen belongs to -- which is the whole basis of its park-then-pen choice.
+		var item domain.Pen
+		if err := rows.Scan(&item.ParkID, &item.ShedID, &item.ShedName, &item.PartitionLabel, &item.HasExperimentConfig); err != nil {
+			return domain.PenPage{}, fmt.Errorf("feedconfig: scan pen: %w", err)
+		}
+		// Same composition as the experiment list, through oploc, so the enroller's option text and
+		// the table row it becomes are byte-identical. IsPartitioned also filters the 'whole'
+		// sentinel, which is a matching key and must never reach a client.
+		if !oploc.IsPartitioned(item.PartitionLabel) {
+			item.PartitionLabel = ""
+		}
+		item.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedID:         item.ShedID,
+			ShedName:       item.ShedName,
+			PartitionLabel: item.PartitionLabel,
+		}.Display()
+		out.Items = append(out.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.PenPage{}, fmt.Errorf("feedconfig: list pens: %w", err)
 	}
 	out.Items, out.HasMore = trimPage(out.Items, q.Page.Limit)
 	return out, nil
@@ -583,6 +962,126 @@ RETURNING shed_factor_id::text`,
 	})
 }
 
+// CreateFeedItem adds one entry to the tenant's feed-item catalog.
+//
+// NOT PARK-SCOPED, and that is the schema speaking: feed_item_catalog is keyed
+// (tenant_id, feed_item_key), so a feed item is a TENANT vocabulary that both parks author rates
+// against. There is no requireLocation call here because there is no location in the key.
+//
+// ONE OUTCOME: 'inserted'. There is no corrected/superseded/unchanged branch, because this is an
+// ADD rather than an edit -- a duplicate label is ErrFeedItemExists (see ports), never an in-place
+// rewrite of an item's authored attributes.
+//
+// THE DUPLICATE CHECK IS BELT AND BRACES, DELIBERATELY. The pre-read gives the author a clean
+// "already exists" instead of a constraint violation, but it cannot be the only guard: two
+// concurrent adds of the same label both read "absent" and both proceed. The unique-violation arm
+// below is what actually makes that impossible, and feed_item_catalog_natural_key_uidx is what
+// makes the vocabulary single-valued. Removing either one leaves a real hole -- the pre-read alone
+// races, and the index alone reports a 500 to someone who typed a name that already exists.
+func (r *Repository) CreateFeedItem(ctx context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindFeedItem, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		// feed_config_norm on BOTH sides, matching the generated feed_item_key column. Comparing raw
+		// labels would let "Dry Masoor Bhusa " through as a second entry that every rate keyed on the
+		// normalized label would then collapse back onto.
+		var existingID string
+		err := tx.QueryRow(ctx, `
+SELECT feed_item_id::text
+FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm($2)`,
+			cmd.TenantID, cmd.FeedItemLabel).Scan(&existingID)
+		switch {
+		case err == nil:
+			return writeEffect{}, ports.ErrFeedItemExists
+		case !errors.Is(err, pgx.ErrNoRows):
+			return writeEffect{}, fmt.Errorf("feedconfig: check feed item: %w", err)
+		}
+
+		// An absent display_order appends to the END of the catalog rather than taking the column's
+		// DEFAULT 0, which would silently place every new item FIRST in every dropdown on the screen.
+		// Resolved inside this transaction so two concurrent adds cannot both read the same maximum
+		// -- and a tie is harmless anyway: the listing breaks ties on label, then id.
+		//
+		// This is a PRESENTATION position. It is the one value in this module derived rather than
+		// authored, and it is derivable precisely because no feeding decision reads it.
+		displayOrder := cmd.DisplayOrder
+		if displayOrder == nil {
+			var next int32
+			if err := tx.QueryRow(ctx, `
+SELECT coalesce(max(display_order), 0) + 1
+FROM feed_item_catalog
+WHERE tenant_id = $1::uuid`, cmd.TenantID).Scan(&next); err != nil {
+				return writeEffect{}, fmt.Errorf("feedconfig: resolve feed item display order: %w", err)
+			}
+			displayOrder = &next
+		}
+
+		// status is 'active' on creation: an item added to the vocabulary is one the author intends to
+		// use. The three nutritional attributes bind as NULL when absent -- an honest "not measured",
+		// never a 0 that would claim someone measured it.
+		var newID string
+		if err := tx.QueryRow(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, energy_kcal_per_kg, dry_matter_factor,
+                               wastage_factor, display_order, status)
+VALUES ($1::uuid, $2, $3::numeric, $4::numeric, $5::numeric, $6, 'active')
+RETURNING feed_item_id::text`,
+			cmd.TenantID, cmd.FeedItemLabel, cmd.EnergyKcalPerKg, cmd.DryMatterFactor,
+			cmd.WastageFactor, displayOrder).Scan(&newID); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.ConstraintName == feedItemNaturalKeyConstraint {
+				// A concurrent add of the same label won the race between our pre-read and this insert.
+				// Same answer as the pre-read would have given, which is the answer the author needs.
+				return writeEffect{}, ports.ErrFeedItemExists
+			}
+			return writeEffect{}, fmt.Errorf("feedconfig: insert feed item: %w", err)
+		}
+		return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
+	})
+}
+
+// SetFeedItemStatus retires one catalog entry, or restores a retired one.
+//
+// A STATUS FLIP, NEVER A DELETE -- the same shape as the experiment pen switch below, and for the
+// same reason. The item's ration rates, shed factors and experiment cells are left exactly as they
+// are, so a withdraw-and-restore round-trips instead of having to be re-keyed from the workbook,
+// and every past feed sheet stays explainable. A DELETE would cascade the rates away and a later
+// restore would return an item whose every combination is UNCONFIGURED, which on this screen means
+// BLOCKED: those sheds would not be fed.
+//
+// The row is locked FOR UPDATE and its current status read in the same statement, so two concurrent
+// flips serialize instead of both reading 'active' and racing. An item already in the requested
+// state is OutcomeUnchanged rather than an error: the caller asked for a state and that state holds.
+func (r *Repository) SetFeedItemStatus(ctx context.Context, cmd domain.SetFeedItemStatusCommand) (domain.WriteResult, error) {
+	return r.runWrite(ctx, domain.WriteKindFeedItem, cmd.WriteIdentity, func(ctx context.Context, tx pgx.Tx) (writeEffect, error) {
+		var current string
+		err := tx.QueryRow(ctx, `
+SELECT status
+FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid
+FOR UPDATE`, cmd.TenantID, cmd.FeedItemID).Scan(&current)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return writeEffect{}, ports.ErrFeedItemNotFound
+		case err != nil:
+			return writeEffect{}, fmt.Errorf("feedconfig: lock feed item: %w", err)
+		}
+
+		if current == cmd.Status {
+			return writeEffect{Outcome: domain.OutcomeUnchanged, ResultRowID: cmd.FeedItemID}, nil
+		}
+
+		if _, err := tx.Exec(ctx, `
+UPDATE feed_item_catalog
+SET status = $3, updated_at = now()
+WHERE tenant_id = $1::uuid AND feed_item_id = $2::uuid`,
+			cmd.TenantID, cmd.FeedItemID, cmd.Status); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: set feed item status: %w", err)
+		}
+		// Corrected, not superseded: feed_item_catalog is not effective-dated, so this edits the one
+		// row in place rather than closing a window and opening another.
+		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: cmd.FeedItemID}, nil
+	})
+}
+
 // UpsertScheduleConfig authors one park/workflow dispatch clock.
 //
 // All three times are bound as ::time and stored WITHOUT an offset -- they are recurring
@@ -683,43 +1182,73 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requireShedInPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
 			return writeEffect{}, err
 		}
+		if err := lockShedForExperimentWrite(ctx, tx, cmd.TenantID, cmd.ShedID); err != nil {
+			return writeEffect{}, err
+		}
+		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+			return writeEffect{}, err
+		}
+		var penConfigured bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM feed_experiment_config
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+    AND partition_key = `+partitionKeyMatch("$4")+`
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&penConfigured); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen before cell edit: %w", err)
+		}
+		if !penConfigured {
+			return writeEffect{}, ports.ErrExperimentPenNotConfigured
+		}
 
 		// Lock the row for this key. FOR UPDATE so two concurrent edits of the SAME cell serialize
 		// instead of both deciding "no row" and racing into feed_experiment_config_natural_key_uidx.
+		//
+		// partition_key is part of the predicate because it is part of that unique key. Without it
+		// this QueryRow matched EVERY pen of a partitioned shed -- ten rows for Mandela 1 -- so an
+		// edit either failed or locked an arbitrary pen and wrote the author's number onto it.
+		// partitionKeyMatch renders the generated column's OWN expression rather than a Go twin of
+		// it, so the predicate and the index cannot disagree; see that function for the drift this
+		// replaced, which made 130 of 175 authored cells un-editable.
 		var openID, openKg, openCategory, openStatus string
 		var openHeadCount *int32
 		err := tx.QueryRow(ctx, `
 SELECT experiment_config_id::text, absolute_kg::text, head_count, experiment_category, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND partition_key = `+partitionKeyMatch("$5")+`
   AND feed_item_key = feed_config_norm($4)
-FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel).
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.PartitionLabel).
 			Scan(&openID, &openKg, &openHeadCount, &openCategory, &openStatus)
 
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			// First authored cell for this (shed, item). If it is also the shed's first cell overall,
-			// this write is what ENROLS the shed onto the experiment workflow -- membership is the flag.
+			// A newly-added item on an already-enrolled pen. First enrollment cannot reach this path:
+			// the pen-level existence check above reserves that atomic transition for the batch write.
 			var newID string
+			// partition_label is written; partition_key is GENERATED from it, so the pen the author
+			// clicked is the pen the row belongs to. Omitting the label here defaulted every insert
+			// to the 'whole' sentinel, quietly creating a shed-wide row beside the real pens.
 			if err := tx.QueryRow(ctx, `
-INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, feed_item_label, absolute_kg,
-                                    head_count, experiment_category, status, created_by)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::numeric, $6, $7, 'active', nullif($8,'')::uuid)
+INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label,
+                                    absolute_kg, head_count, experiment_category, status, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($9,''), $4, $5::numeric, $6, $7, 'active', nullif($8,'')::uuid)
 RETURNING experiment_config_id::text`,
 				cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.AbsoluteKg,
-				cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef)).Scan(&newID); err != nil {
+				cmd.HeadCount, cmd.ExperimentCategory, actorUUID(cmd.ActorRef),
+				strings.TrimSpace(cmd.PartitionLabel)).Scan(&newID); err != nil {
 				return writeEffect{}, fmt.Errorf("feedconfig: insert experiment config: %w", err)
 			}
-			// See reactivateExperimentShed: a brand-new cell inserted 'active' into a shed that
+			// See reactivateExperimentPen: a brand-new cell inserted 'active' into a pen that
 			// still carries OTHER retired rows would leave the shed mixed-status, which
 			// ExperimentPlanner.Applies reads as "enrolled" while feeding only the active subset.
-			if err := reactivateExperimentShed(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 				return writeEffect{}, err
 			}
 			// CR-07: sync shed-level metadata to every OTHER row of this shed. head_count and
 			// experiment_category are shed-level facts (see syncExperimentShedMetadata), not
 			// per-item ones, even though this table stores one row per (shed, feed item).
-			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+			if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, newID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 				return writeEffect{}, err
 			}
 			return writeEffect{Outcome: domain.OutcomeInserted, ResultRowID: newID}, nil
@@ -747,7 +1276,7 @@ WHERE experiment_config_id = $1::uuid`,
 		}
 		// CR-07: sync shed-level metadata to every OTHER row of this shed (see
 		// syncExperimentShedMetadata and the insert branch above).
-		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
+		if err := syncExperimentShedMetadata(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel, openID, cmd.HeadCount, cmd.ExperimentCategory); err != nil {
 			return writeEffect{}, err
 		}
 		// ROOT-CAUSE FIX (P1 follow-up): editing ONE cell of a retired shed must not leave the
@@ -763,72 +1292,213 @@ WHERE experiment_config_id = $1::uuid`,
 		// ("this shed is back on the experiment workflow"), and it cannot race with
 		// SetExperimentShedStatus because both lock the shed's rows with the same
 		// `FOR UPDATE ... WHERE shed_id = $3` pattern.
-		if err := reactivateExperimentShed(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID); err != nil {
+		if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: openID}, nil
 	})
 }
 
-// reactivateExperimentShed brings EVERY row of one shed's experiment config back to 'active' in a
-// single set-based UPDATE. It is called whenever UpsertExperimentConfig re-enrols a shed (by
-// inserting a new cell or correcting an existing one), so a shed can never end this transaction
-// with some rows active and some retired -- the exact mixed state that would make
-// ExperimentPlanner.Applies enrol the shed while feeddirection's LoadConfigSnapshot loads only
-// the active subset, silently truncating the generated direction.
-//
-// scale-guard:ignore: one set-based UPDATE over ONE shed's authored experiment cells (bounded by
-// the feed-item catalog, a handful of rows per shed today), never a per-row loop.
 // syncExperimentShedMetadata propagates head_count and experiment_category to every OTHER row of
 // the given shed (CR-07).
 //
-// feed_experiment_config stores one row per (shed, feed item), but head_count and
-// experiment_category are SHED-LEVEL facts: "how many animals are in this shed" and "which arm is
-// this shed on" do not vary by feed item. ExperimentPlanner.PlanDaily reads them off
-// cells[0] -- the first row for the shed in whatever order the config snapshot loaded them -- so
-// before this fix, editing a single cell updated ONLY that row's copy of the shed-level fields,
-// leaving every sibling row stale. Depending on load order, a generated direction could silently
-// keep serving the OLD head count/arm (edit ignored) or serve a DIFFERENT sibling row's stale
-// values (arbitrary arm) instead of the value the operator just entered.
+// feed_experiment_config stores one row per (shed, PEN, feed item), and head_count and
+// experiment_category are PEN-LEVEL facts: "how many animals are here" and "which arm is this on"
+// do not vary by feed item, but they absolutely do vary by pen. ExperimentPlanner.PlanDaily reads
+// them off cells[0] -- the first row for the group in whatever order the config snapshot loaded
+// them -- so an edit that updated only its own row would leave siblings stale and the generated
+// direction could serve an arbitrary sibling's values instead of the one just entered. This keeps
+// the group in step.
+//
+// SCOPED TO THE PEN, not the shed. It was shed-wide on the stated assumption that these are
+// "shed-level facts", which was true before this table became partition-aware and is now false:
+// Mandela 1's ten pens each carry their own arm and head count (Part 1 = Sheep M NEW/10,
+// Part 10 = B+S Goat F NEW/15). A shed-wide sweep flattened all ten to whichever pen was edited,
+// destroying hand-keyed authored data with no way to recover it. The pen predicate is what makes
+// an edit to one pen leave its neighbours alone.
 //
 // Called from the SAME transaction as the per-cell insert/update, immediately after it, so the
-// whole shed's rows are consistent by the time the transaction commits -- there is never a window
-// where a reader sees the edited cell's new metadata beside a sibling's old metadata.
-func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, editedRowID string, headCount *int32, category string) error {
+// pen's rows are consistent by the time the transaction commits -- there is never a window where a
+// reader sees the edited cell's new metadata beside a sibling's old metadata.
+func syncExperimentShedMetadata(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel, editedRowID string, headCount *int32, category string) error {
+	// Takes the raw authored LABEL and normalizes in SQL, for the reason given on
+	// partitionKeyMatch: the Go twin this used to be handed disagreed with the generated column for
+	// any pen whose label carries a separator, so this sync silently updated NO sibling rows on
+	// exactly the pens that have them.
 	if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
 SET head_count = $5,
     experiment_category = $6,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND partition_key = `+partitionKeyMatch("$7")+`
   AND experiment_config_id <> $4::uuid
   AND (head_count IS DISTINCT FROM $5 OR experiment_category IS DISTINCT FROM $6)`,
-		tenantID, parkID, shedID, editedRowID, headCount, category); err != nil {
-		return fmt.Errorf("feedconfig: sync experiment shed metadata: %w", err)
+		tenantID, parkID, shedID, editedRowID, headCount, category, partitionLabel); err != nil {
+		return fmt.Errorf("feedconfig: sync experiment pen metadata: %w", err)
 	}
 	return nil
 }
 
-func reactivateExperimentShed(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID string) error {
+// partitionKeyMatch renders the expression that turns a raw authored partition label into the value
+// feed_experiment_config.partition_key actually holds, for the given bind placeholder.
+//
+// IT IS COMPUTED IN SQL, ON PURPOSE, AND MUST STAY THAT WAY. There used to be a Go twin here
+// (`feedExperimentPartitionKey`) whose doc comment claimed to mirror the generated column exactly
+// and did not: it returned lower(btrim(label)) while the column is
+//
+//	CASE WHEN partition_label IS NULL OR btrim(partition_label) = '' THEN 'whole'
+//	     ELSE feed_config_norm(partition_label) END
+//
+// and feed_config_norm ALSO collapses runs of whitespace/underscore/hyphen to a single underscore.
+// So for a pen labelled "Part 3" the twin produced "part 3" while the column and its unique index
+// held "part_3". The write path's FOR UPDATE lookup could therefore never match an existing cell of
+// any pen whose label contains a separator: it fell through to the insert branch, which has no
+// ON CONFLICT, and died on feed_experiment_config_natural_key_uidx. Editing an authored kg on
+// "Godel 1 - Part 8" was a 500. Purely numeric pens ("2", "3") were unaffected, which is why it
+// survived review -- both spellings agree there.
+//
+// Rendering the column's own expression against the same function removes the twin rather than
+// fixing it, so the two cannot drift again. The argument is a placeholder token this file controls
+// ("$5"), never caller data.
+// Every occurrence is cast to text explicitly. Without the casts the first mention is `$n IS NULL`,
+// which gives the planner nothing to infer from, and the statement fails to prepare with
+// "could not determine data type of parameter" (SQLSTATE 42P08) -- at runtime, on a path no
+// compile step and no fake-backed test can see.
+func partitionKeyMatch(placeholder string) string {
+	arg := "(" + placeholder + ")::text"
+	return "(CASE WHEN " + arg + " IS NULL OR btrim(" + arg + ") = '' THEN 'whole'" +
+		" ELSE feed_config_norm(" + arg + ") END)"
+}
+
+// requirePartitionInShed rejects a partition label that is not in the shed's own catalog.
+//
+// The write path validated the park and the shed and then took the pen on trust, so a blank label
+// on a subdivided shed authored a phantom whole-shed row beside the real pens, and a typo authored
+// a pen that exists nowhere. Neither is reachable by any operational location, so the quantities
+// sit in the table being read by nothing -- the quietest possible failure for a feeding
+// instruction.
+//
+// shed_partitions is the catalog, per the operational-location convention: it is ORG-scoped and
+// keyed by (tenant_id, shed_id, normalized_label) with no per-animal data, so a pen holding zero
+// animals is still real and still authorable. The per-goat goat_shed_partitions table is NOT
+// consulted and must not be -- deriving the catalog from animal placement hides an empty pen.
+//
+// MATCHED ON THE HUMAN LABEL, NOT ON normalized_label. The two columns speak different
+// vocabularies and comparing across them silently matches nothing:
+//
+//	shed_partitions.normalized_label       'Part 3' -> '3'      (strips a leading "part ", 000112)
+//	feed_experiment_config.partition_key   'Part 3' -> 'part_3' (feed_config_norm)
+//
+// So both sides here are put through feed_config_norm -- feed's own single normalization, applied
+// to the catalog's partition_label and to the authored label -- which is the rule
+// feeddirection/domain.PartitionMatchKey already states for this module. Verified against the live
+// data before enforcing: all 175 authored cells spell the pen exactly as its catalog row does, so
+// this rejects nothing that exists (a repair written from an inferred shape is aimed at a problem
+// that may not exist -- it was checked, and it does not).
+//
+// An UNDIVIDED shed has no shed_partitions rows at all and takes a blank label; a SUBDIVIDED shed
+// requires one of its own. Both directions are rejected, because both author a row nothing reads.
+func requirePartitionInShed(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
+	var hasPartitions, hasActivePartitions bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+         SELECT 1 FROM shed_partitions
+         WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
+       ),
+       EXISTS (
+         SELECT 1 FROM shed_partitions
+         WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND status = 'active'
+       )`,
+		tenantID, shedID).Scan(&hasPartitions, &hasActivePartitions); err != nil {
+		return fmt.Errorf("feedconfig: resolve shed partitions: %w", err)
+	}
+
+	wanted := strings.TrimSpace(partitionLabel)
+	if !hasPartitions {
+		if wanted == "" {
+			return nil
+		}
+		return ports.ErrPartitionNotFound
+	}
+	// A historically partitioned shed with no active pens is not an undivided shed. Treating it as
+	// one would resurrect a retired operational location under the phantom 'whole' key.
+	if !hasActivePartitions {
+		return ports.ErrPartitionNotFound
+	}
+	if wanted == "" {
+		// A subdivided shed has no whole-shed operational location, so a blank label here is the
+		// caller failing to say which pen -- not an author deliberately describing the building.
+		return ports.ErrPartitionRequired
+	}
+
+	var exists bool
+	err := tx.QueryRow(ctx, `
+SELECT true
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND status = 'active'
+  AND feed_config_norm(partition_label) = feed_config_norm($3)`,
+		tenantID, shedID, wanted).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrPartitionNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("feedconfig: resolve partition in shed: %w", err)
+	}
+	return nil
+}
+
+// lockShedForExperimentWrite gives enrollment and single-cell authoring the same serialization
+// point. Without it, a stale batch can observe an empty pen while a concurrent cell insert is in
+// flight and race its create-only insert against a cell the other writer just authored.
+func lockShedForExperimentWrite(ctx context.Context, tx pgx.Tx, tenantID, shedID string) error {
+	var locked bool
+	if err := tx.QueryRow(ctx, `
+SELECT true
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = $2::uuid
+FOR UPDATE`, tenantID, shedID).Scan(&locked); err != nil {
+		return fmt.Errorf("feedconfig: lock shed for experiment write: %w", err)
+	}
+	return nil
+}
+
+// reactivateExperimentPen brings a PEN's remaining retired cells back to active when one of its
+// cells is authored.
+//
+// Pen-scoped, not shed-scoped: authoring a quantity on Godel 1 - Part 8 says nothing about Part 3,
+// and un-retiring Part 3 as a side effect would put a pen back on the experiment workflow that
+// nobody asked to re-enrol. The whole-shed version of this quietly did exactly that.
+//
+// Within the pen it remains all-or-nothing, which is the invariant that matters:
+// ExperimentPlanner.Applies reads a pen as enrolled the moment ANY of its rows is active, while
+// LoadConfigSnapshot loads only the ACTIVE rows and treats them as the pen's complete feed list. A
+// half-active pen is therefore enrolled but fed a subset of its authored items.
+func reactivateExperimentPen(ctx context.Context, tx pgx.Tx, tenantID, parkID, shedID, partitionLabel string) error {
+	// scale-guard:ignore: one set-based UPDATE over ONE pen's authored experiment cells (bounded by
+	// the feed-item catalog, a handful of rows per pen today), never a per-row loop.
 	if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
 SET status = 'active', updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND status <> 'active'`, tenantID, parkID, shedID); err != nil {
-		return fmt.Errorf("feedconfig: reactivate experiment shed: %w", err)
+  AND partition_key = `+partitionKeyMatch("$4")+`
+  AND status <> 'active'`, tenantID, parkID, shedID, partitionLabel); err != nil {
+		return fmt.Errorf("feedconfig: reactivate experiment pen: %w", err)
 	}
 	return nil
 }
 
-// SetExperimentShedStatus switches a WHOLE SHED between the experiment workflow and the normal
-// per-head ration grid.
+// SetExperimentShedStatus switches ONE PEN between the experiment workflow and the normal per-head
+// ration grid. The legacy method and route names remain for API compatibility.
 //
 // ONE set-based UPDATE over the shed's rows, not a loop: the flip must be atomic in the business
-// sense as well as the transactional one. A shed with some rows active and some retired would be
+// sense as well as the transactional one. A pen with some rows active and some retired would be
 // enrolled (ExperimentPlanner.Applies matches on ANY active row) but fed only a subset of its
-// authored items — a partially-fed experiment shed, which is worse than either whole state.
+// authored items — a partially-fed experiment pen, which is worse than either whole state.
 //
-// A shed with NO rows is ErrShedNotFound rather than a silent success. There is no experiment
+// A pen with NO rows is ErrShedNotFound rather than a silent success. There is no experiment
 // configuration to switch, and inventing empty rows to carry a status would author cells nobody
 // entered; a caller wanting to enrol a shed authors its first quantity instead.
 func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.SetExperimentShedStatusCommand) (domain.WriteResult, error) {
@@ -840,14 +1510,19 @@ func (r *Repository) SetExperimentShedStatus(ctx context.Context, cmd domain.Set
 			return writeEffect{}, err
 		}
 
-		// Lock the shed's rows and learn what state it is currently in, in one read. Ordered so two
-		// concurrent flips of two sheds cannot deadlock on overlapping lock acquisition order.
+		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+			return writeEffect{}, err
+		}
+
+		// Lock the PEN's rows and learn what state it is currently in, in one read. Ordered so two
+		// concurrent flips cannot deadlock on overlapping lock acquisition order.
 		rows, err := tx.Query(ctx, `
 SELECT experiment_config_id::text, status
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND partition_key = `+partitionKeyMatch("$4")+`
 ORDER BY experiment_config_id
-FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID)
+FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
 		if err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: lock experiment shed: %w", err)
 		}
@@ -881,14 +1556,15 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID)
 			return writeEffect{Outcome: domain.OutcomeUnchanged, ResultRowID: firstID}, nil
 		}
 
-		// scale-guard:ignore: one set-based UPDATE over ONE shed's authored experiment cells (5 rows today, bounded by the feed-item catalog); it is the whole-shed atomic flip described above, never a per-row loop.
+		// scale-guard:ignore: one set-based UPDATE over ONE pen's authored experiment cells (5 rows today, bounded by the feed-item catalog); it is the whole-pen atomic flip described above, never a per-row loop.
 		if _, err := tx.Exec(ctx, `
 UPDATE feed_experiment_config
 SET status = $4, updated_at = now()
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+  AND partition_key = `+partitionKeyMatch("$5")+`
   AND status IS DISTINCT FROM $4`,
-			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.Status); err != nil {
-			return writeEffect{}, fmt.Errorf("feedconfig: set experiment shed status: %w", err)
+			cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.Status, cmd.PartitionLabel); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: set experiment pen status: %w", err)
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: firstID}, nil
 	})
@@ -939,6 +1615,15 @@ func (r *Repository) runWrite(
 		return domain.WriteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize one idempotency identity before its first ledger read. A loser then observes the
+	// winner's committed write log and replays it instead of entering the effect with stale absence.
+	// The database lock is transaction-scoped, so crashes and rollbacks release it automatically.
+	if _, err := tx.Exec(ctx, `
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+		identity.TenantID, identity.IdempotencyKey); err != nil {
+		return domain.WriteResult{}, fmt.Errorf("feedconfig: lock idempotency key: %w", err)
+	}
 
 	if out, found, err := lookupWriteLog(ctx, tx, identity); err != nil || found {
 		return out, err
@@ -1103,6 +1788,17 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// nullIfEmptySlice keeps "no filter" distinguishable from "match nothing".
+//
+// An empty text[] bound into `= ANY(...)` matches NO rows, which on a filter that was never applied
+// would blank the grid; NULL is what the `$n IS NULL OR ...` guard reads as "this filter is off".
+func nullIfEmptySlice(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
 }
 
 func derefString(s *string) string {

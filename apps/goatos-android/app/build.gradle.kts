@@ -2,6 +2,7 @@ import com.android.build.api.variant.HasHostTestsBuilder
 import com.android.build.api.variant.HostTestBuilder
 import com.google.firebase.appdistribution.gradle.firebaseAppDistribution
 import org.gradle.api.tasks.testing.Test
+import java.io.ByteArrayOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,6 +20,57 @@ plugins {
     alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.firebase.perf)
 }
+
+val needsFirebaseSourceMetadata = gradle.startParameter.taskNames.any {
+    it.contains("StgRelease", ignoreCase = true) ||
+        it.contains("appDistributionUpload", ignoreCase = true) ||
+        it.contains("validateFirebaseDistributionSource", ignoreCase = true)
+}
+
+// Configuration-cache safe git access.
+//
+// A bare ProcessBuilder here runs during the CONFIGURATION phase, which Gradle
+// rejects outright when org.gradle.configuration-cache=true (gradle.properties
+// sets it): "Starting an external process ... during configuration time is
+// unsupported". That made :benchmark:compileDevNonMinifiedBenchmarkKotlin fail
+// 15/15 runs. providers.exec(...) is the sanctioned escape hatch: Gradle owns the
+// execution, records it as a build input, and re-obtains it when reusing a cached
+// entry, so the provenance values stay correct instead of being frozen into the
+// cache. Guarded by tools/ci/check-gradle-config-cache.sh, which runs a real
+// configuration-cache build rather than grepping for ProcessBuilder.
+fun gitOutput(vararg args: String): String {
+    if (!needsFirebaseSourceMetadata) return ""
+    return runCatching {
+        providers.exec {
+            commandLine("git", *args)
+            workingDir = rootProject.projectDir
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
+    }.getOrDefault("")
+}
+
+fun quotedBuildConfig(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val sourceCommit: String =
+    System.getenv("GITHUB_SHA")?.takeIf { it.isNotBlank() }
+        ?: gitOutput("rev-parse", "HEAD").ifBlank { "unknown" }
+val shortSourceCommit = sourceCommit.take(12)
+val sourceTag: String =
+    System.getenv("GITHUB_REF_NAME")
+        ?.takeIf { System.getenv("GITHUB_REF_TYPE") == "tag" && it.isNotBlank() }
+        ?: gitOutput("describe", "--tags", "--exact-match", "HEAD")
+val sourceBranch: String =
+    System.getenv("GITHUB_REF_NAME")
+        ?.takeIf { it.isNotBlank() }
+        ?: gitOutput("branch", "--show-current")
+val sourceDirty = gitOutput("status", "--porcelain").isNotBlank()
+val sourceLabel = listOfNotNull(
+    sourceTag.takeIf { it.isNotBlank() }?.let { "tag=$it" },
+    "commit=$shortSourceCommit",
+    sourceBranch.takeIf { it.isNotBlank() }?.let { "branch=$it" },
+    if (sourceDirty) "dirty=true" else null,
+).joinToString(" ")
 
 android {
     namespace = "sg.mesha.goatos"
@@ -44,8 +96,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.12"
+        versionCode = 20
+        versionName = "0.1.19"
         multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
@@ -60,6 +112,14 @@ android {
         buildConfigField("String", "DEV_BEARER_TOKEN", "\"$devToken\"")
         buildConfigField("String", "TENANT_ID", "\"$tenantId\"")
         buildConfigField("String", "AUTH_ACTION_LINK_DOMAIN", "\"${authActionLinkDomain.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "SOURCE_COMMIT", quotedBuildConfig(sourceCommit))
+        buildConfigField("String", "SOURCE_TAG", quotedBuildConfig(sourceTag))
+        buildConfigField("String", "SOURCE_BRANCH", quotedBuildConfig(sourceBranch))
+        buildConfigField("String", "SOURCE_LABEL", quotedBuildConfig(sourceLabel))
+        buildConfigField("boolean", "SOURCE_DIRTY", sourceDirty.toString())
+        resValue("string", "goatos_source_commit", sourceCommit)
+        resValue("string", "goatos_source_tag", sourceTag.ifBlank { "untagged" })
+        resValue("string", "goatos_source_label", sourceLabel)
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
@@ -75,6 +135,14 @@ android {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            // Test affordance ONLY. A tester holds a handful of physical RFID tags but has to
+            // exercise many sheds, so the same tag is re-read in every one of them. Weighing
+            // scopes its duplicate rule per shed on purpose, so those reads are all accepted --
+            // and downstream they look like ONE animal weighed repeatedly, which is what fed
+            // growth a 15 kg and an 11 kg reading of "the same goat" minutes apart. Namespacing
+            // the scan per shed in dev builds makes 5 tags behave like 5 distinct animals in
+            // each shed. It is a FLAVOUR field, so stg/prod cannot compile it in.
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "true")
             buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
             // Telemetry (docs/TELEMETRY.md): ON for dev. The dev Android client is registered in
@@ -96,6 +164,7 @@ android {
         }
         create("stg") {
             dimension = "env"
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
             signingConfig = signingConfigs.getByName("stgRelease")
@@ -113,13 +182,17 @@ android {
                 appId = "1:514832198871:android:0cb898377ba4f7f7f19492"
                 artifactType = "APK"
                 groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
+                System.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { serviceCredentialsFile = it }
                 (project.findProperty("fadTesters") as String?)?.let { testers = it }
                 releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
-                    ?: "Goat OS (Mesha) stg release build"
+                    ?: "Goat OS (Mesha) stg release build\n$sourceLabel"
             }
         }
         create("prod") {
             dimension = "env"
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
             // Telemetry (docs/TELEMETRY.md): OFF until prod's real Firebase project is confirmed
@@ -134,6 +207,16 @@ android {
         }
     }
 
+    // Robolectric unit tests that drive real androidx components need the merged unit-test
+    // resources on the classpath (`WorkManager.initialize` reads
+    // `R.bool.workmanager_test_configuration`) — same reason :core:core-data and
+    // :core:core-database already enable this.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildTypes {
         debug {
             manifestPlaceholders["appLabel"] = "Mesha Debug"
@@ -142,6 +225,32 @@ android {
             isMinifyEnabled = false
             manifestPlaceholders["appLabel"] = "Mesha"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Firebase Performance Monitoring instruments bytecode via AGP's Instrumentation
+            // API (com.google.firebase.perf's FirebasePerfExtension, registered as a DSL
+            // extension on this buildType/each productFlavor), and that same transform
+            // (`transform<Variant>UnitTestClassesWithAsm`) also runs over unit-test compile
+            // output because the unitTest host-test component shares this buildType. Its ASM
+            // ClassWriter uses COMPUTE_FRAMES and, for the deeply-nested synthetic classes
+            // Kotlin generates for chained Flow operators in test fakes (e.g.
+            // FakeScanExecutionRepository$observeScanRosterStatusCounts$$inlined$map$1), it
+            // fails to resolve a common superclass and silently drops/corrupts the output class
+            // file — present in compileXxxUnitTestKotlin output, absent from the transformed
+            // test classes dir the test task actually runs against. That produces
+            // java.lang.NoClassDefFoundError at runtime for a class that plainly compiled,
+            // across every ViewModel test whose fakes chain Flow.map/groupingBy (Scan, Submit,
+            // Counts, Record, Coverage banner, Rfid, SyncStatus, VerifyDetail — the full
+            // `testStgReleaseUnitTest` failure set). This is a build-tooling defect, not a
+            // production bug or a wrong test. Skip the transform ONLY for the invocation
+            // actually running a unit-test task (checked once at configuration time against
+            // this build's requested tasks), so `assembleRelease`/`bundleRelease` keep full
+            // network-call instrumentation and only `test*UnitTest` runs are affected.
+            val runningUnitTests = gradle.startParameter.taskNames.any {
+                it.contains("UnitTest", ignoreCase = true)
+            }
+            extensions.configure<com.google.firebase.perf.plugin.FirebasePerfExtension> {
+                setInstrumentationEnabled(!runningUnitTests)
+            }
         }
         create("benchmark") {
             initWith(getByName("release"))
@@ -156,15 +265,22 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
 }
 
 dependencies {
+    implementation(project(":core:core-media"))
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.media3.effect)
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-model"))
     implementation(project(":core:core-common"))
@@ -181,17 +297,25 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:core-datastore"))
     implementation(project(":feature:feature-auth"))
+    // areNotificationsEnabled(): the OS's own answer to "will this phone show what we send it",
+    // reported to the backend on device register + heartbeat (AppModule/PushModule wiring) so a
+    // push-muted device is never counted as reached.
+    implementation(project(":core:core-permissions"))
     implementation(project(":core:core-analytics"))
 
     implementation(project(":feature:feature-calendar"))
     implementation(project(":feature:feature-counts"))
+    implementation(project(":feature:feature-feed"))
+    implementation(project(":feature:feature-health"))
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
+    implementation(project(":feature:feature-vaccination"))
     implementation(project(":feature:feature-verify"))
+    implementation(project(":feature:feature-weighing"))
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
@@ -241,6 +365,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.material.icons.extended)
+    debugImplementation(libs.showkase)
+    debugImplementation(libs.showkase.annotation)
 
     // In-app LIVE camera video capture for proof recording. Shed-level proof may also use the
     // Android gallery picker when the backend SOP explicitly allows it; CameraX still backs the
@@ -253,6 +380,25 @@ dependencies {
 
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    // Flow state-emission testing (turbine: deterministic collection of Flow emissions
+    // in test context, no manual launch/collect needed). Catches state-sequence bugs:
+    // flashes, wedges, yanks, stale-scope issues (item: state-sequence tests).
+    testImplementation(libs.turbine)
+    // Retrofit and OkHttp for creating mock HttpException with proper error bodies in tests
+    testImplementation(libs.retrofit)
+    testImplementation(libs.okhttp)
+}
+
+configurations.matching { configuration ->
+    configuration.name in setOf("kspDevDebug", "kspStgDebug", "kspProdDebug")
+}.configureEach {
+    project.dependencies.add(name, libs.showkase.processor)
+}
+
+ksp {
+    arg("skipPrivatePreviews", "true")
 }
 
 baselineProfile {
@@ -271,20 +417,30 @@ val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
     group = "verification"
     description = "Fails fast when the stg release signing inputs have not been restored."
 
-    doLast {
-        fun signingProperty(name: String): String? =
-            (project.findProperty(name) as String?)
-                ?: System.getenv(name)
+    // Configuration-cache safe: a task ACTION may not hold a reference to the
+    // Gradle script/Project. `project.findProperty(...)` and `file(...)` inside
+    // doLast did exactly that, and the cache refused to serialise the task
+    // ("cannot serialize Gradle script object references"). Resolve every
+    // Project-dependent value HERE, at configuration time, and let doLast close
+    // over plain data. Guarded by tools/ci/check-gradle-config-cache.sh.
+    val required = listOf(
+        "GOATOS_ANDROID_STG_KEYSTORE",
+        "GOATOS_ANDROID_STG_KEYSTORE_PASSWORD",
+        "GOATOS_ANDROID_STG_KEY_ALIAS",
+        "GOATOS_ANDROID_STG_KEY_PASSWORD",
+    )
+    val resolvedSigning: Map<String, String?> = required.associateWith { name ->
+        providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orNull
+    }
+    val keystoreValue = resolvedSigning["GOATOS_ANDROID_STG_KEYSTORE"]
+    val keystoreFile = keystoreValue
+        ?.takeIf { it.isNotBlank() }
+        ?.let { rootProject.layout.projectDirectory.file(it).asFile }
 
-        val required = listOf(
-            "GOATOS_ANDROID_STG_KEYSTORE",
-            "GOATOS_ANDROID_STG_KEYSTORE_PASSWORD",
-            "GOATOS_ANDROID_STG_KEY_ALIAS",
-            "GOATOS_ANDROID_STG_KEY_PASSWORD",
-        )
-        val missing = required.filter { signingProperty(it).isNullOrBlank() }
-        val keystore = signingProperty("GOATOS_ANDROID_STG_KEYSTORE")
-        val missingKeystoreFile = !keystore.isNullOrBlank() && !file(keystore).isFile
+    doLast {
+        val missing = required.filter { resolvedSigning[it].isNullOrBlank() }
+        val keystore = keystoreValue
+        val missingKeystoreFile = keystoreFile != null && !keystoreFile.isFile
 
         if (missing.isNotEmpty() || missingKeystoreFile) {
             val missingText = if (missing.isEmpty()) {
@@ -308,10 +464,36 @@ val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
     }
 }
 
+val validateFirebaseDistributionSource = tasks.register("validateFirebaseDistributionSource") {
+    group = "verification"
+    description = "Fails App Distribution upload when the APK cannot be traced to a commit/tag."
+
+    doLast {
+        if (sourceCommit == "unknown" || sourceCommit.length < 12) {
+            throw GradleException("Firebase App Distribution requires a real git commit SHA.")
+        }
+        val allowDirty = (project.findProperty("allowDirtyFirebaseDistribution") as String?)
+            ?.equals("true", ignoreCase = true) == true
+        if (sourceDirty && !allowDirty) {
+            throw GradleException(
+                "Refusing Firebase App Distribution upload from a dirty worktree. " +
+                    "Commit the APK source first, or pass -PallowDirtyFirebaseDistribution=true for an explicit throwaway build. " +
+                    "Source would have been: $sourceLabel",
+            )
+        }
+    }
+}
+
 tasks.matching {
     it.name == "assembleStgRelease" || it.name == "appDistributionUploadStgRelease"
 }.configureEach {
     dependsOn(validateStgReleaseInputs)
+}
+
+tasks.matching {
+    it.name == "appDistributionUploadStgRelease"
+}.configureEach {
+    dependsOn(validateFirebaseDistributionSource)
 }
 
 androidComponents {
@@ -334,4 +516,10 @@ tasks.withType<Test>().configureEach {
         // Paparazzi looks for variant-specific snapshot resources and fails before comparing UI.
         exclude("sg/mesha/goatos/ui/*ScreenshotTest*")
     }
+}
+
+tasks.matching {
+    it.name.startsWith("transform") && it.name.endsWith("UnitTestClassesWithAsm")
+}.configureEach {
+    outputs.cacheIf { false }
 }

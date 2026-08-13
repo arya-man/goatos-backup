@@ -1,0 +1,1138 @@
+<title>Birth &amp; Death — separate modules with per-goat task lists</title>
+<style>
+  :root{
+    --page:#0A0F0C;--surf:#131A15;--surf2:#1A241D;--surf3:#222E25;--hair:#28352B;
+    --ink:#ECF4EE;--muted:#8FA497;--faint:#5F7367;--brand:#8AD457;--brand2:#5FB531;
+    --brandd:#B7EA8C;--tint:rgba(138,212,87,.14);--warn:#F0B54B;--warnx:rgba(240,181,75,.15);
+    --teal:#57C9B0;--tealx:rgba(87,201,176,.16);--danger:#FB6F63;--dangerx:rgba(251,111,99,.15);
+    --stage:#0E1310;
+    --sys:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(120% 80% at 50% -10%,#0d150f,#080b09 70%);color:var(--ink);
+    font-family:var(--sys);-webkit-font-smoothing:antialiased;padding:30px 18px 70px;min-height:100vh}
+  .wrap{max-width:1300px;margin:0 auto}
+  h1{font-size:25px;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:20px;max-width:80ch;line-height:1.55}
+  .sub b{color:var(--ink);font-weight:700}
+  .tabs{display:inline-flex;gap:4px;background:var(--surf);border:1px solid var(--hair);
+    border-radius:12px;padding:4px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{border:0;background:transparent;color:var(--muted);font-family:inherit;font-size:13px;
+    font-weight:700;padding:8px 15px;border-radius:9px;cursor:pointer}
+  .tab.on{background:var(--brand);color:#08130a}
+  .tab:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .hint{display:block;font-size:12px;color:var(--brandd);background:var(--tint);border:1px solid var(--brand);
+    border-radius:10px;padding:9px 13px;margin-bottom:22px;font-weight:600;line-height:1.5}
+  .hint b{font-weight:800}
+
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start}
+  @media(max-width:1080px){.flow{grid-template-columns:1fr 1fr}}
+  @media(max-width:760px){.flow{grid-template-columns:1fr}}
+  .col-head{display:flex;align-items:center;gap:10px;margin:0 0 12px 4px}
+  .step{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;padding:4px 9px;
+    border-radius:6px;background:var(--tint);color:var(--brandd);flex:none}
+  .col-head p{font-size:12px;color:var(--faint);line-height:1.4}
+
+  .phone{width:100%;max-width:392px;margin:0 auto;background:var(--page);border:1px solid var(--hair);
+    border-radius:30px;padding:10px;box-shadow:0 30px 60px -30px #000}
+  .screen{background:var(--page);border-radius:22px;overflow:hidden;height:772px;display:flex;
+    flex-direction:column;position:relative}
+  .statusbar{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;
+    font-size:11px;color:var(--faint);font-weight:700;font-variant-numeric:tabular-nums}
+  .notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:92px;height:20px;background:#000;border-radius:14px;z-index:5}
+  .body{flex:1;overflow-y:auto;padding:0 14px 22px}
+  .body::-webkit-scrollbar{width:0}
+
+  /* header + the new + button */
+  .app-h{display:flex;align-items:center;gap:10px;padding:8px 4px 8px}
+  .app-h .t{flex:1;min-width:0}
+  .app-h .t h2{font-size:19px;font-weight:800;letter-spacing:-.01em}
+  .app-h .t span{font-size:12px;color:var(--muted)}
+  .icobtn{width:40px;height:40px;border-radius:11px;border:1px solid var(--hair);display:flex;
+    align-items:center;justify-content:center;color:var(--muted);font-size:15px;background:transparent;
+    cursor:pointer;flex:none;font-family:inherit}
+  .icobtn:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .addbtn{width:40px;height:40px;border-radius:12px;border:0;background:var(--brand);color:#08130a;
+    font-size:22px;font-weight:800;line-height:1;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;flex:none;font-family:inherit;box-shadow:0 8px 20px -8px rgba(138,212,87,.6)}
+  .addbtn:focus-visible{outline:2px solid var(--brandd);outline-offset:3px}
+  .addbtn.dz{background:var(--danger);color:#1a0806;box-shadow:0 8px 20px -8px rgba(251,111,99,.6)}
+  .sync{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);padding:0 4px 10px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--brand);flex:none}
+
+  /* filter chips */
+  .fscroll{display:flex;gap:7px;overflow-x:auto;padding-bottom:12px;
+    -webkit-mask-image:linear-gradient(90deg,#000 90%,transparent)}
+  .fscroll::-webkit-scrollbar{height:0}
+  .chip{flex:none;font-size:12px;font-weight:700;padding:7px 12px;border-radius:20px;background:var(--surf2);
+    border:1px solid var(--hair);color:var(--muted);cursor:pointer;font-family:inherit}
+  .chip.on{background:var(--tint);border-color:var(--brand);color:var(--brandd)}
+  .chip .n{font-variant-numeric:tabular-nums;opacity:.75;margin-left:4px}
+  .chip:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+
+  /* date filter — scope the list to a day, so past work stays reachable */
+  .datebar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .dnav{width:36px;height:40px;border-radius:11px;background:var(--surf2);border:1px solid var(--hair);
+    color:var(--muted);font-size:16px;cursor:pointer;flex:none;font-family:inherit}
+  .dnav:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .dnav[disabled]{opacity:.35;cursor:default}
+  .dpill{flex:1;height:40px;border-radius:11px;background:var(--surf2);border:1px solid var(--hair);
+    color:var(--ink);font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;
+    display:flex;align-items:center;justify-content:center;gap:8px;font-variant-numeric:tabular-nums}
+  .dpill .cal-i{color:var(--brand);font-size:14px}
+  .dpill.past{background:var(--tealx);border-color:rgba(87,201,176,.4);color:var(--teal)}
+  .dpill:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .todaybtn{flex:none;height:40px;padding:0 13px;border-radius:11px;background:var(--tint);
+    border:1px solid var(--brand);color:var(--brandd);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
+  .todaybtn.hide{display:none}
+  .pastnote{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--teal);background:var(--tealx);
+    border-radius:9px;padding:8px 11px;margin-bottom:10px;line-height:1.45}
+  .pastnote.hide{display:none}
+
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:6px}
+  .cal .dow{text-align:center;font-size:10px;color:var(--faint);font-weight:800;padding-bottom:2px}
+  .cal .d{text-align:center;padding:11px 0;border-radius:10px;font-size:14px;cursor:pointer;color:var(--ink);
+    font-variant-numeric:tabular-nums;background:none;border:0;font-family:inherit}
+  .cal .d.mut{color:transparent;cursor:default}
+  .cal .d.fut{color:var(--faint);opacity:.4;cursor:default}
+  .cal .d.on{background:var(--brand);color:#08130a;font-weight:800}
+  .cal .d:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+
+  /* group heading */
+  .grp-h{display:flex;align-items:center;gap:8px;padding:8px 4px 8px}
+  .grp-h .gn{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+  .grp-h .gn.od{color:var(--warn)}
+  .grp-h .gc{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .grp-h .ln{flex:1;height:1px;background:var(--hair)}
+
+  /* per-goat task card (the L0 row) */
+  .tcard{display:block;width:100%;text-align:left;font-family:inherit;background:var(--surf);
+    border:1px solid var(--hair);border-radius:16px;padding:13px 14px;margin-bottom:9px;cursor:pointer;
+    position:relative;overflow:hidden;color:var(--ink)}
+  .tcard:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .tcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--hair)}
+  .tcard.od::before{background:var(--warn)}
+  .tcard.dz::before{background:var(--danger)}
+  .tcard.dn::before{background:var(--brand)}
+  .tcard .r1{display:flex;align-items:center;gap:10px}
+  .tcard .av{width:36px;height:36px;border-radius:10px;background:var(--surf3);display:flex;
+    align-items:center;justify-content:center;font-size:16px;flex:none}
+  .tcard.od .av{background:var(--warnx)}
+  .tcard.dz .av{background:var(--dangerx)}
+  .tcard .idm{flex:1;min-width:0}
+  .tcard .gid{font-size:15px;font-weight:800;letter-spacing:-.01em}
+  .tcard .role{font-size:11px;font-weight:700;color:var(--faint);margin-left:6px;text-transform:uppercase;letter-spacing:.05em}
+  .tcard .meta{font-size:11px;color:var(--faint);margin-top:2px}
+  .tcard .cnt{font-size:15px;font-weight:800;color:var(--brandd);font-variant-numeric:tabular-nums;flex:none}
+  .tcard .cnt small{font-size:11px;color:var(--faint);font-weight:700}
+  .mini{height:5px;background:var(--stage);border-radius:4px;overflow:hidden;margin:10px 0 9px}
+  .mini i{display:block;height:100%;background:linear-gradient(90deg,var(--brand2),var(--brand))}
+  .mini i.w{background:linear-gradient(90deg,#c8913a,var(--warn))}
+  .nextline{display:flex;align-items:center;gap:7px;font-size:12px}
+  .nextline .k{font-size:10px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;flex:none}
+  .nextline .v{color:var(--ink);font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .due{font-size:10px;font-weight:800;padding:3px 7px;border-radius:6px;flex:none;font-variant-numeric:tabular-nums}
+  .due.od{background:var(--warnx);color:var(--warn)}
+  .due.now{background:var(--tealx);color:var(--teal)}
+  .due.sc{background:var(--surf3);color:var(--muted)}
+  .due.dz{background:var(--dangerx);color:var(--danger)}
+
+  .loadfoot{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 0 4px;
+    font-size:11px;color:var(--faint)}
+  .spin{width:12px;height:12px;border-radius:50%;border:2px solid var(--hair);border-top-color:var(--brand);
+    animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.spin{animation:none}}
+
+  /* L1 — context header for one goat */
+  .ctx{background:linear-gradient(150deg,#16211a,#111812);border:1px solid var(--hair);border-radius:18px;
+    padding:14px;margin-bottom:12px;position:relative;overflow:hidden}
+  .ctx::after{content:"";position:absolute;right:-40px;top:-46px;width:150px;height:150px;
+    background:radial-gradient(circle,var(--tint),transparent 70%);pointer-events:none}
+  .ctx .r1{display:flex;align-items:center;gap:11px;position:relative}
+  .ctx .av{width:42px;height:42px;border-radius:13px;background:var(--tint);display:flex;
+    align-items:center;justify-content:center;font-size:19px;flex:none}
+  .ctx .gid{font-size:17px;font-weight:800;letter-spacing:-.01em}
+  .ctx .wf{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;margin-top:12px;position:relative}
+  .fact{display:flex;justify-content:space-between;gap:8px;font-size:12px}
+  .fact .l{color:var(--faint)}
+  .fact .r{font-weight:700;text-align:right}
+  .prog{display:flex;align-items:center;gap:9px;margin-top:12px;position:relative}
+  .prog .pt{font-size:11px;color:var(--muted);font-weight:700;font-variant-numeric:tabular-nums;flex:none}
+
+  /* action row (the L2 content) */
+  .arow{display:block;width:100%;text-align:left;font-family:inherit;color:var(--ink);
+    background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:12px 13px;
+    margin-bottom:8px;cursor:pointer;position:relative}
+  .arow:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .arow .top{display:flex;align-items:flex-start;gap:10px}
+  .tico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    font-size:13px;flex:none;background:var(--surf3);color:var(--muted);font-weight:800}
+  .arow.done .tico{background:var(--tint);color:var(--brandd)}
+  .arow.od .tico{background:var(--warnx);color:var(--warn)}
+  .arow.rej .tico{background:var(--dangerx);color:var(--danger)}
+  .arow .m{flex:1;min-width:0}
+  .arow .an{font-size:14px;font-weight:700;line-height:1.35}
+  .arow.done .an{color:var(--muted)}
+  .arow .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .ttag{font-size:10px;font-weight:800;letter-spacing:.04em;padding:3px 7px;border-radius:6px;
+    background:var(--surf2);color:var(--muted);border:1px solid var(--hair);white-space:nowrap}
+  .ttag.rule{font-family:var(--mono);letter-spacing:0;color:var(--teal);border-color:rgba(87,201,176,.3);background:var(--tealx)}
+  .ttag.cond{font-family:var(--mono);letter-spacing:0;color:var(--brandd);border-color:rgba(138,212,87,.3);background:var(--tint)}
+  .ttag.vid{color:var(--warn);border-color:rgba(240,181,75,.3);background:var(--warnx)}
+  .stat{font-size:10px;font-weight:800;padding:3px 8px;border-radius:6px;flex:none;white-space:nowrap}
+  .stat.done{background:var(--tint);color:var(--brandd)}
+  .stat.post{background:var(--tealx);color:var(--teal)}
+  .stat.sched{background:var(--surf3);color:var(--muted)}
+  .stat.od{background:var(--warnx);color:var(--warn)}
+  .stat.rej{background:var(--dangerx);color:var(--danger)}
+  .stat.canc{background:transparent;color:var(--faint);border:1px dashed var(--hair)}
+  .adet{font-size:12px;color:var(--muted);line-height:1.55;margin-top:9px;padding:10px 11px;
+    background:var(--surf2);border-radius:10px;white-space:pre-line}
+  .adet b{color:var(--ink);font-weight:700}
+  .arow .foot{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:11px;color:var(--faint)}
+  .arow .foot .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vbtn{font-size:11px;font-weight:800;padding:7px 12px;border-radius:9px;background:var(--brand);
+    color:#08130a;border:0;font-family:inherit;cursor:pointer;flex:none}
+  .vbtn.gh{background:var(--surf3);color:var(--muted)}
+  .vbtn.wn{background:var(--warn);color:#1c1305}
+  .vbtn:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .yn{display:flex;gap:8px;margin-top:9px}
+  .yn .o{flex:1;text-align:center;font-size:13px;font-weight:800;padding:11px 0;border-radius:11px;
+    background:var(--surf2);color:var(--muted);cursor:pointer;border:0;font-family:inherit}
+  .yn .o.on{background:var(--tint);color:var(--brandd);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .yn .o:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+
+  /* colostrum session strip */
+  .sess{display:flex;gap:6px;margin-top:9px}
+  .sess .s{flex:1;text-align:center;background:var(--surf2);border-radius:10px;padding:8px 2px}
+  .sess .s .sn{font-size:9px;font-weight:800;color:var(--faint);letter-spacing:.04em}
+  .sess .s .st{font-size:12px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums}
+  .sess .s.done{background:var(--tint)}.sess .s.done .st{color:var(--brandd)}
+  .sess .s.now{background:var(--tealx);box-shadow:inset 0 0 0 1.5px var(--teal)}.sess .s.now .st{color:var(--teal)}
+  .sess .s.next .st{color:var(--muted)}
+
+  .secttl{font-size:11px;font-weight:800;color:var(--faint);letter-spacing:.09em;text-transform:uppercase;
+    padding:14px 4px 8px;display:flex;align-items:center;gap:8px}
+  .secttl .ln{flex:1;height:1px;background:var(--hair)}
+  .note{font-size:11px;color:var(--faint);line-height:1.55;padding:10px 4px 0}
+
+  /* add-form (the + flow, unchanged from today) */
+  .fcard{background:var(--surf);border-radius:18px;padding:14px 14px 16px;margin-top:12px}
+  .fcard .fct{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;display:block}
+  .lblrow{font-size:11px;font-weight:700;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin:14px 2px 0}
+  .bigfield{background:var(--surf2);border-radius:14px;padding:0 16px;min-height:54px;display:flex;
+    align-items:center;gap:10px;margin-top:10px;font-size:15px;cursor:pointer}
+  .bigfield .ph{color:var(--faint);flex:1}
+  .bigfield .v{color:var(--ink);font-weight:600;flex:1}
+  .bigfield .ic{color:var(--brand);opacity:.8;font-size:16px;flex:none}
+  .bigfield.dis{opacity:.45;cursor:default}
+  .req{color:var(--brand);margin-left:3px}
+  .fhint{font-size:11px;color:var(--faint);margin-top:6px;padding-left:2px;line-height:1.5}
+  .bigseg{display:flex;gap:8px;margin-top:10px}
+  .bigseg .o{flex:1;text-align:center;font-weight:700;color:var(--muted);background:var(--surf2);
+    border-radius:13px;padding:15px 0;cursor:pointer;font-size:14px;border:0;font-family:inherit}
+  .bigseg .o.on{background:var(--tint);color:var(--brandd);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .bigseg .o:focus-visible{outline:2px solid var(--brandd);outline-offset:2px}
+  .expander{margin-top:14px;font-size:13px;font-weight:700;color:var(--brandd);cursor:pointer;
+    display:flex;align-items:center;gap:6px;background:none;border:0;font-family:inherit;padding:0}
+  .msearch{display:flex;align-items:center;gap:10px;background:var(--surf2);border-radius:14px;
+    padding:0 14px;height:52px;margin-top:10px}
+  .msearch .mi{color:var(--brand);font-size:17px}
+  .msearch input{flex:1;background:transparent;border:0;outline:0;color:var(--ink);font-size:14px;font-family:inherit}
+  .msearch input::placeholder{color:var(--faint)}
+  .matchrow{display:flex;align-items:center;gap:10px;background:var(--surf2);border-radius:13px;
+    padding:11px 12px;margin-top:8px;cursor:pointer}
+  .matchrow.sel{background:var(--tint);box-shadow:inset 0 0 0 1.5px var(--brand)}
+  .matchrow .m{flex:1}
+  .matchrow .id{font-size:13px;font-weight:700}
+  .matchrow .tg{font-size:11px;color:var(--muted)}
+  .matchrow .lc{font-size:11px;color:var(--faint)}
+  .ck{color:var(--brand)}
+  .picked{background:linear-gradient(155deg,#18251d,#101711);border-radius:18px;padding:14px;margin-top:10px}
+  .picked .r1{display:flex;align-items:center;gap:12px}
+  .picked .av{width:42px;height:42px;border-radius:13px;background:var(--tint);display:flex;
+    align-items:center;justify-content:center;font-size:19px;flex:none}
+  .picked .id{font-size:15px;font-weight:800}
+  .picked .tg{font-size:12px;color:var(--muted)}
+
+  .sticky{position:absolute;left:0;right:0;bottom:0;padding:12px 14px 16px;
+    background:linear-gradient(to top,var(--page) 74%,transparent);z-index:6}
+  .pend{font-size:12px;color:var(--muted);padding:0 2px 10px}
+  .pend b{color:var(--warn)}
+  .btn{background:var(--brand);color:#08130a;font-weight:800;font-size:14px;text-align:center;
+    padding:15px;border-radius:16px;cursor:pointer;border:0;font-family:inherit;width:100%;
+    box-shadow:0 10px 24px -10px rgba(138,212,87,.5)}
+  .btn.dz{background:var(--danger);color:#1a0806;box-shadow:0 10px 24px -10px rgba(251,111,99,.5)}
+  .btn:focus-visible{outline:2px solid var(--brandd);outline-offset:3px}
+
+  /* overlay sheet for + */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.6);opacity:0;visibility:hidden;
+    transition:opacity .22s;z-index:8}
+  .scrim.open{opacity:1;visibility:visible}
+  .ovsheet{position:absolute;left:0;right:0;bottom:0;z-index:9;background:var(--surf);
+    border-top:1px solid var(--hair);border-radius:22px 22px 0 0;padding:14px 16px 18px;
+    transform:translateY(105%);transition:transform .26s cubic-bezier(.3,.8,.4,1);
+    max-height:70%;display:flex;flex-direction:column;box-shadow:0 -24px 50px -20px #000}
+  .ovsheet.open{transform:translateY(0)}
+  @media(prefers-reduced-motion:reduce){.ovsheet{transition:none}.scrim{transition:none}}
+  .grab{width:38px;height:4px;border-radius:3px;background:var(--hair);margin:0 auto 14px;flex:none}
+  .sh-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .sh-h h4{font-size:16px;font-weight:800}
+  .sh-h .x{font-size:16px;color:var(--faint);cursor:pointer;background:none;border:0;font-family:inherit}
+  .sh-sub{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+  .sheetopt{display:flex;align-items:center;gap:12px;background:var(--surf2);border-radius:14px;
+    padding:13px 14px;margin-top:8px;cursor:pointer;border:0;font-family:inherit;text-align:left;width:100%;color:var(--ink)}
+  .sheetopt .si{width:34px;height:34px;border-radius:10px;background:var(--tint);display:flex;
+    align-items:center;justify-content:center;font-size:16px;flex:none}
+  .sheetopt.dz .si{background:var(--dangerx)}
+  .sheetopt .sm{flex:1}
+  .sheetopt .st{font-size:14px;font-weight:800}
+  .sheetopt .ss{font-size:11px;color:var(--faint);margin-top:2px}
+  .sheetopt .ch{color:var(--faint);font-size:13px}
+
+  /* legend / spec */
+  .spec{margin-top:26px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:18px 20px}
+  .spec h3{font-size:14px;font-weight:800;color:var(--brandd);margin-bottom:4px}
+  .spec .sd{font-size:12px;color:var(--faint);margin-bottom:14px;line-height:1.5;max-width:82ch}
+  .tblwrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:12.5px}
+  th{text-align:left;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--faint);padding:0 12px 8px 0;border-bottom:1px solid var(--hair);white-space:nowrap}
+  td{padding:10px 12px 10px 0;border-bottom:1px solid var(--hair);color:var(--muted);vertical-align:top;line-height:1.5}
+  td:first-child{white-space:nowrap}
+  code{font-family:var(--mono);font-size:11.5px;color:var(--teal);background:var(--tealx);
+    padding:2px 6px;border-radius:5px}
+  td b{color:var(--ink);font-weight:700}
+  .glyph{display:inline-flex;width:24px;height:24px;border-radius:7px;background:var(--surf3);
+    align-items:center;justify-content:center;font-weight:800;color:var(--muted);margin-right:8px;font-size:12px}
+  .diffs{margin-top:18px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:18px 20px}
+  .diffs h3{font-size:14px;font-weight:800;margin-bottom:11px;color:var(--brandd)}
+  .diffs ul{list-style:none;display:grid;gap:9px}
+  .diffs li{font-size:13px;color:var(--muted);line-height:1.5;padding-left:21px;position:relative}
+  .diffs li::before{content:"→";position:absolute;left:0;color:var(--brand);font-weight:800}
+  .diffs li b{color:var(--ink);font-weight:700}
+  .hide{display:none}
+</style>
+
+<div class="wrap">
+  <h1>Birth and Death — split into two modules</h1>
+  <p class="sub">Today both live on one screen at <code>/counts/birth-death</code> behind a Birth/Death toggle, and that screen is <b>only a form</b> — you record an event and it disappears. These mockups split them into <b>two modules with their own route</b>, each opening on the <b>work outstanding per goat</b>. Recording a new event moves to the <b>＋ button in the top right</b>. Tapping a goat opens the <b>SOP actions</b> that event created, typed exactly as the Unified Workflow DB defines them.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-v="birth" onclick="sw('birth',this)" role="tab">🐐 Birth</button>
+    <button class="tab" data-v="death" onclick="sw('death',this)" role="tab">🚨 Death</button>
+  </div>
+  <div class="hint">👆 <b>These are live.</b> Tap <b>＋</b> in a phone header to open the record sheet, tap any goat card to drill into its actions, and answer a question or expand a step on the middle phone.</div>
+
+  <!-- ==================== BIRTH ==================== -->
+  <div id="v-birth">
+    <div class="flow">
+
+      <!-- 1 · BIRTH LIST -->
+      <div>
+        <div class="col-head"><span class="step">1 · List</span><p>Opens here. Outstanding work per goat, not a form.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h">
+              <div class="t"><h2>Birth</h2><span>CPT · 12 open events</span></div>
+              <button class="icobtn" aria-label="Refresh">↻</button>
+              <button class="addbtn" aria-label="Add birth" onclick="openSheet('birth')">＋</button>
+            </div>
+            <div class="sync"><span class="dot"></span> Synced 2 min ago · 1 queued offline</div>
+
+            <div class="datebar" data-date="birth">
+              <button class="dnav" data-step="-1" aria-label="Previous day">‹</button>
+              <button class="dpill" onclick="openSheet('calbirth')"><span class="cal-i">📅</span><span class="dlabel">Today · 27 Jul</span></button>
+              <button class="dnav" data-step="1" aria-label="Next day" disabled>›</button>
+              <button class="todaybtn hide">Today</button>
+            </div>
+            <div class="pastnote hide"><span>↩</span><span>Showing a past day. Completed work is read-only.</span></div>
+
+            <div class="fscroll">
+              <button class="chip on">All<span class="n">12</span></button>
+              <button class="chip">Overdue<span class="n">3</span></button>
+              <button class="chip">Due<span class="n">5</span></button>
+              <button class="chip">Completed<span class="n">4</span></button>
+              <button class="chip">Awaiting video<span class="n">4</span></button>
+              <button class="chip">Kids<span class="n">8</span></button>
+            </div>
+
+            <div class="grp-h"><span class="gn od">Overdue</span><span class="gc">3</span><span class="ln"></span></div>
+
+            <button class="tcard od" onclick="goto('birth',1)">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div class="idm">
+                  <div><span class="gid">1042</span><span class="role">Mother</span></div>
+                  <div class="meta">Born 12 Mar 07:20 · Yashoda 4 · 2 kids</div>
+                </div>
+                <div class="cnt">3<small>/6</small></div>
+              </div>
+              <div class="mini"><i class="w" style="width:50%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Mother's Medicine</span>
+                <span class="due od">2h late</span>
+              </div>
+            </button>
+
+            <button class="tcard od" onclick="goto('birth',1)">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div class="idm">
+                  <div><span class="gid">K-2207</span><span class="role">Kid 1</span></div>
+                  <div class="meta">Born 12 Mar 07:20 · dam 1042 · 2.4 kg</div>
+                </div>
+                <div class="cnt">4<small>/8</small></div>
+              </div>
+              <div class="mini"><i class="w" style="width:50%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">1st Colostrum</span>
+                <span class="due od">1h late</span>
+              </div>
+            </button>
+
+            <div class="grp-h"><span class="gn">Due today</span><span class="gc">5</span><span class="ln"></span></div>
+
+            <button class="tcard" onclick="goto('birth',1)">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div class="idm">
+                  <div><span class="gid">K-2208</span><span class="role">Kid 2</span></div>
+                  <div class="meta">Born 12 Mar 07:41 · dam 1042 · 2.1 kg</div>
+                </div>
+                <div class="cnt">6<small>/8</small></div>
+              </div>
+              <div class="mini"><i style="width:75%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Colostrum session 3</span>
+                <span class="due now">15:00</span>
+              </div>
+            </button>
+
+            <button class="tcard" onclick="goto('birth',1)">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div class="idm">
+                  <div><span class="gid">876</span><span class="role">Mother</span></div>
+                  <div class="meta">Born 13 Mar 04:05 · Gandhi 2 · 1 kid</div>
+                </div>
+                <div class="cnt">5<small>/6</small></div>
+              </div>
+              <div class="mini"><i style="width:83%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Is the mother eating?</span>
+                <span class="due sc">18:30</span>
+              </div>
+            </button>
+
+            <button class="tcard dn" onclick="goto('birth',1)">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div class="idm">
+                  <div><span class="gid">K-2211</span><span class="role">Kid 1</span></div>
+                  <div class="meta">Born 13 Mar 04:05 · dam 876 · 2.8 kg</div>
+                </div>
+                <div class="cnt">8<small>/8</small></div>
+              </div>
+              <div class="mini"><i style="width:100%"></i></div>
+              <div class="nextline">
+                <span class="k">Done</span><span class="v">Awaiting verification of 2 videos</span>
+                <span class="due sc">—</span>
+              </div>
+            </button>
+
+            <div class="loadfoot"><span class="spin"></span> Loading more…</div>
+          </div>
+
+          <!-- + sheet -->
+          <div class="scrim" id="scrim-birth" onclick="closeSheet('birth')"></div>
+          <div class="ovsheet" id="sheet-birth">
+            <div class="grab"></div>
+            <div class="sh-h"><h4>Add birth</h4><button class="x" onclick="closeSheet('birth')" aria-label="Close">✕</button></div>
+            <p class="sh-sub">Record a newborn. This creates the goat and opens its birth SOP actions.</p>
+            <button class="sheetopt" onclick="closeSheet('birth')">
+              <span class="si">🐐</span>
+              <span class="sm"><span class="st">New kid</span><span class="ss">Scan the ear tag to a permanent RFID</span></span>
+              <span class="ch">›</span>
+            </button>
+            <button class="sheetopt" onclick="closeSheet('birth')">
+              <span class="si">👥</span>
+              <span class="sm"><span class="st">Twins / multiple</span><span class="ss">Same dam, one record each</span></span>
+              <span class="ch">›</span>
+            </button>
+            <button class="sheetopt" onclick="closeSheet('birth')">
+              <span class="si">⊘</span>
+              <span class="sm"><span class="st">Abortion</span><span class="ss">Mother-only SOP, no kid record</span></span>
+              <span class="ch">›</span>
+            </button>
+          </div>
+
+          <!-- date picker -->
+          <div class="scrim" id="scrim-calbirth" onclick="closeSheet('calbirth')"></div>
+          <div class="ovsheet" id="sheet-calbirth">
+            <div class="grab"></div>
+            <div class="sh-h"><h4>Pick a day</h4><button class="x" onclick="closeSheet('calbirth')" aria-label="Close">✕</button></div>
+            <p class="sh-sub">July 2026 · past days show what was due and what was completed.</p>
+            <div class="cal" data-cal="birth"></div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 2 · BIRTH ACTIONS -->
+      <div>
+        <div class="col-head"><span class="step">2 · Actions</span><p>Tap a goat → the SOP steps that event created.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body" style="padding-bottom:16px">
+            <div class="app-h">
+              <button class="icobtn" aria-label="Back">‹</button>
+              <div class="t"><h2>K-2207</h2><span>Kid 1 · birth actions</span></div>
+              <button class="icobtn" aria-label="Refresh">↻</button>
+            </div>
+
+            <div class="ctx">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div style="flex:1;min-width:0">
+                  <div class="gid">K-2207 · Kid 1</div>
+                  <div class="wf">Birth · WF-0521</div>
+                </div>
+              </div>
+              <div class="facts">
+                <div class="fact"><span class="l">Born</span><span class="r">12 Mar 07:20</span></div>
+                <div class="fact"><span class="l">Dam</span><span class="r">1042</span></div>
+                <div class="fact"><span class="l">Shed</span><span class="r">Yashoda 4</span></div>
+                <div class="fact"><span class="l">Weight</span><span class="r">2.4 kg</span></div>
+              </div>
+              <div class="prog">
+                <div class="mini" style="flex:1;margin:0"><i class="w" style="width:50%"></i></div>
+                <span class="pt">4 / 8 done</span>
+              </div>
+            </div>
+
+            <div class="secttl">Overdue<span class="ln"></span></div>
+
+            <button class="arow od" onclick="tog('b-col')">
+              <div class="top">
+                <span class="tico">?</span>
+                <span class="m">
+                  <span class="an">1st Colostrum</span>
+                  <span class="tags"><span class="ttag">Question</span><span class="ttag vid">Video</span></span>
+                </span>
+                <span class="stat od">1h late</span>
+              </div>
+              <div class="adet hide" id="b-col">If suck reflexes are not active use a 10 ml syringe to collect the colostrum and give at least 100 ml.
+At the beginning of the video, verify whether the udder contains milk.
+After giving colostrum give 100 ml milk.
+
+<b>Is the kid taking colostrum?</b></div>
+              <div class="yn"><span class="o">Yes</span><span class="o">No</span></div>
+              <div class="foot"><span class="who">Assigned to Sagar · 1st shift</span><span class="vbtn wn">Record video</span></div>
+            </button>
+
+            <div class="secttl">Scheduled<span class="ln"></span></div>
+
+            <button class="arow" onclick="tog('b-wt')">
+              <div class="top">
+                <span class="tico">≡</span>
+                <span class="m">
+                  <span class="an">Take Weight of Kid</span>
+                  <span class="tags"><span class="ttag">Pick a value</span></span>
+                </span>
+                <span class="stat sched">Scheduled</span>
+              </div>
+              <div class="adet hide" id="b-wt">Weigh the kid and select the band. Recorded against the kid's identity record.</div>
+            </button>
+
+            <button class="arow">
+              <div class="top">
+                <span class="tico">?</span>
+                <span class="m">
+                  <span class="an">Is the kid standing?</span>
+                  <span class="tags"><span class="ttag">Question</span><span class="ttag rule">EVENT+1H</span></span>
+                </span>
+                <span class="stat sched">08:20</span>
+              </div>
+            </button>
+
+            <button class="arow" onclick="tog('b-tag')">
+              <div class="top">
+                <span class="tico">▣</span>
+                <span class="m">
+                  <span class="an">Tag the kid</span>
+                  <span class="tags"><span class="ttag">Do &amp; confirm</span><span class="ttag rule">EVENT+2D_07:00</span></span>
+                </span>
+                <span class="stat sched">14 Mar</span>
+              </div>
+              <div class="adet hide" id="b-tag">Last step of the birth SOP. Once the kid is tagged this record closes — moving it to another shed is a separate shifting request.</div>
+            </button>
+
+            <div class="secttl">Colostrum sessions<span class="ln"></span></div>
+            <div class="sess">
+              <div class="s done"><div class="sn">S1</div><div class="st">07:00</div></div>
+              <div class="s done"><div class="sn">S2</div><div class="st">11:00</div></div>
+              <div class="s now"><div class="sn">S3</div><div class="st">15:00</div></div>
+              <div class="s next"><div class="sn">S4</div><div class="st">18:30</div></div>
+              <div class="s next"><div class="sn">S5</div><div class="st">22:00</div></div>
+            </div>
+            <p class="note">Reminder 15 min before each session. Sessions 1–2 recorded by Sagar.</p>
+
+            <div class="secttl">Completed<span class="ln"></span></div>
+
+            <button class="arow done">
+              <div class="top">
+                <span class="tico">✓</span>
+                <span class="m">
+                  <span class="an">Is the kid able to suck when you put a finger in its mouth?</span>
+                  <span class="tags"><span class="ttag">Answered Yes</span></span>
+                </span>
+                <span class="stat done">Done</span>
+              </div>
+            </button>
+            <button class="arow done">
+              <div class="top">
+                <span class="tico">✓</span>
+                <span class="m">
+                  <span class="an">Iodine dipping of umbilical cord</span>
+                  <span class="tags"><span class="ttag">Video verified</span></span>
+                </span>
+                <span class="stat done">Done</span>
+              </div>
+              <div class="foot"><span class="who">Uploaded by Sagar · verified by Chandrakant</span></div>
+            </button>
+            <button class="arow done">
+              <div class="top">
+                <span class="tico">✓</span>
+                <span class="m">
+                  <span class="an">Are the front teeth outside the lower gum?</span>
+                  <span class="tags"><span class="ttag">Answered Yes</span></span>
+                </span>
+                <span class="stat done">Done</span>
+              </div>
+            </button>
+            <button class="arow done">
+              <div class="top">
+                <span class="tico">✓</span>
+                <span class="m">
+                  <span class="an">Is the kid clean?</span>
+                  <span class="tags"><span class="ttag">Answered Yes</span></span>
+                </span>
+                <span class="stat done">Done</span>
+              </div>
+            </button>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 3 · ADD BIRTH -->
+      <div>
+        <div class="col-head"><span class="step">3 · Add</span><p>What ＋ opens — one child per birth record.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body" style="padding-bottom:118px">
+            <div class="app-h">
+              <button class="icobtn" aria-label="Back">‹</button>
+              <div class="t"><h2>Add birth</h2></div>
+            </div>
+
+            <div class="fcard"><span class="fct">Identity</span>
+              <div class="fhint">The kid gets a provisional tag automatically. Attach its permanent RFID later in “Tag the kid”.</div>
+              <div class="lblrow">Species</div>
+              <div class="bigseg"><button class="o on">🐐 Goat</button><button class="o">🐑 Sheep</button></div>
+              <div class="lblrow">Sex</div>
+              <div class="bigseg"><button class="o on">♀ Female</button><button class="o">♂ Male</button></div>
+              <div class="bigfield"><span class="ph">Breed<span class="req">*</span></span><span class="ic">▾</span></div>
+            </div>
+
+            <div class="fcard"><span class="fct">Born</span>
+              <div class="bigfield dis"><span class="v">27 Jul 2026</span><span class="ic">🔒</span></div>
+              <div class="fhint">Date of birth — today. Births are recorded as they happen.</div>
+              <div class="bigfield"><span class="v">09:41</span><span class="ic">🕑</span></div>
+              <div class="fhint">Time of birth — prefilled to now, tap to change.</div>
+              <div class="lblrow">How many were born?<span class="req">*</span></div>
+              <div class="bigseg"><button class="o on">1</button><button class="o">Twins</button><button class="o">Triplets</button></div>
+            </div>
+
+            <div class="fcard"><span class="fct">Placement</span>
+              <div class="bigfield"><span class="ph">Mother RFID<span class="req">*</span></span><span class="ic">⌕</span></div>
+              <div class="fhint">Scan the mother’s permanent RFID, or type it.</div>
+              <div class="bigfield"><span class="ph">Select park</span><span class="ic">▾</span></div>
+              <div class="bigfield dis"><span class="ph">Pick park first</span><span class="ic">▾</span></div>
+            </div>
+
+            <p class="note">On submit the kid is created and its birth SOP actions open — Mother track for the dam, Kid track for the newborn.</p>
+          </div>
+          <div class="sticky">
+            <div class="pend">⏳ Works offline · syncs when online</div>
+            <button class="btn">Record birth</button>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==================== DEATH ==================== -->
+  <div id="v-death" class="hide">
+    <div class="flow">
+
+      <!-- 1 · DEATH LIST -->
+      <div>
+        <div class="col-head"><span class="step">1 · List</span><p>Same shape, its own route and its own ＋.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body">
+            <div class="app-h">
+              <div class="t"><h2>Death</h2><span>CPT · 6 open records</span></div>
+              <button class="icobtn" aria-label="Refresh">↻</button>
+              <button class="addbtn dz" aria-label="Add death" onclick="openSheet('death')">＋</button>
+            </div>
+            <div class="sync"><span class="dot"></span> Synced 2 min ago</div>
+
+            <div class="datebar" data-date="death">
+              <button class="dnav" data-step="-1" aria-label="Previous day">‹</button>
+              <button class="dpill" onclick="openSheet('caldeath')"><span class="cal-i">📅</span><span class="dlabel">Today · 27 Jul</span></button>
+              <button class="dnav" data-step="1" aria-label="Next day" disabled>›</button>
+              <button class="todaybtn hide">Today</button>
+            </div>
+            <div class="pastnote hide"><span>↩</span><span>Showing a past day. Completed work is read-only.</span></div>
+
+            <div class="fscroll">
+              <button class="chip on">All<span class="n">6</span></button>
+              <button class="chip">Overdue<span class="n">2</span></button>
+              <button class="chip">Due<span class="n">3</span></button>
+              <button class="chip">Completed<span class="n">1</span></button>
+              <button class="chip">Awaiting video<span class="n">3</span></button>
+            </div>
+
+            <div class="grp-h"><span class="gn od">Overdue</span><span class="gc">2</span><span class="ln"></span></div>
+
+            <button class="tcard dz" onclick="goto('death',1)">
+              <div class="r1">
+                <div class="av">🚨</div>
+                <div class="idm">
+                  <div><span class="gid">10428</span><span class="role">Female · Beetal</span></div>
+                  <div class="meta">Died 26 Jul 18:40 · Castro 2 · pneumonia</div>
+                </div>
+                <div class="cnt">1<small>/2</small></div>
+              </div>
+              <div class="mini"><i class="w" style="width:50%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Upload post mortem video</span>
+                <span class="due dz">14h late</span>
+              </div>
+            </button>
+
+            <button class="tcard dz" onclick="goto('death',1)">
+              <div class="r1">
+                <div class="av">🚨</div>
+                <div class="idm">
+                  <div><span class="gid">K-2196</span><span class="role">Kid · 9 days</span></div>
+                  <div class="meta">Died 26 Jul 22:10 · Yashoda 2 · milk refusal</div>
+                </div>
+                <div class="cnt">0<small>/2</small></div>
+              </div>
+              <div class="mini"><i class="w" style="width:0%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Upload death video</span>
+                <span class="due dz">11h late</span>
+              </div>
+            </button>
+
+            <div class="grp-h"><span class="gn">Awaiting video</span><span class="gc">3</span><span class="ln"></span></div>
+
+            <button class="tcard od" onclick="goto('death',1)">
+              <div class="r1">
+                <div class="av">🚨</div>
+                <div class="idm">
+                  <div><span class="gid">9931</span><span class="role">Male · Sirohi</span></div>
+                  <div class="meta">Died 27 Jul 06:15 · Mandela 1 · injury</div>
+                </div>
+                <div class="cnt">1<small>/2</small></div>
+              </div>
+              <div class="mini"><i class="w" style="width:50%"></i></div>
+              <div class="nextline">
+                <span class="k">Next</span><span class="v">Upload post mortem video</span>
+                <span class="due now">Today</span>
+              </div>
+            </button>
+
+            <div class="grp-h"><span class="gn">In review</span><span class="gc">1</span><span class="ln"></span></div>
+
+            <button class="tcard dn" onclick="goto('death',1)">
+              <div class="r1">
+                <div class="av">🚨</div>
+                <div class="idm">
+                  <div><span class="gid">8874</span><span class="role">Female · Sojat</span></div>
+                  <div class="meta">Died 25 Jul 12:30 · Gandhi 3 · bloat</div>
+                </div>
+                <div class="cnt">2<small>/2</small></div>
+              </div>
+              <div class="mini"><i style="width:100%"></i></div>
+              <div class="nextline">
+                <span class="k">Done</span><span class="v">With park head for verification</span>
+                <span class="due sc">—</span>
+              </div>
+            </button>
+
+            <div class="loadfoot"><span class="spin"></span> Loading more…</div>
+          </div>
+
+          <div class="scrim" id="scrim-death" onclick="closeSheet('death')"></div>
+          <div class="ovsheet" id="sheet-death">
+            <div class="grab"></div>
+            <div class="sh-h"><h4>Add death</h4><button class="x" onclick="closeSheet('death')" aria-label="Close">✕</button></div>
+            <p class="sh-sub">Find the animal that died. Recording a death is irreversible.</p>
+            <button class="sheetopt dz" onclick="closeSheet('death')">
+              <span class="si">⌕</span>
+              <span class="sm"><span class="st">Scan or search tag</span><span class="ss">Pick the animal, then give a reason</span></span>
+              <span class="ch">›</span>
+            </button>
+            <button class="sheetopt dz" onclick="closeSheet('death')">
+              <span class="si">📋</span>
+              <span class="sm"><span class="st">From today's shed list</span><span class="ss">Choose from animals in a shed</span></span>
+              <span class="ch">›</span>
+            </button>
+          </div>
+
+          <!-- date picker -->
+          <div class="scrim" id="scrim-caldeath" onclick="closeSheet('caldeath')"></div>
+          <div class="ovsheet" id="sheet-caldeath">
+            <div class="grab"></div>
+            <div class="sh-h"><h4>Pick a day</h4><button class="x" onclick="closeSheet('caldeath')" aria-label="Close">✕</button></div>
+            <p class="sh-sub">July 2026 · past days show what was due and what was completed.</p>
+            <div class="cal" data-cal="death"></div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 2 · DEATH ACTIONS -->
+      <div>
+        <div class="col-head"><span class="step">2 · Actions</span><p>Two proof steps, then park-head verification.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body" style="padding-bottom:16px">
+            <div class="app-h">
+              <button class="icobtn" aria-label="Back">‹</button>
+              <div class="t"><h2>10428</h2><span>Death actions</span></div>
+              <button class="icobtn" aria-label="Refresh">↻</button>
+            </div>
+
+            <div class="ctx">
+              <div class="r1">
+                <div class="av">🚨</div>
+                <div style="flex:1;min-width:0">
+                  <div class="gid">10428</div>
+                  <div class="wf">Death · WF-0619</div>
+                </div>
+              </div>
+              <div class="facts">
+                <div class="fact"><span class="l">Died</span><span class="r">26 Jul 18:40</span></div>
+                <div class="fact"><span class="l">Shed</span><span class="r">Castro 2</span></div>
+                <div class="fact"><span class="l">Sex</span><span class="r">Female</span></div>
+                <div class="fact"><span class="l">Breed</span><span class="r">Beetal</span></div>
+                <div class="fact"><span class="l">Reason</span><span class="r">Pneumonia</span></div>
+                <div class="fact"><span class="l">Recorded by</span><span class="r">Amit</span></div>
+              </div>
+              <div class="prog">
+                <div class="mini" style="flex:1;margin:0"><i class="w" style="width:50%"></i></div>
+                <span class="pt">1 / 2 done</span>
+              </div>
+            </div>
+
+            <div class="secttl">Overdue<span class="ln"></span></div>
+
+            <button class="arow od" onclick="tog('d-pm')">
+              <div class="top">
+                <span class="tico">▣</span>
+                <span class="m">
+                  <span class="an">Upload post mortem video</span>
+                  <span class="tags"><span class="ttag">Do &amp; confirm</span><span class="ttag vid">Video</span></span>
+                </span>
+                <span class="stat od">14h late</span>
+              </div>
+              <div class="adet hide" id="d-pm">Upload video with the timestamp visible. Show the carcass and the post mortem site in one continuous take.</div>
+              <div class="foot"><span class="who">Assigned to Amit · 1st shift</span><span class="vbtn wn">Record video</span></div>
+            </button>
+
+            <div class="secttl">Completed<span class="ln"></span></div>
+
+            <button class="arow done" onclick="tog('d-dv')">
+              <div class="top">
+                <span class="tico">✓</span>
+                <span class="m">
+                  <span class="an">Upload death video</span>
+                  <span class="tags"><span class="ttag">Video verified</span></span>
+                </span>
+                <span class="stat done">Done</span>
+              </div>
+              <div class="adet hide" id="d-dv">Upload video with the timestamp visible.</div>
+              <div class="foot"><span class="who">Uploaded by Amit 26 Jul 19:02 · verified by Chandrakant</span><span class="vbtn gh">View</span></div>
+            </button>
+
+            <div class="secttl">Verification<span class="ln"></span></div>
+            <button class="arow">
+              <div class="top">
+                <span class="tico">⚖</span>
+                <span class="m">
+                  <span class="an">Park head sign-off</span>
+                  <span class="tags"><span class="ttag">Approval</span></span>
+                </span>
+                <span class="stat sched">Blocked</span>
+              </div>
+              <div class="foot"><span class="who">Opens once both videos are uploaded</span></div>
+            </button>
+
+            <p class="note">The animal is already marked dead and left the herd count when the record was made — these steps are the evidence trail, not the exit itself.</p>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 3 · ADD DEATH -->
+      <div>
+        <div class="col-head"><span class="step">3 · Add</span><p>What ＋ opens — today's form, unchanged.</p></div>
+        <div class="phone"><div class="screen"><div class="notch"></div>
+          <div class="statusbar"><span>9:41</span><span>▪▪▪ ▪</span></div>
+          <div class="body" style="padding-bottom:118px">
+            <div class="app-h">
+              <button class="icobtn" aria-label="Back">‹</button>
+              <div class="t"><h2>Add death</h2></div>
+            </div>
+
+            <div class="fcard"><span class="fct">Find the animal</span>
+              <div class="msearch"><span class="mi">⌕</span><input placeholder="Scan RFID or type tag…" aria-label="Search animal"></div>
+              <div class="fhint">Search, then tap the animal that died.</div>
+              <div class="matchrow sel">
+                <div class="m"><div class="id">10428</div><div class="tg">RFID 982000411…</div><div class="lc">CPT · Castro 2</div></div>
+                <span class="ck">✓</span>
+              </div>
+              <div class="matchrow">
+                <div class="m"><div class="id">10429</div><div class="tg">RFID 982000412…</div><div class="lc">CPT · Castro 2</div></div>
+              </div>
+            </div>
+
+            <div class="picked">
+              <div class="r1">
+                <div class="av">🐐</div>
+                <div style="flex:1;min-width:0">
+                  <div class="id">Recording death for 10428</div>
+                  <div class="tg">Tag 982000411</div>
+                </div>
+              </div>
+              <div class="facts" style="margin-top:12px">
+                <div class="fact"><span class="l">Park</span><span class="r">CPT</span></div>
+                <div class="fact"><span class="l">Shed</span><span class="r">Castro 2</span></div>
+                <div class="fact"><span class="l">Sex</span><span class="r">Female</span></div>
+                <div class="fact"><span class="l">Status</span><span class="r">Live</span></div>
+              </div>
+            </div>
+
+            <div class="fcard"><span class="fct">Account of death</span>
+              <div class="bigfield"><span class="ph">Reason<span class="req">*</span></span></div>
+              <div class="fhint">Recorded as died and lifecycle set to dead by the server. Irreversible.</div>
+            </div>
+
+            <p class="note">On submit the animal leaves the herd count and its two proof steps open in the list.</p>
+          </div>
+          <div class="sticky">
+            <div class="pend">⏳ Works offline · syncs when online</div>
+            <button class="btn dz">Record death</button>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==================== SPEC ==================== -->
+  <div class="spec">
+    <h3>Action types — how each one renders</h3>
+    <p class="sd">Eight types exist in <b>Workflow Type</b> / the template tabs of Unified Workflow DB. Birth and Death use four of them — the rest belong to other workflows and are listed for completeness. Operators never see the raw token; the app shows the human label. Colour is reserved for <b>status</b> (done, overdue, blocked) so the type never competes with what needs attention; type is carried by glyph and label instead.</p>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Type</th><th>Shows as</th><th>Operator does</th><th>Used here</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="glyph">?</span><code>QUESTION</code></td><td>Question</td><td>Answers Yes / No inline</td><td><b>Yes</b></td><td>Is the mother licking her babies?</td></tr>
+          <tr><td><span class="glyph">≡</span><code>QUESTION_SELECT</code></td><td>Pick a value</td><td>Chooses from a list</td><td><b>Yes</b></td><td>Take Weight of Kid</td></tr>
+          <tr><td><span class="glyph">▣</span><code>ACTION</code></td><td>Do &amp; confirm</td><td>Performs it, usually uploads a video</td><td><b>Yes</b></td><td>Iodine dipping of umbilical cord · Upload post mortem video</td></tr>
+          <tr><td><span class="glyph">⚖</span><code>APPROVAL</code></td><td>Approval</td><td>Waits for an approver</td><td><b>Yes</b></td><td>Park head sign-off on a death</td></tr>
+          <tr><td><span class="glyph">⚙</span><code>ACTION_AUTO</code></td><td>Auto</td><td>Nothing — system completes it</td><td>No</td><td>Feed Direction on a high-priority shift</td></tr>
+          <tr><td><span class="glyph">⏵</span><code>ACTION_AUTO_VIDEO</code></td><td>Auto · video</td><td>Only uploads the video</td><td>No</td><td>Record boiling temperature</td></tr>
+          <tr><td><span class="glyph">▤</span><code>MODAL_FORM</code></td><td>Form</td><td>Fills a short form</td><td>No</td><td>Post-Shift Animal Count</td></tr>
+          <tr><td><span class="glyph">⇢</span><code>TRIGGER_EVENT</code></td><td>Starts a workflow</td><td>Nothing — spawns the next workflow</td><td>No — <b>dropped</b></td><td>Create Shifting Request · K0 → K1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="spec">
+    <h3>Where the content comes from</h3>
+    <p class="sd">Every action, detail string, timing rule and session time is taken verbatim from the sheet. The only removal is the trailing <code>TRIGGER_EVENT</code> shifting steps — the birth SOP now ends at <b>Tag the kid</b>.</p>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Page</th><th>Source</th><th>Steps</th></tr></thead>
+        <tbody>
+          <tr><td><b>Birth</b> — Mother</td><td>Delivery Template · Mother block (RT-001)</td><td><b>6</b> — babies still inside? · licking? · Mother's Medicine · ORS water · eating? · ORS water (<code>FUNC_ORS_2</code>)</td></tr>
+          <tr><td><b>Birth</b> — Kid</td><td>Delivery Template · Kids block</td><td><b>8</b> — clean? · iodine dip · front teeth? · suck reflex? · 1st Colostrum · weight · standing? (<code>EVENT+1H</code>) · tag the kid (<code>EVENT+2D_07:00</code>) ← ends here</td></tr>
+          <tr><td><b>Birth</b> — Colostrum</td><td>Delivery Template · Colostrum Sessions</td><td>5 sessions — 07:00, 11:00, 15:00, 18:30, 22:00 · 15 min pre-notify</td></tr>
+          <tr><td><b>Abortion</b></td><td>Delivery Template · Abortion block (RT-002)</td><td><b>4</b> — babies still inside? · Mother's Medicine · ORS water · eating?</td></tr>
+          <tr><td><b>Death</b></td><td>Death Template (RT-007)</td><td>2 — upload death video · upload post mortem video</td></tr>
+          <tr><td colspan="2"><b>Dropped from the sheet</b></td><td>3 shifting triggers — K0 → Mother, K0 → K1 (<code>EVENT+2D</code>), K1 → K2 (<code>EVENT+9D</code>). Shifting is its own module with its own verification gate.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="diffs">
+    <h3>What changes from today</h3>
+    <ul>
+      <li><b>Two routes, not one toggle.</b> <code>/counts/birth</code> and <code>/counts/death</code> replace the Birth/Death segmented control on <code>/counts/birth-death</code>. Each gets its own bottom-bar-reachable entry, so an operator recording a death never lands on a birth form first.</li>
+      <li><b>The module opens on work, not on a blank form.</b> Today the screen is write-only — you submit and the record vanishes. Now the default view is the outstanding SOP actions per goat, grouped Overdue / Due today / Scheduled.</li>
+      <li><b>＋ in the top right is the only way in to recording.</b> "Add birth" records one child at a time; breed, mother RFID, and litter size are required.</li>
+      <li><b>Birth is per-entity, matching the engine.</b> Birth is a multi-entity workflow, so a single delivery produces a Mother card and one card per kid, each with its own action set — the mother's 6 steps and each kid's 8 never get mixed into one checklist.</li>
+      <li><b>The birth SOP ends at "Tag the kid".</b> The three <code>TRIGGER_EVENT</code> shifting steps the sheet appends (K0 → Mother, K0 → K1, K1 → K2) are gone. Birth owns birth; a move is a shifting request raised in its own module, which now needs verifier-approved video before it applies.</li>
+      <li><b>A date filter on both modules.</b> Prev/next day plus a calendar jump, so a shed head can open yesterday and see what was due and what was completed. Past days are read-only and the list says so.</li>
+      <li><b>Status filters include Completed,</b> not just open work — finished actions stay reachable rather than disappearing from the module.</li>
+      <li><b>A goat card is scannable in one glance:</b> progress bar, <b>n/total</b> done, the single next action, and how late it is. Overdue is carried by an amber left stripe, so a shed head can triage without reading.</li>
+      <li><b>Pagination stays honest.</b> ~20 rows per keyset page with a passive loading footer — no "Load more" button, per the mobile data-fetch rule.</li>
+      <li><b>Add birth keeps the relationship permanent.</b> The kid receives a server-generated provisional tag. The operator scans the mother’s RFID, and the backend stores the canonical mother goat ID plus litter size on each separately entered child. Entry date is gone; date of birth is locked to today with an editable <b>time of birth</b>.</li>
+      <li><b>Recording a death is unchanged and still irreversible</b> — the exit happens on submit. The two video steps are the evidence trail that follows, plus park-head sign-off once both are in.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  function sw(v, el){
+    document.getElementById('v-birth').classList.toggle('hide', v !== 'birth');
+    document.getElementById('v-death').classList.toggle('hide', v !== 'death');
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('on', t === el); });
+  }
+  function openSheet(k){
+    document.getElementById('scrim-' + k).classList.add('open');
+    document.getElementById('sheet-' + k).classList.add('open');
+  }
+  function closeSheet(k){
+    document.getElementById('scrim-' + k).classList.remove('open');
+    document.getElementById('sheet-' + k).classList.remove('open');
+  }
+  function tog(id){
+    var el = document.getElementById(id);
+    if (el) el.classList.toggle('hide');
+  }
+  function goto(){ /* the middle phone is the drill-in destination */ }
+
+  // ---- date filter -------------------------------------------------------
+  // "Today" is pinned so the mock reads the same whenever it is opened.
+  var TODAY = new Date(2026, 6, 27);
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var offset = { birth: 0, death: 0 };
+
+  function dayFor(k){
+    var d = new Date(TODAY.getTime());
+    d.setDate(d.getDate() + offset[k]);
+    return d;
+  }
+  function renderDate(k){
+    var bar = document.querySelector('.datebar[data-date="' + k + '"]');
+    if (!bar) return;
+    var d = dayFor(k), past = offset[k] < 0;
+    bar.querySelector('.dlabel').textContent =
+      (offset[k] === 0 ? 'Today · ' : '') + d.getDate() + ' ' + MON[d.getMonth()];
+    bar.querySelector('.dpill').classList.toggle('past', past);
+    // Never page into the future: there is no work scheduled past today.
+    bar.querySelector('.dnav[data-step="1"]').disabled = offset[k] >= 0;
+    bar.querySelector('.todaybtn').classList.toggle('hide', offset[k] === 0);
+    var note = bar.parentNode.querySelector('.pastnote');
+    if (note) note.classList.toggle('hide', !past);
+    renderCal(k);
+  }
+  function renderCal(k){
+    var grid = document.querySelector('.cal[data-cal="' + k + '"]');
+    if (!grid) return;
+    grid.innerHTML = '';
+    ['M','T','W','T','F','S','S'].forEach(function(n){
+      var c = document.createElement('div');
+      c.className = 'dow'; c.textContent = n; grid.appendChild(c);
+    });
+    var first = new Date(2026, 6, 1);
+    var lead = (first.getDay() + 6) % 7; // Monday-start
+    for (var i = 0; i < lead; i++){
+      var m = document.createElement('div'); m.className = 'd mut'; m.textContent = '.'; grid.appendChild(m);
+    }
+    var sel = dayFor(k).getDate();
+    for (var day = 1; day <= 31; day++){
+      var b = document.createElement('button');
+      b.className = 'd' + (day === sel ? ' on' : '') + (day > TODAY.getDate() ? ' fut' : '');
+      b.textContent = day;
+      if (day > TODAY.getDate()) { b.disabled = true; }
+      else {
+        b.onclick = (function(dd){
+          return function(){ offset[k] = dd - TODAY.getDate(); renderDate(k); closeSheet('cal' + k); };
+        })(day);
+      }
+      grid.appendChild(b);
+    }
+  }
+  document.querySelectorAll('.datebar').forEach(function(bar){
+    var k = bar.getAttribute('data-date');
+    bar.querySelectorAll('.dnav').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var step = parseInt(btn.getAttribute('data-step'), 10);
+        if (offset[k] + step > 0) return;
+        offset[k] += step;
+        renderDate(k);
+      });
+    });
+    bar.querySelector('.todaybtn').addEventListener('click', function(){
+      offset[k] = 0; renderDate(k);
+    });
+    renderDate(k);
+  });
+
+  // Yes / No answer on a question row
+  document.querySelectorAll('.yn').forEach(function(g){
+    g.querySelectorAll('.o').forEach(function(o){
+      o.addEventListener('click', function(e){
+        e.stopPropagation();
+        g.querySelectorAll('.o').forEach(function(x){ x.classList.remove('on'); });
+        o.classList.add('on');
+      });
+    });
+  });
+  // filter chips
+  document.querySelectorAll('.fscroll').forEach(function(bar){
+    bar.querySelectorAll('.chip').forEach(function(c){
+      c.addEventListener('click', function(){
+        bar.querySelectorAll('.chip').forEach(function(x){ x.classList.remove('on'); });
+        c.classList.add('on');
+      });
+    });
+  });
+  // segmented controls on the add forms
+  document.querySelectorAll('.bigseg').forEach(function(g){
+    g.querySelectorAll('.o').forEach(function(o){
+      o.addEventListener('click', function(){
+        g.querySelectorAll('.o').forEach(function(x){ x.classList.remove('on'); });
+        o.classList.add('on');
+      });
+    });
+  });
+  // death animal match selection
+  document.querySelectorAll('.fcard').forEach(function(card){
+    var rows = card.querySelectorAll('.matchrow');
+    rows.forEach(function(r){
+      r.addEventListener('click', function(){
+        rows.forEach(function(x){ x.classList.remove('sel'); var c = x.querySelector('.ck'); if (c) c.remove(); });
+        r.classList.add('sel');
+        if (!r.querySelector('.ck')) {
+          var s = document.createElement('span');
+          s.className = 'ck'; s.textContent = '✓'; r.appendChild(s);
+        }
+      });
+    });
+  });
+</script>

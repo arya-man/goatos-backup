@@ -4,11 +4,24 @@ Load this reference for any read model, projection, dashboard/card summary,
 calendar grouping, reminder rail, or SQL/Go query that combines `JOIN` with
 `COUNT`, `SUM`, `GROUP BY`, JSON aggregation, or pagination.
 
+Also load `docs/architecture/operational-read-model-contract.md` whenever the
+aggregate feeds Calendar, Control Tower, Action Center, Protocol Adherence,
+Workflows, admin-web detail pages, Android execution/proof screens, reporting,
+or a new vertical/module. Aggregates are not approved until their grain and
+surface contract are explicit.
+
 These changes are not approved because the arithmetic invariant holds or the
 query compiles. The reviewer must prove the population, identity, cardinality,
 and page boundary independently.
 
 ## Required proof before approval
+
+0. **Operational read contract** — name the canonical write owner, row grain,
+   summary grain, scope identity, time grain, status bucket semantics, and every
+   consuming surface. Backend structs, OpenAPI, generated TS, Android DTOs,
+   admin-web, and Android must move together. Summary totals are whole-result
+   aggregates unless named `page_*`. See
+   `docs/architecture/operational-read-model-contract.md`.
 
 1. **Canonical membership** — name the source that decides which facts belong
    to the displayed group. Build both the event/card and its summary from that
@@ -57,6 +70,20 @@ and page boundary independently.
    every join, prove `1:1`, pre-aggregate the many side, use a semijoin, or
    explicitly deduplicate by the fact's stable id. A comment saying "one row per
    obligation" is not proof if a selector/dimension table can contain many rows.
+   Mobile vaccination execution has a hard version of this rule:
+   `protocol_rule_dimensions` must never be joined directly into the row/count
+   path that feeds Android overview or shed cards. Collapse it to one row per
+   protocol rule before counting. A direct dimension join is the 2026-07-29
+   `324 -> 1296` / `120 -> 480` incident and is blocked by
+   `make aggregate-projection-guard`.
+   Vaccination shed proof has a hard write-path version of this rule: the hidden
+   park/batch `sop_tasks` row is not the submitted/proof/verification grain for
+   WF, CT, AC, Calendar, Android, verifier queues, proof drawers, or leadership
+   sidebars. A shed-level submit may receive scan items collected from the shared
+   parent task, but before inserting `sop_submission_items` it must filter by the
+   completed proof's shed `subject_id` and the live goat `shed_id`. Do not approve
+   a display/status fix unless the write path and the read projection both prove
+   this shed grain.
 4. **Hierarchy resolution** — resolve farm/park/shed/cohort with an explicit
    scope-type matrix. Generic `COALESCE(parent_id, self_id)` is invalid unless
    every supported scope has the same depth.
@@ -87,6 +114,10 @@ Use realistic fixtures and names that make the broken dimension obvious:
 - `...StatusMatrix...`, `...EveryStatus...`, or `...StatusBuckets...`: when
   status buckets are present, exercise every live DB-constrained status and
   prove `total = sum(disjoint buckets)` without relying on duplicated rows.
+- `...ShedProofFiltersOverBroadScanItems...` or `...SiblingShed...`: one shared
+  vaccination parent task, two sheds, one completed shed-level video proof, and
+  over-broad scan items containing both sheds. The proof shed must get items and
+  completions; the sibling shed must get zero.
 
 The current status set must be read from the latest migration `CHECK`
 constraint and state-machine docs. Never copy a remembered list into the test.
@@ -152,6 +183,10 @@ Review checkpoints:
   predicate sub-shape.
 - The predicate was fixed, so the aggregate is assumed fixed. Check the
   `GROUP BY` and the compared-against key set separately.
+- A downstream CTE uses a new identity column because the base table has it, but
+  the upstream `scoped`/carrier CTE never projected it. `SELECT *` only preserves
+  columns already in that CTE; require a compile/DB-backed test or source guard
+  for load-bearing CTE columns.
 - A sibling surface (Passport, Calendar list) is correct, so the new surface is
   assumed correct — they are separate hand-copied predicates until a parity
   test proves one shared source.

@@ -2,10 +2,109 @@ package postgres
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+// Migrations get renumbered when a branch rebases or merges behind other migrations, so naming a
+// file here pins the test to a number that moves. Resolve the migration by CONTENT instead: the
+// highest-numbered file that redefines the validator is by definition the latest one, which is
+// also what this test claims to assert. A hardcoded name fails loudly when the file is renamed,
+// but silently checks a stale definition when a LATER migration redefines the validator.
+func latestMigrationContaining(t *testing.T, needle string) (string, string) {
+	t.Helper()
+	names, err := filepath.Glob("*.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	sort.Strings(names)
+	for i := len(names) - 1; i >= 0; i-- {
+		body, err := os.ReadFile(names[i])
+		if err != nil {
+			t.Fatalf("read migration %s: %v", names[i], err)
+		}
+		if strings.Contains(string(body), needle) {
+			return names[i], string(body)
+		}
+	}
+	t.Fatalf("no migration contains %q", needle)
+	return "", ""
+}
+
+// Same reasoning for a migration identified by what it does rather than by its number.
+func onlyMigrationWithSuffix(t *testing.T, suffix string) (string, string) {
+	t.Helper()
+	names, err := filepath.Glob("*_" + suffix + ".sql")
+	if err != nil {
+		t.Fatalf("glob %s: %v", suffix, err)
+	}
+	if len(names) != 1 {
+		t.Fatalf("expected exactly one *_%s.sql migration, found %v", suffix, names)
+	}
+	body, err := os.ReadFile(names[0])
+	if err != nil {
+		t.Fatalf("read migration %s: %v", names[0], err)
+	}
+	return names[0], string(body)
+}
+
+func TestLatestOutboxValidatorCoversProducedAggregateTypes(t *testing.T) {
+	name, sql := latestMigrationContaining(t, "FUNCTION public.validate_outbox_event_tenant")
+	t.Logf("latest outbox validator migration: %s", name)
+	required := map[string][]string{
+		"vaccination_batch":       {"obligation_batches", "batch_id"},
+		"verification_item":       {"verification_items", "item_id"},
+		"weighing":                {"weighing_campaigns", "weighing_observations", "weighing_shed_observations"},
+		"absence":                 {"workforce_absences", "absence_id"},
+		"park":                    {"locations", "location_id"},
+		"health_protocol_version": {"health_protocol_versions", "health_protocol_version_id"},
+		"health_case":             {"health_cases", "health_case_id"},
+	}
+
+	for aggregateType, needles := range required {
+		t.Run(aggregateType, func(t *testing.T) {
+			if !strings.Contains(sql, "NEW.aggregate_type = '"+aggregateType+"'") {
+				t.Fatalf("latest outbox validator is missing aggregate_type branch %q", aggregateType)
+			}
+			for _, needle := range needles {
+				if !strings.Contains(sql, needle) {
+					t.Fatalf("latest outbox validator branch %q is missing %q", aggregateType, needle)
+				}
+			}
+		})
+	}
+}
+
+func TestHealthDepartmentGrantHasForwardMigration(t *testing.T) {
+	_, sql := onlyMigrationWithSuffix(t, "health_department_module_grant")
+	for _, needle := range []string{"department_module_grants", "d.code = 'health'", "'aas_health'", "ON CONFLICT"} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("Health department grant migration is missing %q", needle)
+		}
+	}
+}
+
+func TestHealthDepartmentOperationalModulesHaveForwardMigration(t *testing.T) {
+	_, sql := onlyMigrationWithSuffix(t, "health_department_operational_modules")
+	for _, needle := range []string{
+		"department_module_grants",
+		"d.code = 'health'",
+		"'feed_direction'",
+		"'vaccination'",
+		"ON CONFLICT",
+		"DO UPDATE",
+		"status = 'active'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("Health department operational module migration is missing %q", needle)
+		}
+	}
+}
 
 // TestR50InvalidIndexRecovery reproduces the P0 bug where a failed CREATE INDEX CONCURRENTLY
 // leaves an INVALID index. The buggy migration sees the invalid index "exists" and skips rebuilding,

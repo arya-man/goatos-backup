@@ -8,19 +8,39 @@
 -->
 <resources>
     <string name="verify_module_vaccination">Vaccination</string>
+    <string name="verify_module_weighing">Weighing</string>
+    <string name="verify_module_birth">Birth</string>
+    <string name="verify_module_death">Death</string>
     <string name="verify_module_counts">Counts</string>
+    <string name="verify_module_shifting">Shifting</string>
+    <string name="verify_module_packing">Packing</string>
     <string name="verify_module_feed_direction">Feed direction</string>
+    <string name="verify_module_transport">Transport</string>
     <string name="verify_module_under_construction">Under construction</string>
     <string name="verify_module_under_construction_subtitle">This verification queue will appear here when its workflow is ready.</string>
     <string name="verify_queue_title">Video verification</string>
     <string name="verify_action_queue_title">Vaccination videos</string>
     <string name="verify_queue_refresh">Refresh</string>
     <string name="verify_queue_empty">Queue clear</string>
+    <string name="verify_queue_load_failed">Couldn\'t load the queue</string>
+    <string name="verify_queue_unsupported_module">This queue is not available in the app yet</string>
+    <string name="verify_queue_unsupported_module_subtitle">Open it on the Mesha web app to review these proofs.</string>
+    <string name="verify_queue_load_failed_subtitle">Something went wrong reading this queue. Pull to refresh to try again.</string>
     <string name="verify_queue_empty_subtitle">No pending videos to verify right now</string>
+    <string name="verify_queue_empty_date_subtitle">No videos in this page, status, and date</string>
+    <string name="verify_missed_open">Show missed verification videos</string>
+    <string name="verify_missed_before_today">Missed before today</string>
+    <string name="verify_date_previous">Previous day</string>
+    <string name="verify_date_next">Next day</string>
     <string name="verify_action_queue_empty">No submitted videos</string>
     <string name="verify_action_queue_empty_subtitle">Submitted vaccination videos will appear here for Director review</string>
     <string name="verify_queue_load_more">Load more</string>
     <string name="verify_queue_loading_more">Loading more…</string>
+    <string name="verify_scope_all">All</string>
+    <string name="verify_scope_individual">Individual (%1$d)</string>
+    <string name="verify_scope_lumpsum">Lump-sum (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d rows · %2$d videos</string>
+    <string name="verify_shed_group_progress">%1$d goats · %2$d to review</string>
 
     <string name="verify_detail_close">Close</string>
     <string name="verify_detail_fullscreen">Open video fullscreen</string>
@@ -29,7 +49,10 @@
     <string name="verify_detail_shed_label">Shed</string>
     <string name="verify_detail_park_label">Park</string>
     <string name="verify_detail_operator_label">Operator</string>
+    <string name="verify_detail_raised_note_label">Operator note</string>
     <string name="verify_detail_captured_label">Captured</string>
+    <string name="verify_detail_photo_description">Photo evidence for this work</string>
+    <string name="verify_detail_recorded_answer">Recorded: %1$s</string>
     <string name="verify_detail_no_media">No video attached to this item</string>
     <string name="verify_detail_approve">Approve</string>
     <string name="verify_detail_reject">Reject</string>
@@ -55,4 +78,15 @@
     <string name="verify_status_approved">Approved</string>
     <string name="verify_status_rejected">Rejected</string>
     <string name="verify_category_all">All</string>
+    <string name="verify_detail_media_unavailable_send_back">This video will not play, so it cannot be approved. Send it back so the team records it again.</string>
+    <string name="verify_approve_dialog_title">Approve this proof?</string>
+    <string name="verify_approve_dialog_subtitle">Approving is final — it cannot be undone later.</string>
+    <string name="verify_approve_dialog_confirm">Confirm approve</string>
+    <string name="verify_approve_dialog_cancel">Cancel</string>
+    <string name="verify_detail_group_accepted">All videos in this shed are accepted</string>
+    <string name="verify_filter_park_title">Park</string>
+    <string name="verify_filter_shed_title">Shed</string>
+    <string name="verify_filter_change">Change</string>
+    <string name="verify_filter_search_hint">Search</string>
+    <string name="verify_filter_no_matches">No matches</string>
 </resources>

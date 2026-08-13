@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
@@ -167,14 +168,16 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 	}
 	sort.Strings(stages)
 	return domain.ShedDrilldown{
-		ParkID:       head.ParkID,
-		ParkName:     head.ParkName,
-		ShedID:       head.ShedID,
-		ShedName:     head.ShedName,
-		AnimalStages: stages,
-		Drives:       drives,
-		Rows:         rows,
-		Summary:      summary,
+		ParkID:                     head.ParkID,
+		ParkName:                   head.ParkName,
+		ShedID:                     head.ShedID,
+		ShedName:                   head.ShedName,
+		PartitionLabel:             head.PartitionLabel,
+		OperationalLocationDisplay: head.OperationalLocationDisplay,
+		AnimalStages:               stages,
+		Drives:                     drives,
+		Rows:                       rows,
+		Summary:                    summary,
 	}, true, nil
 }
 
@@ -217,13 +220,14 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 			protocolSeen[r.ProtocolID] = true
 			protocols = append(protocols, domain.OperationsProtocol{ProtocolID: r.ProtocolID, Name: r.ProtocolName})
 		}
-		key := r.ParkID + "|" + r.ShedID + "|" + r.Stage
+		key := r.ParkID + "|" + r.ShedID + "|" + partitionKey(r.PartitionLabel) + "|" + r.Stage
 		idx, ok := cohortIndex[key]
 		if !ok {
 			idx = len(cohorts)
 			cohortIndex[key] = idx
 			cohorts = append(cohorts, domain.OperationsCohort{
 				ParkID: r.ParkID, ParkName: r.ParkName, ShedID: r.ShedID, ShedName: r.ShedName,
+				PartitionLabel: r.PartitionLabel, OperationalLocationDisplay: operationalLocationDisplay(r.ShedName, r.PartitionLabel),
 				Stage: r.Stage, AgeBand: r.AgeBand, WorkState: domain.WorkStateCompleted, Cells: []domain.OperationsCell{},
 			})
 		}
@@ -262,11 +266,12 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 	if limit > 0 && len(cohorts) > limit {
 		last := cohorts[limit-1]
 		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
-			ParkID:   last.ParkID,
-			ParkName: last.ParkName,
-			ShedID:   last.ShedID,
-			ShedName: last.ShedName,
-			Stage:    last.Stage,
+			ParkID:         last.ParkID,
+			ParkName:       last.ParkName,
+			ShedID:         last.ShedID,
+			ShedName:       last.ShedName,
+			PartitionLabel: stringPtrValue(last.PartitionLabel),
+			Stage:          last.Stage,
 		})
 		if err != nil {
 			return domain.OperationsResponse{}, err
@@ -397,19 +402,45 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partition == "" {
 		partition = "whole"
 	}
+	location := oploc.OperationalLocation{
+		ParkID:         p.ParkID,
+		ParkName:       p.ParkName,
+		ShedID:         p.ShedID,
+		ShedName:       physicalShed,
+		PartitionLabel: partition,
+	}
+	var partitionLabel *string
+	if location.IsPartitioned() {
+		value := partition
+		partitionLabel = &value
+	}
 	return domain.ExecutionRow{
-		ParkID:             p.ParkID,
-		ParkName:           p.ParkName,
-		ShedID:             p.ShedID,
-		ShedName:           p.ShedName,
-		PhysicalShed:       physicalShed,
-		Partition:          partition,
-		AnimalStage:        p.AnimalStage,
-		TargetCount:        targetCount,
-		OpenCount:          openCount,
-		DoneCount:          doneCount,
+		ParkID:                     p.ParkID,
+		ParkName:                   p.ParkName,
+		ShedID:                     p.ShedID,
+		ShedName:                   p.ShedName,
+		PhysicalShed:               physicalShed,
+		Partition:                  partition,
+		PartitionLabel:             partitionLabel,
+		SourceShedName:             p.SourceShedName,
+		OperationalLocationDisplay: location.Display(),
+		AnimalStage:                p.AnimalStage,
+		TargetCount:                targetCount,
+		OpenCount:                  openCount,
+		DoneCount:                  doneCount,
+		AcceptedCount:              p.CompletionAccepted,
+		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
+		// rejected) -- must match the verifier's own /verification/queue, which only ever
+		// surfaces pending items. A rejected completion is a resolved verdict, not open review
+		// work: it reopens the obligation (see WorkStateRejected / vaccinationExecutionSQL's
+		// completion_rejected semantics) and must NOT inflate this count. Previously this summed
+		// CompletionRecorded + CompletionRejected, so rejections never decremented the number and
+		// operator/CEO/PC-director screens drifted further out of sync with the queue on every
+		// rejection.
+		ReviewCount:        p.CompletionRecorded,
 		DriveID:            p.BatchID,
 		DriveName:          driveName(p),
+		VaccineLabels:      vaccineLabels(p),
 		DueDate:            dueDate(p),
 		WorkState:          workState,
 		Severity:           severity(workState),
@@ -431,17 +462,23 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 
 // executionDisplayCounts is the backend-owned count contract for mobile shed cards. One execution
 // row is an aggregated obligation group, not one goat, so clients must never infer counts from the
-// number of rows. Recorded/accepted/rejected completion evidence all means field execution occurred;
+// number of rows. Recorded/accepted completion evidence means field execution occurred and stands;
 // deferred/missed/cancelled targets are not presented as open work.
+//
+// REJECTED completions are deliberately NOT evidence of done. A verifier who sends an animal back
+// has said its work must happen again, so counting it as done rendered a rejected shed as finished
+// -- on the operator's own card, with a full progress bar -- and the person who has to redo it
+// could not see there was anything left to do. A rejected animal is OUTSTANDING work and falls
+// into `open` below, which is what makes the redo visible to whoever owns it.
 func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done int) {
 	target = p.ObligationCount
 	done = p.CompletedCount
-	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
+	completionEvidence := p.CompletionRecorded + p.CompletionAccepted
 	if completionEvidence > done {
 		done = completionEvidence
 	}
-	if p.ScannedCount > done {
-		done = p.ScannedCount
+	if p.ProofSubmittedCount > done {
+		done = p.ProofSubmittedCount
 	}
 	if done > target {
 		done = target
@@ -601,6 +638,28 @@ func driveName(p domain.ExecutionProjection) *string {
 		return nil
 	}
 	return &name
+}
+
+func vaccineLabels(p domain.ExecutionProjection) []string {
+	seen := make(map[string]struct{}, len(p.VaccineLabels)+1)
+	labels := make([]string, 0, len(p.VaccineLabels)+1)
+	for _, code := range p.VaccineLabels {
+		label := domain.VaccinationDoseDisplayLabel(p.ProtocolName, code)
+		if label == "" {
+			continue
+		}
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		labels = append(labels, label)
+	}
+	if len(labels) == 0 {
+		if label := driveName(p); label != nil {
+			labels = append(labels, *label)
+		}
+	}
+	return labels
 }
 
 func dueDate(p domain.ExecutionProjection) *string {
@@ -809,21 +868,23 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
 		rows = append(rows, domain.ShedSummaryRow{
-			ParkID:             p.ParkID,
-			ParkName:           p.ParkName,
-			ShedID:             p.ShedID,
-			ShedName:           p.ShedName,
-			Animals:            p.Animals,
-			Due:                p.DueAnimals,
-			Done:               p.Animals - p.DueAnimals,
-			Sessions:           p.Sessions,
-			LastDone:           businessDatePtr(p.LastDone),
-			NextDue:            businessDatePtr(p.NextDue),
-			Manager:            owners.Manager,
-			Backup:             owners.Backup,
-			DriveOperatorNames: append([]string(nil), p.DriveOperatorNames...),
-			Capacity:           p.Capacity,
-			Status:             p.Status,
+			ParkID:                     p.ParkID,
+			ParkName:                   p.ParkName,
+			ShedID:                     p.ShedID,
+			ShedName:                   p.ShedName,
+			PartitionLabel:             p.PartitionLabel,
+			OperationalLocationDisplay: operationalLocationDisplay(p.ShedName, p.PartitionLabel),
+			Animals:                    p.Animals,
+			Due:                        p.DueAnimals,
+			Done:                       p.Animals - p.DueAnimals,
+			Sessions:                   p.Sessions,
+			LastDone:                   businessDatePtr(p.LastDone),
+			NextDue:                    businessDatePtr(p.NextDue),
+			Manager:                    owners.Manager,
+			Backup:                     owners.Backup,
+			DriveOperatorNames:         append([]string(nil), p.DriveOperatorNames...),
+			Capacity:                   p.Capacity,
+			Status:                     p.Status,
 		})
 	}
 	limit := q.Limit
@@ -845,6 +906,28 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 			return nil
 		}(),
 	}, nil
+}
+
+func operationalLocationDisplay(shedName string, partitionLabel *string) string {
+	label := ""
+	if partitionLabel != nil {
+		label = *partitionLabel
+	}
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func partitionKey(partitionLabel *string) string {
+	if partitionLabel == nil || strings.TrimSpace(*partitionLabel) == "" {
+		return "whole"
+	}
+	return strings.ToLower(strings.TrimSpace(*partitionLabel))
 }
 
 // ShedDetail returns one shed's header (the same animal-level counts + Manager/Backup + Sessions +
@@ -1174,4 +1257,17 @@ const (
 
 func operatorConfigChangePayload(parkID string) []byte {
 	return []byte(fmt.Sprintf(`{"park_id":%q}`, parkID))
+}
+
+// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
+// weekly given, and verification queue.
+func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
+	return s.repo.VaccinationCommandBoard(ctx, q)
+}
+
+// LiveTracker returns the live drive-day tracker: KPI tiles, operator board, shed × partition proof
+// board, combo-dose card, activity feed, attention list, verification block and filter vocabulary —
+// all derived from one membership set so the tiles reconcile with the tables beneath them.
+func (s *Service) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
+	return s.repo.LiveTracker(ctx, q)
 }

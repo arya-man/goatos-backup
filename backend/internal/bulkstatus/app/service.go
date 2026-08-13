@@ -155,7 +155,7 @@ func (s *Service) Preview(ctx context.Context, input PreviewInput) (*PreviewResp
 	fingerprint := rowsFingerprint(input.TenantID, axis, toEnqueueRows(rows))
 	token, err := s.signPreviewToken(input.TenantID, axis, fingerprint, len(rows))
 	if err != nil {
-		return nil, Internal("bulk status preview token generation failed")
+		return nil, fmt.Errorf("bulk status preview token generation failed: %w", err)
 	}
 	resp.PreviewToken = token
 	return resp, nil

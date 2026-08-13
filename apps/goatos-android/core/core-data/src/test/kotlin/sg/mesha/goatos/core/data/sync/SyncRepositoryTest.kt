@@ -155,6 +155,7 @@ class SyncRepositoryTest {
 
         assertTrue(first is AppResult.Ok)
         assertTrue(second is AppResult.Err)
+        assertEquals(null, (second as AppResult.Err).cause)
         assertEquals(1, repo.observeStatus().value.items.size)
         assertEquals(1, api.submitCalls.size)
     }

@@ -132,6 +132,7 @@ type ListAgedFailedSubmissionFanoutsParams struct {
 type SubmitTaskCommand struct {
 	TenantID                 string
 	ActorID                  string
+	DeviceID                 string
 	TaskID                   string
 	Body                     domain.SubmitTaskRequest
 	Report                   domain.ValidationReport
@@ -197,8 +198,9 @@ type Repository interface {
 	RecordScanCapture(ctx context.Context, cmd RecordScanCaptureCommand) (domain.ScanCaptureSummary, error)
 	ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error)
 	RecordScanAttempt(ctx context.Context, cmd RecordScanAttemptCommand) (domain.ScanAttemptSummary, error)
-	ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID string, minProofs, maxProofs int) (ShedCompletionReadiness, error)
-	CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject string) ([]domain.ProofReference, error)
+	ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string, minProofs, maxProofs int) (ShedCompletionReadiness, error)
+	CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string) ([]domain.ProofReference, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
 	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
+	ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }

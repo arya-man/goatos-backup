@@ -108,3 +108,9 @@ func TestUpdateCapacityConfig_RejectsMaxShotsOutOfRange(t *testing.T) {
 		t.Fatal("repo write must not be reached on validation failure")
 	}
 }
+
+func (r *capacityConfigFakeRepo) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
+}

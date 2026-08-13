@@ -137,6 +137,16 @@ BEGIN
     RAISE EXCEPTION 'registration left % goat(s) with no identifier', orphans;
   END IF;
 END \$\$;
+
+-- Advance the display_id sequence past every explicitly-assigned display_id. This load writes
+-- display_id directly (computed above), so goat_display_id_seq is left untouched and lags behind
+-- the seeded herd. Without this, a later DEFAULT next_goat_display_id() (e.g. the goats insert a
+-- birth-approval runs) re-issues an already-seeded id like G-000001 and fails with
+-- goats_display_id_unique (SQLSTATE 23505). The sequence AND the unique constraint are GLOBAL, so
+-- this maxes over ALL goats, not just this tenant.
+SELECT setval('goat_display_id_seq',
+  (SELECT COALESCE(max(NULLIF(regexp_replace(display_id, '\D', '', 'g'), '')::bigint), 0) FROM goats),
+  true);
 COMMIT;
 \endif
 

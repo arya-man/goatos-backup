@@ -33,6 +33,14 @@ export type HerdAnimalStageOption = {
   label: string;
 };
 
+export type HerdOperationalLocationOption = {
+  key: string;
+  shedId: string;
+  parkId: string | null;
+  partitionLabel: string | null;
+  label: string;
+};
+
 function contractTone(pageContract: AdminUiPageContract, groupId: string, key: string): Tone {
   return optionTone(pageContract, groupId, key) as Tone;
 }
@@ -143,7 +151,7 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
 }
 
 // ---- Modal shell (centered overlay; backdrop + Escape close; focus trap entry; body scroll lock) ----
-function Drawer({
+export function Drawer({
   open,
   onClose,
   closeLabel,
@@ -239,6 +247,8 @@ function RegisterGoatDrawer({
   onClose,
   parks,
   sheds,
+  operationalLocations,
+  operationalLocationsAvailable,
   farms,
   animalStages,
   locationsAvailable,
@@ -251,6 +261,8 @@ function RegisterGoatDrawer({
   onClose: () => void;
   parks: LocationOption[];
   sheds: LocationOption[];
+  operationalLocations: HerdOperationalLocationOption[];
+  operationalLocationsAvailable: boolean;
   farms: LocationOption[];
   animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
@@ -260,13 +272,38 @@ function RegisterGoatDrawer({
   pageContract: AdminUiPageContract;
 }) {
   const [parkId, setParkId] = useState<string>(parks[0]?.id ?? "");
+  const [selectedLocationKey, setSelectedLocationKey] = useState<string>("");
   const scopedSheds = sheds.filter((s) => s.parentId === parkId);
   const shedOptions = scopedSheds.length > 0 ? scopedSheds : sheds;
+  const partitionedShedIds = new Set(
+    operationalLocations
+      .filter((location) => location.partitionLabel)
+      .map((location) => location.shedId),
+  );
+  const operationalOptions = operationalLocations
+    .filter((location) => !parkId || location.parkId === parkId)
+    .filter((location) => location.partitionLabel || !partitionedShedIds.has(location.shedId));
+  const operationalShedIds = new Set(operationalOptions.map((location) => location.shedId));
+  const unpartitionedEmptyShedOptions = operationalLocationsAvailable
+    ? shedOptions
+      .filter((shed) => !partitionedShedIds.has(shed.id) && !operationalShedIds.has(shed.id))
+      .map((shed) => ({
+        key: shed.id,
+        shedId: shed.id,
+        parkId: shed.parentId,
+        partitionLabel: null,
+        label: `${shed.name}${shed.code ? ` · ${shed.code}` : ""}`,
+      }))
+    : [];
+  const locationOptions = operationalLocationsAvailable
+    ? [...operationalOptions, ...unpartitionedEmptyShedOptions]
+    : [];
+  const selectedLocation = locationOptions.find((location) => location.key === selectedLocationKey) ?? locationOptions[0] ?? null;
   const sexOptions = optionGroup(pageContract, "herd_sex");
   const speciesOptions = optionGroup(pageContract, "herd_species");
   const originOptions = optionGroup(pageContract, "herd_origin");
 
-  const hasLocations = locationsAvailable && parks.length > 0 && shedOptions.length > 0;
+  const hasLocations = locationsAvailable && parks.length > 0 && locationOptions.length > 0;
   const hasStages = stagesAvailable && animalStages.length > 0;
   const canCreate = hasLocations && hasStages;
 
@@ -339,10 +376,18 @@ function RegisterGoatDrawer({
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_shed">{copy(pageContract, "field.shed_required")}</label>
-            <select id="rg_shed" name="shed_id" required disabled={!canCreate} defaultValue={shedOptions[0]?.id ?? ""}>
-              {shedOptions.length === 0 ? <option value="">{copy(pageContract, "option.no_vaccination_sheds")}</option> : null}
-              {shedOptions.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ""}</option>
+            <input type="hidden" name="shed_id" value={selectedLocation?.shedId ?? ""} />
+            <input type="hidden" name="partition_label" value={selectedLocation?.partitionLabel ?? ""} />
+            <select
+              id="rg_shed"
+              required
+              disabled={!canCreate}
+              value={selectedLocation?.key ?? ""}
+              onChange={(e) => setSelectedLocationKey(e.target.value)}
+            >
+              {locationOptions.length === 0 ? <option value="">{copy(pageContract, "option.no_vaccination_sheds")}</option> : null}
+              {locationOptions.map((location) => (
+                <option key={location.key} value={location.key}>{location.label}</option>
               ))}
             </select>
           </div>
@@ -540,7 +585,8 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const [committed, setCommitted] = useState<AdminGoatBulkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const bulkColumns = optionGroup(pageContract, "herd_import_columns").map((column) => column.label);
+  const configuredBulkColumns = optionGroup(pageContract, "herd_import_columns").map((column) => column.label);
+  const bulkColumns = configuredBulkColumns;
 
   function reset() {
     setCsv("");
@@ -1016,6 +1062,8 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
 export function HerdActions({
   parks,
   sheds,
+  operationalLocations,
+  operationalLocationsAvailable,
   farms,
   animalStages,
   locationsAvailable,
@@ -1026,6 +1074,8 @@ export function HerdActions({
 }: {
   parks: LocationOption[];
   sheds: LocationOption[];
+  operationalLocations: HerdOperationalLocationOption[];
+  operationalLocationsAvailable: boolean;
   farms: LocationOption[];
   animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
@@ -1056,6 +1106,8 @@ export function HerdActions({
         onClose={() => setOpenDrawer(null)}
         parks={parks}
         sheds={sheds}
+        operationalLocations={operationalLocations}
+        operationalLocationsAvailable={operationalLocationsAvailable}
         farms={farms}
         animalStages={animalStages}
         locationsAvailable={locationsAvailable}

@@ -61,12 +61,244 @@ func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
 	}
 }
 
+func TestVaccinationLeadershipCopyUsesActionableShedAndDateLanguage(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "vaccination")
+	if got := page.Copy["note.sheds_counts"]; got != "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above." {
+		t.Fatalf("vaccination shed note = %q", got)
+	}
+	if page.Copy["command_board.cohort_matrix.date_unavailable"] == "" {
+		t.Fatal("vaccination cohort matrix must publish explicit unavailable-date copy")
+	}
+	if page.Copy["command_board.filter.operator_day"] != "Operator day (optional)" {
+		t.Fatalf("operator-day filter copy = %q", page.Copy["command_board.filter.operator_day"])
+	}
+
+	var found bool
+	for _, table := range page.Tables {
+		if table.ID != "shed-summary" {
+			continue
+		}
+		found = true
+		labels := map[string]string{}
+		for _, column := range table.Columns {
+			labels[column.Key] = column.Label
+		}
+		if labels["due"] != "Needs action" || labels["done"] != "Up to date" {
+			t.Fatalf("shed status labels = %#v", labels)
+		}
+	}
+	if !found {
+		t.Fatal("vaccination shed-summary table missing")
+	}
+}
+
 func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
 	group := optionGroupByID(t, page.OptionGroups, "park_display_chips")
 
 	if len(group.Options) != 0 {
 		t.Fatalf("phase-0 bootstrap must not publish static park chip options; locations must be DB-compiled, got %#v", group.Options)
+	}
+}
+
+func TestMilkPreparationPageContractAndMilkNavigation(t *testing.T) {
+	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
+	page := pageByRouteID(t, bootstrap.Pages, "milk-preparation")
+	if page.Href != "/counts/milk-preparation" {
+		t.Fatalf("milk preparation path=%q", page.Href)
+	}
+	if page.Title != "Milk Preparation" {
+		t.Fatalf("milk preparation title=%q", page.Title)
+	}
+	for _, key := range []string{
+		"section.preparation.title", "section.preparation.caption", "section.summary.aria",
+		"kpi.sheds.label", "kpi.kids.label", "kpi.milk.label", "kpi.citric.label",
+		"state.preparation_unavailable", "empty.preparation", "label.prepared_for",
+	} {
+		if page.Copy[key] == "" {
+			t.Errorf("milk preparation contract missing copy key %q", key)
+		}
+	}
+
+	// Milk Preparation sits under its OWN "Milk" group, never under Counts (maintainer request
+	// 2026-08-11, mirroring the phone's Counts -> Milk module split). The href is deliberately
+	// unchanged: this is a nav regrouping, not a route change.
+	found := false
+	for _, group := range bootstrap.Navigation.Groups {
+		for _, leaf := range group.Leaves {
+			if leaf.Href != "/counts/milk-preparation" {
+				continue
+			}
+			if group.ID == "counts" {
+				t.Fatalf("Milk Preparation must not appear under the Counts group (leaf %q)", leaf.ID)
+			}
+			if group.ID != "milk" {
+				t.Fatalf("Milk Preparation leaf %q is under group %q, want group \"milk\"", leaf.ID, group.ID)
+			}
+			if group.Label != "Milk" {
+				t.Fatalf("milk group label=%q, want \"Milk\"", group.Label)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Milk navigation group is missing the Milk Preparation leaf")
+	}
+}
+
+func TestActionCenterPublishesDriveCapacityBadgeCopy(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
+	for _, key := range []string{
+		"label.drive_over_cap_required",
+		"label.drive_medical_defer",
+		"label.drive_terminal_closed",
+		"tooltip.drive_over_cap_required",
+		"tooltip.drive_medical_defer",
+		"tooltip.drive_terminal_closed",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("action-center contract missing copy key %s", key)
+		}
+	}
+}
+
+func TestActionsPageContractAndNavigation(t *testing.T) {
+	bootstrap := NewService().Bootstrap(context.Background(), BootstrapInput{})
+	if bootstrap.TopBar.DateRangeSelector.Label != "Showing data for" {
+		t.Fatalf("top-bar date label must explain which day is rendered, got %q", bootstrap.TopBar.DateRangeSelector.Label)
+	}
+	for _, key := range []string{"date.menu_aria", "date.previous_month", "date.next_month", "date.today"} {
+		if bootstrap.Copy[key] == "" {
+			t.Fatalf("top-bar calendar copy %q must be backend-defined", key)
+		}
+	}
+	page := pageByRouteID(t, bootstrap.Pages, "verification-review")
+	if page.Href != "/verify" || page.Title != "Verify" {
+		t.Fatalf("verify page = %#v", page)
+	}
+	if got := page.Tables[0]; got.ID != "verification-actions" || got.DataSource != "/verification/queue" || got.RowClick.Param != "vi_row" {
+		t.Fatalf("actions table = %#v", got)
+	}
+	// The breadcrumb names the VERTICAL this screen belongs to. It said "Approvals" — a DIFFERENT
+	// top-level module that merely sits next to it in the nav — so the screen advertised itself as
+	// living somewhere it does not (maintainer, 2026-08-12).
+	if page.Copy["crumb"] != "Verification" {
+		t.Fatalf("Verify breadcrumb must name its own vertical, got %q", page.Copy["crumb"])
+	}
+	if page.Copy["crumb"] == "Approvals" {
+		t.Fatalf("the breadcrumb must never name a sibling module")
+	}
+	for _, key := range []string{
+		"state.empty",
+		"drawer.media.title", "drawer.media.open", "action.open_details",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("actions contract missing copy key %q", key)
+		}
+	}
+	// The action-type filter was removed (maintainer decision 2026-08-07): the left nav is the
+	// only scope selector on this screen. Asserted as ABSENT so the control cannot quietly
+	// return through its copy keys.
+	for _, key := range []string{"filter.action_type", "filter.all_action_types"} {
+		if page.Copy[key] != "" {
+			t.Fatalf("actions contract still carries removed action-type filter copy %q = %q", key, page.Copy[key])
+		}
+	}
+	// The raw-token "vertical_module" column was dropped in the same decision: it rendered
+	// "preventive_care / vaccination" verbatim on a verifier-facing screen.
+	for _, column := range page.Tables[0].Columns {
+		if column.Key == "vertical_module" {
+			t.Fatalf("actions table still declares the raw-token vertical_module column: %#v", page.Tables[0].Columns)
+		}
+	}
+	actions := primaryNavByID(t, bootstrap.Navigation.Primary, "verification-actions")
+	// "Verify" is what the PHONE calls this (workforce nav.verify), so one word covers both surfaces.
+	if actions.Href != "/verify" || actions.Label != "Verify" {
+		t.Fatalf("verify nav = %#v", actions)
+	}
+	approvalsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "approvals")
+	actionsIndex := primaryNavIndex(bootstrap.Navigation.Primary, "verification-actions")
+	if approvalsIndex < 0 || actionsIndex != approvalsIndex+1 {
+		t.Fatalf("Actions must sit immediately below Approvals and above grouped modules: approvals=%d actions=%d primary=%#v", approvalsIndex, actionsIndex, bootstrap.Navigation.Primary)
+	}
+	operator := NewService().Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Grants: []permissions.ActiveGrant{{
+			Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001",
+		}},
+	})
+	blocked := primaryNavByID(t, operator.Navigation.Primary, "verification-actions")
+	if blocked.Enabled || blocked.DisabledReason == "" {
+		t.Fatalf("operator actions nav must fail closed = %#v", blocked)
+	}
+}
+
+// TestVerifyPageOversightFiltersControlIsCapabilityGated pins the fix for the STG incident where
+// the CEO's oversight filters (module chips, capture-date range) on /verify rendered for every
+// role, including RoleVerifier. The renderer gates on the "oversight_filters" control, which must
+// be enabled for CEO/CxO and directors who hold permissions.VerificationOversee and disabled for
+// RoleVerifier. See docs/decisions/role-scoped-ui-is-capability-gated.md.
+func TestVerifyPageOversightFiltersControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"pc_director", permissions.RolePCDirector, true},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"verifier", permissions.RoleVerifier, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "verification-review").Controls, "oversight_filters")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s oversight_filters.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled oversight_filters control must carry a backend disabled reason", tc.name)
+			}
+		})
+	}
+}
+
+// TestVerifyPageOversightAnalyticsControlIsCapabilityGated pins the same capability gate
+// (permissions.VerificationOversee) for the /verify oversight analytics section as
+// TestVerifyPageOversightFiltersControlIsCapabilityGated pins for the filter chrome: CEO/directors
+// who hold VerificationOversee get "oversight_analytics" enabled, the verifier does not.
+func TestVerifyPageOversightAnalyticsControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"pc_director", permissions.RolePCDirector, true},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"verifier", permissions.RoleVerifier, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "verification-review").Controls, "oversight_analytics")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled oversight_analytics control must carry a backend disabled reason", tc.name)
+			}
+		})
 	}
 }
 
@@ -160,6 +392,16 @@ func TestShedExecutionBootstrapPublishesAnimalRowActionCopy(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "shed-execution")
 	if got := page.Copy["action.open_passport"]; got != "Open Animal Passport" {
 		t.Fatalf("shed-execution action.open_passport copy = %q", got)
+	}
+	foundDriveRows := false
+	for _, table := range page.Tables {
+		if table.ID == "shed-drive-rows" {
+			foundDriveRows = true
+			break
+		}
+	}
+	if !foundDriveRows {
+		t.Fatal("shed-execution missing shed-drive-rows table contract")
 	}
 }
 
@@ -555,8 +797,16 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 		},
 	})
 
-	if len(resp.Navigation.Primary) != 5 {
+	if len(resp.Navigation.Primary) != 7 {
 		t.Fatalf("primary command-lens items must stay present, got %d", len(resp.Navigation.Primary))
+	}
+	// Approvals is present but RBAC-disabled for an operator, who holds no counts.approve_access.
+	approvals := primaryNavByID(t, resp.Navigation.Primary, "approvals")
+	if approvals.Enabled {
+		t.Fatalf("approvals nav must be RBAC-disabled for an operator: %#v", approvals)
+	}
+	if approvals.DisabledReason == "" {
+		t.Fatalf("approvals RBAC disable reason must be published: %#v", approvals)
 	}
 	leaf := navLeafByID(t, resp.Navigation.Groups, "preventive-care-vaccination")
 	if leaf.Enabled {
@@ -567,6 +817,57 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 	}
 	if resp.NavChrome != domain.NavChromeExpanded {
 		t.Fatalf("admin web nav chrome should stay expanded, got %q", resp.NavChrome)
+	}
+}
+
+func TestBootstrapNavLeavesOnlyPointAtPublishedAdminWebPages(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	pageHrefs := map[string]bool{}
+	for _, page := range resp.Pages {
+		pageHrefs[page.Href] = true
+	}
+	for _, item := range resp.Navigation.Primary {
+		if !pageHrefs[item.Href] {
+			t.Fatalf("primary nav item %q points at %q, but no admin-web page contract publishes that href", item.ID, item.Href)
+		}
+	}
+	for _, group := range resp.Navigation.Groups {
+		for _, leaf := range group.Leaves {
+			if !pageHrefs[leaf.Href] {
+				t.Fatalf("nav leaf %s/%s points at %q, but no admin-web page contract publishes that href", group.ID, leaf.ID, leaf.Href)
+			}
+		}
+	}
+}
+
+// Weighing is MOBILE ONLY (maintainer decision 2026-08-03). The admin-web weighing
+// frontend was deleted; the backend admin-web bootstrap contract must never publish a
+// weighing nav leaf, route label, or page contract again. Backend weighing APIs stay --
+// the Android app is their only client.
+func TestWeighingAdminWebSurfaceStaysMobileOnly(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	if leaf := optionalNavLeafByID(resp.Navigation.Groups, "preventive-care-weighing"); leaf != nil {
+		t.Fatalf("weighing is mobile-only: no admin-web sidebar leaf: %#v", leaf)
+	}
+	if label := optionalRouteLabelByPattern(resp.RouteLabels, "/weighing"); label != nil {
+		t.Fatalf("weighing is mobile-only: no /weighing admin-web route label: %#v", label)
+	}
+	if page := optionalPageByRouteID(resp.Pages, "weighing"); page != nil {
+		t.Fatalf("weighing is mobile-only: no admin-web page contract: %#v", page)
 	}
 }
 
@@ -654,6 +955,15 @@ func pageByRouteID(t *testing.T, pages []domain.PageContract, routeID string) do
 	return domain.PageContract{}
 }
 
+func optionalPageByRouteID(pages []domain.PageContract, routeID string) *domain.PageContract {
+	for i := range pages {
+		if pages[i].RouteID == routeID {
+			return &pages[i]
+		}
+	}
+	return nil
+}
+
 func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) domain.NavigationItem {
 	t.Helper()
 	for _, item := range items {
@@ -663,6 +973,26 @@ func primaryNavByID(t *testing.T, items []domain.NavigationItem, id string) doma
 	}
 	t.Fatalf("missing primary nav item %q", id)
 	return domain.NavigationItem{}
+}
+
+func primaryNavIndex(items []domain.NavigationItem, id string) int {
+	for i, item := range items {
+		if item.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func optionalNavLeafByID(groups []domain.NavigationGroup, id string) *domain.NavigationItem {
+	for _, group := range groups {
+		for i := range group.Leaves {
+			if group.Leaves[i].ID == id {
+				return &group.Leaves[i]
+			}
+		}
+	}
+	return nil
 }
 
 func navLeafByID(t *testing.T, groups []domain.NavigationGroup, id string) domain.NavigationItem {
@@ -698,6 +1028,15 @@ func routeLabelByPattern(t *testing.T, labels []domain.RouteLabelRule, pattern s
 	}
 	t.Fatalf("missing route label pattern %q", pattern)
 	return ""
+}
+
+func optionalRouteLabelByPattern(labels []domain.RouteLabelRule, pattern string) *domain.RouteLabelRule {
+	for i := range labels {
+		if labels[i].Pattern == pattern {
+			return &labels[i]
+		}
+	}
+	return nil
 }
 
 func optionGroupByID(t *testing.T, groups []domain.OptionGroup, id string) domain.OptionGroup {

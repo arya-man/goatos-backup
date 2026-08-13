@@ -1,0 +1,80 @@
+-- +goose Up
+-- seed-fixture-guard:ignore: operational Weighing free-flow kernel work items are written by the Weighing publish transaction and the kernel worker; they do not change the Vaccination HRMS seed contract
+--
+-- ROOT-CAUSE FIX (Finding 7, part b): 000069's backfill leaked draft-campaign
+-- work items into the kernel.
+--
+-- 000069_weighing_backfill_missing_work_items.sql filtered only
+-- `cs.status NOT IN ('canceled')` on weighing_campaign_sheds, with NO filter on
+-- the PARENT weighing_campaigns.status. CreateCampaign inserts
+-- weighing_campaign_sheds rows at DRAFT time, before publish
+-- (PublishCampaign only flips the campaign to 'published' and calls
+-- createWorkItemsForPublishTx AFTER that flip, in the same transaction --
+-- verified by TestPublishCampaignFlipsStatusBeforeCreatingWorkItems). So if
+-- 000069 ever ran against an environment holding a still-draft campaign, it
+-- backfilled work items for sheds that were never published: durable
+-- obligations, cadence triggering, and Calendar/Control Tower visibility for
+-- work leadership never actually authorized.
+--
+-- 000069 ITSELF IS NOT EDITED HERE. It is already applied on the shared
+-- environment (present on origin/main as of commit 0e5e325fc, ahead of this
+-- worktree's base commit), and this repo's migration runner
+-- (cmd/migrate/main.go) tracks migrations by a SHA-256 checksum of the file
+-- content -- rewriting an already-applied migration's SQL changes its
+-- checksum and makes every environment that already ran it fail with
+-- "migration %s was already applied with checksum %s, current %s" the next
+-- time migrate runs (see cmd/migrate/main.go's checksum-drift check). Editing
+-- 000069 in place would break every already-migrated environment, not fix
+-- them. A FRESH database only ever sees 000069 once, with its original text,
+-- so it is not "fixed" retroactively either way -- 000069 stays exactly as it
+-- ran historically, and this migration is the forward-only repair.
+--
+-- SAFE DELETE PREDICATE: delete a weighing_work_items row only when its
+-- PARENT campaign is STILL 'draft' TODAY.
+--
+-- This is deliberately NOT "delete rows whose campaign was draft when 000069
+-- ran" (we have no such timestamp to compare against) and NOT "delete every
+-- row 000069 could theoretically have created" (we cannot distinguish a
+-- 000069-created row from one createWorkItemsForPublishTx legitimately wrote
+-- after a since-published campaign). It IS safe to say: a weighing_work_items
+-- row can only ever be legitimately created by createWorkItemsForPublishTx
+-- (which runs strictly after the campaign's status flip to 'published', in
+-- the SAME transaction) or by 000069's backfill. If the parent campaign's
+-- status is 'draft' RIGHT NOW, that campaign has never been published in this
+-- database's history -- createWorkItemsForPublishTx cannot have written its
+-- rows, so EVERY work item row under a currently-draft campaign is
+-- illegitimate regardless of which path created it, and is safe to remove. A
+-- campaign that was draft at backfill time but has SINCE been published is
+-- status='published'/'in_progress'/etc. today, not 'draft', so this predicate
+-- correctly leaves its (now legitimate, ON CONFLICT DO NOTHING-deduplicated)
+-- work items untouched.
+--
+-- LOCK-SAFE: weighing_work_items rows are shed-grain (tens to low hundreds
+-- per campaign, matching weighing_campaign_sheds cardinality, not an
+-- animal-grain table), and draft campaigns with any backfilled work items at
+-- all are expected to be a handful across the whole database. A single
+-- targeted DELETE joined through the campaign_id index is bounded and does
+-- not require batching.
+--
+-- IDEMPOTENT / RE-RUNNABLE: after the first run, no work item rows remain
+-- under a still-draft campaign, so a re-run (or a fresh database that never
+-- had the leak) deletes zero rows and is a no-op.
+--
+-- projection-review: producer = weighing_campaigns (tenant_id, campaign_id,
+-- status). Consumer = weighing_work_items (tenant_id, campaign_id,
+-- work_item_id). Row multiplicity: weighing_work_items -> weighing_campaigns
+-- is many:1 on (tenant_id, campaign_id); the join is a plain equality lookup
+-- on the campaign's own primary key, no fan-out.
+DELETE FROM weighing_work_items wi
+USING weighing_campaigns c
+WHERE wi.tenant_id = c.tenant_id
+  AND wi.campaign_id = c.campaign_id
+  AND c.status = 'draft';
+
+-- +goose Down
+-- Removal is not possible without risking data integrity the other direction:
+-- a DOWN cannot know which deleted rows were the draft-leak bug versus rows a
+-- legitimate publish would have created moments later, and by the time DOWN
+-- runs the campaign may have moved on. DOWN is a no-op; recovery from an
+-- incorrect run is a fresh publish, which createWorkItemsForPublishTx makes
+-- idempotent and safe to re-run.

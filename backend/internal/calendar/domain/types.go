@@ -61,27 +61,58 @@ const (
 
 // DriveSummary holds park-level drive progress data for vaccination drive events.
 type DriveSummary struct {
-	ParkName         string             `json:"park_name"`
-	DueDate          string             `json:"due_date"`
-	ShedCount        int                `json:"shed_count"`
-	ShedsCompleted   int                `json:"sheds_completed"`
-	Sheds            []DriveShedSummary `json:"sheds,omitempty"`
-	VaccineLabels    []string           `json:"vaccine_labels"`
-	TotalCount       int                `json:"total_count"`
-	CompletedCount   int                `json:"completed_count"`
-	RemainingCount   int                `json:"remaining_count"`
-	DueCount         int                `json:"due_count"`
-	OverdueCount     int                `json:"overdue_count"`
-	DeferredCount    int                `json:"deferred_count"`
-	TotalAnimals     int                `json:"total_animals"`
-	CompletedAnimals int                `json:"completed_animals"`
-	OwnerLabel       string             `json:"owner_label"`
+	ParkName       string             `json:"park_name"`
+	DriveName      string             `json:"drive_name"`
+	DriveTotal     int                `json:"drive_total"`
+	DueDate        string             `json:"due_date"`
+	ShedCount      int                `json:"shed_count"`
+	ShedsCompleted int                `json:"sheds_completed"`
+	Sheds          []DriveShedSummary `json:"sheds,omitempty"`
+	VaccineLabels  []string           `json:"vaccine_labels"`
+	TotalCount     int                `json:"total_count"`
+	CompletedCount int                `json:"completed_count"`
+	SubmittedCount int                `json:"submitted_count"`
+	// RemainingCount is WORK STILL OWED BY THE OPERATOR = DueCount + OverdueCount + DeferredCount,
+	// identical to TotalCount - CompletedCount - SubmittedCount over the five disjoint buckets. It
+	// deliberately EXCLUDES submitted-but-unverified work, exactly like the ProgressCompleted
+	// numerator below, so one payload can never carry two contradictory answers to "how much is
+	// left": a fully submitted drive reports progress_pct 100 AND remaining_count 0. The
+	// outstanding verifier review is carried by SubmittedCount and the verification_pending status.
+	// (It was TotalCount - CompletedCount, which read "20 remaining" beside a 100% ring.)
+	RemainingCount int `json:"remaining_count"`
+	DueCount       int `json:"due_count"`
+	OverdueCount   int `json:"overdue_count"`
+	DeferredCount  int `json:"deferred_count"`
+	// RejectedCount is INFORMATIONAL ONLY -- a subset already counted inside DueCount/OverdueCount
+	// above (status='rejected' is one of the statuses those buckets allow), never an additional
+	// partition; it does not change the five-bucket total invariant. It exists so the card can
+	// name WHY the completed/progress numerator dropped after a verifier rejects proof, instead of
+	// the drop reading as an unexplained mystery.
+	RejectedCount    int `json:"rejected_count"`
+	TotalAnimals     int `json:"total_animals"`
+	CompletedAnimals int `json:"completed_animals"`
+	SubmittedAnimals int `json:"submitted_animals"`
+	// Backend-owned, single cross-surface progress definition. Both Android and admin-web MUST
+	// render these verbatim instead of deriving their own numerator (the cross-surface parity
+	// defect: the same drive showed different completion numbers and ring percentages because
+	// each client picked its own fields). ProgressBasis is "animals" or "doses" and names the
+	// grain the numerator/denominator are counted on; ProgressCompleted is FIELD WORK DONE =
+	// completed + submitted (maintainer decision 2026-08-03): an operator who vaccinated every
+	// animal and submitted proof sees 100%, and the outstanding video review is carried by the
+	// verification_pending status/chip and SubmittedCount, never by holding the ring below 100%.
+	ProgressBasis     string `json:"progress_basis"`
+	ProgressCompleted int    `json:"progress_completed"`
+	ProgressTotal     int    `json:"progress_total"`
+	ProgressPct       int    `json:"progress_pct"`
+	OwnerLabel        string `json:"owner_label"`
 }
 
 type DriveShedSummary struct {
-	ShedID       string `json:"shed_id"`
-	ShedName     string `json:"shed_name"`
-	TotalAnimals int    `json:"total_animals"`
+	ShedID                     string  `json:"shed_id"`
+	ShedName                   string  `json:"shed_name"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	TotalAnimals               int     `json:"total_animals"`
 }
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
@@ -119,6 +150,7 @@ type CalendarEvent struct {
 	DeferredCount              int             `json:"deferred_count"`
 	ReviewCount                int             `json:"review_count"`
 	ShedLabels                 []string        `json:"shed_labels"`
+	ShedPartitionLabels        []string        `json:"shed_partition_labels"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`

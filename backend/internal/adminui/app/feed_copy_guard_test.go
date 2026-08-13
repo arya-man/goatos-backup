@@ -1,40 +1,51 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 	"testing"
-
-	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 )
 
-// TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays locks the Feed Direction / Feed Packing
-// "overdue movement" copy to the lead-day constants the projection actually enforces.
+// TestFeedOverdueShiftingCopyMatchesEnforcedRule locks the Feed Direction / Feed Packing
+// "overdue movement" copy to the timing rule the projection actually enforces.
 //
-// The copy tells an operator WHEN an approved movement starts counting toward a shed's feed
-// ("emergency ... 1 day after approval, all others 2 days"). Those numbers are enforced by
-// counts/domain.FeedShiftingLeadDays, which is the only definition of the rule (the SQL binds
-// them as parameters rather than re-deriving them). If someone changes a lead day without
-// updating the sentence — or edits the sentence without changing enforcement — an operator would
-// be told the feed plan assumes something it does not, on the exact screen used to decide whether
-// a shed is being fed for animals that have not arrived. This test makes that drift impossible.
-func TestFeedOverdueShiftingCopyMatchesEnforcedLeadDays(t *testing.T) {
+// Maintainer decision 2026-07-27 retired the lead-day model: a movement now counts toward a shed's
+// feed from the day it is AUTHORIZED (no lead, no priority branch — see
+// counts/domain.FeedShiftingEffectiveBusinessDate), and it is flagged OVERDUE only once it has been
+// standing open since before the packing day. The copy on the exact screen an operator uses to
+// decide whether a shed is being fed for animals that have not arrived must state THAT rule, not the
+// retired one. This test forbids the old lead-day sentence from drifting back and requires the copy
+// to name the authorization-day rule, so the words and the engine cannot diverge.
+func TestFeedOverdueShiftingCopyMatchesEnforcedRule(t *testing.T) {
+	// Phrases from the retired lead-day wording. Their reappearance means the copy is describing a
+	// lead the projection no longer applies.
+	bannedRetiredPhrases := []string{
+		"feed-effective date",
+		"1 day after approval",
+		"2 days",
+		"emergency movements",
+	}
 	for _, routeID := range []string{"feed-direction", "feed-packing"} {
 		copyMap := pageSpecificCopy(routeID)
 		note, ok := copyMap["label.overdue_shifting_note"]
 		if !ok || strings.TrimSpace(note) == "" {
 			t.Fatalf("%s page copy is missing key %q", routeID, "label.overdue_shifting_note")
 		}
-		for _, want := range []int{
-			countsdomain.FeedShiftingHighPriorityLeadDays,
-			countsdomain.FeedShiftingStandardLeadDays,
-		} {
-			if !strings.Contains(note, fmt.Sprintf("%d day", want)) {
+		lower := strings.ToLower(note)
+		for _, banned := range bannedRetiredPhrases {
+			if strings.Contains(lower, strings.ToLower(banned)) {
 				t.Errorf(
-					"%s label.overdue_shifting_note = %q but the projection enforces a %d-day feed lead — the screen would state a lead time the engine does not apply",
-					routeID, note, want,
+					"%s label.overdue_shifting_note = %q still contains the retired lead-day phrase %q — the projection no longer applies a lead, so this states a rule the engine does not",
+					routeID, note, banned,
 				)
 			}
+		}
+		// The load-bearing half: the note must name the actual rule — a movement counts from the day
+		// it is authorized. Without it, an operator cannot tell why a not-yet-moved animal is in the count.
+		if !strings.Contains(lower, "authorized") {
+			t.Errorf(
+				"%s label.overdue_shifting_note = %q must say a movement counts toward the feed plan from the day it is authorized",
+				routeID, note,
+			)
 		}
 	}
 }
@@ -159,6 +170,7 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 		"feed-packing": {
 			"crumb",
 			"section.packing.title", "section.packing.aria", "section.packing.caption", "section.packing.note",
+			"caption.feed_for",
 			"table.packing.aria", "table.packing.noun",
 			"filter.all_option",
 			"label.blocked", "label.blocked_note",
@@ -195,11 +207,17 @@ func TestFeedPagesDeclareRequiredCopy(t *testing.T) {
 			"label.experiment_active", "label.experiment_active_note",
 			"label.experiment_retired", "label.experiment_retired_note",
 			"label.experiment_not_dated_note",
-			"action.add_experiment_shed", "action.edit_experiment_cell",
+			"action.add_experiment_pen", "action.add_experiment_item", "action.edit_experiment_cell",
 			"action.withdraw_experiment_shed", "action.restore_experiment_shed",
 			"action.experiment_saved", "action.experiment_switched",
 			"reason.experiment_blank_is_not_zero", "reason.experiment_switch_consequence",
 			"empty.experiment", "empty.experiment_filtered", "empty.experiment_candidates",
+			"empty.experiment_items_authored",
+			"notice.park_scope_fallback",
+			// The pen enroller (one atomic write for a pen and every feed item of it) and the
+			// company-wide scope chip.
+			"filter.pen_label", "label.experiment_enrol_items", "label.experiment_enrol_items_note",
+			"label.all_parks", "reason.experiment_enrol_park",
 			"state.experiment_unavailable",
 		},
 	}
@@ -299,8 +317,13 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		// table on this page — feed_experiment_config is not effective-dated (migration 000006), and
 		// declaring the columns anyway would render two permanently empty cells that read as a
 		// missing effective window rather than an absent concept.
+		// PARK LEADS THIS ONE, and it is the only feed table that carries it. park_id became OPTIONAL
+		// on GET /feed-config/experiment so a company-wide scope can show every authored pen instead of
+		// silently showing one park's — and a cross-park list MUST name the park, because the shed name
+		// cannot: Castro, Gandhi and Yashoda each exist in both parks. The ban below still holds for
+		// every other table here, all of which do require park_id.
 		{"feed-config", "experiment-config", []string{
-			"shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
+			"park", "shed", "experiment_category", "informational_head_count", "feed_item", "absolute_kg", "status",
 		}},
 	} {
 		got := feedTableColumnKeys(t, tc.routeID, tc.tableID)
@@ -310,12 +333,18 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 				tc.routeID, tc.tableID, got, tc.want,
 			)
 		}
-		for _, key := range got {
-			if key == "park" {
-				t.Errorf(
-					"%s/%s declares a %q column, but this endpoint requires park_id and returns exactly one park — the column would repeat one value on every row and take the width the feed-item label needs",
-					tc.routeID, tc.tableID, key,
-				)
+		// The park-column ban applies to every table whose endpoint REQUIRES park_id: it would repeat
+		// one value on every row and take the width the feed-item label needs. experiment-config is
+		// exempt because its park_id is optional and the list can legitimately span both parks; that
+		// exemption is scoped by table id so it cannot leak to the four that are still park-owned.
+		if tc.tableID != "experiment-config" {
+			for _, key := range got {
+				if key == "park" {
+					t.Errorf(
+						"%s/%s declares a %q column, but this endpoint requires park_id and returns exactly one park — the column would repeat one value on every row and take the width the feed-item label needs",
+						tc.routeID, tc.tableID, key,
+					)
+				}
 			}
 		}
 	}
@@ -519,6 +548,11 @@ func TestFeedOptionGroupsCarryNoLiveTenantData(t *testing.T) {
 		"feed_config_status":        true,
 		"feed_quantity_units":       true,
 		"feed_generation_readiness": true,
+		// The grams comparison vocabulary. Fixed, not live: these six keys ARE the grams_op enum
+		// that /feed-config/ration-rates accepts, so the set changes only when that contract does.
+		// Note what is deliberately NOT here — the VALUES compared against are typed by the author,
+		// never enumerated, because an authored rate is live data.
+		"feed_grams_compare": true,
 	}
 
 	for _, group := range feedOptionGroups() {

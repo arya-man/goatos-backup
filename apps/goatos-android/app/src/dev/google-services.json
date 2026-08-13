@@ -1,27 +1,89 @@
 {
-  "_comment": "NON-SECRET PLACEHOLDER. No goatos-dev Firebase project is confirmed to exist yet. This file only lets :app:assembleDevDebug (make android-dev-run, TELEMETRY_ENABLED=false by default) resolve the google-services Gradle plugin on a fresh clone. See app/src/google-services-README.md. Replace with a real download once a goatos-dev Firebase Android app (sg.mesha.goatos.dev) is registered.",
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "goatos-placeholder",
-    "storage_bucket": "goatos-placeholder.appspot.com"
+    "project_number": "514832198871",
+    "project_id": "goatos-stg",
+    "storage_bucket": "goatos-stg.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "mobilesdk_app_id": "1:514832198871:android:75bfe96d3aab9647f19492",
         "android_client_info": {
           "package_name": "sg.mesha.goatos.dev"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "514832198871-0kcg7gsed619sfjp5ma2sthb60aeqj7r.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sg.mesha.goatos.dev",
+            "certificate_hash": "68575e9101132902438e82e3ac41c6f9d83bea0b"
+          }
+        },
+        {
+          "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyPLACEHOLDER00000000000000000000000"
+          "current_key": "AIzaSyA8RmTTxegtjFO0z0ewZJ5ckyDxKguvHEk"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:514832198871:android:0cb898377ba4f7f7f19492",
+        "android_client_info": {
+          "package_name": "sg.mesha.goatos.stg"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "514832198871-fle500c1sv83m4vut0c3ura8ej1cntvl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sg.mesha.goatos.stg",
+            "certificate_hash": "8a6c643b88c9b4c2b913e05e94006a8a84386af3"
+          }
+        },
+        {
+          "client_id": "514832198871-ucslnet88jrirhobk8tm5nf0kqkpcldt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sg.mesha.goatos.stg",
+            "certificate_hash": "68575e9101132902438e82e3ac41c6f9d83bea0b"
+          }
+        },
+        {
+          "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA8RmTTxegtjFO0z0ewZJ5ckyDxKguvHEk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

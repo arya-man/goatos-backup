@@ -30,7 +30,7 @@ import sg.mesha.goatos.core.network.dto.CountsApprovalListItemDto
 const val COUNTS_APPROVAL_PAGE_SIZE = 20
 
 /** How many queue scopes (status filters) keep their cached rows. Bounds the tables over months. */
-private const val COUNTS_APPROVAL_CACHED_QUERIES = 4
+private const val COUNTS_APPROVAL_CACHED_QUERIES = 6
 
 /** The queue's default scope: what an approver is actually there to act on. */
 const val COUNTS_APPROVAL_STATUS_PENDING = "pending"
@@ -86,12 +86,21 @@ class DefaultCountsApprovalRepository(
                 // dropped and re-read from Room on scroll back.
                 maxSize = COUNTS_APPROVAL_PAGE_SIZE * 3,
             ),
-            remoteMediator = CountsApprovalRemoteMediator(
-                status = status,
-                api = api,
+            remoteMediator = CountsRequestRemoteMediator(
+                queryKey = key,
                 database = database,
-                json = json,
                 clock = clock,
+                fetchPage = { cursor ->
+                    val response = api.listCountsApprovals(
+                        status = status,
+                        pageSize = COUNTS_APPROVAL_PAGE_SIZE,
+                        cursor = cursor,
+                    )
+                    CountsRequestPage(response.items, response.nextCursor)
+                },
+                requestId = { it.approvalRequestId },
+                raisedAt = { it.raisedAt },
+                encode = { json.encodeToString(it) },
             ),
             pagingSourceFactory = { database.countsApprovalItemDao().pagingSource(key) },
         ).flow
@@ -115,15 +124,18 @@ class DefaultCountsApprovalRepository(
  * Keyset, not offset, because the queue is appended to continuously — an offset page would skip or
  * repeat rows as new requests arrive while an approver pages through it.
  */
+private data class CountsRequestPage<T>(val items: List<T>, val nextCursor: String?)
+
 @OptIn(ExperimentalPagingApi::class)
-private class CountsApprovalRemoteMediator(
-    private val status: String,
-    private val api: AppApi,
+private class CountsRequestRemoteMediator<T>(
+    private val queryKey: String,
     private val database: GoatDatabase,
-    private val json: Json,
     private val clock: () -> Long,
+    private val fetchPage: suspend (String?) -> CountsRequestPage<T>,
+    private val requestId: (T) -> String,
+    private val raisedAt: (T) -> String,
+    private val encode: (T) -> String,
 ) : RemoteMediator<Int, CountsApprovalItemEntity>() {
-    private val queryKey = cacheKey("counts-approvals", status)
 
     /**
      * ALWAYS refresh on open — deliberately not the TTL-gated `SKIP_INITIAL_REFRESH` the
@@ -160,11 +172,7 @@ private class CountsApprovalRemoteMediator(
             }
         }
         return try {
-            val response = api.listCountsApprovals(
-                status = status,
-                pageSize = COUNTS_APPROVAL_PAGE_SIZE,
-                cursor = cursor,
-            )
+            val response = fetchPage(cursor)
             // An absent next_cursor is the contract's own end-of-pages signal. A cursor that did
             // not ADVANCE is also treated as the end: without that check a backend echoing the
             // same cursor would spin this mediator forever on one page (the non-terminating
@@ -192,12 +200,12 @@ private class CountsApprovalRemoteMediator(
                     response.items.mapIndexed { index, item ->
                         CountsApprovalItemEntity(
                             queryKey = queryKey,
-                            approvalRequestId = item.approvalRequestId,
+                            approvalRequestId = requestId(item),
                             // Server order preserved by offsetting the page's own index, so a
                             // later page never sorts above an earlier one.
                             sortIndex = startIndex + index,
-                            raisedAt = item.raisedAt,
-                            dtoJson = json.encodeToString(item),
+                            raisedAt = raisedAt(item),
+                            dtoJson = encode(item),
                             updatedAt = updatedAt,
                         )
                     },

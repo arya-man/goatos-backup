@@ -18,6 +18,7 @@ import type { ParkScopeOption } from '@/lib/api/park-scope';
 // `node --test`. The annotation is a TYPE-ONLY import, so tsc still fails the build if this literal
 // ever drifts from the single source in lib/api/park-scope.ts.
 const PARK_SCOPE_AMBIGUOUS_CODE: typeof import('@/lib/api/park-scope').PARK_SCOPE_AMBIGUOUS_CODE = 'park_scope_ambiguous';
+const OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE: typeof import('@/lib/api/park-scope').OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE = 'not_found';
 
 // Structural check rather than `instanceof ParkScopeAmbiguousError`: this module is deliberately free
 // of a runtime import so it stays unit-testable under plain `node --test` (the `@/` alias above is
@@ -30,6 +31,12 @@ function ambiguousParkScope(err: unknown): { availableParks: ParkScopeOption[]; 
     availableParks: candidate.availableParks as ParkScopeOption[],
     message: typeof candidate.message === 'string' ? candidate.message : 'Choose a park to continue.',
   };
+}
+
+function operatorAssignmentConfigMissing(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const candidate = err as { code?: unknown };
+  return candidate.code === OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE;
 }
 
 export interface VaccinationOperatorsScreenApi {
@@ -70,7 +77,11 @@ export async function loadVaccinationOperatorsScreen(
       // not compose its own park list, labels, or copy, and it picks nothing on the caller's behalf.
       return { state: 'needs_park_selection', parks: ambiguous.availableParks, message: ambiguous.message };
     }
-    throw err;
+    if (chosenParkId && operatorAssignmentConfigMissing(err)) {
+      configRes = { data: null };
+    } else {
+      throw err;
+    }
   }
 
   const config = (configRes.data as Record<string, unknown> | undefined) ?? null;

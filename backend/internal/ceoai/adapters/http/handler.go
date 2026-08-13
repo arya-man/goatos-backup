@@ -40,9 +40,15 @@ func NewHandler(assistant Asker, log *slog.Logger) *Handler {
 	return &Handler{assistant: assistant, log: log}
 }
 
+type askPageScope struct {
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+}
+
 type askRequest struct {
-	Question       string `json:"question"`
-	ConversationID string `json:"conversation_id"`
+	Question       string       `json:"question"`
+	ConversationID string       `json:"conversation_id"`
+	PageScope      askPageScope `json:"page_scope"`
 	// Stream selects the SSE progressive-render transport. The admin-web proxy
 	// sends stream:true by default and stream:false to force a single JSON
 	// answer. nil is treated as true (streaming is the default UX). The router
@@ -78,7 +84,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 	q := domain.Question{
 		Actor:          actor,
 		ConversationID: strings.TrimSpace(req.ConversationID),
-		Text:           question,
+		Text:           questionWithPageScope(question, req.PageScope),
 		AsOf:           biztime.BusinessDayStart(time.Now()),
 	}
 
@@ -110,4 +116,18 @@ func BuildActor(tenantID, actorID, locale string, grants []permissions.ActiveGra
 		perms = append(perms, g.Role)
 	}
 	return domain.Actor{TenantID: tenantID, UserID: actorID, Role: role, Perms: perms, Locale: locale}
+}
+
+func questionWithPageScope(question string, scope askPageScope) string {
+	var parts []string
+	if parkID := strings.TrimSpace(scope.ParkID); parkID != "" {
+		parts = append(parts, "park_id:"+parkID)
+	}
+	if shedID := strings.TrimSpace(scope.ShedID); shedID != "" {
+		parts = append(parts, "shed_id:"+shedID)
+	}
+	if len(parts) == 0 {
+		return question
+	}
+	return question + " (current page scope: " + strings.Join(parts, " ") + ")"
 }

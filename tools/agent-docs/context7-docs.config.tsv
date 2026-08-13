@@ -1,0 +1,32 @@
+# slug	libraryId	query
+nextjs16	/vercel/next.js/v16.2.9	app router route handlers caching server actions revalidatePath
+nextjs16-rsc	/vercel/next.js/v16.2.9	server components client components data fetching cookies headers
+nextjs14	/vercel/next.js	app router middleware route handlers caching next.js 14
+react19	/react/react/v19.2.7	hooks state transitions server components actions
+react19-performance	/react/react/v19.2.7	react performance memo useMemo useCallback profiler transitions slow rendering
+react18	/reactjs/react.dev/__branch__v18	hooks effects concurrent rendering strict mode
+react-query	/websites/tanstack_query_v5	query keys invalidation mutations optimistic updates
+react-query-performance	/websites/tanstack_query_v5	react query performance staleTime gcTime refetch enabled placeholderData
+firebase-js	/firebase/firebase-js-sdk	auth initialization analytics web modular api
+playwright	/microsoft/playwright	testing locators assertions screenshots trace
+recharts	/recharts/recharts	line chart bar chart responsive container tooltip
+base-ui	/mui/base-ui	react components accessibility primitives
+android-compose	/androidx/androidx	jetpack compose state lifecycle navigation material3
+android-compose-performance	/androidx/androidx	jetpack compose performance recomposition lazycolumn remember derivedStateOf DisposableEffect
+room	/androidx/androidx	room migrations dao transactions paging testing
+hilt	/google/dagger	hilt android dependency injection viewmodel worker ksp
+okhttp	/square/okhttp	interceptors logging timeout retry authentication
+firebase-android	/firebase/firebase-android-sdk	auth analytics crashlytics performance messaging remote config
+camerax	/androidx/androidx	camerax video capture lifecycle preview camera permissions
+media3	/androidx/media	media3 exoplayer playback signed url lifecycle compose
+workmanager	/androidx/androidx	workmanager coroutineworker constraints retry backoff hilt
+kotlin	/jetbrains/kotlin	coroutines flows serialization language 2.3
+gradle	/gradle/gradle	kotlin dsl version catalogs android plugin dependency management
+opentelemetry-go	/open-telemetry/opentelemetry-go	tracing metrics http instrumentation exporter
+pgx	/jackc/pgx	connection pool transactions context query rows postgres
+postgres	/postgres/postgres	indexes transactions isolation upsert jsonb
+bigquery-go	/googleapis/google-cloud-go	bigquery go client query insert job
+pubsub-go	/googleapis/google-cloud-go	pubsub go publisher subscriber ack retry
+cloudtasks-go	/googleapis/google-cloud-go	cloud tasks go client create task http target
+openapi	/OAI/OpenAPI-Specification	openapi 3.1 schema parameters responses security
+ajv	/ajv-validator/ajv	json schema validation formats errors typescript

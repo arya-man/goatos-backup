@@ -7,8 +7,9 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: seed-state-guard check guardrails exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test mobile-guard mobile-guard-audit android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
+.PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
 
@@ -32,6 +33,8 @@ ai-setup:
 	fi
 	bash tools/agent-hooks/repowise-setup.sh
 	bash tools/agent-hooks/install-stg-push-guard.sh
+	bash tools/agent-docs/ensure-context7.sh
+	bash tools/agent-docs/sync-context7-docs.sh
 	$(MAKE) ai-doctor
 	@echo ""
 	@echo "AI setup ready. CRG/Graphify/repowise outputs are local generated artifacts and stay gitignored."
@@ -44,6 +47,7 @@ ai-setup:
 
 ai-doctor:
 	bash tools/agent-hooks/ai-doctor.sh
+	bash tools/agent-docs/ensure-context7.sh --doctor
 
 ai-rebuild: ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise
 
@@ -93,36 +97,59 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) domain-event-envelope-enum-guard
+	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
+	$(MAKE) screenshot-remediation-guard
+	$(MAKE) push-hook-freshness-guard
+	$(MAKE) parallel-dispatch-cleanup-guard
+	$(MAKE) gradle-worktree-lock-guard
 	$(MAKE) guardrail-registration-guard
 	$(MAKE) local-stack-service-guard
 	$(MAKE) backend-foundations-guard
 	$(MAKE) test-execution-integrity-guard
 	$(MAKE) operator-cap-fail-closed-guard
+	$(MAKE) stg-operator-scope-guard
 	$(MAKE) cascade-event-wiring-guard
 	$(MAKE) frontend-foundations-guard
 	$(MAKE) domain-event-architecture-guard
+	$(MAKE) operational-read-model-contract-guard
+	$(MAKE) critical-animal-action-availability-guard
 	$(MAKE) leadership-assistant-coverage-guard
+	$(MAKE) leadership-verifier-surface-separation-guard
+	$(MAKE) role-scoped-ui-contract-guard
 	$(MAKE) assistant-route-closure-guard
 	$(MAKE) local-ci-evidence-guard
+	$(MAKE) release-tag-contract-guard
 	$(MAKE) stg-promotion-guard
 	bash tools/agent-hooks/check-boundaries.sh --self-test
 	bash tools/agent-hooks/check-boundaries.sh
 	node tools/agent-hooks/check-refresh-binding.mjs
 	bash tools/agent-hooks/check-contract-drift.sh
 	$(MAKE) aggregate-projection-guard
+	$(MAKE) vaccination-adult-drive-contract-guard
 	$(MAKE) vaccination-shed-ack-guard
+	$(MAKE) module-alerts-tab-guard
 	$(MAKE) vaccination-schedule-canonical-guard
 	$(MAKE) vaccination-shared-source-sync-guard
 	$(MAKE) fcm-recipient-routing-guard
 	$(MAKE) calendar-endpoint-grain-guard
 	$(MAKE) goat-shed-scope-guard
+	$(MAKE) operational-partition-identity-guard
+	$(MAKE) proof-capture-authorization-guard
+	$(MAKE) weighing-free-flow-guard
+	$(MAKE) weighing-close-gate-guard
+	$(MAKE) weighing-operator-scope-guard
+	$(MAKE) weighing-one-operator-per-bucket-guard
+	$(MAKE) weighing-kernel-phase2-guard
+	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
-	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
+	$(MAKE) e2e-integrity-guard
 	$(MAKE) api-latency-policy-test
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
 	$(MAKE) ceo-ai-boundary-guard
+	$(MAKE) operational-location-guard
 	$(MAKE) sweeper-deployment-guard
 	$(MAKE) deployed-job-flags-guard
 	$(MAKE) kernel-worker-cutover-guard
@@ -135,6 +162,7 @@ guardrails:
 	$(MAKE) atomic-readmodel-sync-guard
 	$(MAKE) config-validate-guard
 	$(MAKE) ui-vaccine-labels-guard
+	$(MAKE) notification-specificity-guard
 	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) review-lens-ledger-guard
 	$(MAKE) seed-migration-guard
@@ -144,13 +172,23 @@ guardrails:
 	$(MAKE) local-single-db-guard
 	$(MAKE) room-migration-guard
 	$(MAKE) mobile-guard
+	$(MAKE) android-row-action-scope-guard
+	$(MAKE) android-vaccination-submit-gate-guard
 	$(MAKE) android-compose-lists-guard
 	$(MAKE) android-navigation-stack-guard
+	$(MAKE) l0-root-chrome-guard
+	$(MAKE) nav-entry-point-placement-guard
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
+	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
+	$(MAKE) exception-guard
+	$(MAKE) exception-guard-ratchet
+	$(MAKE) telemetry-guard-ratchet
+	$(MAKE) exception-guard-ratchet-v2
+	$(MAKE) telemetry-guard-ratchet-v2
 	$(MAKE) local-gcp-kernel-parity-guard
 
 git-identity-guard:
@@ -169,6 +207,10 @@ operator-cap-fail-closed-guard:
 	node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test
 	node tools/agent-hooks/check-operator-cap-fail-closed.mjs
 
+stg-operator-scope-guard:
+	node tools/agent-hooks/check-stg-operator-scope.mjs --self-test
+	node tools/agent-hooks/check-stg-operator-scope.mjs
+
 cascade-event-wiring-guard:
 	node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test
 	node tools/agent-hooks/check-cascade-event-wiring.mjs
@@ -185,9 +227,32 @@ domain-event-architecture-guard:
 	node tools/agent-hooks/check-domain-event-architecture.mjs --self-test
 	node tools/agent-hooks/check-domain-event-architecture.mjs
 
+operational-read-model-contract-guard:
+	node tools/agent-hooks/check-operational-read-model-contract.mjs --self-test
+	node tools/agent-hooks/check-operational-read-model-contract.mjs
+
+# operational-location-guard: an animal's ground location is park + physical
+# shed + OPTIONAL partition. Sheds stay normalized in the DB, but no product
+# surface may collapse back to the parent shed when a partition exists.
+operational-location-guard:
+	node tools/agent-hooks/check-operational-location.mjs --self-test
+	node tools/agent-hooks/check-operational-location.mjs
+
+critical-animal-action-availability-guard:
+	node tools/agent-hooks/check-critical-animal-action-availability.mjs --self-test
+	node tools/agent-hooks/check-critical-animal-action-availability.mjs
+
 leadership-assistant-coverage-guard:
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs
+
+leadership-verifier-surface-separation-guard:
+	node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs --self-test
+	node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs
+
+role-scoped-ui-contract-guard:
+	node tools/agent-hooks/check-role-scoped-ui-contract.mjs --self-test
+	node tools/agent-hooks/check-role-scoped-ui-contract.mjs
 
 assistant-route-closure-guard:
 	node tools/agent-hooks/check-assistant-route-closure.mjs --self-test
@@ -228,6 +293,36 @@ goat-shed-scope-guard:
 	node tools/agent-hooks/check-goat-shed-scope.mjs --self-test
 	node tools/agent-hooks/check-goat-shed-scope.mjs
 
+proof-capture-authorization-guard:
+	node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test
+	node tools/agent-hooks/check-proof-capture-authorization.mjs
+
+weighing-free-flow-guard:
+	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
+
+weighing-close-gate-guard:
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs
+
+weighing-operator-scope-guard:
+	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs
+
+weighing-one-operator-per-bucket-guard:
+	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs
+
+.PHONY: weighing-kernel-phase2-guard
+weighing-kernel-phase2-guard:
+	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs
+
+.PHONY: migration-duplicate-versions-guard
+migration-duplicate-versions-guard:
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs --self-test
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs
+
 goat-shed-integrity-db-proof:
 	bash tools/dev/check-goat-shed-integrity.sh
 
@@ -261,14 +356,101 @@ vaccination-hrms-source-audit:
 # Android screen/viewmodel (or admin-web route) shipped with no Firebase
 # Analytics event, no Crashlytics fatal/non-fatal wiring on failure paths, and
 # no funnel/journey step. Diff-scoped vs origin/main; `telemetry-guard-audit`
-# scans the whole tree. Escape hatch: `// telemetry:exempt <reason>`. See
-# docs/observability/TELEMETRY_GUARDRAILS.md.
+# scans the whole tree (raw, unratcheted). See telemetry-guard-ratchet below
+# for the whole-tree gate that IS wired into ci-local. Escape hatch:
+# `// telemetry:exempt <reason>`. See docs/observability/TELEMETRY_GUARDRAILS.md
+# and docs/observability/GUARDRAIL_RATCHET.md.
 telemetry-guard:
 	python3 -m unittest tools/telemetry-guard/test_telemetry_guard.py
+	node tools/agent-hooks/check-firebase-analytics-param-budget.mjs --self-test
+	node tools/agent-hooks/check-firebase-analytics-param-budget.mjs
 	python3 tools/telemetry-guard/telemetry-guard.py
 
 telemetry-guard-audit:
 	python3 tools/telemetry-guard/telemetry-guard.py --all
+
+# telemetry-guard-ratchet: whole-tree shrink-only debt ratchet for
+# telemetry-guard, same mechanism as exception-guard-ratchet (see its comment
+# and docs/observability/GUARDRAIL_RATCHET.md). Only FAIL-severity findings
+# are ratcheted; WARN-mode surfaces stay non-blocking by the guard's own
+# per-surface `mode` config. Keyed by file+surface, never line.
+telemetry-guard-ratchet:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry.json
+
+telemetry-guard-ratchet-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry.json --regenerate
+
+# telemetry-guard-ratchet-v2: SEPARATE shrink-only baseline (tools/telemetry-guard/baseline-v2.json)
+# for the newer rule kinds added on top of the original marker-presence surfaces:
+# screen_view (every Compose nav-destination screen must emit a screen-view event, mode=block)
+# and reserved_names (Firebase reserved event-name/param-prefix hard fail, never exemptable).
+# Kept in a separate baseline/ratchet from telemetry-guard-ratchet so the ORIGINAL baseline
+# (51 pre-existing violations, frozen before this guard existed) is never touched or
+# reinterpreted by the new rules — see docs/TELEMETRY.md "Guard baselines" section.
+# primary_action and failure_outcome are mode=warn (best-effort, noisy false-positive risk —
+# see config.json comments) and therefore never block CI; they are not ratcheted.
+telemetry-guard-ratchet-v2:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry-v2.json
+
+telemetry-guard-ratchet-v2-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry-v2.json --regenerate
+
+# exception-guard: block the golden rule "Never swallow any exception. Always
+# either dump it into Firebase non-fatal errors (mobile) or backend logs
+# (server)." — a new/changed Kotlin catch block or Go err-check that swallows
+# the error (empty catch, log-only catch, runCatching{}.getOrNull(), bare
+# `if err != nil { return nil }`, `_ = err` discard). Diff-scoped vs
+# origin/main (never whole-repo in THIS target — legacy code has untouched
+# debt that a whole-tree run would trip on). Both this diff-scoped target AND
+# exception-guard-ratchet below are run directly by tools/ci/run-local-ci.sh
+# (run_common), so `make ci-local` always hits both. exception-guard-ratchet
+# fails on any violation outside the committed shrink-only baseline, keyed
+# and counted per (file, kind) so stacking new debt onto an already-baselined
+# file also fails. `exception-guard-audit` remains available for a raw,
+# unratcheted whole-tree listing. Escape hatch: `// exception:exempt <reason>`.
+# See docs/observability/TELEMETRY_GUARDRAILS.md,
+# apps/goatos-android/docs/TELEMETRY.md, and
+# docs/observability/GUARDRAIL_RATCHET.md (why diff-scoped guards need a
+# whole-tree ratchet at all).
+exception-guard:
+	python3 tools/exception-guard/exception-guard.py --self-test
+	python3 tools/exception-guard/exception-guard.py
+
+exception-guard-audit:
+	python3 tools/exception-guard/exception-guard.py --all
+
+# exception-guard-ratchet: whole-tree shrink-only debt ratchet for
+# exception-guard. Fails CI on any FAIL finding (keyed by file+kind, never by
+# line — see tools/ci/ratchet-guard.py docstring) that is not already in the
+# committed baseline tools/exception-guard/baseline.json, AND fails if the
+# baseline is stale-high (contains entries that no longer reproduce, meaning
+# debt was fixed but the baseline was never shrunk). This is what actually
+# closes the gap left by exception-guard's diff-scoping: new code can never
+# add a swallowed exception anywhere in the tree, not just on touched lines.
+# Runtime ~0.1s (see docs/observability/GUARDRAIL_RATCHET.md) — cheap enough
+# to run every ci-local invocation, not gated behind MODE=all.
+exception-guard-ratchet:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception.json
+
+# Regenerate the baseline after genuinely fixing violations (shrinks it) or
+# after a legitimate exempt/marker change alters the violation set. This is
+# NOT an accepted way to land new code that trips the ratchet — see
+# docs/observability/GUARDRAIL_RATCHET.md.
+exception-guard-ratchet-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception.json --regenerate
+
+# exception-guard-ratchet-v2: SEPARATE shrink-only baseline
+# (tools/exception-guard/baseline-v2.json) for the two new rule kinds added on top of the
+# original 6: cancellation_swallowed (Kotlin `catch (e: CancellationException)` that does not
+# rethrow — hard rule, NEVER exemptable, breaks structured concurrency) and bare_exempt_marker
+# (an `// exception:exempt` with no reason text after it). Kept separate from
+# exception-guard-ratchet so the original 124-violation baseline (frozen before these rules
+# existed) is never touched or reinterpreted by the new rules.
+exception-guard-ratchet-v2:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception-v2.json
+
+exception-guard-ratchet-v2-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception-v2.json --regenerate
 
 local-gcp-kernel-parity-guard:
 	bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh
@@ -301,11 +483,26 @@ vaccination-drive-clubbing-guard:
 	cd backend && go test ./internal/calendar/adapters/postgres -run 'TestCalendar(ParkDriveTargetsIncludeParkScopedBatchMembers|DefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred)' -count=1
 	cd backend && go test ./tests/e2e -run TestKernelStoryAK_DriveClubbingWithinBuffer -count=1 -timeout=5m
 
+vaccination-adult-drive-contract-guard:
+	node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs --self-test
+	node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs
+	cd backend && go test ./internal/vaccination/app -run 'Test(GenerateForVersionAutomaticallySchedulesAdultBlankHistoryCampaignByShed|GenerateForVersionClubsAdultBlankHistoryWithSameVaccineRepeatDate|GenerateForVersionRealignsExistingStableBlankHistoryWhenRepeatHistoryArrivesLater|ScheduleNextDoseUsesEachOperatorSubmissionDateAfterDelayedVerification)' -count=1
+	cd backend && go test ./internal/obligation/app -run 'TestLimitParkSelection(PacksWholePhysicalShedsBeforeFillingCap|FallsBackToWholePartitionsWhenShedExceedsRemainingCapacity)' -count=1
+	cd backend && go test ./internal/vaccinationexecution/app -run 'TestOperatorDrivePlanner(CPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays|CarriesWholePhysicalShedPastResidualCapacity)' -count=1
+	cd backend && go test ./internal/calendar/adapters/postgres -run 'TestDriveSummaryEmitsSharedLogicalDriveNameAndTotal' -count=1
+
 vaccination-drive-clubbing-db-proof:
 	bash tools/dev/check-vaccination-drive-clubbing-proof.sh
 
 vaccination-shed-ack-guard:
 	node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs
+
+# Every available feature's bottom bar carries its own feature-scoped Alerts tab,
+# wired end to end: icon token, hosted route, and bottom-bar root destination.
+# Rule: docs/decisions/module-alerts-tab.md
+module-alerts-tab-guard:
+	node tools/agent-hooks/check-module-alerts-tab.mjs --self-test
+	node tools/agent-hooks/check-module-alerts-tab.mjs
 
 sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
@@ -435,6 +632,15 @@ ui-vaccine-labels-guard:
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs
 
+# notification-specificity-guard: maintainer decision 2026-08-02. Every user-facing notification
+# must be MEANINGFUL (park, shed/partition, human vaccine/work-item name, count, farm-readable
+# IST due date), never an abstract count-only sentence like "Vaccination(s) due soon · 3".
+# Composes with (does not duplicate) ui-vaccine-labels-guard. See
+# docs/decisions/2026-08-02-meaningful-notification-copy.md.
+notification-specificity-guard:
+	node tools/agent-hooks/check-notification-specificity.mjs --self-test
+	node tools/agent-hooks/check-notification-specificity.mjs
+
 # review-lens-ledger-guard: the review-lens closed-decisions ledger
 # (.agents/skills/goatos-code-review/references/review-lens-ledger.md) is the
 # always-loaded record of what was already fixed/banned/locked, so agents don't
@@ -468,17 +674,90 @@ local-single-db-guard:
 # blocker — a green `make ci-local` on the pushed SHA is the authoritative gate.
 # Default auto-scopes against origin/main. MODE=all forces the full suite.
 # JOB=common|backend|guardrails|admin-web|android is partial and writes no receipt.
+# JOB= does NOT enable GOATOS_FAST_LOCAL_CI. For the red-fix-rerun loop use
+# GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job> (Gradle daemon, no benchmark compile).
+# Runbook: docs/runbooks/local-ci-and-landing.md
 ci-local:
 	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
+
+# screenshot-remediation-guard: proves, by execution, that the command the
+# screenshot block message names is the command that actually clears the block.
+# Self-test: bash tools/ci/check-screenshot-remediation.test.sh
+screenshot-remediation-guard:
+	bash tools/ci/check-screenshot-remediation.sh
+
+# push-hook-freshness-guard: the installed pre-push hook runs a COPY of
+# tools/ci/check-local-ci-evidence.mjs. Improvements to the repo file are inert
+# for `git push` / `git mesha-push` until `make ai-setup` refreshes that copy —
+# measured drift once left two closed gate holes closed only for `make land-main`
+# users. This refuses to go green while the copy differs from its source.
+# Self-test: bash tools/ci/check-push-hook-freshness.test.sh
+push-hook-freshness-guard:
+	bash tools/ci/check-push-hook-freshness.sh
+
+# parallel-dispatch-cleanup-guard: Ctrl-C during a parallel ci-local run must not
+# orphan children (in a real run: Gradle workers holding build locks) or leak
+# $$TMPDIR run dirs. BEHAVIOURAL — it signals a real dispatch and inspects real
+# process/fs state, so deleting the traps makes it red.
+# Self-test: bash tools/ci/check-parallel-dispatch-cleanup.test.sh
+parallel-dispatch-cleanup-guard:
+	bash tools/ci/check-parallel-dispatch-cleanup.sh
+
+# gradle-worktree-lock-guard: worktrees running Gradle at once measured ~2-3x
+# slower than queuing — recorded ci-local timings show a three-way overlap at
+# 340s/251s/361s and a two-way at 413s/212s, against 84-181s for runs nothing
+# else overlapped. The lock that fixes that is FAIL-OPEN, so a lock which has
+# stopped excluding fails nothing and silently returns the penalty — hence a
+# BEHAVIOURAL guard: real processes, real signals, real filesystem state. ~47s,
+# all of it sandboxed sleeps; the guard itself runs no Gradle, but note case (g)
+# drives run-local-ci.sh android under trace (which no longer reaps).
+# In run-local-ci.sh it is diff-scoped to a tools/ci/gradle-worktree-lock.sh
+# diff; this target and `make guardrails` always run it.
+# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (23 mutants, ~18min)
+gradle-worktree-lock-guard:
+	bash tools/ci/check-gradle-worktree-lock.sh
+
+# ci-local-screenshots: the full, unnarrowed Android Paparazzi screenshot proof,
+# run as a COMPLETE auto-scoped `ci-local` with screenshots ON — so it writes a
+# real push receipt carrying screenshots="yes".
+#
+# It used to pass the explicit `android` job. That made it a PARTIAL run, which
+# by design writes NO receipt (see run-local-ci.sh's receipt_mode) — so the
+# command the block message told you to run could never clear the block, and the
+# only working exits were an undocumented env var or the bypass. A remediation
+# that cannot remediate trains bypass habits; this target is now the command the
+# messages name AND the command that clears the gate.
+#
+# MODE=all forces the full suite. Deliberately no JOB= hook: a per-job run here
+# would silently reopen the same receipt hole.
+# Enforced end-to-end by tools/ci/check-screenshot-remediation.sh.
+# MODE is deliberately CLAMPED to the two receipt-writing modes. Passing $(MODE)
+# through raw reopened the hole this target exists to close: `MODE=android
+# make ci-local-screenshots` resolved to an explicit-job PARTIAL run, which writes
+# NO receipt — so the command the block message names could once again fail to
+# clear the block. Anything that is not `all` becomes `auto`.
+ci-local-screenshots:
+	GOATOS_RUN_ANDROID_SCREENSHOTS=1 bash tools/ci/run-local-ci.sh $(if $(filter all,$(MODE)),all,auto)
 
 # land-main is the Codex/Claude landing entry point. It refuses dirty worktrees,
 # rebases onto fresh origin/main before CI, reruns CI if main moves, and pushes
 # only the exact certified SHA through the Mesha credential path.
+# Runbook: docs/runbooks/local-ci-and-landing.md
 land-main:
 	bash tools/ci/land-main.sh
 
 land-main-self-test:
 	bash tools/ci/land-main.test.sh
+	bash tools/ci/check-android-screenshot-proof.test.sh
+
+release-tag:
+	bash tools/release/create-release-tag.sh
+
+release-tag-contract-guard:
+	node tools/release/check-release-tag-contract.mjs
+
+restore-stg-android-release-env:
+	bash tools/release/restore-stg-android-release-env.sh
 
 e2e-integrity-guard:
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -495,8 +774,19 @@ scale-guard:
 # calendar overview parsing events instead of day-markers, O(n^2) date scans). Diff-scoped:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
+.PHONY: domain-event-envelope-enum-guard
+domain-event-envelope-enum-guard: ## Fail if a module emits a domain event absent from the envelope enum (the relay would drop it as invalid_event_envelope)
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs
+
+.PHONY: design-system-guard
+design-system-guard: ## Fail if a screen invents its own colour or text style instead of using the central design system
+	node tools/agent-hooks/check-design-system-tokens.mjs
+
 mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --self-test
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs
 	node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test
@@ -505,16 +795,65 @@ mobile-guard:
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs
+	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test
+	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
+	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
+	node tools/agent-hooks/check-android-feed-proof-submit.mjs
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
+	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-operational-partition-identity.mjs --self-test
+	node tools/agent-hooks/check-operational-partition-identity.mjs
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs --self-test
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
 mobile-guard-audit:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --all
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
+	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
+	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-operational-partition-identity.mjs --all
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
+	node tools/agent-hooks/check-android-verifier-detail-scope.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
+
+android-runtime-permission-sdk-gates-guard:
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --self-test
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs
+
+android-runtime-permission-sdk-gates-guard-audit:
+	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --all
+
+# android-row-action-scope-guard: row actions in repeated Android cards must use
+# row/animal-scoped in-flight state, not a screen-wide busy flag. This blocks the
+# individual weighing free-flow regression where a previous animal's slow save
+# disabled/ignored the next animal's Save.
+android-row-action-scope-guard:
+	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
+	node tools/agent-hooks/check-android-row-action-scope.mjs
+
+operational-partition-identity-guard:
+	node tools/agent-hooks/check-operational-partition-identity.mjs --self-test
+	node tools/agent-hooks/check-operational-partition-identity.mjs
+
+# android-vaccination-submit-gate-guard: proof-rescan is an accepted reader hit and must
+# repair the durable scan capture before proof capture, otherwise Submit can show
+# proof-ready > scanned and stay disabled.
+android-vaccination-submit-gate-guard:
+	node tools/agent-hooks/check-android-vaccination-submit-gate.mjs --self-test
+	node tools/agent-hooks/check-android-vaccination-submit-gate.mjs
 
 # android-navigation-stack-guard: root chrome belongs to exact backend-composed
 # L0 destinations only. Calendar and every other structural drill must use a
@@ -522,6 +861,27 @@ mobile-guard-audit:
 android-navigation-stack-guard:
 	node tools/agent-hooks/check-android-navigation-stack.mjs --self-test
 	node tools/agent-hooks/check-android-navigation-stack.mjs
+
+# l0-root-chrome-guard: L0 root screens must render MeshaScreenHeader (shell-owned
+# chrome), call RefreshOnResume (read screens), and use SyncIconButton (not hand-rolled
+# refresh). Prevents screens from shipping without top chrome/drawer/refresh handling,
+# as happened on 2026-08-03 with /vaccination/videos (a Box+LazyColumn floating above
+# the bottom bar with no drawer affordance). See docs/decisions/android-navigation-stack.md.
+l0-root-chrome-guard:
+	node tools/agent-hooks/check-l0-root-chrome.mjs --self-test
+	node tools/agent-hooks/check-l0-root-chrome.mjs
+
+# nav-entry-point-placement-guard: a FEATURE ENTRY POINT never lives in the top-right app bar.
+# The app bar carries actions ON the current screen (refresh/filter/search); a doorway to another
+# feature surface (alerts, inbox, videos) is a nav destination and belongs in the bottom bar or
+# the module drawer. Diff-scoped. See docs/decisions/nav-entry-point-placement.md.
+nav-entry-point-placement-guard:
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs
+
+# Whole-tree backlog view (not wired into CI; the guard above is diff-scoped).
+nav-entry-point-placement-guard-audit:
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs --all
 
 # nav-composition-guard: block hardcoded per-role/per-module nav templates. Navigation (nav bar,
 # bottom-bar icons/labels, screens) must be COMPOSED from the person's granted modules and reused
@@ -571,6 +931,15 @@ admin-web-prefetch-guard:
 	node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test
 	node tools/agent-hooks/check-admin-web-prefetch.mjs
 
+# overlay-motion-guard: a page-level entry animation must not replay while a client-local overlay
+# is open. An overlay whose open state lives in the URL (e.g. the verifier review modal's vi_row)
+# re-renders the page on every step, replaying the animation underneath it — the 2026-08-06 "feels
+# stuck, not smooth" regression. No test could see it; only the CSS interaction shows it.
+.PHONY: overlay-motion-guard
+overlay-motion-guard:
+	node tools/agent-hooks/check-overlay-motion.mjs --self-test
+	node tools/agent-hooks/check-overlay-motion.mjs
+
 # admin-web-local-overlay-guard: prevent same-page drawers from navigating through
 # Next Server Components. The whole feature tree has a zero-tolerance baseline:
 # route-driven open, close, veil, and schedule-drawer controls are forbidden.
@@ -594,9 +963,19 @@ android-bounded-memory-guard-audit:
 # android-compose-lists-guard: block the Compose lazy-list key crash class — a
 # LazyColumn/LazyRow keyed by a per-ENTITY id on a per-ROW list (a goat with two
 # due vaccines => duplicate key => "Key was already used" crash, shipped in
-# 0.1.6-stg, fixed a9c35a1d), and items()/itemsIndexed() with no stable key.
+# 0.1.6-stg, fixed a9c35a1d), a grouped ViewModel identity that drifts from the
+# rendered card key (BT+SP / split row-version rows => duplicate ShedRow.id),
+# and items()/itemsIndexed() with no stable key. Also
+# carries the phone-scale UI rules (CD-PHONE-SCALE-UI): nested scroll (Lazy-in-Lazy
+# or a scrollable Column/Row) inside a list's items() row lambda; unbounded
+# `.forEach {}` rendering inside a scrollable Column/Row over state/domain data
+# (sheds/animals/operators/dates) instead of a windowed Lazy* list; a chip row
+# (FilterChip/AssistChip) over the same unbounded dimensions instead of the
+# FilterSelectorRow+SearchablePickerDialog pattern; and a bare-loading-flag
+# spinner replacing already-rendered content next to a proven cache branch.
 # Diff-scoped; `android-compose-lists-guard-audit` scans the whole tree.
-# See docs/decisions/mobile-data-fetch-anti-patterns.md + docs/mobile/android-ui-quality.md.
+# See docs/decisions/mobile-data-fetch-anti-patterns.md, docs/mobile/android-ui-quality.md,
+# apps/goatos-android/docs/phone-scale-ui.md.
 android-compose-lists-guard:
 	node tools/agent-hooks/check-android-compose-lists.mjs --self-test
 	node tools/agent-hooks/check-android-compose-lists.mjs
@@ -757,6 +1136,7 @@ seed-stg-firebase-password-users:
 	  --user-password "amit797069@gmail.com=Amit@2026" \
 	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \
 	  --user-password "sagarmahoor143@gmail.com=Sagar@2026" \
+	  --user-password "subratasardar111986@gmail.com=Subrata@2026" \
 	  --user-password "chandrakanth119527@gmail.com=Chandrakant@2026" \
 	  --user-password "jyothipvg12345@gmail.com=Jyothi@2026"
 

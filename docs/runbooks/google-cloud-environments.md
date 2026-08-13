@@ -24,7 +24,7 @@ Folder: goat-os
 Folder ID: 188649904255
 Parent: organizations/563962826703
 
-Project: goatos-dev
+Project: goatos-stg
 Parent: folders/188649904255
 Purpose: real-data debug clone, non-authoritative, no production side effects
 
@@ -126,7 +126,7 @@ gcloud resource-manager folders list \
 Verify projects directly:
 
 ```bash
-gcloud projects describe goatos-dev \
+gcloud projects describe goatos-stg \
   --format="yaml(projectId,name,lifecycleState,parent)"
 
 gcloud projects describe goatos-stg \
@@ -145,7 +145,11 @@ for project in goatos-dev goatos-stg goatos-prod; do
 done
 ```
 
-## goatos-dev Read-Only Cloud SQL Access
+## goatos-stg Read-Only Cloud SQL Access
+
+> goatos-dev is ARCHIVED (maintainer, 2026-08-05). Every read-only data pull
+> goes to goatos-stg. This section used to name dev throughout, which sent
+> readers at a dead project.
 
 Use this path when a task asks for real Google-backed data, a dashboard issue
 CSV, Cloud SQL data, or "use gcloud/browser login". The dashboard UI can provide
@@ -159,14 +163,14 @@ gcloud config list --format="text(core.account,core.project)"
 git -C /path/to/goatos remote get-url origin \
   | sed -E 's#(https://)[^/@]+@#\1***@#'
 gcloud organizations list --format="table(displayName,name,directoryCustomerId)"
-gcloud projects describe goatos-dev --format="json(projectId,name,parent)"
+gcloud projects describe goatos-stg --format="json(projectId,name,parent)"
 ```
 
 Expected context:
 
 ```text
 Account: ravi@mesha.sg
-Project: goatos-dev
+Project: goatos-stg
 Organization: vgoats.com / organizations/563962826703
 Folder: goat-os / folders/188649904255
 Repo: https://github.com/vgoats/goatos.git
@@ -176,7 +180,7 @@ If the account or project is wrong, correct it before doing anything else:
 
 ```bash
 gcloud config set account ravi@mesha.sg
-gcloud config set project goatos-dev
+gcloud config set project goatos-stg
 ```
 
 If the gcloud user token is expired, use browser-code auth:
@@ -193,27 +197,31 @@ For data pulls, discover the current runtime resources instead of guessing:
 
 ```bash
 gcloud run services describe goatos-api-dev \
-  --project=goatos-dev \
+  --project=goatos-stg \
   --region=asia-south1 \
   --format=json
 
-gcloud sql instances describe goatos-dev-core-db \
-  --project=goatos-dev \
+gcloud sql instances describe goatos-stg-core-db \
+  --project=goatos-stg \
   --format="json(name,connectionName,ipAddresses,settings.ipConfiguration)"
 
-gcloud secrets list --project=goatos-dev
+gcloud secrets list --project=goatos-stg
 ```
 
 Current dev database facts:
 
 ```text
-Cloud SQL instance: goatos-dev-core-db
-Connection name:    goatos-dev:asia-south1:goatos-dev-core-db
+Cloud SQL instance: goatos-stg-core-db
+Connection name:    goatos-stg:asia-south1:goatos-stg-core-db
 Database:           goatos
 Runtime DB user:    goatos_app
-DB URL secret:      goatos-dev-database-url
-Admin tenant secret: goatos-dev-admin-web-tenant-id
+DB URL secret:      goatos-stg-database-url
+Admin tenant secret: goatos-stg-admin-web-tenant-id
 ```
+
+The proxy listens on 5455, NEVER 5433: 5433 is the maintainer's own local
+seeded Postgres (`goatos-local-current`). Binding the proxy there silently
+puts stg data behind the port every local tool already treats as the dev DB.
 
 Prefer an explicit OAuth access token for the Cloud SQL Auth Proxy. Local ADC
 can be stale or point at another business account, which commonly fails with
@@ -222,8 +230,8 @@ can be stale or point at another business account, which commonly fails with
 ```bash
 CSQL_PROXY_TOKEN="$(gcloud auth print-access-token --account=ravi@mesha.sg)" \
 cloud-sql-proxy \
-  --port 5433 \
-  goatos-dev:asia-south1:goatos-dev-core-db
+  --port 5455 \
+  goatos-stg:asia-south1:goatos-stg-core-db
 ```
 
 In another shell, read the secret-backed DSN without printing it, override the
@@ -232,12 +240,12 @@ on every Codex host; Python with `psycopg2` is an acceptable local client.
 
 ```bash
 DB_URL="$(gcloud secrets versions access latest \
-  --secret=goatos-dev-database-url \
-  --project=goatos-dev)"
+  --secret=goatos-stg-database-url \
+  --project=goatos-stg)"
 
 TENANT_ID="$(gcloud secrets versions access latest \
-  --secret=goatos-dev-admin-web-tenant-id \
-  --project=goatos-dev)"
+  --secret=goatos-stg-admin-web-tenant-id \
+  --project=goatos-stg)"
 
 DB_URL="$DB_URL" TENANT_ID="$TENANT_ID" python3 - <<'PY'
 import os
@@ -250,7 +258,7 @@ conn = psycopg2.connect(
     user=url.username,
     password=url.password,
     host="127.0.0.1",
-    port=5433,
+    port=5455,
     sslmode="disable",
 )
 conn.set_session(readonly=True, autocommit=True)
@@ -276,7 +284,8 @@ for them and the active account/project/org have been re-verified first.
 After billing is linked, provision each environment separately:
 
 ```text
-goatos-dev
+goatos-dev  (ARCHIVED 2026-08-05 -- do not target; kept here only so an old
+  reference in a ticket or script is recognisable)
   Cloud SQL, GCS, Pub/Sub, Secret Manager, logs/metrics
   real-data clone for debugging, no production outbound side effects
 

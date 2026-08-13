@@ -90,6 +90,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -149,10 +150,16 @@ var defaultSchedules = []struct {
 	// amended sheet per day instead of several racing ones.
 	CorrectionTime string
 	// TransportTime is the cutoff after which a correction can no longer reach the shed.
+	//
+	// 15:30, matching the hard 15:30 IST gate in MaterializeTransportTasks (adapters/postgres/
+	// transport.go) that creates the day's one-task-per-shed transport work. These were 15:45 and
+	// 15:30 respectively, which read as one rule but were two: the sheet stayed amendable for
+	// 15 minutes after the transport tasks had already been cut. Maintainer decision 2026-07-31:
+	// one time, 15:30 -- the sheet locks exactly when transport is raised.
 	TransportTime string
 }{
-	{"normal", "07:00:00", "14:00:00", "15:45:00"},
-	{"experiment", "14:00:00", "14:00:00", "15:45:00"},
+	{"normal", "07:00:00", "14:00:00", "15:30:00"},
+	{"experiment", "14:00:00", "14:00:00", "15:30:00"},
 }
 
 // parkCodes maps the source grid's farm key to the locations.location_code it must resolve to.
@@ -172,12 +179,12 @@ var parkCodes = map[string]string{
 // read the name on the sack.
 //
 // Anchored to end-of-string and requiring whitespace before "per", so the three genuine names in
-// the same header row survive untouched: "Mesha Concentrate Goat" and "Mesha Concentrate Sheep" do
-// not END in "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
+// the same header row survive untouched: "Mesha Adult Concentrate Goat" and "Mesha Adult
+// Concentrate Sheep" do not END in "Per Goat", and "Toor Dal Bhusa Pellet" contains neither word.
 var perGoatSuffix = regexp.MustCompile(`(?i)\s+per\s+goat\s*$`)
 
 // kgUnitSuffix matches the EXPERIMENT workbook's unit descriptor at the end of a column header:
-// "Mesha Concentrate Sheep (kg)", "RGS Concentrate (kg)", and so on.
+// "Mesha Adult Concentrate Sheep (kg)", "RGS Concentrate (kg)", and so on.
 //
 // It is the same class of thing as perGoatSuffix and is stripped for the same reason. The two
 // workbooks annotate their columns differently because they hold different KINDS of number -- the
@@ -235,16 +242,17 @@ func feedItemName(header string) string {
 // likewise catalogued but not declared. Before these slots existed the generator had no recipe to
 // consult, walked the whole catalog, and asked every shed for all of them at once.
 //
-// The EXPERIMENT workbook's Template tab declares a different five (Mesha Concentrate Goat | Mesha
-// Concentrate Sheep | RGS Concentrate | Vijay Concentrate | Dry Masoor Bhusa). It is not seeded:
+// The EXPERIMENT workbook's Template tab declares a different five (Mesha Adult Concentrate Goat |
+// Mesha Adult Concentrate Sheep | RGS Concentrate | Vijay Concentrate | Dry Masoor Bhusa). It is
+// not seeded:
 // feed_experiment_config has no source rows yet, so a recipe for it would be configuration nobody
 // can trace back to a farm decision. Experiment sheds do not consult this table in any case -- their
 // hand-entered cells are their complete item list.
 var normalWorkflowFeedSlots = []string{
 	"Concentrate",
 	"Dry Masoor Bhusa",
-	"Mesha Concentrate Goat",
-	"Mesha Concentrate Sheep",
+	"Mesha Adult Concentrate Goat",
+	"Mesha Adult Concentrate Sheep",
 	"Baking Soda",
 }
 
@@ -335,6 +343,26 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("seed-feed-ration", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 300*time.Second, "seed timeout")
+	// DEFAULT FALSE, and it must stay that way. The 34 experiment sheds are named for PARTITIONS
+	// ("Castro 1", "Godel 1 - Part 3"), and resolveExperimentSheds needs an active shed row of that
+	// exact name. In an environment that stores partitions the canonical way -- physical shed
+	// "Castro" plus partition "1", with the partition-named locations row held inactive -- none of
+	// them resolve and the seed correctly fails closed.
+	//
+	// This escape hatch seeds the REST of the config (groups, tags, catalog, rates, sessions,
+	// template items, schedule) and skips experiments only. It is a deliberate, temporary state:
+	// feed_experiment_config membership IS what marks a shed an experiment shed, so while those
+	// rows are absent those 34 sheds are fed off the PER-HEAD ration grid instead of their authored
+	// absolute kg. That is measured, not theoretical -- it read CBE's 2026-07-20 concentrate as
+	// 398.8 kg against the workbook's 182.0 kg.
+	//
+	// The real fix is partition-aware experiment config: feed_experiment_config has no
+	// partition_label column and its natural key is (tenant, park, shed, feed_item), so three
+	// partitions of one shed cannot be stored at all today. That needs a migration widening the key
+	// plus a generator that matches experiment cells by (shed_id, partition). Until then, a run with
+	// this flag prints what it skipped and why.
+	skipExperiments := fs.Bool("skip-experiments", false,
+		"seed everything EXCEPT feed_experiment_config; those sheds then feed off the per-head grid until partition-aware experiment config lands")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -373,9 +401,17 @@ func run(args []string) error {
 	// Resolved BEFORE the transaction opens, for the same reason parks are: an unresolvable shed is
 	// a source/data problem the operator must fix, not a half-applied write to roll back. A shed name
 	// that does not resolve is a HARD FAILURE -- see resolveExperimentSheds.
-	experimentSheds, err := resolveExperimentSheds(ctx, pool, *tenantID, parks, experiments)
-	if err != nil {
-		return err
+	experimentSheds := map[string]string{}
+	if *skipExperiments {
+		fmt.Printf("SKIPPING feed_experiment_config: %d experiment shed(s) across both parks are NOT seeded.\n", len(experiments))
+		fmt.Printf("  Those sheds will be fed from the PER-HEAD ration grid instead of their authored absolute kg,\n")
+		fmt.Printf("  which overstates their feed (measured: CBE 2026-07-20 concentrate 398.8 kg vs the workbook's 182.0 kg).\n")
+		fmt.Printf("  Re-run without -skip-experiments once partition-aware experiment config lands.\n")
+	} else {
+		experimentSheds, err = resolveExperimentSheds(ctx, pool, *tenantID, parks, experiments)
+		if err != nil {
+			return err
+		}
 	}
 
 	// The seed's business day, not the database clock's UTC day: an effective-dated config row is
@@ -419,8 +455,10 @@ func run(args []string) error {
 	// Last, and after seedItems: an experiment row names a feed by label, and that label must already
 	// resolve to a catalog row of the same tenant or the direction sheet would carry a feed nobody
 	// can order.
-	if err := seedExperiments(ctx, tx, *tenantID, experiments, experimentSheds, &st); err != nil {
-		return fmt.Errorf("seed experiment config: %w", err)
+	if !*skipExperiments {
+		if err := seedExperiments(ctx, tx, *tenantID, experiments, experimentSheds, &st); err != nil {
+			return fmt.Errorf("seed experiment config: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -664,7 +702,13 @@ WHERE tenant_id = $1::uuid
 	out := map[string]string{}
 	var missing, conflicting []string
 	for _, row := range experiments {
-		key := row.Farm + "\x1f" + configNormKey(row.Shed)
+		// The authored name is an OPERATIONAL LOCATION ("Castro 1", "Godel 1 - Part 3"), while the
+		// catalog holds the PHYSICAL shed ("Castro", "Godel 1") with the partition stored per animal.
+		// Resolve against the physical shed and carry the partition onto the row; matching the raw
+		// name demanded an active partition-named shed row, which the canonical model does not have,
+		// and made every one of the 34 experiment sheds unresolvable (2026-08-07).
+		physicalShed, _ := oploc.SplitShedPartitionName(row.Shed)
+		key := row.Farm + "\x1f" + configNormKey(physicalShed)
 		if ids, bad := ambiguous[key]; bad {
 			conflicting = append(conflicting, fmt.Sprintf("%s / %s -> %v", row.Farm, row.Shed, ids))
 			continue
@@ -717,23 +761,30 @@ func seedExperiments(
 	st *stats,
 ) error {
 	type cell struct {
-		shedID   string
-		item     string
-		kg       string
-		count    int32
-		category string
+		shedID    string
+		partition string
+		item      string
+		kg        string
+		count     int32
+		category  string
 	}
 	var cells []cell
-	sheds := map[string]bool{}
+	locations := map[string]bool{}
 	for _, row := range experiments {
-		shedID, ok := shedIDs[row.Farm+"\x1f"+configNormKey(row.Shed)]
+		// Same split as the resolver: the authored name is an operational location, the catalog key
+		// is the physical shed, and the partition rides onto the row so two partitions of one shed
+		// are two rows rather than a unique-key collision.
+		physicalShed, partitionLabel := oploc.SplitShedPartitionName(row.Shed)
+		shedID, ok := shedIDs[row.Farm+"\x1f"+configNormKey(physicalShed)]
 		if !ok {
 			// Unreachable: resolveExperimentSheds fails closed on a missing shed before this runs. It
 			// is still checked rather than indexed blindly, because the consequence of a silent zero
 			// value here is a row written against the nil UUID.
 			return fmt.Errorf("experiment shed %q in farm %s was not resolved", row.Shed, row.Farm)
 		}
-		sheds[shedID] = true
+		// The stat the operator reads is "how many operational locations were seeded" -- 34
+		// partitions across 8 physical sheds, not 8.
+		locations[shedID+"\x1f"+partitionLabel] = true
 
 		headers := make([]string, 0, len(row.Kg))
 		for header := range row.Kg {
@@ -742,15 +793,16 @@ func seedExperiments(
 		sort.Strings(headers)
 		for _, header := range headers {
 			cells = append(cells, cell{
-				shedID:   shedID,
-				item:     feedItemName(header),
-				kg:       formatNumeric(row.Kg[header], 3),
-				count:    int32(row.Count),
-				category: strings.TrimSpace(row.Category),
+				shedID:    shedID,
+				partition: partitionLabel,
+				item:      feedItemName(header),
+				kg:        formatNumeric(row.Kg[header], 3),
+				count:     int32(row.Count),
+				category:  strings.TrimSpace(row.Category),
 			})
 		}
 	}
-	st.ExperimentShedsResolved = len(sheds)
+	st.ExperimentShedsResolved = len(locations)
 	if len(cells) == 0 {
 		return nil
 	}
@@ -767,26 +819,37 @@ SET absolute_kg = $4::numeric,
     updated_at = now()
 WHERE tenant_id = $1::uuid
   AND shed_id = $2::uuid
+  -- partition_key is GENERATED, so comparing against the same expression the column is built from
+  -- keeps Go and SQL on one normalization; a bare partition_label compare would treat "Part 3" and
+  -- "part 3" as different partitions of the same shed.
+  AND partition_key = CASE
+        WHEN $7::text IS NULL OR btrim($7::text) = '' THEN 'whole'
+        ELSE feed_config_norm($7::text)
+      END
   AND feed_item_key = feed_config_norm($3)
   AND (absolute_kg, head_count, experiment_category, status)
       IS DISTINCT FROM ($4::numeric, $5::integer, $6::text, 'active'::text)`,
-			tenantID, c.shedID, c.item, c.kg, c.count, c.category)
+			tenantID, c.shedID, c.item, c.kg, c.count, c.category, c.partition)
 	}
 	// 2. Insert wherever no row exists. park_id is read from the shed's own parent rather than passed
 	//    in, so the row's park can never disagree with the shed's actual placement -- the pair is the
 	//    natural key the direction path filters on.
 	for _, c := range cells {
 		b.Queue(`
-INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, feed_item_label, absolute_kg, head_count, experiment_category, status)
-SELECT $1::uuid, l.parent_location_id, l.location_id, $3, $4::numeric, $5, $6, 'active'
+INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, partition_label, feed_item_label, absolute_kg, head_count, experiment_category, status)
+SELECT $1::uuid, l.parent_location_id, l.location_id, NULLIF(btrim($7::text), ''), $3, $4::numeric, $5, $6, 'active'
 FROM locations l
 WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
   AND NOT EXISTS (
     SELECT 1 FROM feed_experiment_config e
     WHERE e.tenant_id = $1::uuid
       AND e.shed_id = $2::uuid
+      AND e.partition_key = CASE
+            WHEN $7::text IS NULL OR btrim($7::text) = '' THEN 'whole'
+            ELSE feed_config_norm($7::text)
+          END
       AND e.feed_item_key = feed_config_norm($3)
-  )`, tenantID, c.shedID, c.item, c.kg, c.count, c.category)
+  )`, tenantID, c.shedID, c.item, c.kg, c.count, c.category, c.partition)
 	}
 
 	// scale-guard:ignore: this IS the batched form -- one SendBatch for the whole experiment cell set (170 rows today, bounded by the authored experiment size), never one round trip per cell.
@@ -818,21 +881,34 @@ WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
 	st.ExperimentRowsUnchanged += len(cells) - inserted - updated
 
 	// Count, do not touch. See the function comment.
-	shedList := make([]string, 0, len(sheds))
-	for shedID := range sheds {
-		shedList = append(shedList, shedID)
+	locationList := make([]string, 0, len(locations))
+	for location := range locations {
+		parts := strings.SplitN(location, "\x1f", 2)
+		partition := ""
+		if len(parts) == 2 {
+			partition = domainPartitionKey(parts[1])
+		}
+		locationList = append(locationList, parts[0]+"\x1f"+partition)
 	}
-	sort.Strings(shedList)
+	sort.Strings(locationList)
 	// scale-guard:ignore: one bounded aggregate over this tenant's hand-authored experiment rows (170 today); runs once per seed, not in a request path.
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid
   AND status = 'active'
-  AND NOT (shed_id = ANY($2::uuid[]))`, tenantID, shedList).Scan(&st.ExperimentRowsOutsideSource); err != nil {
+  AND NOT ((shed_id::text || E'\x1f' || partition_key) = ANY($2::text[]))`, tenantID, locationList).Scan(&st.ExperimentRowsOutsideSource); err != nil {
 		return fmt.Errorf("count experiment rows outside source: %w", err)
 	}
 	return nil
+}
+
+func domainPartitionKey(partitionLabel string) string {
+	normalized := configNormKey(partitionLabel)
+	if normalized == "" {
+		return "whole"
+	}
+	return normalized
 }
 
 // ---- guards ----

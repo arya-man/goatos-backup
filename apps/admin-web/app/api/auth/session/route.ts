@@ -30,7 +30,13 @@ export async function POST(request: NextRequest) {
   const refreshToken = typeof payload.refreshToken === "string" ? payload.refreshToken.trim() : "";
   const eventType = parseSessionEventType(payload.eventType, "auth.session_refresh");
   const maxAge = maxAgeForFirebaseIdToken(idToken);
+  const firebaseUid = firebaseUidFromToken(idToken);
   if (!idToken || maxAge === null) {
+    console.warn("admin_auth_session_failed", {
+      eventType,
+      code: "invalid_or_expired_id_token",
+      firebaseUid,
+    });
     return NextResponse.json({ error: "invalid_or_expired_id_token" }, { status: 401 });
   }
 
@@ -46,7 +52,7 @@ export async function POST(request: NextRequest) {
   const plan = await planSessionUpdate({
     resolveBinding: () =>
       resolveBoundRefreshToken(
-        firebaseUidFromToken(idToken),
+        firebaseUid,
         refreshToken,
         exchangeRefreshTokenForIdToken,
         firebaseUidFromToken,
@@ -54,6 +60,12 @@ export async function POST(request: NextRequest) {
     recordEvent: () => recordBackendAuthEvent(request, idToken, eventType),
   });
   if (plan.outcome !== "commit") {
+    console.warn("admin_auth_session_failed", {
+      eventType,
+      code: plan.error,
+      status: plan.status,
+      firebaseUid,
+    });
     return NextResponse.json({ error: plan.error }, { status: plan.status });
   }
   const binding = plan.binding;
@@ -83,6 +95,12 @@ export async function POST(request: NextRequest) {
     sameSite: "lax",
     path: COOKIE_PATH,
     maxAge: refreshCookie.maxAge,
+  });
+  console.info("admin_auth_session_succeeded", {
+    eventType,
+    firebaseUid,
+    auditRecorded: plan.eventRecorded,
+    maxAge,
   });
   return response;
 }
@@ -138,13 +156,28 @@ async function recordBackendAuthEvent(
       body: JSON.stringify({ event_type: eventType, source: "admin-web" }),
     });
   } catch {
+    console.warn("admin_auth_backend_event_failed", {
+      eventType,
+      code: "auth_audit_unreachable",
+      firebaseUid: firebaseUidFromToken(idToken),
+    });
     return { ok: false, status: 502, error: "auth_audit_unreachable" };
   }
 
   if (response.ok) {
+    console.info("admin_auth_backend_event_succeeded", {
+      eventType,
+      firebaseUid: firebaseUidFromToken(idToken),
+    });
     return { ok: true };
   }
   const backendError = await backendErrorCode(response);
+  console.warn("admin_auth_backend_event_failed", {
+    eventType,
+    status: response.status,
+    code: backendError ?? "auth_audit_failed",
+    firebaseUid: firebaseUidFromToken(idToken),
+  });
   return {
     ok: false,
     status: response.status >= 400 && response.status < 500 ? response.status : 502,

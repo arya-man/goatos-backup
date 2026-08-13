@@ -34,6 +34,8 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -41,9 +43,14 @@ import (
 // conditions -- per AGENTS.md, a PRESENT but out-of-range authored value fails the write; it is
 // never rewritten to a default the author never entered.
 var (
-	ErrMissingField     = errors.New("feedconfig: missing required field")
-	ErrInvalidDecimal   = errors.New("feedconfig: value is not a valid decimal")
-	ErrNegativeValue    = errors.New("feedconfig: value must not be negative")
+	ErrMissingField   = errors.New("feedconfig: missing required field")
+	ErrInvalidDecimal = errors.New("feedconfig: value is not a valid decimal")
+	ErrNegativeValue  = errors.New("feedconfig: value must not be negative")
+	// ErrValueOutOfRange is for a value that parses as a decimal and is non-negative but falls
+	// outside the column's own CHECK -- a dry-matter factor above 1, a wastage factor of 1 or more.
+	// It is a SEPARATE error from ErrNegativeValue because the author needs to be told which bound
+	// they crossed; both are rejections, and neither is ever repaired into range.
+	ErrValueOutOfRange  = errors.New("feedconfig: value is outside the allowed range")
 	ErrInvalidTime      = errors.New("feedconfig: value is not a valid local time (HH:MM or HH:MM:SS)")
 	ErrTimeOrder        = errors.New("feedconfig: schedule times are out of order")
 	ErrInvalidWorkflow  = errors.New("feedconfig: workflow must be 'normal' or 'experiment'")
@@ -54,6 +61,15 @@ var (
 	// absolute kg and 'retired' returns it to the per-head ration grid, so there is no safe default
 	// to fall back to.
 	ErrInvalidExperimentStatus = errors.New("feedconfig: status must be 'active' or 'retired'")
+	// ErrDuplicateFeedItem guards a batch that names one feed item twice. The two cells carry two
+	// authored quantities and collapse onto ONE row under the natural key, so keeping either one
+	// silently stores a number the author did not choose. Rejected rather than de-duplicated.
+	ErrDuplicateFeedItem = errors.New("feedconfig: feed item appears more than once in one write")
+	// ErrInvalidFeedItemStatus guards the field that decides whether a feed item is still part of
+	// the tenant's vocabulary. Kept separate from ErrInvalidExperimentStatus despite the identical
+	// wording: these two fields decide different things, and a shared error would put the experiment
+	// workflow's name on a message about the feed catalog.
+	ErrInvalidFeedItemStatus = errors.New("feedconfig: status must be 'active' or 'retired'")
 )
 
 // Workflows recognised by feed_schedule_config. Mirrors the migration's CHECK constraint; a value
@@ -82,6 +98,11 @@ const (
 	// are one authoring surface with one identity space; the ledger's outcome and result_row_id
 	// already distinguish what an individual edit did. Added to the schema by migration 000006.
 	WriteKindExperimentConfig = "experiment_config"
+	// WriteKindFeedItem covers adding an entry to the feed-item catalog -- the tenant's feed
+	// vocabulary. Its OWN kind rather than part of 'ration_rate' because adding an item authors no
+	// quantity: a new item feeds nothing until a rate, a shed factor or an experiment cell names it.
+	// Added to the schema by migration 000136.
+	WriteKindFeedItem = "feed_item"
 )
 
 // Experiment row statuses, mirroring feed_experiment_config.status.
@@ -99,6 +120,16 @@ const (
 const (
 	ExperimentStatusActive  = "active"
 	ExperimentStatusRetired = "retired"
+)
+
+// Statuses recognised by feed_item_catalog. Mirrors that table's own CHECK constraint.
+//
+// `retired` is what "remove this feed item" means here. It is not a soft-delete flag the screen
+// filters on for tidiness: generation loads the catalog `WHERE status = 'active'`, so the status
+// decides whether the item is packed and served at all.
+const (
+	FeedItemStatusActive  = "active"
+	FeedItemStatusRetired = "retired"
 )
 
 // ---------------------------------------------------------------------------
@@ -139,9 +170,77 @@ type RationRateQuery struct {
 	ParkID   string
 	// Optional narrowing filters. Empty means "no filter" -- never "match empty".
 	RationGroup string
-	ShedTag     string
-	FeedItem    string
-	Page        Page
+	// Breed narrows by BREED rather than by the group a breed resolves to, and the two are not the
+	// same filter even though they land on the same column.
+	//
+	// feed_ration_groups is a breed -> ration-group MAP, and the mapping is many-to-one: Beetal and
+	// Sirohi both resolve to the one group "Beetal/Sirohi". So filtering on RationGroup asks "show
+	// the rows of this group" and cannot express "show what a Sirohi eats", which is the question an
+	// operator actually has. This resolves the breed to its group first and filters on that.
+	//
+	// A breed that maps to nothing returns NO rows rather than every row -- an unknown breed is not
+	// "no filter". And no breed maps to the "Kid" group ON PURPOSE: kids resolve to one group by age
+	// band and their breed is deliberately ignored, so a breed filter correctly excludes kid rates
+	// rather than pretending a kid rate belongs to a breed.
+	Breed   string
+	ShedTag string
+	// FeedItems is a SET: empty means "no filter", one or more means "any of these". It is plural
+	// because the grid's whole job is comparing what several items cost across groups and tags, and
+	// a single-valued filter forces that comparison to be done one reload at a time.
+	FeedItems []string
+	// GramsCompare narrows by the authored rate itself ("more than 0", "exactly 0"). Nil means no
+	// filter; it is a POINTER rather than a zero-valued struct because 0 is a legitimate comparison
+	// value here, so an empty struct cannot be distinguished from "compare against zero".
+	GramsCompare *GramsComparison
+	Page         Page
+}
+
+// GramsOp is a comparison an author can apply to grams_per_head.
+//
+// A closed enum, never a raw operator string from the client: the value is interpolated into SQL
+// comparison semantics, and an open string would be both an injection surface and a silent
+// no-match when a client sent something the backend did not understand.
+type GramsOp string
+
+const (
+	GramsOpGreaterThan GramsOp = "gt"
+	GramsOpAtLeast     GramsOp = "gte"
+	GramsOpEquals      GramsOp = "eq"
+	GramsOpAtMost      GramsOp = "lte"
+	GramsOpLessThan    GramsOp = "lt"
+	GramsOpNotEqualTo  GramsOp = "neq"
+)
+
+// GramsComparison is a validated (operator, value) pair.
+//
+// Value stays a DECIMAL STRING for the same reason RationRate.GramsPerHead does: numeric(12,3) is
+// exact and a float round-trip is not. Comparing an authored 149.995 against a float-parsed filter
+// value is how a row that should match stops matching.
+type GramsComparison struct {
+	Op    GramsOp
+	Value string
+}
+
+// ParseGramsOp maps a wire token to the enum. `ok` is false for anything else, including "" --
+// callers must reject an unrecognized operator rather than fall back to one, because every possible
+// fallback silently answers a different question than the one that was asked.
+func ParseGramsOp(raw string) (GramsOp, bool) {
+	switch GramsOp(strings.TrimSpace(raw)) {
+	case GramsOpGreaterThan:
+		return GramsOpGreaterThan, true
+	case GramsOpAtLeast:
+		return GramsOpAtLeast, true
+	case GramsOpEquals:
+		return GramsOpEquals, true
+	case GramsOpAtMost:
+		return GramsOpAtMost, true
+	case GramsOpLessThan:
+		return GramsOpLessThan, true
+	case GramsOpNotEqualTo:
+		return GramsOpNotEqualTo, true
+	default:
+		return "", false
+	}
 }
 
 type RationRatePage struct {
@@ -163,10 +262,22 @@ type RationGroup struct {
 }
 
 type RationGroupPage struct {
-	Items   []RationGroup `json:"items"`
-	Limit   int32         `json:"limit"`
-	Offset  int32         `json:"offset"`
-	HasMore bool          `json:"has_more"`
+	Items []RationGroup `json:"items"`
+	// RationGroups is every group label that actually carries an in-force authored rate, which is NOT
+	// the same set as the labels reachable through Items.
+	//
+	// Items is the BREED map, and that table is adult breeds only -- kids resolve to the fixed 'Kid'
+	// group by age band and never appear in it. So a caller building a ration-group picker from Items
+	// offers six of the seven live groups and silently makes every 'Kid' rate unreachable (134 of 721
+	// rows per park on the current data). This field is the honest vocabulary for that picker; Items
+	// stays the breed map, and a breed picker must keep reading it.
+	//
+	// Whole-set and unpaginated on purpose: it is a vocabulary, not a page of rows. Limit/Offset/
+	// HasMore describe Items only.
+	RationGroups []string `json:"ration_groups"`
+	Limit        int32    `json:"limit"`
+	Offset       int32    `json:"offset"`
+	HasMore      bool     `json:"has_more"`
 }
 
 // ShedTag is one entry of the authored tag vocabulary the grid is indexed by.
@@ -301,8 +412,8 @@ type ShedFactorPage struct {
 	HasMore bool         `json:"has_more"`
 }
 
-// ExperimentConfig is one authored cell of an EXPERIMENT shed: the absolute kg of one feed item that
-// the whole shed is fed.
+// ExperimentConfig is one authored cell of an EXPERIMENT operational pen: the absolute kg of one
+// feed item that pen is fed (an undivided shed is represented as its single whole-shed pen).
 //
 // ABSOLUTE KG IS A SHED TOTAL, NOT A PER-HEAD RATE. That is the one distinction between this type
 // and RationRate that must never blur. HeadCount travels with it as INFORMATIONAL context -- the
@@ -316,8 +427,24 @@ type ShedFactorPage struct {
 type ExperimentConfig struct {
 	ExperimentConfigID string `json:"experiment_config_id"`
 	ParkID             string `json:"park_id"`
-	ShedID             string `json:"shed_id"`
-	FeedItemLabel      string `json:"feed_item"`
+	// ParkName is carried because this list may span BOTH parks when the caller asks for a
+	// company-wide view. The shed name cannot stand in for it: Castro, Gandhi and Yashoda each exist
+	// in both parks, so a cross-park row labelled by shed alone is ambiguous.
+	ParkName string `json:"park_name"`
+	ShedID   string `json:"shed_id"`
+	// ShedName and PartitionLabel are the two halves of the ground location, and they must always
+	// travel together. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not
+	// identify a row: Mandela 1 holds ten pens, each with its own arm, head count and quantities.
+	// Before these fields existed the screen rendered ten identical "Mandela 1 / Dry Masoor Bhusa"
+	// rows differing only by a number, which no operator could tell apart.
+	ShedName string `json:"shed_name"`
+	// PartitionLabel is the HUMAN label ('Part 3', '2'), never the normalized matching key ('3').
+	// Empty means an undivided shed -- 'whole' is a matching sentinel and never reaches a client.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is composed by the backend via oploc so every surface reads the
+	// same string ("Mandela 1 - Part 3"); clients render it verbatim and never rejoin the halves.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	FeedItemLabel              string `json:"feed_item"`
 	// AbsoluteKg is an exact decimal string for the same reason GramsPerHead is: numeric(12,3) is
 	// exact and a float round-trip is not.
 	AbsoluteKg string `json:"absolute_kg"`
@@ -332,12 +459,24 @@ type ExperimentConfigQuery struct {
 	TenantID string
 	ParkID   string
 	// ShedID optionally narrows to one shed. Empty means every experiment shed in the park.
-	ShedID string
+	// PartitionLabel narrows to ONE PEN of a shed. Blank means every pen of it — the section is
+	// pen-grained, so a shed-only filter would show three Castro pens under a control naming one.
+	PartitionLabel string
+	ShedID         string
 	// Status optionally narrows to 'active' or 'retired'. Empty means BOTH, which is what the config
 	// screen wants: a withdrawn shed's authored quantities must stay visible so it can be restored
 	// without re-keying them from the workbook.
 	Status string
-	Page   Page
+	// FeedItems is a SET, matching RationRateQuery.FeedItems: empty is "no filter", one or more is
+	// "any of these".
+	FeedItems []string
+	// ExperimentCategory narrows to one ARM ("Sheep M NEW"). Matched on the normalized key like every
+	// other feed-config label, so casing and separator differences resolve the same way.
+	ExperimentCategory string
+	// KgCompare narrows by the authored absolute kg. Nil means no filter; a pointer for the same
+	// reason RationRateQuery.GramsCompare is one -- 0 is a legitimate value to compare against.
+	KgCompare *GramsComparison
+	Page      Page
 }
 
 type ExperimentConfigPage struct {
@@ -345,6 +484,88 @@ type ExperimentConfigPage struct {
 	Limit   int32              `json:"limit"`
 	Offset  int32              `json:"offset"`
 	HasMore bool               `json:"has_more"`
+}
+
+// ExperimentBatchCell is one authored feed item inside a batch enrolment.
+type ExperimentBatchCell struct {
+	FeedItemLabel string
+	// AbsoluteKg is an exact decimal string, already normalized. Same absent-vs-zero contract as the
+	// single-cell write: a cell the author left blank is NOT in this slice at all, and a cell that IS
+	// here carries a real authored number, which may legitimately be "0".
+	AbsoluteKg string
+}
+
+// UpsertExperimentConfigBatchCommand enrolls EVERY feed item of one unconfigured pen atomically.
+//
+// WHY THIS IS ATOMIC AND NOT N SINGLE-CELL WRITES. Membership in feed_experiment_config IS what puts
+// a pen on the experiment workflow, and ExperimentPlanner treats the pen's authored cells as the
+// COMPLETE list of what it is fed -- it does not fall back to the ration grid for a missing item. So
+// a partly-applied enrolment does not leave the pen unconfigured and loud; it leaves the pen ON the
+// experiment, fed only the items that happened to commit, on a sheet that looks complete. That is a
+// silent underfeed of live animals, which is why the whole set commits or none of it does.
+//
+// The pen's arm and head count are carried once, not per cell: they describe the PEN, and letting
+// them vary per cell is how a pen ends up with two arms and the display picks whichever row sorted
+// first.
+type UpsertExperimentConfigBatchCommand struct {
+	WriteIdentity
+	ParkID string
+	ShedID string
+	// PartitionLabel names WHICH PEN. Empty is legitimate (an undivided shed) and authors the
+	// shed-wide row; on a partitioned shed an empty label is the defect that quietly creates a
+	// phantom whole-shed row beside the real pens.
+	PartitionLabel     string
+	ExperimentCategory string
+	HeadCount          *int32
+	// Cells is the authored set, at least one. Duplicate feed items are rejected before this point:
+	// two cells normalizing to the same key would race each other inside one statement and the
+	// survivor would be arbitrary.
+	Cells []ExperimentBatchCell
+}
+
+// Pen is ONE operational location in a park: a physical shed plus, when the shed is subdivided, the
+// pen within it. It is the catalog the experiment enroller offers, and it exists because the
+// experiment table cannot supply that list itself.
+//
+// WHY A SEPARATE READ AND NOT A DISTINCT OVER feed_experiment_config. The enroller's whole job is to
+// offer a location that has NO experiment rows yet, so deriving the list from the experiment table
+// can only ever return locations that are already enrolled. Deriving it from the SHED list is the
+// bug this replaces: CBE's Godel 1 holds ten pens of which seven were enrolled, and a shed-keyed
+// candidate list saw "Godel 1 is already an experiment shed" and hid the other three -- Part 8 could
+// not be enrolled from the screen at all, and the only route was a hand-written database write.
+//
+// A pen with ZERO animals is still a real pen and is still offered. The catalog is the locations /
+// shed_partitions truth, never a per-goat table: deriving it from goat placement hides an empty pen,
+// and an empty pen is exactly the one an operator is about to move animals into and wants configured
+// first. This read touches no per-animal table.
+type Pen struct {
+	ParkID   string `json:"park_id"`
+	ShedID   string `json:"shed_id"`
+	ShedName string `json:"shed_name"`
+	// PartitionLabel is the HUMAN label ('Part 3', '2'), never the normalized matching key ('3') and
+	// never the 'whole' sentinel. Empty means the shed is undivided.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is composed by the backend via oploc, so this list reads identically
+	// to the experiment table it feeds and to every other surface.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// HasExperimentConfig reports whether this pen already has at least one authored experiment cell.
+	// Computed here, next to the catalog, rather than left to the client to infer by matching names:
+	// name-matching across a partitioned shed is exactly the keying mistake this whole area keeps
+	// making, and the pen's identity is (shed_id, partition) which only the backend holds reliably.
+	HasExperimentConfig bool `json:"has_experiment_config"`
+}
+
+type PenQuery struct {
+	TenantID string
+	ParkID   string
+	Page     Page
+}
+
+type PenPage struct {
+	Items   []Pen `json:"items"`
+	Limit   int32 `json:"limit"`
+	Offset  int32 `json:"offset"`
+	HasMore bool  `json:"has_more"`
 }
 
 // ---------------------------------------------------------------------------
@@ -432,27 +653,93 @@ type UpsertScheduleConfigCommand struct {
 // state the shed is empty.
 type UpsertExperimentConfigCommand struct {
 	WriteIdentity
-	ParkID             string
-	ShedID             string
+	ParkID string
+	ShedID string
+	// PartitionLabel names WHICH PEN of the shed this cell belongs to. It is part of the row's
+	// identity, not decoration: the natural key is
+	// (tenant_id, park_id, shed_id, partition_key, feed_item_key), so a write that omits it targets
+	// the 'whole' sentinel and inserts a phantom shed-wide row instead of editing the pen the
+	// author clicked. Empty is legitimate for an undivided shed and normalizes to 'whole'.
+	PartitionLabel     string
 	FeedItemLabel      string
 	AbsoluteKg         string
 	HeadCount          *int32
 	ExperimentCategory string
 }
 
-// SetExperimentShedStatusCommand switches a WHOLE SHED between the experiment workflow and the
-// normal per-head ration grid.
+// CreateFeedItemCommand adds one entry to the tenant's feed-item catalog.
+//
+// ADDING AN ITEM AUTHORS NO QUANTITY. That is the whole safety property of this command and the
+// reason it is a plain create rather than an upsert of anything: the catalog is a VOCABULARY. A new
+// item is fed to nothing until a ration rate, a shed factor or an experiment cell names it, so this
+// write cannot change what any animal eats today. Nothing here may grow into a path that authors a
+// rate on the author's behalf -- an invented rate would be exactly the "value nobody entered" the
+// package comment bans, and an invented ZERO would read as "feed none of it" forever.
+//
+// The three nutritional attributes are POINTERS because NULL is the honest state for an item whose
+// energy value nobody has measured: a missing energy figure blocks a rollup, never a feeding
+// decision (see FeedItem and the column's own nullability). They are never defaulted to 0, which
+// would state a measured zero.
+//
+// DisplayOrder is a pointer for a different reason: absent means "put it at the end", which the
+// repository resolves from the catalog's current maximum inside the write transaction. That is a
+// PRESENTATION position, not a business value, which is why deriving it is acceptable here while
+// deriving a rate never is.
+type CreateFeedItemCommand struct {
+	WriteIdentity
+	FeedItemLabel   string
+	EnergyKcalPerKg *string
+	DryMatterFactor *string
+	WastageFactor   *string
+	DisplayOrder    *int32
+}
+
+// SetFeedItemStatusCommand retires one entry of the tenant's feed vocabulary, or restores it.
+//
+// RETIRING IS THE ONLY WAY TO REMOVE A FEED ITEM, and it is deliberately not a delete. The item's
+// authored rates, its shed factors and its experiment cells all stay exactly as they were, so every
+// past feed sheet remains explainable and a restore brings the item back fully configured. A DELETE
+// would strip the rates with it, and a restore would then hand back an item whose every combination
+// is UNCONFIGURED — which on this screen does not mean "no quantity", it means BLOCKED, and a
+// blocked shed is not fed. Retiring cannot cause that; deleting could.
+//
+// This is not a visibility toggle. Generation loads the catalog `WHERE status = 'active'`
+// (feeddirection/adapters/postgres.loadFeedItems), so retiring an item genuinely stops it being
+// packed and served from the next issued sheet onward. The screen hides its rates to match what the
+// generator will actually do — the config screen and the feed sheet must not disagree.
+type SetFeedItemStatusCommand struct {
+	WriteIdentity
+	// FeedItemID is the catalog row's own id. Keyed on the id rather than the label because the
+	// label is what a future rename would change, and this write must not become ambiguous then.
+	FeedItemID string
+	Status     string
+}
+
+// SetExperimentShedStatusCommand switches ONE PEN between the experiment workflow and the normal
+// per-head ration grid.
 //
 // This is a business-meaningful action, not a visibility toggle -- see the ExperimentStatus
-// constants. It is deliberately whole-shed rather than per-cell: a shed half on absolute kg and half
-// on the ration grid is not a state the generator can represent (a planner owns the shed, not the
-// cell), so allowing a per-cell status edit would let an author create a shed whose feed is
-// undefined.
+// constants.
+//
+// WHOLE-PEN, NEVER PER-CELL. A pen half on absolute kg and half on the ration grid is not a state
+// the generator can represent (a planner owns the pen, not the cell), so a per-cell status edit
+// would let an author create a pen whose feed is undefined.
+//
+// PEN, NOT SHED (maintainer decision 2026-08-09). This was shed-scoped while the screen above it
+// had already become pen-grouped, so a control captioned "Return Godel 1 - Part 3 to the standard
+// ration" retired all ten Godel 1 pens. Because membership-with-status-active IS the workflow
+// switch, the nine unnamed pens silently fell back to the per-head grid at roughly 2.2x their
+// authored quantity -- a real change to what those animals are fed, applied by a button that named
+// one pen. PartitionLabel is therefore required to identify the target, and is blank only for a
+// genuinely undivided shed.
 type SetExperimentShedStatusCommand struct {
 	WriteIdentity
 	ParkID string
 	ShedID string
-	Status string
+	// PartitionLabel is the raw authored pen ("2", "Part 3"), blank for an undivided shed. It is
+	// normalized to partition_key in SQL, never in Go -- see the adapter's partitionKeyMatch.
+	PartitionLabel string
+	Status         string
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +777,19 @@ func fieldErr(field string, reason error, detail string) error {
 //
 // An empty string is a MISSING field, not a zero. The distinction is the whole safety rule of this
 // module.
+// NormalizeFeedItemKey is the Go twin of the Postgres `feed_config_norm` function: trim, casefold,
+// collapse runs of whitespace/underscore/hyphen to a single underscore.
+//
+// It exists so a duplicate inside ONE batch is caught by the same rule the unique index would apply
+// -- "RGS Concentrate" and "rgs  concentrate" are one cell, and rejecting them here is what keeps
+// the write from racing two quantities onto one row. It must stay in step with the SQL function; the
+// two are checked against each other in the repository's Postgres tests.
+func NormalizeFeedItemKey(raw string) string {
+	return feedItemKeySeparators.ReplaceAllString(strings.ToLower(strings.TrimSpace(raw)), "_")
+}
+
+var feedItemKeySeparators = regexp.MustCompile(`[\s_-]+`)
+
 func NormalizeDecimal(field, raw string, scale int, allowZero bool) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -539,6 +839,112 @@ func NormalizeDecimal(field, raw string, scale int, allowZero bool) (string, err
 		return intPart, nil
 	}
 	return intPart + "." + frac, nil
+}
+
+// Scales of the three nullable feed_item_catalog attributes, mirroring the migration's column
+// types. Authored values are rejected rather than rounded to fit, so these must stay in step with
+// the schema: energy_kcal_per_kg numeric(10,3), dry_matter_factor numeric(6,4),
+// wastage_factor numeric(6,4).
+const (
+	energyScale     = 3
+	dryMatterScale  = 4
+	wastageScale    = 4
+	dryMatterMaxRaw = "1"
+	wastageMaxRaw   = "1"
+)
+
+// NormalizeEnergyKcalPerKg validates the optional energy attribute: >= 0, three decimal places.
+//
+// An authored 0 is accepted as a real measurement (an item that carries no metabolisable energy).
+// It is the ABSENT case that must not be turned into one -- absent means nobody measured it, and
+// that gap is reported as a gap rather than as a zero.
+func NormalizeEnergyKcalPerKg(field, raw string) (string, error) {
+	return NormalizeDecimal(field, raw, energyScale, true)
+}
+
+// NormalizeDryMatterFactor validates the optional dry-matter fraction: > 0 and <= 1.
+//
+// Both bounds mirror feed_item_catalog_dry_matter_check exactly, and both are rejections rather
+// than clamps. Zero is EXCLUDED here (unlike energy) because the column excludes it: a dry-matter
+// fraction of 0 says the item is entirely water, which is not a feed. A value above 1 says the
+// item is more than 100% dry matter, which is not a quantity that exists.
+func NormalizeDryMatterFactor(field, raw string) (string, error) {
+	normalized, err := NormalizeDecimal(field, raw, dryMatterScale, false)
+	if err != nil {
+		return "", err
+	}
+	return normalized, requireAtMost(field, normalized, dryMatterMaxRaw, dryMatterScale, true)
+}
+
+// NormalizeWastageFactor validates the optional wastage fraction: >= 0 and < 1.
+//
+// Mirrors feed_item_catalog_wastage_check. An authored 0 IS legal (an item with no expected
+// wastage); 1 is not, because a wastage fraction of 1 says the entire quantity is lost, leaving
+// nothing fed.
+func NormalizeWastageFactor(field, raw string) (string, error) {
+	normalized, err := NormalizeDecimal(field, raw, wastageScale, true)
+	if err != nil {
+		return "", err
+	}
+	return normalized, requireAtMost(field, normalized, wastageMaxRaw, wastageScale, false)
+}
+
+// requireAtMost enforces an upper bound on an ALREADY-canonical decimal.
+//
+// The comparison is done on scaled INTEGER units rather than on float64: the bound cases here are
+// exactly 1.0000, and a float round-trip is precisely where an equality check at a boundary stops
+// being reliable. Both operands come from NormalizeDecimal, so they share a fixed scale and their
+// digit strings compare as integers.
+func requireAtMost(field, canonical, maxRaw string, scale int, inclusive bool) error {
+	max, err := NormalizeDecimal(field, maxRaw, scale, true)
+	if err != nil {
+		return err
+	}
+	value, err := decimalUnits(canonical, scale)
+	if err != nil {
+		return fieldErr(field, ErrInvalidDecimal, canonical)
+	}
+	limit, err := decimalUnits(max, scale)
+	if err != nil {
+		return fieldErr(field, ErrInvalidDecimal, max)
+	}
+	if value > limit || (!inclusive && value == limit) {
+		bound := "less than"
+		if inclusive {
+			bound = "at most"
+		}
+		return fieldErr(field, ErrValueOutOfRange,
+			fmt.Sprintf("%s must be %s %s", canonical, bound, maxRaw))
+	}
+	return nil
+}
+
+// decimalUnits turns a canonical fixed-scale decimal ("0.8500") into its integer count of scaled
+// units (8500). Exact by construction: NormalizeDecimal has already guaranteed the shape.
+func decimalUnits(canonical string, scale int) (int64, error) {
+	intPart, fracPart, _ := strings.Cut(canonical, ".")
+	if scale > 0 && len(fracPart) != scale {
+		return 0, fmt.Errorf("feedconfig: %q is not at scale %d", canonical, scale)
+	}
+	return strconv.ParseInt(intPart+fracPart, 10, 64)
+}
+
+// ValidateDisplayOrder checks the optional catalog sort position.
+//
+// nil is legal and means "put it at the end", resolved by the write path from the catalog's current
+// maximum. A present negative value is rejected rather than clamped, for the same
+// validate-or-reject reason as every other authored field -- though note what is NOT at stake here:
+// display_order is a presentation position, so a wrong one misorders a dropdown and never misfeeds
+// an animal. That is exactly why deriving an absent one is acceptable while deriving an absent rate
+// is not.
+func ValidateDisplayOrder(field string, raw *int32) (*int32, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if *raw < 0 {
+		return nil, fieldErr(field, ErrNegativeValue, fmt.Sprintf("%d", *raw))
+	}
+	return raw, nil
 }
 
 func allDigits(s string) bool {
@@ -618,6 +1024,19 @@ func ValidateExperimentStatus(field, raw string, required bool) (string, error) 
 	}
 	if v != ExperimentStatusActive && v != ExperimentStatusRetired {
 		return "", fieldErr(field, ErrInvalidExperimentStatus, raw)
+	}
+	return v, nil
+}
+
+// ValidateFeedItemStatus narrows the catalog status. Always required: there is no safe default —
+// one value keeps the item in every feed sheet and the other takes it out of all of them.
+func ValidateFeedItemStatus(field, raw string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	if v == "" {
+		return "", fieldErr(field, ErrMissingField, "")
+	}
+	if v != FeedItemStatusActive && v != FeedItemStatusRetired {
+		return "", fieldErr(field, ErrInvalidFeedItemStatus, raw)
 	}
 	return v, nil
 }

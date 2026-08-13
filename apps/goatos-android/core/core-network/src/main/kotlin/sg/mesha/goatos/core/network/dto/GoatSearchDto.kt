@@ -16,14 +16,21 @@ import kotlinx.serialization.Serializable
  * needs no new permission.
  */
 
-/** Where an animal currently sits. `display` is backend-composed copy, rendered verbatim. */
+/**
+ * Where an animal currently sits. [operationalLocationDisplay] is backend-composed copy, rendered
+ * verbatim.
+ *
+ * The `display` alias was retired on 2026-08-06: this payload used to carry the same string under
+ * two names, which is how one gets updated and the other silently does not.
+ */
 @Serializable
 data class GoatLocationPathDto(
-    @SerialName("display") val display: String = "",
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_name") val parkName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
     @SerialName("shed_name") val shedName: String? = null,
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
 )
 
 /**
@@ -44,6 +51,7 @@ data class GoatSearchItemDto(
     @SerialName("animal_identifier_2") val animalIdentifier2: String? = null,
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String = "",
+    @SerialName("age_band") val ageBand: String? = null,
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("location_path") val locationPath: GoatLocationPathDto = GoatLocationPathDto(),

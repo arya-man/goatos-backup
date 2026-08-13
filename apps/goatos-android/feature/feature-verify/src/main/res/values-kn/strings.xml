@@ -1,20 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">ಈ ಪುಟ, ಸ್ಥಿತಿ ಮತ್ತು ದಿನಾಂಕದಲ್ಲಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_missed_open">ತಪ್ಪಿದ ಪರಿಶೀಲನಾ ವೀಡಿಯೊಗಳನ್ನು ತೋರಿಸಿ</string>
+    <string name="verify_missed_before_today">ಇಂದಿಗಿಂತ ಮೊದಲು ತಪ್ಪಿದವು</string>
+    <string name="verify_date_previous">ಹಿಂದಿನ ದಿನ</string>
+    <string name="verify_date_next">ಮುಂದಿನ ದಿನ</string>
     <string name="verify_module_vaccination">ಲಸಿಕೆ</string>
+    <string name="verify_module_weighing">ತೂಕ</string>
+    <string name="verify_module_birth">ಜನನ</string>
+    <string name="verify_module_death">ಮರಣ</string>
     <string name="verify_module_counts">ಎಣಿಕೆ</string>
+    <string name="verify_module_shifting">ಸ್ಥಳಾಂತರ</string>
+    <string name="verify_module_packing">ಪ್ಯಾಕಿಂಗ್</string>
     <string name="verify_module_feed_direction">ಆಹಾರ ನಿರ್ದೇಶನ</string>
+    <string name="verify_module_transport">ಸಾಗಣೆ</string>
     <string name="verify_module_under_construction">ನಿರ್ಮಾಣ ಹಂತದಲ್ಲಿದೆ</string>
     <string name="verify_module_under_construction_subtitle">ಇದರ ಕಾರ್ಯಪ್ರವಾಹ ಸಿದ್ಧವಾದಾಗ ಈ ಪರಿಶೀಲನಾ ಸರತಿ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತದೆ.</string>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
     <string name="verify_action_queue_title">ಲಸಿಕೆ ವೀಡಿಯೊಗಳು</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="verify_queue_empty">ಸರತಿ ಖಾಲಿ ಇದೆ</string>
+    <string name="verify_queue_unsupported_module">ಈ ಸರತಿ ಇನ್ನೂ ಆ್ಯಪ್‌ನಲ್ಲಿ ಲಭ್ಯವಿಲ್ಲ</string>
+    <string name="verify_queue_unsupported_module_subtitle">ಈ ಪುರಾವೆಗಳನ್ನು ಪರಿಶೀಲಿಸಲು Mesha ವೆಬ್ ಆ್ಯಪ್ ತೆರೆಯಿರಿ.</string>
+    <string name="verify_queue_load_failed">ಸರತಿ ಲೋಡ್ ಆಗಲಿಲ್ಲ</string>
+    <string name="verify_queue_load_failed_subtitle">ಈ ಸರತಿಯನ್ನು ಓದುವಾಗ ಸಮಸ್ಯೆ ಉಂಟಾಯಿತು. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
     <string name="verify_queue_empty_subtitle">ಇದೀಗ ಪರಿಶೀಲಿಸಲು ಯಾವುದೇ ಬಾಕಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
     <string name="verify_action_queue_empty">ಸಲ್ಲಿಸಿದ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
     <string name="verify_action_queue_empty_subtitle">ಸಲ್ಲಿಸಿದ ಲಸಿಕೆ ವೀಡಿಯೊಗಳು ನಿರ್ದೇಶಕರ ಪರಿಶೀಲನೆಗೆ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ</string>
     <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
     <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="verify_scope_all">ಎಲ್ಲಾ</string>
+    <string name="verify_scope_individual">ಪ್ರತ್ಯೇಕ (%1$d)</string>
+    <string name="verify_scope_lumpsum">ಒಟ್ಟು ತೂಕ (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d ಸಾಲುಗಳು · %2$d ವೀಡಿಯೊಗಳು</string>
+    <string name="verify_shed_group_progress">%1$d ಮೇಕೆಗಳು · %2$d ಪರಿಶೀಲಿಸಬೇಕಾಗಿದೆ</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
     <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>
@@ -23,7 +43,10 @@
     <string name="verify_detail_shed_label">ಶೆಡ್</string>
     <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
     <string name="verify_detail_operator_label">ಆಪರೇಟರ್</string>
+    <string name="verify_detail_raised_note_label">ಆಪರೇಟರ್ ಟಿಪ್ಪಣಿ</string>
     <string name="verify_detail_captured_label">ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ</string>
+    <string name="verify_detail_photo_description">ಈ ಕೆಲಸದ ಫೋಟೋ ಪುರಾವೆ</string>
+    <string name="verify_detail_recorded_answer">ದಾಖಲಿಸಲಾಗಿದೆ: %1$s</string>
     <string name="verify_detail_no_media">ಈ ಐಟಂಗೆ ಯಾವುದೇ ವೀಡಿಯೊ ಲಗತ್ತಿಸಿಲ್ಲ</string>
     <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
     <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>
@@ -49,4 +72,15 @@
     <string name="verify_status_approved">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
     <string name="verify_status_rejected">ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
     <string name="verify_category_all">ಎಲ್ಲಾ</string>
+    <string name="verify_detail_media_unavailable_send_back">ಈ ವೀಡಿಯೊ ಪ್ಲೇ ಆಗುವುದಿಲ್ಲ, ಆದ್ದರಿಂದ ಇದನ್ನು ಅನುಮೋದಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ತಂಡ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಲು ಇದನ್ನು ಹಿಂತಿರುಗಿಸಿ.</string>
+    <string name="verify_approve_dialog_title">ಈ ಸಾಕ್ಷ್ಯವನ್ನು ಅನುಮೋದಿಸಬೇಕೆ?</string>
+    <string name="verify_approve_dialog_subtitle">ಅನುಮೋದನೆ ಅಂತಿಮ — ನಂತರ ಹಿಂಪಡೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ.</string>
+    <string name="verify_approve_dialog_confirm">ಅನುಮೋದನೆ ಖಚಿತಪಡಿಸಿ</string>
+    <string name="verify_approve_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
+    <string name="verify_detail_group_accepted">ಈ ಶೆಡ್‌ನ ಎಲ್ಲಾ ವೀಡಿಯೊಗಳನ್ನು ಅಂಗೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="verify_filter_park_title">ಪಾರ್ಕ್</string>
+    <string name="verify_filter_shed_title">ಶೆಡ್</string>
+    <string name="verify_filter_change">ಬದಲಾಯಿಸಿ</string>
+    <string name="verify_filter_search_hint">ಹುಡುಕಿ</string>
+    <string name="verify_filter_no_matches">ಯಾವುದೇ ಹೊಂದಾಣಿಕೆ ಇಲ್ಲ</string>
 </resources>

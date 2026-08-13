@@ -32,3 +32,21 @@ class NoopAnalytics : AnalyticsPort {
     override fun setUserProperty(name: String, value: String?) {}
     override fun setUserId(id: String?) {}
 }
+
+/**
+ * Sends every analytics call to multiple sinks. One sink failing must never prevent another sink
+ * from seeing the event; analytics is observability, not product control flow.
+ */
+class FanOutAnalytics(private vararg val delegates: AnalyticsPort) : AnalyticsPort {
+    override fun track(event: String, props: Map<String, String>) {
+        delegates.forEach { delegate -> runCatching { delegate.track(event, props) } }
+    }
+
+    override fun setUserProperty(name: String, value: String?) {
+        delegates.forEach { delegate -> runCatching { delegate.setUserProperty(name, value) } }
+    }
+
+    override fun setUserId(id: String?) {
+        delegates.forEach { delegate -> runCatching { delegate.setUserId(id) } }
+    }
+}

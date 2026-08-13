@@ -1,20 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
+    <string name="verify_queue_empty_date_subtitle">ఈ పేజీ, స్థితి మరియు తేదీలో వీడియోలు లేవు</string>
+    <string name="verify_missed_open">మిస్ అయిన ధృవీకరణ వీడియోలను చూపండి</string>
+    <string name="verify_missed_before_today">ఈరోజుకు ముందు మిస్ అయినవి</string>
+    <string name="verify_date_previous">మునుపటి రోజు</string>
+    <string name="verify_date_next">తదుపరి రోజు</string>
     <string name="verify_module_vaccination">టీకా</string>
+    <string name="verify_module_weighing">బరువు</string>
+    <string name="verify_module_birth">జననం</string>
+    <string name="verify_module_death">మరణం</string>
     <string name="verify_module_counts">లెక్కింపు</string>
+    <string name="verify_module_shifting">తరలింపు</string>
+    <string name="verify_module_packing">ప్యాకింగ్</string>
     <string name="verify_module_feed_direction">ఫీడ్ దిశ</string>
+    <string name="verify_module_transport">రవాణా</string>
     <string name="verify_module_under_construction">నిర్మాణంలో ఉంది</string>
     <string name="verify_module_under_construction_subtitle">దీని వర్క్‌ఫ్లో సిద్ధమైనప్పుడు ఈ ధృవీకరణ క్యూ ఇక్కడ కనిపిస్తుంది.</string>
     <string name="verify_queue_title">వీడియో ధృవీకరణ</string>
     <string name="verify_action_queue_title">టీకా వీడియోలు</string>
     <string name="verify_queue_refresh">రిఫ్రెష్ చేయండి</string>
     <string name="verify_queue_empty">క్యూ ఖాళీగా ఉంది</string>
+    <string name="verify_queue_unsupported_module">ఈ క్యూ ఇంకా యాప్‌లో అందుబాటులో లేదు</string>
+    <string name="verify_queue_unsupported_module_subtitle">ఈ రుజువులను సమీక్షించడానికి Mesha వెబ్ యాప్ తెరవండి.</string>
+    <string name="verify_queue_load_failed">క్యూను లోడ్ చేయలేకపోయాం</string>
+    <string name="verify_queue_load_failed_subtitle">ఈ క్యూను చదవడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ చేయండి.</string>
     <string name="verify_queue_empty_subtitle">ప్రస్తుతం ధృవీకరించడానికి పెండింగ్‌లో వీడియోలు లేవు</string>
     <string name="verify_action_queue_empty">సమర్పించిన వీడియోలు లేవు</string>
     <string name="verify_action_queue_empty_subtitle">సమర్పించిన టీకా వీడియోలు డైరెక్టర్ సమీక్ష కోసం ఇక్కడ కనిపిస్తాయి</string>
     <string name="verify_queue_load_more">మరిన్ని లోడ్ చేయండి</string>
     <string name="verify_queue_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
+    <string name="verify_scope_all">అన్నీ</string>
+    <string name="verify_scope_individual">వ్యక్తిగతం (%1$d)</string>
+    <string name="verify_scope_lumpsum">మొత్తం బరువు (%1$d)</string>
+    <string name="verify_shed_group_summary">%1$d వరుసలు · %2$d వీడియోలు</string>
+    <string name="verify_shed_group_progress">%1$d మేకలు · %2$d సమీక్షించాలి</string>
 
     <string name="verify_detail_close">మూయి</string>
     <string name="verify_detail_fullscreen">వీడియోను ఫుల్‌స్క్రీన్‌లో తెరవండి</string>
@@ -23,7 +43,10 @@
     <string name="verify_detail_shed_label">షెడ్</string>
     <string name="verify_detail_park_label">పార్క్</string>
     <string name="verify_detail_operator_label">ఆపరేటర్</string>
+    <string name="verify_detail_raised_note_label">ఆపరేటర్ వ్యాఖ్య</string>
     <string name="verify_detail_captured_label">క్యాప్చర్ చేయబడింది</string>
+    <string name="verify_detail_photo_description">ఈ పని యొక్క ఫోటో రుజువు</string>
+    <string name="verify_detail_recorded_answer">రికార్డ్ చేయబడింది: %1$s</string>
     <string name="verify_detail_no_media">ఈ అంశానికి వీడియో జోడించబడలేదు</string>
     <string name="verify_detail_approve">ఆమోదించండి</string>
     <string name="verify_detail_reject">తిరస్కరించండి</string>
@@ -49,4 +72,15 @@
     <string name="verify_status_approved">ఆమోదించబడింది</string>
     <string name="verify_status_rejected">తిరస్కరించబడింది</string>
     <string name="verify_category_all">అన్నీ</string>
+    <string name="verify_detail_media_unavailable_send_back">ఈ వీడియో ప్లే కాదు, కాబట్టి దీన్ని ఆమోదించలేరు. బృందం మళ్లీ రికార్డ్ చేసేలా దీన్ని వెనక్కి పంపండి.</string>
+    <string name="verify_approve_dialog_title">ఈ రుజువును ఆమోదించాలా?</string>
+    <string name="verify_approve_dialog_subtitle">ఆమోదం తుది నిర్ణయం — తర్వాత వెనక్కి తీసుకోలేరు.</string>
+    <string name="verify_approve_dialog_confirm">ఆమోదం ఖరారు చేయండి</string>
+    <string name="verify_approve_dialog_cancel">రద్దు చేయండి</string>
+    <string name="verify_detail_group_accepted">ఈ షెడ్‌లోని అన్ని వీడియోలు ఆమోదించబడ్డాయి</string>
+    <string name="verify_filter_park_title">పార్క్</string>
+    <string name="verify_filter_shed_title">షెడ్</string>
+    <string name="verify_filter_change">మార్చండి</string>
+    <string name="verify_filter_search_hint">వెతకండి</string>
+    <string name="verify_filter_no_matches">సరిపోలికలు లేవు</string>
 </resources>
