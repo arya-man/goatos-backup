@@ -406,6 +406,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChanged()
                 .collect { item ->
+                    // Reset submitInFlight latch on terminal FAILED so the user can retry.
+                    // The latch was set true when the enqueue launched, but only reset on
+                    // synchronous enqueue Err — not when the outbox row later reaches FAILED.
+                    // Without this reset, button stays dead forever after terminal failure.
+                    if (item.status == SyncItemStatus.FAILED) {
+                        submitInFlight = false
+                    }
                     _state.update {
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
