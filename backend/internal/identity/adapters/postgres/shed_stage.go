@@ -109,9 +109,9 @@ SELECT COALESCE(g.management_stage, '') AS stage,
 			return nil, fmt.Errorf("identity: preview reclassify shed stage: scan: %w", err)
 		}
 		preview.TotalLive += bucket.Count
-		// Compared against the CANONICAL resolved stage, so a pen already tagged "non-pregnant"
-		// counts as unchanged when the target resolves to "Non-Pregnant" -- casing is not a change.
-		if bucket.ManagementStage == resolution.stage {
+		// Compared against the CANONICAL resolved tag and its band. age_band is part of the tag's
+		// durable meaning, so a stale same-stage/wrong-band row still changes.
+		if bucket.ManagementStage == resolution.stage && (resolution.ageBand == "" || bucket.AgeBand == resolution.ageBand) {
 			preview.Unchanged += bucket.Count
 		} else {
 			preview.Changing += bucket.Count
@@ -289,11 +289,12 @@ func (r *Repository) countReclassifyScope(ctx context.Context, tx pgx.Tx, cmd po
 // insertReclassifyIdentityEvents locks the pen's animals and mints one goat.stage_changed identity
 // event per animal WHOSE STAGE ACTUALLY CHANGES.
 //
-// The `IS DISTINCT FROM` predicate is the whole point: an animal already carrying the target tag is
-// left completely alone -- no event, no row_version bump -- so pressing the button twice does not
-// republish stage-change events that would make vaccination re-evaluate animals nothing happened
-// to. Rows are taken FOR UPDATE ordered by goat_id so two concurrent reclassifications of
-// overlapping pens acquire locks in a deterministic order and cannot deadlock.
+// The `IS DISTINCT FROM` predicate is the whole point: an animal already carrying the target tag and
+// the tag's kid/adult band is left completely alone -- no event, no row_version bump -- so pressing
+// the button twice does not republish stage-change events that would make vaccination re-evaluate
+// animals nothing happened to. A same-stage stale age_band still changes: age_band is durable
+// scheduling truth, not decoration. Rows are taken FOR UPDATE ordered by goat_id so two concurrent
+// reclassifications of overlapping pens acquire locks in a deterministic order and cannot deadlock.
 func (r *Repository) insertReclassifyIdentityEvents(
 	ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand,
 	resolution destinationStageResolution, partitionKey string,
@@ -302,7 +303,10 @@ func (r *Repository) insertReclassifyIdentityEvents(
 WITH targets AS (
     SELECT g.goat_id, COALESCE(g.management_stage, '') AS from_stage, g.park_id, g.shed_id
 `+reclassifyScopeSQL+`
-      AND COALESCE(g.management_stage, '') IS DISTINCT FROM $4::text
+      AND (
+        COALESCE(g.management_stage, '') IS DISTINCT FROM $4::text
+        OR ($11::text <> '' AND COALESCE(g.age_band, '') IS DISTINCT FROM $11::text)
+      )
     ORDER BY g.goat_id
     FOR UPDATE OF g
 )
@@ -337,6 +341,7 @@ RETURNING goat_id::text, identity_event_id::text`,
 		cmd.Reason,                // $8
 		reclassifyStageSource,     // $9
 		cmd.StoredIdempotencyKey,  // $10
+		resolution.ageBand,        // $11
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("identity: reclassify shed stage: record stage-change events: %w", err)
