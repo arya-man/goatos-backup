@@ -714,6 +714,7 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
         telemetry = outboxTelemetry,
     )
 

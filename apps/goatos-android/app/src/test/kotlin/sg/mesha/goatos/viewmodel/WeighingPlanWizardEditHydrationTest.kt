@@ -547,7 +547,12 @@ class WeighingPlanWizardEditHydrationTest {
             campaignId: String,
             campaignShedId: String,
             scannedIdentifiers: List<String>,
-        ): AppResult<Unit> = AppResult.Ok(Unit)
+        ): AppResult<String> = AppResult.Ok("fake-outbox-item-id")
+
+        override suspend fun findPendingSubmit(
+            campaignId: String,
+            campaignShedId: String,
+        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
 
         override suspend fun reopenScope(
             campaignId: String,

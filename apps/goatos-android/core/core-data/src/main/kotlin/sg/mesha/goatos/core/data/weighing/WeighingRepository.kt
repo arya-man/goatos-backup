@@ -737,11 +737,23 @@ interface WeighingRepository {
         serverProofIds: List<String> = emptyList(),
     )
     suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String)
+    /**
+     * Enqueues the shed SUBMIT transition durably via the outbox and returns the outbox item id
+     * (`AppResult.Ok` = "durably queued", NOT "server confirmed" — callers observe the returned id
+     * via [sg.mesha.goatos.core.data.sync.SyncRepository.observeItem] for the terminal outcome,
+     * exactly like every other outbox-backed submit in this app). A killed process no longer loses
+     * the attempt: the row survives in Room and the sync engine retries it independently of
+     * whether anything is still observing.
+     */
     suspend fun submitIndividualScope(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit>
+    ): AppResult<String>
+
+    /** Resolves the durable outbox row (if any) for the shed's current submit attempt, so a
+     *  recreated ViewModel can resume observing instead of losing the in-flight submit. */
+    suspend fun findPendingSubmit(campaignId: String, campaignShedId: String): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?>
     suspend fun reopenScope(
         campaignId: String,
         campaignShedId: String,
@@ -1986,9 +1998,10 @@ class DefaultWeighingRepository(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit> =
+    ): AppResult<String> =
         withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            val sync = syncRepository
+                ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
             try {
                 // The key names the ATTEMPT, not the shed's contents. It used to hash only
                 // (campaignId, campaignShedId, scannedIdentifiers), which is byte-identical
@@ -1997,21 +2010,38 @@ class DefaultWeighingRepository(
                 // and wrote nothing, while the phone navigated away as if it had worked. The
                 // operator's rework was silently lost -- the same failure the close/reopen
                 // epoch below exists to prevent. The epoch rotates only after the server
-                // confirms, so retrying an unknown outcome still deduplicates.
+                // confirms (now: only after the outbox row reaches SUCCEEDED, see
+                // SyncEngine.reconcileFeatureSuccess), so retrying an unknown outcome still
+                // deduplicates.
+                //
+                // Previously this made a direct, non-durable HTTP call: a killed process or a
+                // dropped connection mid-call lost the write entirely -- no retry, no record it
+                // was ever attempted, and the operator's confirm tap silently vanished. This now
+                // enqueues onto the SAME durable outbox every other weighing write already uses.
                 val scopeId = "$campaignId:$campaignShedId"
                 val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
-                service.submitWeighingScope(
-                    campaignId,
-                    campaignShedId,
-                    idempotencyKey,
-                    WeighingScopeSubmitRequestDto(scannedIdentifiers),
+                sync.enqueueWeighingScopeSubmit(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    groupKey = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeSubmitRequestDto(scannedIdentifiers),
                 )
-                advanceTransitionEpoch("submit", scopeId)
-                AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
             }
         }
+
+    override suspend fun findPendingSubmit(
+        campaignId: String,
+        campaignShedId: String,
+    ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = withContext(Dispatchers.IO) {
+        val sync = syncRepository
+            ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
+        val scopeId = "$campaignId:$campaignShedId"
+        val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
+        sync.findOutboxItemByIdempotencyKey(idempotencyKey)
+    }
 
     override suspend fun reopenScope(
         campaignId: String,

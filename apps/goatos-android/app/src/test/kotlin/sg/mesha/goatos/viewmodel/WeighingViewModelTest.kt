@@ -1518,6 +1518,157 @@ class WeighingViewModelTest {
         )
     }
 
+    // ---- weighing durable-state coverage (process-death simulation) -----------------------
+
+    @Test
+    fun `a lump-sum draft survives a simulated process death and reloads into the recreated VM`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        // The SAME SavedStateHandle instance is handed to two separately-constructed VMs -- how
+        // a killed-and-recreated process is simulated (see weighingViewModel's doc comment):
+        // production would restore this VM's SavedStateHandle from the Bundle the killed one last
+        // wrote to, and this instance IS that Bundle-backed map.
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "campaignId" to "campaign-1",
+                "workGroupId" to "group-1",
+                "campaignShedId" to "campaign-shed-1",
+                "weighingCategory" to "per_shed_partition",
+                "tenantId" to "tenant-1",
+                "expectedLocationId" to "shed-1",
+                "expectedLocationLabel" to "Shed 1",
+            ),
+        )
+        val firstVm = weighingViewModel(repository = repository, scoped = true, weighingCategory = "per_shed_partition", savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { firstVm.state.collect {} }
+        advanceUntilIdle()
+
+        firstVm.onWeightInputChange("42.5")
+        firstVm.onAnimalCountInputChange("7")
+        advanceUntilIdle()
+
+        // Process death: the ViewModel instance is gone, but the SavedStateHandle's Bundle
+        // survives (that is the whole point of SavedStateHandle). A NEW VM is built from it, the
+        // way Android reconstructs the destination after the process is killed and relaunched.
+        val recreatedVm = weighingViewModel(repository = repository, scoped = true, weighingCategory = "per_shed_partition", savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { recreatedVm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            "the lump-sum weight the operator had typed must reload after a simulated process death",
+            "42.5",
+            recreatedVm.state.value.weightInput,
+        )
+        assertEquals(
+            "the lump-sum animal count the operator had typed must reload after a simulated process death",
+            "7",
+            recreatedVm.state.value.animalCountInput,
+        )
+    }
+
+    @Test
+    fun `confirming submit after a simulated process death still enqueues the write, never a silent no-op`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val scans = FakeScanCaptureRepository()
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "campaignId" to "campaign-1",
+                "workGroupId" to "group-1",
+                "campaignShedId" to "campaign-shed-1",
+                "weighingCategory" to "individual_animal",
+                "tenantId" to "tenant-1",
+                "expectedLocationId" to "shed-1",
+                "expectedLocationLabel" to "Shed 1",
+            ),
+        )
+        val firstVm = weighingViewModel(repository = repository, scoped = true, scanCaptureRepository = scans, savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { firstVm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        // Arm the confirmation, then simulate the process dying BEFORE Confirm is tapped -- the
+        // exact gap the old nullable `submitPendingIdentifiers`/`submitPendingCallback` var pair
+        // could not survive.
+        var navigatedOnFirstVm = false
+        firstVm.submitIndividualScope { navigatedOnFirstVm = true }
+        advanceUntilIdle()
+        assertTrue(firstVm.state.value.showSubmitConfirmation)
+
+        // Process death: a brand-new VM instance, same restored SavedStateHandle, same durable
+        // Room-backed scope state (the fake mirrors that by construction). The recreated VM has
+        // NO memory of firstVm's in-memory navigation callback.
+        val recreatedVm = weighingViewModel(repository = repository, scoped = true, scanCaptureRepository = scans, savedStateHandleOverride = handle)
+        backgroundScope.launch(dispatcher) { recreatedVm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(
+            "the confirmation dialog must reopen on the recreated VM, not vanish silently",
+            recreatedVm.state.value.showSubmitConfirmation,
+        )
+
+        recreatedVm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertEquals(
+            "the write must still reach the repository even though the original navigation " +
+                "callback did not survive the simulated process death -- this is the exact bug " +
+                "the old nullable-field handoff produced (a silent no-op)",
+            listOf(TEST_TAG),
+            repository.submitIndividualScopeCalls.single(),
+        )
+        assertFalse("the original VM's callback is stale and must never fire", navigatedOnFirstVm)
+    }
+
+    @Test
+    fun `double-tapping confirm never enqueues the same submit twice`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val scans = FakeScanCaptureRepository()
+        val vm = weighingViewModel(repository = repository, scoped = true, scanCaptureRepository = scans)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+        assertTrue(vm.state.value.showSubmitConfirmation)
+
+        // Two rapid taps on Confirm, exactly like a double-tap on the button before the dialog has
+        // a chance to close. The FIRST call must close the gate synchronously (before suspending),
+        // so the SECOND call reads it already shut and returns without enqueuing again.
+        vm.confirmSubmitIndividualScope()
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertEquals(
+            "a double-tap on Confirm must enqueue exactly one submit, never two",
+            1,
+            repository.submitIndividualScopeCalls.size,
+        )
+    }
+
     @Test
     fun `visible weight and synced video pair can arm submit even when draft readiness lags`() = runTest(dispatcher) {
         val scans = FakeScanCaptureRepository()
@@ -1890,6 +2041,13 @@ class WeighingViewModelTest {
         // leaves it null in a unit test -- but the conflict watcher only STARTS when one is
         // supplied, so a test of that watcher has to hand one in.
         syncRepository: SyncRepository? = null,
+        // Reuses a caller-held SavedStateHandle instead of minting a fresh one -- how a process-
+        // death recreation is simulated: production Android would hand the RECREATED VM a
+        // SavedStateHandle restored from the SAME Bundle the killed one last wrote to, and a
+        // SavedStateHandle instance IS that restored map (it is what `savedStateHandle[key] = v`
+        // writes into and `savedStateHandle[key]` reads back). Constructing a second VM against
+        // the SAME instance exercises exactly that path without needing a real Activity/Bundle.
+        savedStateHandleOverride: SavedStateHandle? = null,
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
@@ -1903,7 +2061,7 @@ class WeighingViewModelTest {
             crashReporter = NoopCrashReporter(),
             repeatSeedStore = repeatSeedStore,
             exportFileWriter = FakeWeighingExportFileWriter(),
-            savedStateHandle = SavedStateHandle(
+            savedStateHandle = savedStateHandleOverride ?: SavedStateHandle(
                 if (scoped) {
                     mapOf(
                         "campaignId" to "campaign-1",
@@ -2489,18 +2647,24 @@ class WeighingViewModelTest {
         ) {}
 
         /** Submit calls this fake received, and how it should answer them -- default success, so
-         *  only a test asserting the failure path has to say otherwise. */
+         *  only a test asserting the failure path has to say otherwise. Ok now carries an outbox
+         *  item id (durable-queue semantics), not Unit -- see WeighingRepository.submitIndividualScope. */
         val submitIndividualScopeCalls = mutableListOf<List<String>>()
-        var submitIndividualScopeResult: AppResult<Unit> = AppResult.Ok(Unit)
+        var submitIndividualScopeResult: AppResult<String> = AppResult.Ok("fake-outbox-item-id")
 
         override suspend fun submitIndividualScope(
             campaignId: String,
             campaignShedId: String,
             scannedIdentifiers: List<String>,
-        ): AppResult<Unit> {
+        ): AppResult<String> {
             submitIndividualScopeCalls += scannedIdentifiers
             return submitIndividualScopeResult
         }
+
+        override suspend fun findPendingSubmit(
+            campaignId: String,
+            campaignShedId: String,
+        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
 
         override suspend fun reopenScope(
             campaignId: String,

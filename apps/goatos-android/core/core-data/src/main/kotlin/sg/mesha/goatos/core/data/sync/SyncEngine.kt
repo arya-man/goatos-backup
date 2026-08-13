@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.network.isTerminalAppApiError
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -96,6 +98,13 @@ class SyncEngine(
     private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    // Advances the SAME transition-epoch mechanism `WeighingRepository.transitionIdempotencyKey`
+    // reads, ONLY after a WEIGHING_SCOPE_SUBMIT row reaches SUCCEEDED here — mirroring the
+    // repository's own "called only after the server confirmed" contract for reopen/close, which
+    // stayed direct-HTTP and unmoved (see docs/decisions/weighing-rework-task-cards.md; the close
+    // gate itself is unconditional and out of scope for this change).
+    private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
+    private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
      * [OutboxTelemetryReporter.Noop] so every existing test/fake construction keeps compiling;
@@ -355,6 +364,7 @@ class SyncEngine(
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+        OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
     }
 
     private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
@@ -374,6 +384,17 @@ class SyncEngine(
                 weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
             OutboxOpType.WEIGHING_SHED_OBSERVATION ->
                 weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SCOPE_SUBMIT -> {
+                val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+                val scopeId = "submit:${payload.campaignId}:${payload.campaignShedId}"
+                // Only NOW -- the row is SUCCEEDED -- does the epoch rotate, exactly matching
+                // WeighingRepository.advanceTransitionEpoch's "called only after the server
+                // confirmed" contract it replaces. A failed/still-retrying row keeps sending the
+                // SAME key.
+                weighingTransitionEpochDao?.upsert(
+                    WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+                )
+            }
             else -> Unit
         }
     }
@@ -893,6 +914,18 @@ class SyncEngine(
         val payload = syncJson.decodeFromString<WeighingShedObservationPayload>(item.payloadJson)
         val response = api.recordWeighingShedObservation(payload.campaignId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
+    }
+
+    // The close gate is UNCONDITIONAL server-side (verification pending -> the submit itself is
+    // rejected, never bypassed by a client flag). Reusing the row's stable idempotencyKey verbatim
+    // on every attempt is what lets a server-committed-but-client-unrecorded retry dedupe instead
+    // of double-submitting; WeighingRepository advances its transition epoch only after this
+    // returns successfully (via reconcileFeatureSuccess below), so a failed/retried attempt keeps
+    // sending the SAME key until the server actually confirms it.
+    private suspend fun dispatchWeighingScopeSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+        api.submitWeighingScope(payload.campaignId, payload.campaignShedId, item.idempotencyKey, payload.request)
+        return "{}"
     }
 
     private companion object {
