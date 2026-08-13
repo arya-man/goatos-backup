@@ -239,6 +239,9 @@ func TestLiveTrackerParkScopeIsAppliedInsideTheMembership(t *testing.T) {
 	if !strings.Contains(liveTrackerVerificationSQL, "($3::text = '' OR vi.park_id::text = $3::text)") {
 		t.Error("the verification block must honour the same park scope as the rest of the page")
 	}
+	if !strings.Contains(liveTrackerVerificationSQL, "($5::text[] IS NULL OR vi.park_id::text = ANY($5::text[]))") {
+		t.Error("the verification block must carry the authorization park set, not only the selected park filter")
+	}
 }
 
 // TestLiveTrackerScopeHierarchyNormalisesPartitionsOnBothSides pins the partition-identity trap:
