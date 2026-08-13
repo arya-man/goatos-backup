@@ -124,3 +124,119 @@ func (h *Handler) GetItemReviewFacts(w nethttp.ResponseWriter, r *nethttp.Reques
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, itemReviewFactsResponse{Facts: entries, TraceID: traceID(r)})
 }
+
+type oversightAnalyticsResponse struct {
+	KPIs               oversightKPIsResponse          `json:"kpis"`
+	PendingAgeBuckets  pendingAgeBucketsResponse      `json:"pending_age_buckets"`
+	DailyVolumeLast14d []dailyVolumeResponse          `json:"daily_volume_last_14d"`
+	PendingByModule    []modulePendingBacklogResponse `json:"pending_by_module"`
+	VerifierActivity   []verifierActivityResponse     `json:"verifier_activity"`
+	TraceID            string                         `json:"trace_id"`
+}
+
+type pendingAgeBucketsResponse struct {
+	UpTo1Day         int `json:"up_to_1_day"`
+	OneToThreeDays   int `json:"one_to_three_days"`
+	ThreeToSevenDays int `json:"three_to_seven_days"`
+	OverSevenDays    int `json:"over_seven_days"`
+}
+
+type dailyVolumeResponse struct {
+	BusinessDate string `json:"business_date"`
+	Verdicts     int    `json:"verdicts"`
+	Arrived      int    `json:"arrived"`
+}
+
+type oversightKPIsResponse struct {
+	VideosWaiting                     int                     `json:"videos_waiting"`
+	OldestPendingAgeHours             *float64                `json:"oldest_pending_age_hours,omitempty"`
+	VerdictsPerActiveDayLast7d        float64                 `json:"verdicts_per_active_day_last_7d"`
+	EstDaysToClearBacklog             *float64                `json:"est_days_to_clear_backlog,omitempty"`
+	PerModuleMedianReviewLatencyHours []moduleLatencyResponse `json:"per_module_median_review_latency_hours"`
+	RejectRateLast30d                 *float64                `json:"reject_rate_last_30d,omitempty"`
+}
+
+type moduleLatencyResponse struct {
+	Module      string  `json:"module"`
+	ModuleLabel string  `json:"module_label,omitempty"`
+	MedianHours float64 `json:"median_hours"`
+}
+
+type modulePendingBacklogResponse struct {
+	Module      string `json:"module"`
+	ModuleLabel string `json:"module_label,omitempty"`
+	NavModule   string `json:"nav_module,omitempty"`
+	Count       int    `json:"count"`
+}
+
+type verifierActivityResponse struct {
+	VerifierID         string `json:"verifier_id"`
+	VerifierName       string `json:"verifier_name,omitempty"`
+	Verdicts           int    `json:"verdicts"`
+	Approved           int    `json:"approved"`
+	Rejected           int    `json:"rejected"`
+	BusiestDay         string `json:"busiest_day,omitempty"`
+	ItemsTracked       int    `json:"items_tracked"`
+	WatchedToEndCount  int    `json:"watched_to_end_count"`
+	VerdictWithoutPlay int    `json:"verdict_without_play_count"`
+}
+
+// GetOversightAnalytics serves the CEO/PC-Director-only aggregate analytics rendered above the
+// /verify queue table. Authorization is enforced entirely at the route-permission layer
+// (permissions.VerificationOversee on this route in routes.go) -- there is no in-handler role
+// check, matching every other route in this module.
+func (h *Handler) GetOversightAnalytics(w nethttp.ResponseWriter, r *nethttp.Request) {
+	result, err := h.service.OversightAnalytics(r.Context(), tenantID(r))
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	modules := make([]moduleLatencyResponse, len(result.KPIs.PerModuleMedianReviewLatencyHours))
+	for i, m := range result.KPIs.PerModuleMedianReviewLatencyHours {
+		modules[i] = moduleLatencyResponse{Module: m.Module, ModuleLabel: m.ModuleLabel, MedianHours: m.MedianHours}
+	}
+	backlog := make([]modulePendingBacklogResponse, len(result.PendingByModule))
+	for i, b := range result.PendingByModule {
+		backlog[i] = modulePendingBacklogResponse{Module: b.Module, ModuleLabel: b.ModuleLabel, NavModule: b.NavModule, Count: b.Count}
+	}
+	// Always a JSON ARRAY, never null: a sparkline renderer that has to special-case null for "no
+	// days" is one more place the empty state can be got wrong.
+	volume := make([]dailyVolumeResponse, len(result.DailyVolumeLast14d))
+	for i, d := range result.DailyVolumeLast14d {
+		volume[i] = dailyVolumeResponse{BusinessDate: d.BusinessDate, Verdicts: d.Verdicts, Arrived: d.Arrived}
+	}
+	activity := make([]verifierActivityResponse, len(result.VerifierActivity))
+	for i, a := range result.VerifierActivity {
+		activity[i] = verifierActivityResponse{
+			VerifierID:         a.VerifierID,
+			VerifierName:       a.VerifierName,
+			Verdicts:           a.Verdicts,
+			Approved:           a.Approved,
+			Rejected:           a.Rejected,
+			BusiestDay:         a.BusiestDay,
+			ItemsTracked:       a.ItemsTracked,
+			WatchedToEndCount:  a.WatchedToEndCount,
+			VerdictWithoutPlay: a.VerdictWithoutPlay,
+		}
+	}
+	httpresponse.WriteJSON(w, nethttp.StatusOK, oversightAnalyticsResponse{
+		KPIs: oversightKPIsResponse{
+			VideosWaiting:                     result.KPIs.VideosWaiting,
+			OldestPendingAgeHours:             result.KPIs.OldestPendingAgeHours,
+			VerdictsPerActiveDayLast7d:        result.KPIs.VerdictsPerActiveDayLast7d,
+			EstDaysToClearBacklog:             result.KPIs.EstDaysToClearBacklog,
+			PerModuleMedianReviewLatencyHours: modules,
+			RejectRateLast30d:                 result.KPIs.RejectRateLast30d,
+		},
+		PendingAgeBuckets: pendingAgeBucketsResponse{
+			UpTo1Day:         result.PendingAgeBuckets.UpTo1Day,
+			OneToThreeDays:   result.PendingAgeBuckets.OneToThreeDays,
+			ThreeToSevenDays: result.PendingAgeBuckets.ThreeToSevenDays,
+			OverSevenDays:    result.PendingAgeBuckets.OverSevenDays,
+		},
+		DailyVolumeLast14d: volume,
+		PendingByModule:    backlog,
+		VerifierActivity:   activity,
+		TraceID:            traceID(r),
+	})
+}

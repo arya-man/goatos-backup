@@ -553,6 +553,67 @@
   .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
   .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
   .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
+  /* Verification oversight (CEO/director analytics above the queue). The section is a real mock
+     `card` — `.hd` header rule + padded `.bd` — because the previous build dropped a bare title and
+     inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
+     edge with no breathing room. Spacing rhythm below is one scale: 18px between blocks, 10px
+     between a block heading and its content. */
+  /* The analytics drawer is wider than the record drawer (498px): it carries a KPI strip, a module
+     grid and a six-column table, and squeezing those into a record-sized panel is what made the
+     numbers unreadable in the first place. */
+  aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
+  .vr-analytics-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
+  .vr-analytics-btn .ic{width:16px;height:16px}
+  .vr-oversight{margin:0}
+  /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
+     viewport media query would keep five columns in a 900px panel. */
+  .vr-okpis{grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:11px;margin-bottom:18px}
+  .vr-okpis .kpi{padding:13px 15px}
+  /* Two of these five labels wrap to a second line ("Videos waiting for review", "Est. days to clear
+     backlog"), which pushed their numbers a line lower than the rest and broke the strip's baseline.
+     A two-line label box keeps every value on the same line without truncating any label. */
+  .vr-okpis .kpi{display:flex;flex-direction:column}
+  .vr-okpis .kpi .lab{font-size:11px;line-height:1.35;align-items:flex-start;min-height:2.7em}
+  .vr-okpis .kpi .val{font-size:23px;margin-top:4px}
+  .vr-okpis .kpi .dl{font-size:11px;margin-top:5px;line-height:1.35;font-weight:550}
+  .vr-osec+.vr-osec{margin-top:18px;padding-top:18px;border-top:1px solid var(--line2)}
+  .vr-osec-hd{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}
+  /* One ranked row per module: the widest bar is the bottleneck. A wrapping chip row of raw counts
+     (what this replaced) gave a number with nothing to compare it against. */
+  .vr-omods{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .vr-omod{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .vr-omod .t{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+  .vr-omod .t .n{font-size:12.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vr-omod .t b{margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .vr-omod .m{margin-top:8px;font-size:11px;color:var(--faint);font-weight:600}
+  /* A backlog row is a link to that module's queue. It must LOOK reachable before the pointer is on
+     it -- the "go" line is the affordance, the border/lift is the confirmation. */
+  a.vr-omod-link{display:block;color:inherit;text-decoration:none;position:relative}
+  a.vr-omod-link .go{display:block;margin-top:7px;font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--brand-d);opacity:.85}
+  a.vr-omod-link:hover{border-color:var(--brand);background:var(--panel)}
+  a.vr-omod-link:hover .go{opacity:1}
+  a.vr-omod-link:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  /* Backlog age shape: ONE stacked bar, youngest left, so the red tail's width is the share of the
+     backlog that has waited more than a week. */
+  .vr-agebar{display:flex;height:12px;border-radius:7px;overflow:hidden;background:var(--line2);margin-bottom:10px}
+  .vr-agebar>span{display:block;height:100%}
+  .vr-agelegend{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-agelegend>span{display:flex;align-items:center;gap:6px}
+  .vr-agelegend i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-agelegend b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-trendaxis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);font-weight:600;margin-top:2px}
+  .vr-trendfoot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .vr-trendfoot .k{display:flex;align-items:center;gap:6px}
+  .vr-trendfoot i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
+  .vr-trendfoot b{margin-left:auto;font-size:12px;color:var(--ink)}
+  .vr-trendfoot b.bad{color:var(--danger)}
+  .vr-trendfoot b.good{color:var(--ok)}
+  .vr-otable td.num{font-variant-numeric:tabular-nums;font-weight:650}
+  .vr-owatch{display:flex;flex-wrap:wrap;gap:6px}
+  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+  .vr-owatch span.bad b{color:var(--danger)}
   .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
   .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
   .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
@@ -566,6 +627,10 @@
   .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
+  /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
+     in verification-review-page.tsx). Applied only to a still-pending row's age span. */
+  .vr-age-amber{color:var(--amber);font-weight:650}
+  .vr-age-red{color:var(--danger);font-weight:650}
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
@@ -600,6 +665,18 @@
   .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
+  /* Subject cell: the queue's densest column. subject_label arrives as a "·"-joined string whose
+     segments mean different things per module (a shed part, a goat count, an RFID tag, a weight, a
+     feed session), so a single run-on line reads as noise. Split it: the operational location leads
+     in the row's own weight, the quantitative segments become typed chips (count / weight / tag),
+     and the operator trails as muted context. */
+  .vr-subj{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .vr-subj .t{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .vr-subj .chip{border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5}
+  .vr-subj .chip.count{background:var(--okx);color:var(--ok)}
+  .vr-subj .chip.kg{background:var(--infox);color:var(--info)}
+  .vr-subj .chip.tag{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
   .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
   .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
   .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
@@ -754,6 +831,17 @@
   .main table.feed-table{min-width:900px}
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
+  /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
+     addition rather than a ported element: the header keeps its exact resting typography and the
+     button is a bare inline trigger, so an unsorted table looks identical to the mock. The
+     indicator sits at the mock's muted tone until a sort is active, when it takes the brand colour
+     so the ordered column is obvious at a glance. */
+  .main th .thsort{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer}
+  .main th .thsort:hover{color:var(--brand-d)}
+  .main th .thsort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:3px}
+  .main th .thsort-ind{font-size:9px;line-height:1;opacity:.55}
+  .main th[aria-sort="ascending"] .thsort,.main th[aria-sort="descending"] .thsort{color:var(--brand-d)}
+  .main th[aria-sort="ascending"] .thsort-ind,.main th[aria-sort="descending"] .thsort-ind{opacity:1}
   /* Vaccination Command Board */
   .cbm-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
   .cbm-filter-note{font-size:11.5px;color:var(--warn)}
@@ -2272,3 +2360,143 @@ select:disabled { opacity: .45; }
 .wtable table.tbl td:first-child{padding-left:16px}
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
+
+/* ============================================================================
+   /vaccination/live-tracker — ported verbatim from
+   mock/vaccination-live-tracker-mock.html.
+   Every rule is scoped under `.lt-page` (or an `lt-` prefixed class) on purpose:
+   the mock reuses generic names — .feed, .frow, .legend, .num — that this
+   stylesheet already binds to OTHER screens, and letting them collide would
+   restyle the Feed board and the calendar legend as a side effect of shipping
+   this page.
+   ========================================================================== */
+.lt-page .lt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px;margin-bottom:14px}
+.lt-page .kpi.lt-kpi{border-left:3px solid var(--line);border-radius:10px;padding:11px 13px;overflow:visible}
+.lt-page .kpi.lt-kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px;font-variant-numeric:tabular-nums}
+.lt-page .kpi.lt-kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.lt-page .kpi.lt-kpi .dl{font-size:11px;color:var(--muted);margin-top:2px}
+.lt-page .kpi.k-ok{border-left-color:var(--ok)}.lt-page .kpi.k-ok .val{color:var(--ok)}
+.lt-page .kpi.k-warn{border-left-color:var(--warn)}.lt-page .kpi.k-warn .val{color:var(--warn)}
+.lt-page .kpi.k-info{border-left-color:var(--info)}.lt-page .kpi.k-info .val{color:var(--info)}
+.lt-page .kpi.k-purple{border-left-color:var(--purple)}.lt-page .kpi.k-purple .val{color:var(--purple)}
+.lt-page .kpi.k-dng{border-left-color:var(--danger)}.lt-page .kpi.k-dng .val{color:var(--danger)}
+/* The mock's tick is hidden by default and flashes only when a tile value actually bumps
+   (mock: `.kpi .tick{opacity:0}` / `.kpi .tick.on{opacity:1}`). A permanently visible tick
+   asserts liveness that is not being observed — including on a PAUSED board. */
+.lt-page .lt-tick{display:inline-block;margin-left:5px;font-size:10px;font-weight:700;color:var(--ok);opacity:0;transition:opacity .3s}
+.lt-page .lt-tick.on{opacity:1}
+@media (prefers-reduced-motion: reduce){.lt-page .lt-tick{transition:none}}
+
+.lt-page .lt-grid{display:grid;grid-template-columns:1fr 330px;gap:14px;align-items:start}
+@media(max-width:1080px){.lt-page .lt-grid{grid-template-columns:1fr}}
+.lt-page .lt-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.lt-page .card.lt-card{margin-top:0;overflow:hidden}
+.lt-page .card.lt-card .bd{padding:13px 15px}
+.lt-page .lt-tablewrap{padding:0;overflow-x:auto}
+.lt-page .lt-empty{display:flex;align-items:center;gap:12px;padding:18px 16px;flex-wrap:wrap}
+.lt-page .lt-emptynote{margin-bottom:14px}
+
+/* Page head: the mock's own top bar collapses into the page head, since brand,
+   park/date scope and theme are the app shell's job. */
+.lt-page .lt-phead{align-items:flex-start;flex-wrap:wrap;margin:4px 0 14px}
+.lt-page .lt-headactions{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.lt-page .lt-headbtns{display:flex;gap:8px;flex-wrap:wrap}
+.lt-page .lt-scopenote{flex-basis:100%;margin-top:4px}
+.lt-page .lt-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+.lt-page .lt-livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite}
+.lt-page .lt-livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
+.lt-page .lt-livebadge.paused .lt-livedot{background:var(--faint);animation:none}
+@keyframes lt-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
+.lt-page .lt-refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+.lt-page .lt-refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
+.lt-page .lt-intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+.lt-page .lt-intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+.lt-page .lt-intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
+.lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650}
+
+/* Persistent filter bar */
+.lt-page .lt-fbar{position:sticky;top:0;z-index:12;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+.lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+.lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
+.lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
+.lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
+.lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+.lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}
+
+/* Tables. Both dense boards pin every cell to a single line so a long shed or
+   operator name cannot silently re-wrap the row into two. */
+.lt-page table{width:100%;border-collapse:collapse}
+.lt-page thead th{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.lt-page tbody td{padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
+.lt-page th.num,.lt-page td.num{font-variant-numeric:tabular-nums;text-align:right}
+.lt-page table.lt-operator-table th,.lt-page table.lt-operator-table td,.lt-page table.lt-operator-table td .celllink,
+.lt-page table.lt-shed-table th,.lt-page table.lt-shed-table td,.lt-page table.lt-shed-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.lt-page table.lt-operator-table{min-width:960px}
+.lt-page table.lt-shed-table{min-width:940px}
+.lt-page table.lt-shed-table td:first-child{min-width:180px}
+.lt-page table.lt-operator-table td:first-child{min-width:190px}
+.lt-page tbody tr.lt-shed-row:hover{background:var(--bg)}
+
+.lt-page .lt-pbar{height:6px;background:var(--line2);border-radius:4px;overflow:hidden;min-width:90px;flex:1}
+.lt-page .lt-pbar i{display:block;height:100%;background:var(--brand);border-radius:4px;transition:width .6s ease}
+.lt-page .lt-pbar i.warn{background:var(--warn)}
+.lt-page .lt-pbar i.dng{background:var(--danger)}
+.lt-page .lt-pcell{display:flex;align-items:center;gap:9px}
+.lt-page .lt-pcell .pct{font-size:11px;font-weight:700;color:var(--muted);min-width:56px;text-align:right;font-variant-numeric:tabular-nums}
+
+.lt-page .lt-opname{display:flex;align-items:center;gap:9px;font-weight:650}
+.lt-page .lt-avx{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:10.5px;flex:none;background:var(--brand-soft);color:var(--brand-d);border:1px solid var(--line)}
+.lt-page .lt-code{display:block;margin-left:35px;font-size:10.5px}
+.lt-page .lt-shedlbl{font-weight:650}
+.lt-page .lt-shedlbl small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+.lt-page .lt-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
+.lt-page .lt-legend span{display:inline-flex;align-items:center;gap:5px}
+.lt-page .lt-swatch{width:9px;height:9px;border-radius:3px;font-style:normal;display:inline-block;padding:0}
+.lt-page .lt-swatch.t-ok{background:var(--ok)}
+.lt-page .lt-swatch.t-live{background:var(--brand)}
+.lt-page .lt-swatch.t-warn{background:var(--warn)}
+.lt-page .lt-swatch.t-dng{background:var(--danger)}
+.lt-page .lt-swatch.t-mut{background:var(--line)}
+
+/* `t-live` is this page's own tone: a pulsing dot inside the pill, which is how
+   the mock distinguishes "happening right now" from a static ok/warn state. */
+.lt-page .tag.t-live{display:inline-flex;align-items:center;gap:5px;background:var(--dangerx);color:var(--danger);border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+.lt-page .tag.t-live i{width:6px;height:6px;border-radius:50%;background:var(--danger);animation:lt-lp 1.4s ease-in-out infinite;font-style:normal;display:inline-block}
+
+.lt-page .lt-combo-chip{display:inline-flex;align-items:center;gap:4px;background:var(--purplex);color:var(--purple);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:800}
+.lt-page .lt-comborow{display:grid;grid-template-columns:auto 1fr auto minmax(0,1.4fr);gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line2);font-size:12.5px}
+.lt-page .lt-comborow:last-child{border-bottom:0}
+.lt-page .lt-comborow-head{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.lt-page .lt-dosecell{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.lt-page .lt-goatid{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--ink);text-decoration:none;display:inline-block}
+.lt-page .lt-goatid:hover{border-color:var(--brand);color:var(--brand-d)}
+
+/* Live activity feed */
+.lt-page .lt-feed{max-height:560px;overflow:auto;padding:4px 0}
+.lt-page .lt-frow{display:flex;align-items:flex-start;gap:10px;padding:9px 15px;border-bottom:1px solid var(--line2)}
+.lt-page .lt-frow:last-child{border-bottom:0}
+.lt-page .lt-fdot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:none;background:var(--brand)}
+.lt-page .lt-fdot.f-ok{background:var(--brand)}
+.lt-page .lt-fdot.f-warn{background:var(--amber,var(--warn))}
+.lt-page .lt-fdot.f-info{background:var(--info)}
+.lt-page .lt-fdot.f-pur{background:var(--purple)}
+.lt-page .lt-fdot.f-dng{background:var(--danger)}
+.lt-page .lt-fdot.f-mut{background:var(--faint)}
+.lt-page .lt-ftx{flex:1;min-width:0;font-size:12.5px}
+.lt-page .lt-ftx b{font-weight:680}
+.lt-page .lt-fmeta{color:var(--muted);font-size:11px;margin-top:1px;overflow-wrap:anywhere}
+.lt-page .lt-ftime{color:var(--faint);font-size:11px;white-space:nowrap;flex:none;font-variant-numeric:tabular-nums}
+
+/* A disabled stand-in must LOOK disabled. `cursor:not-allowed` alone left the three unbacked
+   attention chips at full enabled appearance, with the reason reachable only by hover — invisible
+   on touch. 0.45 is the opacity every other disabled stand-in in this codebase uses. */
+.lt-page [aria-disabled="true"]{cursor:not-allowed}
+.lt-page .chip[aria-disabled="true"],.lt-page span.btn[aria-disabled="true"]{opacity:.45}
+/* Truncation and other "why is this incomplete" notes: they exist to be read, not hovered. */
+.lt-page .lt-truncnote{display:block;margin-top:8px;font-size:11.5px;line-height:1.5;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){
+  .lt-page .lt-livedot,.lt-page .tag.t-live i{animation:none}
+  .lt-page .lt-pbar i{transition:none}
+}

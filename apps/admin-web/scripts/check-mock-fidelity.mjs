@@ -17,6 +17,7 @@ const SCAN_PATHS = [
   "features/process-integrity",
   "features/preventive-care-vaccination",
   "features/vaccination-execution",
+  "features/vaccination-live-tracker",
   "features/procurement",
   "features/config",
   "features/goat-passport",

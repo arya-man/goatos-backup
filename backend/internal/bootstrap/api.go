@@ -566,6 +566,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
+	// The vendor register shares procurement's postgres repository (it owns procurement_vendors)
+	// but has its own thin service: a contact book has no state machine to orchestrate.
+	procurementVendorHandler := procurementhttp.NewVendorHandler(
+		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -984,6 +988,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	operationsaudithttp.Register(protectedMux, operationsAuditHandler)
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)
+	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)

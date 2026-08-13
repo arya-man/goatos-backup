@@ -3,7 +3,7 @@ import { Filter, Users } from "lucide-react";
 
 import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
 import { dash } from "@/lib/format";
-import { control, controlEnabled, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getCountsBreakdown,
@@ -20,10 +20,10 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import { CountsBreakdownTable } from "./counts-breakdown-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 import { ShedStageDrawer, type PenOption, type StageOption } from "./shed-stage-drawer";
 import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
-import { operationalLocationLabel } from "@/lib/operational-location";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -134,6 +134,9 @@ export async function CountsBreakdownPage({
   const emptyChartLabel = copy(pageContract, "chart.empty");
   const animalsNoun = copy(pageContract, "label.animals_noun");
 
+  // The compiled table contract drives the whole table: column keys, labels, visibility and which
+  // headers are sortable. `cols` remains only for the footer's colSpan.
+  const breakdownTable = table(pageContract, "detail-breakdown");
   const cols = tableLabels(pageContract, "detail-breakdown");
 
   // True when the herd carries no recorded stage at all (every animal blank), which makes both
@@ -372,62 +375,40 @@ export async function CountsBreakdownPage({
           role="group"
           aria-label={copy(pageContract, "section.breakdown.aria")}
         >
-          <table className="counts-breakdown-table" aria-label={copy(pageContract, "table.breakdown.aria")}>
-            <thead>
-              <tr>
-                {cols.map((col, index) => (
-                  <th key={col} style={index === cols.length - 1 ? { textAlign: "right" } : undefined}>
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {breakdownResult.ok
-                        ? hasFilter
-                          ? copy(pageContract, "empty.breakdown_filtered")
-                          : copy(pageContract, "empty.breakdown")
-                        : copy(pageContract, "state.breakdown_unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr
-                    key={`${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.partition_label ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`}
-                  >
-                    <td className="muted">{row.park_label || noParkLabel}</td>
-                    <td>{row.management_stage || noStageLabel}</td>
-                    <td>{row.breed || noBreedLabel}</td>
-                    <td>{row.sex}</td>
-                    <td className="muted">
-                      {row.operational_location_display ||
-                        operationalLocationLabel({
-                          shedName: row.shed_label,
-                          partitionLabel: row.partition_label,
-                        }) ||
-                        noShedLabel}
-                    </td>
-                    <td style={{ textAlign: "right", fontWeight: 700, color: "var(--brand-d)" }}>{row.count}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {breakdown ? (
-              <tfoot>
+          {/* Headless table: TanStack owns the column model and the page-local sort; the markup
+              stays the mock's plain table. Column keys, labels and which headers carry a sort
+              affordance all come from the compiled contract, so this page declares no local
+              column list. */}
+          <CountsBreakdownTable
+            contract={breakdownTable}
+            rows={rows}
+            ariaLabel={copy(pageContract, "table.breakdown.aria")}
+            noParkLabel={noParkLabel}
+            noStageLabel={noStageLabel}
+            noBreedLabel={noBreedLabel}
+            noShedLabel={noShedLabel}
+            empty={
+              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                {breakdownResult.ok
+                  ? hasFilter
+                    ? copy(pageContract, "empty.breakdown_filtered")
+                    : copy(pageContract, "empty.breakdown")
+                  : copy(pageContract, "state.breakdown_unavailable")}
+              </div>
+            }
+            footer={
+              breakdown ? (
                 <tr>
                   <th colSpan={cols.length - 1}>{copy(pageContract, "table.breakdown.total_row")}</th>
                   {/* Read from the response: this is the sum across ALL matching rows, not the
-                      page. Recomputing it from `rows` would silently report the page subtotal. */}
+                      page. Recomputing it from `rows` would silently report the page subtotal —
+                      and reordering the page cannot touch it, because it is not derived from
+                      the rows at all. */}
                   <th style={{ textAlign: "right", color: "var(--brand-d)" }}>{breakdown.total_count}</th>
                 </tr>
-              </tfoot>
-            ) : null}
-          </table>
+              ) : undefined
+            }
+          />
         </div>
         <VaccinationTablePager
           pageContract={pageContract}

@@ -101,3 +101,19 @@ type ItemReviewFacts struct {
 	TimeToVerdictSeconds *float64
 	WatchedFull          bool // WatchFraction >= the configured threshold (see adapters/postgres/review_events.go WatchedFullThreshold).
 }
+
+// ItemWatchState is the LIGHTWEIGHT per-item watch summary shown on the queue table's "Watch"
+// column (never per-actor, unlike ItemReviewFacts above, which is deliberately kept off the hot
+// list path -- see EvidenceAvailabilityChecker's doc comment on why per-row telemetry stats do not
+// belong on a page read). It is a single max(video_position_ms)/max(video_duration_ms) aggregate
+// per item_id, not the interval-merge integrity computation ItemReviewFacts does for the verdict
+// detail view -- that is deliberately too expensive to run per row on a 20-row page.
+type ItemWatchState struct {
+	ItemID string
+	// Opened is true when at least one item_opened event exists for this item -- "not opened" in
+	// the UI when false and no play/duration facts exist either.
+	Opened bool
+	// PercentWatched is nil when no proof duration was ever reported (telemetry absent or the
+	// verifier never played the video), 0-100 clamped when a duration is known.
+	PercentWatched *int
+}

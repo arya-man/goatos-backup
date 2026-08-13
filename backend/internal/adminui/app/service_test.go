@@ -233,6 +233,75 @@ func TestActionsPageContractAndNavigation(t *testing.T) {
 	}
 }
 
+// TestVerifyPageOversightFiltersControlIsCapabilityGated pins the fix for the STG incident where
+// the CEO's oversight filters (module chips, capture-date range) on /verify rendered for every
+// role, including RoleVerifier. The renderer gates on the "oversight_filters" control, which must
+// be enabled for CEO/CxO and directors who hold permissions.VerificationOversee and disabled for
+// RoleVerifier. See docs/decisions/role-scoped-ui-is-capability-gated.md.
+func TestVerifyPageOversightFiltersControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"pc_director", permissions.RolePCDirector, true},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"verifier", permissions.RoleVerifier, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "verification-review").Controls, "oversight_filters")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s oversight_filters.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled oversight_filters control must carry a backend disabled reason", tc.name)
+			}
+		})
+	}
+}
+
+// TestVerifyPageOversightAnalyticsControlIsCapabilityGated pins the same capability gate
+// (permissions.VerificationOversee) for the /verify oversight analytics section as
+// TestVerifyPageOversightFiltersControlIsCapabilityGated pins for the filter chrome: CEO/directors
+// who hold VerificationOversee get "oversight_analytics" enabled, the verifier does not.
+func TestVerifyPageOversightAnalyticsControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"pc_director", permissions.RolePCDirector, true},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"verifier", permissions.RoleVerifier, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "verification-review").Controls, "oversight_analytics")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled oversight_analytics control must carry a backend disabled reason", tc.name)
+			}
+		})
+	}
+}
+
 func TestCalendarOptionGroupsCoverProjectionStates(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
 
@@ -323,6 +392,16 @@ func TestShedExecutionBootstrapPublishesAnimalRowActionCopy(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "shed-execution")
 	if got := page.Copy["action.open_passport"]; got != "Open Animal Passport" {
 		t.Fatalf("shed-execution action.open_passport copy = %q", got)
+	}
+	foundDriveRows := false
+	for _, table := range page.Tables {
+		if table.ID == "shed-drive-rows" {
+			foundDriveRows = true
+			break
+		}
+	}
+	if !foundDriveRows {
+		t.Fatal("shed-execution missing shed-drive-rows table contract")
 	}
 }
 

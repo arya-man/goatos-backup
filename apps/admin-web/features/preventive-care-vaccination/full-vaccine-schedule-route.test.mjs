@@ -84,7 +84,7 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
 test("vaccination schedule opens the local drawer from operator-day rows", () => {
   assert.match(source, /LocalOverlayLink/);
   assert.match(source, /ScheduleLocalDrawer/);
-  assert.match(source, /drawerRows\(operatorDayRows, pageContract, scope\)/);
+  assert.match(source, /drawerRows\(operatorDayRows, pageContract, scope, closeHref\)/);
   assert.match(source, /#schedule_event=/);
   assert.equal(source.includes("VaccineChipOverflow"), false);
 });
@@ -92,8 +92,10 @@ test("vaccination schedule opens the local drawer from operator-day rows", () =>
 test("vaccination schedule drawer shed rows deep-link to the execution goat list", () => {
   assert.match(source, /id:\s*row\.shedId/);
   assert.match(source, /const href = shed\.id/);
-  assert.match(source, /scopeHref\(`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
+  assert.match(source, /scopeHref\(\s*`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
   assert.match(source, /park:\s*row\.parkId/);
+  assert.match(source, /partition_label:\s*partition/);
+  assert.match(source, /ret/);
 });
 
 test("vaccination schedule renders one visible row per operator day", () => {
@@ -124,6 +126,30 @@ test("vaccination schedule keeps workload bars animal-based on backend assignmen
   assert.match(css, /\.schedule-load-seg\.tone-danger/);
   assert.match(css, /\.schedule-load-seg\.tone-warn/);
   assert.match(css, /\.schedule-load-seg\.tone-done/);
+});
+
+test("vaccination shed summary row keys include the full rendered summary grain", () => {
+  assert.match(shedBoardSource, /const partitionAwareKey = \[/);
+  for (const token of [
+    "row.parkId",
+    "row.shedId",
+    "row.partitionLabel",
+    "row.nextDue",
+    "row.status",
+    "row.capacity",
+    "row.animals",
+    "row.due",
+    "row.done",
+    "row.sessions",
+    "rowIndex",
+  ]) {
+    assert.match(shedBoardSource, new RegExp(token.replaceAll(".", "\\.")));
+  }
+  assert.doesNotMatch(
+    shedBoardSource,
+    /const partitionAwareKey = `\$\{row\.shedId\}\|\$\{row\.partitionLabel/,
+    "shed + partition is not unique when the backend returns multiple summary rows for one shed",
+  );
 });
 
 test("vaccination schedule move date uses an overlay and themed dark date picker", () => {

@@ -104,6 +104,17 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
 	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
+	if !params.OversightFiltersEnabled {
+		// The oversight-only query shape: a cross-module NavigationModule filter and a
+		// multi-day BusinessDateFrom/BusinessDateTo range. A caller without
+		// permissions.VerificationOversee is IGNORED here, not 403'd -- a hand-edited or stale
+		// URL (e.g. a bookmark saved while the caller held the capability, or shared by a
+		// principal who does) must fall back to that caller's normal one-business-day queue
+		// rather than take the whole board down. See ports.ListQueueParams.OversightFiltersEnabled.
+		params.NavigationModule = ""
+		params.BusinessDateFrom = ""
+		params.BusinessDateTo = ""
+	}
 	if err := s.applyNavigationModuleFilter(&params); err != nil {
 		return QueueResult{}, err
 	}
@@ -205,7 +216,15 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		options.Sheds = []domain.LocationFilterOption{}
 	}
 	options.ActionTypes = s.actionTypeOptions()
-	options.Modules = s.moduleOptions()
+	if params.OversightFiltersEnabled {
+		// The module-chip row is data-driven (verification-review-page.tsx renders it only when
+		// it has more than one option): leaving Modules empty for a non-oversight caller removes
+		// the chip row along with the query capability that backed it, with no frontend
+		// role/permission branch required. See VerificationOversee's doc comment.
+		options.Modules = s.moduleOptions()
+	} else {
+		options.Modules = []domain.QueueModuleOption{}
+	}
 	// The page chips are scoped by the SELECTED category, which for a verifier does not arrive in
 	// params.Category: the handler resolves her authorization into params.Categories and blanks
 	// Category (so the repository filters on the authorized set). Reading Category alone therefore
@@ -922,4 +941,59 @@ func (s *Service) MarkVerdictApplied(
 func isAlreadyDecided(err error) bool {
 	decided := &ports.AlreadyDecidedError{}
 	return errors.As(err, &decided)
+}
+
+// OversightAnalytics returns the CEO/PC-Director oversight aggregate. The permission check
+// (verification.oversee) is enforced at the HTTP layer via the route permission table, matching
+// every other endpoint in this module -- the service trusts its caller, same as ListQueue.
+func (s *Service) OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return domain.OversightAnalytics{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	result, err := s.repo.OversightAnalytics(ctx, tenantID)
+	if err != nil {
+		return domain.OversightAnalytics{}, err
+	}
+	// Resolve the display label for every module code the aggregate carries. The repo groups by
+	// verification_items.module (the SOURCE module code, "feed"); the registry is the only thing that
+	// knows that module is called "Feed" on screen, and a client cannot map it -- its own module
+	// vocabulary is keyed by NavigationModule ("feed_direction"), so a renderer joining on the code
+	// silently misses and falls back to printing "feed". One map built once, then a lookup per row --
+	// never a per-row registry scan.
+	nav := s.sourceModuleNavigation()
+	for i := range result.KPIs.PerModuleMedianReviewLatencyHours {
+		row := &result.KPIs.PerModuleMedianReviewLatencyHours[i]
+		row.ModuleLabel = nav[row.Module].label
+	}
+	for i := range result.PendingByModule {
+		row := &result.PendingByModule[i]
+		row.ModuleLabel = nav[row.Module].label
+		row.NavModule = nav[row.Module].navModule
+	}
+	return result, nil
+}
+
+type moduleNavigation struct {
+	label     string
+	navModule string
+}
+
+// sourceModuleNavigation maps a registry SOURCE module code (CategoryDefinition.Module, the value
+// stored on verification_items.module) to its display label and to the queue's own module-filter key
+// (NavigationModule). The two are NOT the same string -- "feed" is stored on the item, the filter
+// takes "feed_direction" -- which is exactly why a client cannot derive either one for itself.
+func (s *Service) sourceModuleNavigation() map[string]moduleNavigation {
+	out := make(map[string]moduleNavigation)
+	for _, def := range s.registry.List() {
+		module := strings.TrimSpace(def.Module)
+		label := strings.TrimSpace(def.NavigationModuleLabel)
+		if module == "" || label == "" {
+			continue
+		}
+		if _, exists := out[module]; !exists {
+			out[module] = moduleNavigation{label: label, navModule: strings.TrimSpace(def.NavigationModule)}
+		}
+	}
+	return out
 }

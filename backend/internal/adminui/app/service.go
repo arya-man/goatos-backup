@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -118,11 +119,15 @@ func navigation() domain.NavigationContract {
 				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true, BadgeKey: "pc_open_work",
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
+					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
 				},
 			},
 			{
 				ID: "procurement", Label: "Procurement", Icon: "truck", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil)},
+				Leaves: []domain.NavigationItem{
+					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
+					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
+				},
 			},
 			{
 				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
@@ -233,9 +238,13 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/approvals", Label: "Approvals", Match: "exact"},
 		{Pattern: "/verify", Label: "Verify", Match: "exact"},
 		{Pattern: "/vaccination/execution/sheds/{shed_id}", Label: "Vaccination execution", Match: "pattern"},
+		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
+		// crumb resolves to the parent label.
+		{Pattern: "/vaccination/live-tracker", Label: "Live Drive Tracker", Match: "exact"},
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
+		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
@@ -366,7 +375,10 @@ func pages() []domain.PageContract {
 			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
 			// which is the config-token-as-UI-copy leak the label rules exist to stop, and it was
 			// redundant besides: action_type already names the same module in human words.
-			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
+			// in_queue/reviewed/review_took/watch are visible to EVERYONE who can open /verify
+			// (verifier + CEO/director oversight alike) -- unlike oversight_analytics above, table
+			// enrichment is not capability-gated: it is queue-row detail, not cross-module chrome.
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "in_queue", "reviewed", "review_took", "status", "reason", "watch"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -375,14 +387,39 @@ func pages() []domain.PageContract {
 				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "sheds", "partitions", "animals", "capacity"}, "schedule_row"),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
 			}),
+		// Live drive-day tracker. Sibling of /vaccination, not a child of it: it answers a different
+		// question (what is landing RIGHT NOW, per operator and per shed) at administration grain,
+		// where /vaccination answers current status at animal grain.
+		page("vaccination-live-tracker", "/vaccination/live-tracker", "/vaccination/live-tracker", "Live Drive Tracker",
+			"Field proof arriving in real time — videos, scan captures and per-animal submissions per operator and per shed.",
+			"module-surface", []domain.TableContract{
+				table("live-operators", "Operators — live", "/vaccination/live-tracker",
+					// `closed` sits beside `videos` on purpose: videos is a PHYSICAL upload count and closed
+					// is the obligation-grain figure remaining is derived from. Collapsing them into one
+					// column is what let a finished combo-day operator read as half done.
+					[]string{"operator", "park", "now_at", "scheduled", "videos", "scans", "closed", "remaining", "progress", "status"}, "lt_operator"),
+				tableP("live-sheds", "Sheds — proof progress", "/vaccination/live-tracker",
+					[]string{"shed", "vaccine", "operator", "scheduled", "received", "closed", "remaining", "progress", "last_proof", "status"}, "lt_shed", []int{25, 50, 100}),
+				table("live-combo", "Combo doses", "/vaccination/live-tracker",
+					[]string{"animal", "shed", "proof", "doses"}, "goat_id"),
+			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination shed detail", "Shed-wise vaccination detail: planned sessions, per-vaccine breakdown, and the shed's animal roster.", "record-drilldown",
 			[]domain.TableContract{
 				table("planned-sessions", "Planned sessions", "/vaccination/sheds/{shed_id}", []string{"session_date", "vaccinations", "daily_limit", "capacity"}, "session"),
 				table("shed-vaccines", "Vaccine breakdown", "/vaccination/sheds/{shed_id}", []string{"vaccine", "status", "last_dose", "next_due", "counts"}, "vaccine"),
 				table("shed-animals", "Animals in shed", "/vaccination/sheds/{shed_id}/animals", []string{"display_id", "tag_1", "tag_2", "breed", "sex", "age", "lifecycle", "health", "last_vaccination_date", "next_vaccination_date", "vaccination_work"}, "goat_id"),
+				table("shed-drive-rows", "Drive rows", "/vaccination/execution/sheds/{shed_id}", []string{"animal_stage", "drive", "due_date", "work_state", "proof_status", "next_action"}, "drive_row"),
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
 			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
+		// The procurement VENDOR REGISTER. One table, whole-filter total, keyset paging.
+		//
+		// Columns are the ones a person scanning the register actually needs: who they are, what
+		// they supply, whether we are buying, and where they are. Banking is NOT a column -- it is
+		// drawer detail behind VendorFinanceRead, because a table that renders account numbers puts
+		// them on screen in every shoulder-surfing context the register is used in.
+		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
+			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
 			[]domain.TableContract{
 				table("load-goats", "Animals in load", "/procurement/source-entry/loads/{load_id}/goats", []string{"animal_ids", "selection", "current_stage", "source_entry", "ownership", "health", "warmup", "downstream"}, "load_goat"),
@@ -396,7 +433,13 @@ func pages() []domain.PageContract {
 		page("herd-register", "/counts/herd", "/counts/herd", "Herd Register", "Counts entry point for goat registration/import and vaccination trigger proof.", "module-surface",
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
-			[]domain.TableContract{tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50})}),
+			[]domain.TableContract{sortable(
+				// Every dimension sorts, including the count. Ordering applies to the PAGE the
+				// operator is looking at, not to the whole filtered result — the pager states
+				// the window, and the tfoot total stays the backend's whole-result figure.
+				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
+				"farm", "stage", "breed", "gender", "shed", "count",
+			)}),
 		// Weighing — the admin-web oversight read-out.
 		//
 		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
@@ -451,7 +494,14 @@ func pages() []domain.PageContract {
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
 				// requires park_id and filters on it, and they share ONE Park filter on the page — so
 				// a park column would print the same value on every row of those sections.
-				tableP("ration-grid", "Ration grid", "/feed-config/ration-rates", []string{"ration_group", "shed_tag", "feed_item", "grams_per_head", "valid_from", "valid_to"}, "ration_rate_id", []int{10, 25, 50}),
+				// valid_from/valid_to are deliberately NOT sortable: the two columns are rendered as
+				// ONE merged effective-window cell (in-force vs superseded, plus the dates), so a
+				// sort affordance on either header would point at a value the cell does not show
+				// on its own.
+				sortable(
+					tableP("ration-grid", "Ration grid", "/feed-config/ration-rates", []string{"ration_group", "shed_tag", "feed_item", "grams_per_head", "valid_from", "valid_to"}, "ration_rate_id", []int{10, 25, 50}),
+					"ration_group", "shed_tag", "feed_item", "grams_per_head",
+				),
 				// The feed-item CATALOG: the tenant's feed vocabulary, and the only table on this
 				// page that is NOT park-scoped — feed_item_catalog is keyed (tenant, item), so both
 				// parks author quantities against one list. Its park-freedom is therefore a
@@ -574,6 +624,30 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
 	t := table(id, title, source, cols, rowParam)
 	t.PageSizeOptions = pageSizes
+	return t
+}
+
+// sortable marks the named columns as sortable in the compiled contract.
+//
+// Sort semantics are backend-owned like every other table label: the renderer draws a sort
+// affordance only where the contract declares one, so a column the operator must NOT reorder --
+// a composite cell, or a value whose order would read as business truth the page cannot back --
+// stays inert without a frontend conditional. Naming a key the table does not declare panics at
+// compile time rather than silently rendering nothing.
+func sortable(t domain.TableContract, keys ...string) domain.TableContract {
+	for _, key := range keys {
+		found := false
+		for i := range t.Columns {
+			if t.Columns[i].Key == key {
+				t.Columns[i].Sortable = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("adminui: table %q has no column %q to mark sortable", t.ID, key))
+		}
+	}
 	return t
 }
 
@@ -1154,6 +1228,52 @@ func pageSpecificCopy(id string) map[string]string {
 			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
 			"action.disabled_no_authority": "Acting on the source task is limited to the park head, director, or CEO.",
 			"verdict.note":                 "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
+			// CEO/PC-Director oversight analytics section copy (permissions.VerificationOversee,
+			// same capability as the oversight_analytics/oversight_filters controls). Language is
+			// CEO-plain by design: "videos waiting for review", not internal jargon.
+			"oversight_analytics.title":                   "Verification oversight",
+			"oversight_analytics.hint":                    "Every module and park in the current scope",
+			"oversight_analytics.open":                    "Analytics",
+			"oversight_analytics.close":                   "Close analytics",
+			"oversight_analytics.unavailable":             "Oversight analytics are unavailable right now.",
+			"oversight_analytics.videos_waiting":          "Videos waiting for review",
+			"oversight_analytics.oldest_pending":          "Oldest video still unreviewed",
+			"oversight_analytics.review_speed":            "Verdicts per active day",
+			"oversight_analytics.est_days_to_clear":       "Est. days to clear backlog",
+			"oversight_analytics.reject_rate":             "Reject rate (30d)",
+			"oversight_analytics.module_latency":          "Median review time by module",
+			"oversight_analytics.pending_by_module":       "Where the backlog sits",
+			"oversight_analytics.largest_backlog":         "is the biggest share",
+			"oversight_analytics.oldest_hint":             "Longest any video has waited",
+			"oversight_analytics.speed_hint":              "Averaged over days with verdicts",
+			"oversight_analytics.clear_hint":              "At the current review pace",
+			"oversight_analytics.reject_hint":             "A rejected video needs a re-shoot",
+			"oversight_analytics.median_review":           "median review",
+			"oversight_analytics.no_median":               "No review time recorded yet",
+			"oversight_analytics.no_backlog":              "No videos are waiting for review.",
+			"oversight_analytics.verifier_activity":       "Verifier activity (last 14 days)",
+			"oversight_analytics.age_shape":               "How long they have been waiting",
+			"oversight_analytics.age.up_to_1_day":         "Under a day",
+			"oversight_analytics.age.one_to_three_days":   "1-3 days",
+			"oversight_analytics.age.three_to_seven_days": "3-7 days",
+			"oversight_analytics.age.over_seven_days":     "Over a week",
+			"oversight_analytics.trend":                   "Reviewed vs arrived, last 14 days",
+			"oversight_analytics.trend.verdicts_noun":     "reviewed",
+			"oversight_analytics.trend.arrived_noun":      "arrived",
+			"oversight_analytics.trend.empty":             "No videos arrived or were reviewed in the last 14 days.",
+			"oversight_analytics.trend.grew":              "Backlog grew by",
+			"oversight_analytics.trend.shrank":            "Backlog shrank by",
+			"oversight_analytics.trend.flat":              "Backlog unchanged",
+			"oversight_analytics.open_module_queue":       "Open this queue",
+			"oversight_analytics.col.verifier":            "Verifier",
+			"oversight_analytics.col.verdicts":            "Verdicts",
+			"oversight_analytics.col.approved":            "Approved",
+			"oversight_analytics.col.rejected":            "Rejected",
+			"oversight_analytics.col.busiest_day":         "Busiest day",
+			"oversight_analytics.col.watch_integrity":     "Watch integrity",
+			"oversight_analytics.tracked":                 "tracked",
+			"oversight_analytics.watched_full":            "watched in full",
+			"oversight_analytics.no_play":                 "decided without playing",
 		}
 	case "calendar":
 		return map[string]string{
@@ -1334,6 +1454,146 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.linked":                       "Linked",
 			"label.placeholder":                  "—",
 			"label.more":                         "more",
+		}
+	case "vaccination-live-tracker":
+		// Every visible string on /vaccination/live-tracker originates here. The page renders no
+		// English literal of its own, so a missing key throws at render rather than shipping a blank
+		// cell — that is deliberate.
+		return map[string]string{
+			"crumb":                                 "Preventive Care (PC) · Vaccination",
+			"page.heading_prefix":                   "Drive Day",
+			"chip.parks_running_one":                "park running",
+			"chip.parks_running_many":               "parks running",
+			"chip.parks_active_one":                 "park active",
+			"chip.parks_active_many":                "parks active",
+			"action.full_schedule":                  "Full Schedule",
+			"action.command_board":                  "Command Board",
+			"action.open_verify":                    "Open Verify →",
+			"action.all_combo_animals":              "All combo animals →",
+			"action.reset_filters":                  "Clear all filters",
+			"action.retry":                          "Retry",
+			"kpi.scheduled.label":                   "Scheduled today",
+			"kpi.scheduled.detail":                  "administrations",
+			"kpi.proofs.label":                      "Proofs received",
+			"kpi.proofs.detail":                     "administrations proofed",
+			"kpi.scans.label":                       "RFID confirmed",
+			"kpi.scans.detail":                      "administrations with a scan",
+			"kpi.remaining.label":                   "Remaining",
+			"kpi.remaining.detail":                  "administrations not yet closed",
+			"kpi.remaining.awaiting_prefix":         "proofed, awaiting close",
+			"kpi.combo.label":                       "Combo animals",
+			"kpi.combo.detail":                      "1 proof → 2 obligations",
+			"kpi.attention.label":                   "Attention",
+			"kpi.attention.detail":                  "extra attempts · idle operator",
+			"kpi.live_tick":                         "▲ live",
+			"kpi.cross_filter_disabled":             "Tile cross-filtering is not wired. Use the filter bar above to narrow every section at once.",
+			"kpi.truncated_note":                    "This drive day exceeds the tracker's per-read row budget. The totals above are still exact — they are aggregated over the whole day, not over the visible rows — but the tables below list only part of it. Narrow by park, shed or vaccine to see every row.",
+			"live.badge_live":                       "LIVE",
+			"live.badge_paused":                     "PAUSED",
+			"live.toggle_title":                     "Click to pause or resume live updates",
+			"live.updated_prefix":                   "Updated",
+			"live.updated_suffix":                   "IST",
+			"live.interval_label":                   "Refresh interval",
+			"live.stale_prefix":                     "Live updates paused — data shown as of",
+			"live.stale_suffix":                     "IST. Click LIVE to resume.",
+			"live.newest_first":                     "newest first",
+			"live.feed_rate_suffix":                 "/min",
+			"live.feed_rate_unavailable":            "rate pending",
+			"live.feed_aria":                        "Live vaccination activity",
+			"filter.apply_note":                     "Park, vaccine, operator and shed narrow the tiles, both tables, the combo card and the live feed. The Verification queue carries no vaccine or operator column, so it follows park and shed only. Status narrows the tiles, both tables and Attention; the combo card and the feed always show the whole drive day.",
+			"filter.unlisted_selection":             "current filter — no drive work on this day",
+			"filter.truncated_note":                 "The filter lists are capped server-side and this drive day exceeds one of them, so some options are not offered.",
+			"filter.all_parks":                      "All parks",
+			"filter.all_vaccines":                   "All vaccines",
+			"filter.all_operators":                  "All operators",
+			"filter.all_sheds":                      "All sheds",
+			"filter.all_statuses":                   "All statuses",
+			"filter.park_label":                     "Park",
+			"filter.vaccine_label":                  "Vaccine",
+			"filter.operator_label":                 "Operator",
+			"filter.shed_label":                     "Shed",
+			"filter.status_label":                   "Status",
+			"filter.clear_all":                      "clear all",
+			"filter.remove_one":                     "Remove filter",
+			"section.operators.title":               "Operators — live",
+			"section.operators.count_suffix_one":    "operator",
+			"section.operators.count_suffix":        "operators",
+			"section.operators.park_suffix_one":     "park",
+			"section.operators.park_suffix":         "parks",
+			"section.operators.drilldown_note":      "Shed drill-down opens from the Sheds table below",
+			"section.operators.empty_title":         "No operator has drive work on this day",
+			"section.operators.empty_body":          "Operator rows appear once the day's vaccination drive assignments exist for a shed in scope.",
+			"section.operators.filtered_title":      "No operator matches these filters",
+			"section.operators.filtered_body":       "Clear a filter to see the other operators on this drive day.",
+			"section.operators.unavailable":         "Operator display code is not seeded in this environment.",
+			"section.operators.truncated_note":      "Operator rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
+			"section.operators.unassigned_note":     "administrations on this drive day resolved to no operator assignment. They are counted in the tiles and listed under Sheds below, but they have no operator to be attributed to and appear in no row here.",
+			"section.operators.now_at_prefix":       "last activity",
+			"section.operators.idle_prefix":         "idle",
+			"section.operators.idle_suffix":         "min",
+			"section.sheds.title":                   "Sheds — proof progress",
+			"section.sheds.empty_title":             "No shed has drive work on this day",
+			"section.sheds.empty_body":              "Shed rows appear once the day's obligations resolve to a shed and partition in scope.",
+			"section.sheds.filtered_title":          "No shed matches these filters",
+			"section.sheds.filtered_body":           "Clear a filter to see the other sheds on this drive day.",
+			"section.sheds.truncated_note":          "Shed rows are capped server-side, so this table sums lower than the tiles above. When the rollup itself is capped the tiles say so in their own note.",
+			"section.combo.title":                   "Combo doses — one proof, two obligations",
+			"section.combo.count_suffix_one":        "animal today",
+			"section.combo.count_suffix":            "animals today",
+			"section.combo.note":                    "When a shed gets a combo day, each animal receives 2 administrations in one handling. The operator scans once and uploads one video proof per animal, so that proof stands as evidence for both obligations — but an obligation is only closed when its own record reaches completed, which is what Remaining counts. Tiles above are at administration grain: a combo animal contributes 2 to Scheduled and 2 to Proofs received when its single proof lands. Animals and administrations are never mixed in one number.",
+			"section.combo.empty_title":             "No combo animal on this drive day",
+			"section.combo.empty_body":              "A row appears when one animal carries two or more distinct vaccination obligations on the same day.",
+			"section.combo.all_listed":              "Every combo animal on this drive day is already listed.",
+			"section.combo.truncated_reason":        "Only the first 200 combo animals are listed. A full combo-animal list is not built on this surface yet, so this control cannot open one.",
+			"section.combo.header_animal":           "Animal",
+			"section.combo.header_shed":             "Shed",
+			"section.combo.header_proof":            "Proof",
+			"section.combo.header_doses":            "Doses",
+			"section.activity.title":                "Live activity",
+			"section.activity.empty_title":          "No field activity yet on this drive day",
+			"section.activity.empty_body":           "Rows appear as video proofs land, RFID scans are captured, and obligations are closed.",
+			"section.activity.truncated_note":       "Newest events only — older activity on this drive day is not shown here.",
+			"section.attention.title":               "Attention",
+			"section.attention.empty":               "Nothing needs attention on this drive day.",
+			"section.attention.truncated_note":      "Attention rows are capped server-side; the count above is the full total.",
+			"section.attention.elapsed_suffix":      "min idle",
+			"section.attention.nudge":               "Nudge dispatch is not recorded against drive operators.",
+			"section.attention.escalation":          "An idle-escalation deadline is not configured for drive operators.",
+			"section.attention.pace":                "Shed close time is not configured, so a finish estimate cannot be computed.",
+			"section.attention.nudge_label":         "Nudge — not recorded",
+			"section.attention.escalate_label":      "Escalation — not configured",
+			"section.attention.pace_label":          "Finish estimate — not configured",
+			"section.verification.title":            "Verification queue",
+			"section.verification.badge":            "post-drive",
+			"section.verification.awaiting":         "Awaiting verifier review (all dates)",
+			"section.verification.verified":         "Verified today",
+			"section.verification.rework":           "Rework requested",
+			"section.verification.sheds_suffix_one": "shed",
+			"section.verification.sheds_suffix":     "sheds",
+			"drawer.passport.aria":                  "Goat Passport",
+			"drawer.passport.close_label":           "Close Goat Passport",
+			"drawer.passport.tag_1":                 "Tag 1",
+			"drawer.passport.tag_2":                 "Tag 2",
+			"drawer.passport.shed":                  "Shed",
+			"drawer.passport.next_due":              "Next due",
+			"drawer.passport.no_upcoming":           "No upcoming dose",
+			"drawer.passport.open_obligations":      "Open obligations",
+			"drawer.passport.col_due":               "Due",
+			"drawer.passport.col_dose":              "Dose",
+			"drawer.passport.col_status":            "Status",
+			"drawer.passport.more_suffix":           "more not shown",
+			"drawer.passport.empty_open":            "No open vaccination obligation for this animal.",
+			"drawer.passport.unavailable_prefix":    "Vaccination passport is unavailable",
+			"drawer.passport.full_history":          "Full change history",
+			"label.park_scope_note":                 "Park scope also follows the top bar.",
+			"label.as_of_note":                      "The top bar's as-of date does not move this page. This is a live DRIVE DAY board, reconstructed from the day's own canonical rows; it is showing the drive day named in the heading.",
+			"legend.label":                          "Legend",
+			"state.error_title":                     "Live drive tracker is unavailable",
+			"state.error_body":                      "The vaccination live tracker service did not return data. Resolve the error below, then reload.",
+			"state.empty_title":                     "No vaccination drive work on this day",
+			"state.empty_body":                      "Every section is shown at zero. Rows appear once the day's obligations, drive assignments and field evidence exist.",
+			"state.empty_filtered_title":            "No vaccination drive work matches the current scope and filters",
+			"state.empty_filtered_body":             "This is not a statement about the whole drive day — a park, shed, vaccine, operator or status narrowing is active. Clear it to see the rest of the day.",
 		}
 	case "vaccination":
 		return map[string]string{
@@ -1882,6 +2142,100 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.confirm_reject":          "Confirm reject",
 			"action.rejecting":               "Rejecting...",
 			"action.cancel":                  "Cancel",
+		}
+	case "vendors":
+		// Backend-owned copy for the register. The client renders these verbatim; per the golden
+		// rule it must not hardcode a label, an empty state or a disabled reason of its own.
+		return map[string]string{
+			"crumb":                     "Procurement",
+			"section.vendors.title":     "Vendors",
+			"section.vendors.aria":      "Procurement vendor register",
+			"section.vendors.row_hint":  "click a row to see full details",
+			"filter.search_label":       "Search vendors",
+			"filter.search_placeholder": "Business, contact, phone or city",
+			"filter.record_type":        "Record type",
+			"filter.status":             "Status",
+			"filter.state":              "State",
+			"filter.city":               "City",
+			"filter.breed":              "Breed",
+			"filter.all":                "All",
+			"filter.clear":              "Clear filters",
+			"filter.apply":              "Apply filters",
+			"filter.applying":           "Applying...",
+			// Shown on hover when Apply is disabled: the control must say WHY it cannot be pressed
+			// rather than looking broken.
+			"filter.apply.nothing_staged": "Change a filter to apply it.",
+			"column.business_name":        "Vendor",
+			"column.record_type":          "Type",
+			"column.phone_number":         "Phone",
+			"column.location_display":     "Location",
+			"column.status":               "Status",
+			"action.add":                  "Add vendor",
+			"action.edit":                 "Edit details",
+			"action.save_status":          "Update status",
+			// Write-feedback copy. actionFeedbackCopy resolves the action_key straight through copy(),
+			// which THROWS on a missing key and takes the whole page down with it -- so every key an
+			// action can redirect with must exist here.
+			"action.vendor_created":        "Vendor added.",
+			"action.vendor_updated":        "Vendor updated.",
+			"action.vendor_status_changed": "Vendor status updated.",
+			"action.vendor_save_failed":    "Could not save this vendor. Check the fields and try again.",
+			"action.vendor_status_failed":  "Could not update this vendor's status. Reload and try again.",
+			// withActionFeedback substitutes this key when an action passes one without the "action."
+			// prefix, so it must resolve rather than crash the page.
+			"action.error_form":         "Could not complete that action.",
+			"action.save":               "Save",
+			"action.saving":             "Saving...",
+			"action.cancel":             "Cancel",
+			"action.close":              "Close",
+			"action.next_page":          "Next",
+			"action.prev_page":          "Back",
+			"pager.page":                "Page",
+			"pager.of":                  "of",
+			"drawer.detail.title":       "Vendor details",
+			"drawer.add.title":          "Add vendor",
+			"drawer.edit.title":         "Edit vendor",
+			"group.identity":            "Identity",
+			"group.commercial":          "Commercial",
+			"group.location":            "Location",
+			"group.payment":             "Payment details",
+			"group.notes":               "Notes",
+			"field.business_name":       "Business name",
+			"field.contact_person_name": "Contact person",
+			"field.phone_number":        "Phone number",
+			"field.record_type":         "Record type",
+			"field.breed":               "Breed",
+			"field.feed":                "Feed",
+			"field.status":              "Status",
+			"field.filtered_stock":      "Filtered stock",
+			"field.price_per_goat":      "Price per goat",
+			"field.ready_to_filtered":   "Ready to filtered",
+			"field.eta_after_order":     "ETA after order (days)",
+			"field.details":             "Details",
+			"field.state":               "State",
+			"field.city":                "City",
+			"field.bank_name":           "Bank name",
+			"field.account_no":          "Account number",
+			"field.ifsc_code":           "IFSC code",
+			"field.upi_id":              "UPI ID",
+			"field.pan_number":          "PAN number",
+			"field.comments":            "Comments",
+			"value.none":                "Not recorded",
+			// Shown in place of the payment block for a caller without the finance permission, so a
+			// withheld value never reads as "this vendor has no bank details".
+			"payment.hidden":      "Payment details are hidden for your role.",
+			"payment.none":        "No payment details recorded.",
+			"empty.vendors":       "No vendors match these filters.",
+			"empty.vendors.unset": "No vendors yet. Add the first one to start the register.",
+			"summary.count":       "vendors",
+			"error.load":          "Could not load the vendor register. Refresh to try again.",
+			"error.save":          "Could not save this vendor.",
+			"required.hint":       "Business name, record type, state and status are required.",
+			// A NEW vendor is held to the same bar as the Slack intake questionnaire. Rows imported
+			// without a contact person, phone or city stay editable, so the two hints differ on
+			// purpose -- see domain.VendorWrite.ValidateForCreate.
+			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
+			"disabled.write":       "Your current role can view vendors but not change them.",
 		}
 	case "source-entry":
 		return map[string]string{
@@ -2852,23 +3206,30 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.feed_items.noun":      "feed item",
 			"label.feed_item_name":       "Feed item name",
 			"label.feed_item_name_note":  "The name that appears on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
-			// Retiring a feed item. Worded as REMOVE-and-RESTORE rather than as a status toggle,
-			// because that is what it does to the farm: a retired item leaves every feed sheet issued
-			// from that point. The consequence line is mandatory copy, not decoration — this control
-			// changes what animals eat, and its authored rates vanish from the grid at the same time.
-			// Deliberately terse: this control sits INLINE beside the status chip in a table cell, and
-			// the chip already supplies the subject ("In feeding" / "Not fed"). The full consequence
-			// — that it leaves every feed sheet and its rates disappear from the grid — is on hover
-			// and again on the confirm step, which is where a reader needs it.
-			"action.retire_feed_item":         "Remove",
-			"action.restore_feed_item":        "Restore",
+			// Changing a feed item's status. Worded as ACTIVE / INACTIVE (maintainer decision
+			// 2026-08-13), replacing the earlier "In feeding" / "Not fed" chip and its
+			// "Remove" / "Restore" controls. The old wording read as a deletion, which this has
+			// never been: an inactive item keeps every authored rate, shed factor and experiment
+			// cell exactly as it was, and reactivating returns them without re-entering anything.
+			// "Remove" beside a Restore button invited the opposite reading.
+			//
+			// The consequence line stays mandatory copy, not decoration — the wording changed, the
+			// effect did not. This control changes what animals eat from the next issued sheet, and
+			// its authored rates leave the ration grid at the same moment. Deliberately terse on the
+			// button itself: it sits INLINE beside the status chip in a table cell, so the full
+			// consequence rides on hover and again on the confirm step, where a reader needs it.
+			//
+			// Display copy only. STORAGE vocabulary is still `active` / `retired` — the chip resolves
+			// through these keys rather than printing row.status precisely so the two can differ.
+			"action.retire_feed_item":         "Deactivate",
+			"action.restore_feed_item":        "Activate",
 			"action.feed_item_status_changed": "Saved. What is fed has changed — check the next Feed Direction for every park.",
-			"reason.retire_feed_item":         "Removes this item from every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so putting the item back restores them without re-entering anything.",
+			"reason.retire_feed_item":         "Takes this item off every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so reactivating the item restores them without re-entering anything.",
 			"reason.restore_feed_item":        "Puts this item back into feeding. Its authored rates return to the ration grid above exactly as they were.",
-			"label.feed_item_active":          "In feeding",
+			"label.feed_item_active":          "Active",
 			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
-			"label.feed_item_retired":         "Not fed",
-			"label.feed_item_retired_note":    "This item has been removed from feeding. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so putting it back restores them.",
+			"label.feed_item_retired":         "Inactive",
+			"label.feed_item_retired_note":    "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
 			"label.energy_kcal_per_kg":        "Energy (kcal/kg)",
 			"label.dry_matter_factor":         "Dry matter factor",
 			"label.wastage_factor":            "Wastage factor",
@@ -3974,6 +4335,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				option("close", "Completion posted", "dose consumed · booster scheduled if due", "ok"),
 			},
 		}}), processIntegrityOptionGroups()...)
+	case "vaccination-live-tracker":
+		return withGenericOptionGroups(liveTrackerOptionGroups())
 	case "vaccination":
 		return append(withGenericOptionGroups([]domain.OptionGroup{
 			shedStatusOptionGroup(),
@@ -4870,6 +5233,97 @@ func genericOptionGroups() []domain.OptionGroup {
 
 func withGenericOptionGroups(groups []domain.OptionGroup) []domain.OptionGroup {
 	return append(genericOptionGroups(), groups...)
+}
+
+// liveTrackerOptionGroups is the /vaccination/live-tracker vocabulary.
+//
+// Every one of these is a CLOSED set defined by this read model's own state machine (an operator is
+// exactly one of four states; a shed exactly one of five; an activity row exactly one of six kinds),
+// so declaring them here freezes nothing that live tenant data could extend. Parks, sheds, operators
+// and vaccines are deliberately absent: those are live rows and arrive in the response's own
+// filter_options, which is how an option that matches zero administrations becomes impossible to
+// offer.
+func liveTrackerOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "live_refresh_interval",
+			Options: []domain.Option{
+				option("10", "10s", "Refresh every 10 seconds", ""),
+				option("30", "30s", "Refresh every 30 seconds", ""),
+				option("60", "1m", "Refresh every minute", ""),
+			},
+		},
+		{
+			ID: "live_operator_state",
+			Options: []domain.Option{
+				option("active", "active now", "producing proof or scans right now", "live"),
+				option("done", "done", "every assigned administration is closed", "ok"),
+				option("not_started", "not started", "no proof and no scan yet today", "dng"),
+				option("idle", "idle", "no activity for over 90 minutes with work remaining", "dng"),
+			},
+		},
+		{
+			// The mock's legend declares four shed states but its rows render five. `review` is the
+			// fifth — a shed that finished but re-scanned animals along the way — and it is declared
+			// here so the legend and the rows finally agree.
+			ID: "live_shed_state",
+			Options: []domain.Option{
+				option("receiving", "receiving", "proof landing at a normal rate", "live"),
+				option("slow", "slow start", "under a quarter done well into the drive", "warn"),
+				option("review", "extra attempts", "finished, but animals were re-scanned — flagged for the verifier", "warn"),
+				option("done", "done", "every administration closed, no extra attempts", "ok"),
+				option("not_started", "not started", "no proof received yet", "dng"),
+			},
+		},
+		{
+			ID: "live_proof_state",
+			Options: []domain.Option{
+				option("video", "1 video", "one completed video proof for this animal today", "ok"),
+				option("uploading", "uploading…", "a proof upload is in flight", "warn"),
+				option("none", "—", "no proof yet", "mut"),
+			},
+		},
+		{
+			ID: "live_dose_state",
+			Options: []domain.Option{
+				option("closed", "closed", "obligation completed", "ok"),
+				option("verification_pending", "awaiting close", "a proof landed for this animal today; this obligation is not closed yet", "warn"),
+				option("awaiting_proof", "awaiting proof", "in progress, proof not yet landed", "mut"),
+				option("scheduled", "scheduled", "not started yet", "mut"),
+			},
+		},
+		{
+			ID: "live_activity_kind",
+			Options: []domain.Option{
+				option("proof_video", "video proof landed", "", "ok"),
+				option("scan_capture", "scan capture", "", "info"),
+				option("scan_duplicate", "duplicate scan attempt", "", "warn"),
+				option("scan_unknown", "unrecognised scan attempt", "", "warn"),
+				option("administration", "dose recorded", "", "pur"),
+				// obligation_status_events is per-ANIMAL closure. Calling it "shed submitted" named a
+				// shed-level action on an animal-grain count; a real shed submission lives in
+				// sop_submissions and is not read by this feed at all.
+				option("obligation_closed", "obligation closed", "", "info"),
+			},
+		},
+		{
+			ID: "live_attention_kind",
+			Options: []domain.Option{
+				option("extra_attempts", "extra attempts", "same animals re-scanned; duplicates ignored, flagged for verifier note", "warn"),
+				option("idle_operator", "idle operator", "no field activity for over 90 minutes with work remaining", "dng"),
+				option("slow_shed", "slow shed", "well under a quarter done this far into the drive", "warn"),
+			},
+		},
+		{
+			ID: "live_status_filter",
+			Options: []domain.Option{
+				option("active", "Active now", "", "live"),
+				option("done", "Done", "", "ok"),
+				option("pending", "Not started", "", "dng"),
+				option("review", "Needs review", "", "warn"),
+			},
+		},
+	}
 }
 
 // countsBreakdownOptionGroups holds only the option group whose vocabulary is a fixed schema

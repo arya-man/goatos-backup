@@ -89,6 +89,18 @@ type ListQueueParams struct {
 	// For verifier queue reads, do not clamp BusinessDate to today — return the full pending
 	// backlog ordered oldest-first with the existing keyset cursor.
 	IsVerifierQueueRead bool
+	// OversightFiltersEnabled reports whether the caller holds permissions.VerificationOversee --
+	// the CROSS-MODULE oversight capability (module chips, capture-date range) documented on that
+	// constant and in docs/decisions/role-scoped-ui-is-capability-gated.md. The handler sets this
+	// from the caller's grants, never from a role string. When false, the app layer:
+	//   - ignores NavigationModule and the BusinessDateFrom/BusinessDateTo range (ONE business day
+	//     is all a working verifier's own queue ever needed before these filters existed);
+	//   - leaves QueueFilterOptions.Modules empty, so the module-chip row (data-driven: it renders
+	//     only when it has more than one option) disappears along with the query capability that
+	//     backed it.
+	// This is the DATA gate; oversight_filters in the /verify page contract is the matching UI
+	// gate. Both must hold for the same rule -- the gate guards data, not pixels.
+	OversightFiltersEnabled bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -142,6 +154,10 @@ type Repository interface {
 	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
 	// so the verdict's submission and its application are different moments).
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+	// OversightAnalytics computes the CEO/PC-Director oversight aggregate (KPI strip, pending
+	// backlog by module, per-verifier last-14-day activity). Bounded, tenant-scoped aggregate SQL
+	// only -- see domain.OversightAnalytics's doc comment.
+	OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error)
 }
 
 // ReviewEventRepository is the video-review-analytics ingest + read boundary
@@ -156,6 +172,11 @@ type ReviewEventRepository interface {
 	// ItemReviewFacts computes the derived per-actor watch/timing facts for one item from its raw
 	// event stream (bounded by that item's event count; see adapters/postgres/review_events.go for the computation).
 	ItemReviewFacts(ctx context.Context, tenantID, itemID string) ([]domain.ItemReviewFacts, error)
+	// WatchStates batch-resolves the lightweight per-item "Watch" column aggregate for a bounded
+	// set of item_ids (the current queue page, never the whole table) in ONE query. See
+	// domain.ItemWatchState and adapters/postgres/review_events.go's WatchStates doc comment for
+	// the query shape and why it deliberately stays cheaper than ItemReviewFacts.
+	WatchStates(ctx context.Context, tenantID string, itemIDs []string) (map[string]domain.ItemWatchState, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage
