@@ -100,6 +100,7 @@ class WorkflowDetailViewModel @Inject constructor(
             is WorkflowDetailEvent.Complete -> complete(event.actionId)
             is WorkflowDetailEvent.RecordVideo -> captureAndComplete(event.actionId)
             WorkflowDetailEvent.SubmitDeath -> submitDeath()
+            WorkflowDetailEvent.NavigationHandled -> _state.update { it.copy(returnToList = false) }
             is WorkflowDetailEvent.OpenPromote -> analytics.track(AnalyticsEvents.COUNTS_RFID_PROMOTE_OPENED)
             WorkflowDetailEvent.Back -> Unit // navigation — handled by the nav host.
         }
@@ -134,7 +135,16 @@ class WorkflowDetailViewModel @Inject constructor(
                         repo.clearVideoDrafts(workflowId)
                         repo.refreshDetail(workflowId, lens, lensDate)
                         _state.update {
-                            it.copy(message = "Submitted. Both videos are saved to the backend.", isErrorMessage = false)
+                            it.copy(
+                                message = SUBMITTED_MESSAGE,
+                                isErrorMessage = false,
+                                // Both videos are server-confirmed and the death now waits on an
+                                // approver, so return the operator to the Death list and carry the
+                                // acknowledgement there. A still-uploading or failed submit keeps
+                                // its banner on this screen.
+                                returnToList = true,
+                                submissionNotice = SUBMITTED_MESSAGE,
+                            )
                         }
                     }
                 }
@@ -671,6 +681,7 @@ class WorkflowDetailViewModel @Inject constructor(
         private const val ANSWER_NO_VALUE = "no"
         private const val ANSWER_NO_LABEL = "No"
 
+        private const val SUBMITTED_MESSAGE = "Submitted. Both videos are saved to the backend."
         private const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         private const val VIDEO_QUEUED_MESSAGE =
             "Video saved on this phone. It will upload and submit automatically."

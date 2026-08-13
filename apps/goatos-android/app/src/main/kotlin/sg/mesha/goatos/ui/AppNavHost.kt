@@ -346,6 +346,7 @@ object Routes {
     const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
     const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
+    const val COUNTS_DEATH_SUBMISSION_NOTICE = "counts.death.submissionNotice"
 
     // The L1 execute destination for one approved movement from Shifting Actions. A
     // distinct hosted destination with Up/Back and no root chrome (Android navigation-stack
@@ -2058,10 +2059,16 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.COUNTS_DEATH) {
+        composable(Routes.COUNTS_DEATH) { backStackEntry ->
             val vm: DeathWorkflowListViewModel = hiltViewModel()
+            // Consumed on re-entry (Shifting's pattern): the acknowledgement is transient, so it is
+            // removed as it is read and does not reappear every time this list is reopened.
+            val returnedSubmissionNotice = remember(backStackEntry) {
+                backStackEntry.savedStateHandle.remove<String>(Routes.COUNTS_DEATH_SUBMISSION_NOTICE)
+            }
             WorkflowListDestination(
                 vm = vm,
+                submissionNotice = returnedSubmissionNotice,
                 onOpenCard = { workflowId ->
                     navController.navigate(Routes.deathWorkflowRoute(workflowId)) { launchSingleTop = true }
                 },
@@ -2131,6 +2138,18 @@ fun AppNavHost(
                             ) { launchSingleTop = true }
                         }
                         else -> vm.onEvent(event)
+                    }
+                }
+                // Death only (the VM raises this flag nowhere else): both videos are server-confirmed,
+                // so pop back to the Death list and hand it the acknowledgement.
+                LaunchedEffect(state.returnToList) {
+                    if (state.returnToList) {
+                        navController.previousBackStackEntry?.savedStateHandle?.set(
+                            Routes.COUNTS_DEATH_SUBMISSION_NOTICE,
+                            state.submissionNotice ?: "Submitted.",
+                        )
+                        vm.onEvent(WorkflowDetailEvent.NavigationHandled)
+                        navController.popBackStack()
                     }
                 }
                 CaptureAccessGate {
@@ -2259,6 +2278,18 @@ fun AppNavHost(
                 when (event) {
                     ShiftingExecuteEvent.Back -> navController.popBackStack()
                     else -> vm.onEvent(event)
+                }
+            }
+            // Server-confirmed completion pops back to the Actions queue and hands it the
+            // confirmation, instead of leaving the operator on a finished form reading a banner.
+            LaunchedEffect(state.returnToActions) {
+                if (state.returnToActions) {
+                    navController.previousBackStackEntry?.savedStateHandle?.set(
+                        Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE,
+                        state.submissionNotice ?: "Completion recorded.",
+                    )
+                    vm.onEvent(ShiftingExecuteEvent.NavigationHandled)
+                    navController.popBackStack()
                 }
             }
             // Bind the live camera only while this screen is composed (operator capture role gated),

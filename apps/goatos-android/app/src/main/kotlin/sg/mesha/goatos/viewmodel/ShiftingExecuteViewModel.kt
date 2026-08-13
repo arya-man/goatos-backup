@@ -118,6 +118,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             ShiftingExecuteEvent.ReRecordFeedGivenVideo -> reRecord(STEP_FEEDING, ProofCapturePrompt.SHIFTING_FEED_GIVEN)
             ShiftingExecuteEvent.MarkDone -> markDone()
             ShiftingExecuteEvent.Back -> Unit // navigation — handled by the nav host.
+            ShiftingExecuteEvent.NavigationHandled -> _state.update { it.copy(returnToActions = false) }
         }
     }
 
@@ -394,6 +395,10 @@ class ShiftingExecuteViewModel @Inject constructor(
                         // The movement is done: its draft has nothing left to protect, so the
                         // table keeps only work still in progress.
                         drafts.clear(CaptureFlow.SHIFTING, shiftingEventId)
+                        // Nothing is left to do on this movement, so return the operator to the
+                        // Actions queue and carry the confirmation there — same shape as the raise
+                        // form. A queued (offline) or failed write keeps its banner on this screen.
+                        _state.update { it.copy(returnToActions = true, submissionNotice = SYNCED_MESSAGE) }
                     }
                 }
         }
