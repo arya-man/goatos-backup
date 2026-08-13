@@ -2055,6 +2055,243 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `captureReplacingLatest removes only the old row after successful capture`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            // taskId must be the actual identity that'll be used in capture()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = this,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,  // Use the full groupKey as taskId, like the ViewModels do
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+            val firstId = (first as AppResult.Ok).value.id
+            assertEquals("One proof in slot", 1, proofs.observeProofs(taskId).first().size)
+
+            // Second capture (replace)
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture succeeds", second is AppResult.Ok)
+            val secondId = (second as AppResult.Ok).value.id
+
+            // Verify exactly one row remains: the new one
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof remains after replace", 1, remaining.size)
+            assertEquals("Remaining proof is the new one", secondId, remaining[0].id)
+            assertEquals("New proof path is second", "file:///second.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `captureReplacingLatest keeps old untouched when capture fails`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = this,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+            val firstId = (first as AppResult.Ok).value.id
+
+            // Second capture fails: invalid file (empty URI)
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "", // invalid: empty
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second capture fails", second is AppResult.Err)
+
+            // Verify first row is untouched
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("One proof still in slot", 1, remaining.size)
+            assertEquals("Old proof survived failed replacement", firstId, remaining[0].id)
+            assertEquals("Old proof path unchanged", "file:///first.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `concurrent captureReplacingLatest converges to exactly one active row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val shedId = "shed-1"
+            val taskId = "feed-dist:2026-08-13:$shedId:whole:1:normal"
+            val fieldKey = "feed_distribution_video"
+            val proofs = DefaultProofCaptureRepository(
+                db.proofCaptureDao(),
+                sync,
+                appScope = this,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(
+                    flow = ProofFlow.FEED_DISTRIBUTION,
+                    taskId = taskId,
+                    partitionKey = "whole",
+                ),
+                fieldKey = fieldKey,
+            )
+
+            // First capture
+            val first = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///first.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 2_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("First capture succeeds", first is AppResult.Ok)
+
+            // Concurrent second replace
+            val second = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///second.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 3_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Second replace succeeds", second is AppResult.Ok)
+
+            // Concurrent third replace
+            val third = proofs.captureReplacingLatest(
+                slot = slot,
+                subject = ProofSubject.SHED,
+                subjectId = shedId,
+                localUri = "file:///third.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = shedId,
+                capturedStartMs = 5_000L,
+                capturedEndMs = 6_000L,
+                capturedByPrincipalId = null,
+                proofPolicy = ProofPolicy.Default,
+                awaitUploadEnqueue = true,
+            )
+            assertTrue("Third replace succeeds", third is AppResult.Ok)
+            val thirdId = (third as AppResult.Ok).value.id
+
+            // After three concurrent replaces, exactly one active row should remain: the third
+            val remaining = proofs.observeProofs(taskId).first()
+            assertEquals("Exactly one proof after concurrent replaces", 1, remaining.size)
+            assertEquals("The most recent proof is active", thirdId, remaining[0].id)
+            assertEquals("Newest proof path is third", "file:///third.mp4", remaining[0].localUri)
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(

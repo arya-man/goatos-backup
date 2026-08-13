@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
@@ -201,24 +202,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
                 return@launch
             }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingFeedWeightPhoto = false,
-                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
-                        feedWeightPhotoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -306,24 +298,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
             }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingVideo = false,
-                        videoStatus = FeedDistributionProofStatus.FAILED,
-                        videoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -410,24 +393,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingWaterVideo = false) }
                 return@launch
             }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingWaterVideo = false,
-                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
-                        waterVideoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -604,44 +578,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         )
     }
 
-    private suspend fun discardExistingProof(slot: ProofSlot): Boolean {
-        val rowIdState = when (slot) {
-            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId
-            ProofSlot.FEED_VIDEO -> videoProofRowId
-            ProofSlot.WATER_VIDEO -> waterVideoProofRowId
-        }
-        val outboxState = when (slot) {
-            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofItemId
-            ProofSlot.FEED_VIDEO -> videoProofItemId
-            ProofSlot.WATER_VIDEO -> waterVideoProofItemId
-        }
-        val rowId = rowIdState.value ?: proofCaptureRepository
-            .observeProofs(groupKey)
-            .first()
-            .firstOrNull { it.outboxItemId == outboxState.value }
-            ?.id
-        if (rowId.isNullOrBlank()) {
-            outboxState.value = null
-            clearProofRowId(slot)
-            return true
-        }
-        return when (val removed = proofCaptureRepository.remove(groupKey, rowId)) {
-            is AppResult.Ok -> {
-                outboxState.value = null
-                clearProofRowId(slot)
-                true
-            }
-            is AppResult.Err -> {
-                removed.cause?.let { crashReporter.recordException(it, "feed distribution proof discard failed") }
-                analytics.track(
-                    AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                    mapOf(AnalyticsEvents.Params.REASON to removed.message),
-                )
-                false
-            }
-        }
-    }
-
     private fun observeDurableProofs() {
         viewModelScope.launch {
             // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
@@ -708,14 +644,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     waterVideoMessage = row.toProofMessage(status, PROOF_QUEUED, PROOF_UPLOADING, PROOF_SYNCED, PROOF_FAILED),
                 )
             }
-        }
-    }
-
-    private fun clearProofRowId(slot: ProofSlot) {
-        when (slot) {
-            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
-            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
-            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
         }
     }
 

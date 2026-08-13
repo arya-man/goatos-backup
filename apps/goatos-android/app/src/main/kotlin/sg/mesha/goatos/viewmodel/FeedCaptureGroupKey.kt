@@ -42,14 +42,18 @@ import sg.mesha.goatos.core.data.capture.ProofFlow
  * "align" it with the Go function: that would create a twin needing to be kept in sync for no
  * behaviour, which is the drift this codebase keeps paying for.
  */
-internal fun feedCaptureGroupKey(
+/**
+ * Constructs the ProofIdentity for a feed capture flow. Used internally to build the
+ * captureGroupKey and externally by ViewModels to build EvidenceSlot for captureReplacingLatest().
+ */
+internal fun buildFeedProofIdentity(
     prefix: String,
     shedId: String,
     partitionLabel: String,
     sessionNo: Int,
     workflow: String,
     targetDate: String,
-): String {
+): ProofIdentity {
     // Map prefix to ProofFlow
     val proofFlow = when (prefix) {
         "feed-pack" -> ProofFlow.FEED_PACKING
@@ -58,7 +62,7 @@ internal fun feedCaptureGroupKey(
         else -> ProofFlow.FEED_COMPLETE
     }
 
-    val identity = ProofIdentity(
+    return ProofIdentity(
         flow = proofFlow,
         taskId = shedId,
         partitionKey = partitionMatchToken(partitionLabel),
@@ -67,6 +71,17 @@ internal fun feedCaptureGroupKey(
         sessionNo = sessionNo,
         workflow = workflow,
     )
+}
+
+internal fun feedCaptureGroupKey(
+    prefix: String,
+    shedId: String,
+    partitionLabel: String,
+    sessionNo: Int,
+    workflow: String,
+    targetDate: String,
+): String {
+    val identity = buildFeedProofIdentity(prefix, shedId, partitionLabel, sessionNo, workflow, targetDate)
     return identity.captureGroupKey()
 }
 

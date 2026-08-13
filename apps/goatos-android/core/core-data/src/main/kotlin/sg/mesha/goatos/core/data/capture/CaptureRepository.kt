@@ -561,6 +561,12 @@ interface ProofCaptureRepository {
      * already proving the slot; the old row is only removed once [capture] returns
      * [AppResult.Ok].
      *
+     * Concurrent-replace safety: after successful capture, re-read ALL active rows for the slot
+     * and remove any non-new occupants (not just the pre-read `previous`). Two concurrent replaces
+     * both read the same `previous`, both capture successfully, but the second remove() must still
+     * eliminate the first's new row so exactly one active row remains. Keep Manohar ordering:
+     * never remove anything unless the new capture returned Ok.
+     *
      * Implemented over the existing primitives ([capture], [remove], [observeLatest]) so it needs
      * no new Room query and cannot diverge from the byte-identical id/key formats those primitives
      * already produce.
@@ -582,9 +588,9 @@ interface ProofCaptureRepository {
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
     ): AppResult<ProofCaptureRow> {
+        // Use the identity's taskId directly (not storageKey) as that's what capture() expects
         val taskId = slot.identity.taskId
         val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
-        val previous = observeLatest(slot).first()
         val result = capture(
             taskId = taskId,
             fieldKey = slot.fieldKey,
@@ -604,8 +610,16 @@ interface ProofCaptureRepository {
             awaitUploadEnqueue = awaitUploadEnqueue,
             uploadGroupKey = uploadGroupKey,
         )
-        if (result is AppResult.Ok && previous != null && previous.id != result.value.id) {
-            remove(taskId, previous.id)
+        if (result is AppResult.Ok) {
+            val newId = result.value.id
+            // After successful capture, re-read the slot and remove ALL non-new active rows,
+            // not just the pre-read `previous`. Concurrent replaces converge to exactly one.
+            val allActive = observeLatest(slot).first()?.let { listOf(it) } ?: emptyList()
+            allActive.forEach { row ->
+                if (row.id != newId) {
+                    remove(taskId, row.id)
+                }
+            }
         }
         return result
     }
