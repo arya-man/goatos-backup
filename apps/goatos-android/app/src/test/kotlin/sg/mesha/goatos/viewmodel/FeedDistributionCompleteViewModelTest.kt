@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -46,6 +47,61 @@ class FeedDistributionCompleteViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    // A CANCELLED re-capture must leave the existing proof alone. The old order discarded the row
+    // first and only then opened the camera, so cancelling it (or a camera failure, or a black
+    // preview) deleted a good proof and left the slot empty -- the operator's "proof disappeared".
+    @Test
+    fun `a cancelled re-capture keeps the existing proof`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        // ONE photo available: the first capture consumes it, so the retake finds the camera empty
+        // and returns null, which is exactly what a cancel looks like to the ViewModel.
+        val photoSource = FakePhotoCaptureSource(
+            mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = photoSource,
+            proofCaptureRepository = proofCaptureRepository,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+        assertEquals("the first capture must record one proof", 1, proofCaptureRepository.captureCalls.size)
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+
+        // Retake, and cancel it.
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a cancelled retake must not write a second proof",
+            1,
+            proofCaptureRepository.captureCalls.size,
+        )
+        // Assert the ROW, not the flag. The flag stays true even when the row is gone -- which is
+        // why the defect looked fine on screen and the proof was simply missing underneath.
+        val survivingRows = proofCaptureRepository.observeProofs("any", null).first()
+        assertEquals(
+            "the existing proof row must survive a cancelled retake -- discarding it first is what lost it",
+            1,
+            survivingRows.size,
+        )
+        assertEquals("/proof/feed-weight.jpg", survivingRows.first().localUri)
+    }
 
     @Test
     fun `completion unlocks after all three proof uploads sync and then submits`() = runTest(dispatcher) {

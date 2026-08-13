@@ -159,16 +159,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingFeedWeightPhoto = false,
-                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
-                        feedWeightPhotoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 photoCaptureSource.capturePhoto(
                     PhotoCaptureContext(
@@ -182,6 +172,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingFeedWeightPhoto = false,
+                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
+                        feedWeightPhotoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
@@ -265,16 +269,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingVideo = false,
-                        videoStatus = FeedDistributionProofStatus.FAILED,
-                        videoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 proofCaptureSource.captureVideo(feedVideoContext())
             } catch (error: Exception) {
@@ -283,6 +277,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingVideo = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingVideo = false,
+                        videoStatus = FeedDistributionProofStatus.FAILED,
+                        videoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
@@ -365,16 +373,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingWaterVideo = false,
-                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
-                        waterVideoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 proofCaptureSource.captureVideo(waterVideoContext())
             } catch (error: Exception) {
@@ -383,6 +381,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingWaterVideo = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingWaterVideo = false,
+                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
+                        waterVideoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
