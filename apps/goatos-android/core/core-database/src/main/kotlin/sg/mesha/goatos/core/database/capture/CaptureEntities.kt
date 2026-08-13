@@ -658,10 +658,18 @@ interface ProofCaptureDao {
      * subject, so a per-SUBJECT cap pools them: one shared budget of five for three slots, leaving
      * only two re-captures across the whole screen before every further capture is refused and
      * silently writes no row. See ProofPolicy.maximumCountPerField.
+     *
+     * ACTIVE means IN FLIGHT, so a row that already reached the server (serverProofId set) does not
+     * hold the slot. The cap exists to stop un-uploaded duplicates stacking; a delivered proof is
+     * HISTORY, and counting it made a proven slot unrepeatable. That breaks the rework path: when
+     * the 14:00 feed correction reopens a pen, the operator returns to the SAME group key (same
+     * date, pen, session, workflow) and owes a NEW proof for the changed head count -- but the old
+     * delivered row sat at the cap, so the only way back in was to destroy it. A reopened pen must
+     * be re-shootable without deleting the evidence of what was packed before the correction.
      */
     @Query(
         "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
-            "AND fieldKey = :fieldKey AND syncStatus != 'FAILED'",
+            "AND fieldKey = :fieldKey AND syncStatus != 'FAILED' AND serverProofId IS NULL",
     )
     suspend fun activeCountForField(taskId: String, partitionKey: String, fieldKey: String): Int
 
