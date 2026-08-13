@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -123,7 +124,10 @@ func navigation() domain.NavigationContract {
 			},
 			{
 				ID: "procurement", Label: "Procurement", Icon: "truck", DefaultOpen: false,
-				Leaves: []domain.NavigationItem{navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil)},
+				Leaves: []domain.NavigationItem{
+					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
+					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
+				},
 			},
 			{
 				ID: "counts", Label: "Counts", Icon: "bar-chart-3", DefaultOpen: false,
@@ -240,6 +244,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/vaccination", Label: "Vaccination", Match: "exact"},
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
+		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
 		{Pattern: "/counts/milk-preparation", Label: "Milk Preparation", Match: "exact"},
@@ -406,6 +411,14 @@ func pages() []domain.PageContract {
 			}),
 		page("source-entry", "/procurement/source-entry", "/procurement/source-entry", "Source Entry Board", "Supplier warmup and accepted-intake bridge into Preventive Care (PC) vaccination.", "module-surface",
 			[]domain.TableContract{table("source-loads", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "source_load")}),
+		// The procurement VENDOR REGISTER. One table, whole-filter total, keyset paging.
+		//
+		// Columns are the ones a person scanning the register actually needs: who they are, what
+		// they supply, whether we are buying, and where they are. Banking is NOT a column -- it is
+		// drawer detail behind VendorFinanceRead, because a table that renders account numbers puts
+		// them on screen in every shoulder-surfing context the register is used in.
+		page("vendors", "/procurement/vendors", "/procurement/vendors", "Vendors", "The procurement register: livestock agents and stockists, transport, feed, manure, labour, insurance and site trades.", "module-surface",
+			[]domain.TableContract{tableP("vendors", "Vendors", "/procurement/vendors", []string{"business_name", "record_type", "phone_number", "location_display", "status"}, "vendor_id", []int{25, 50, 100})}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
 			[]domain.TableContract{
 				table("load-goats", "Animals in load", "/procurement/source-entry/loads/{load_id}/goats", []string{"animal_ids", "selection", "current_stage", "source_entry", "ownership", "health", "warmup", "downstream"}, "load_goat"),
@@ -419,7 +432,13 @@ func pages() []domain.PageContract {
 		page("herd-register", "/counts/herd", "/counts/herd", "Herd Register", "Counts entry point for goat registration/import and vaccination trigger proof.", "module-surface",
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
-			[]domain.TableContract{tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50})}),
+			[]domain.TableContract{sortable(
+				// Every dimension sorts, including the count. Ordering applies to the PAGE the
+				// operator is looking at, not to the whole filtered result — the pager states
+				// the window, and the tfoot total stays the backend's whole-result figure.
+				tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50}),
+				"farm", "stage", "breed", "gender", "shed", "count",
+			)}),
 		// Weighing — the admin-web oversight read-out.
 		//
 		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
@@ -474,7 +493,14 @@ func pages() []domain.PageContract {
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
 				// requires park_id and filters on it, and they share ONE Park filter on the page — so
 				// a park column would print the same value on every row of those sections.
-				tableP("ration-grid", "Ration grid", "/feed-config/ration-rates", []string{"ration_group", "shed_tag", "feed_item", "grams_per_head", "valid_from", "valid_to"}, "ration_rate_id", []int{10, 25, 50}),
+				// valid_from/valid_to are deliberately NOT sortable: the two columns are rendered as
+				// ONE merged effective-window cell (in-force vs superseded, plus the dates), so a
+				// sort affordance on either header would point at a value the cell does not show
+				// on its own.
+				sortable(
+					tableP("ration-grid", "Ration grid", "/feed-config/ration-rates", []string{"ration_group", "shed_tag", "feed_item", "grams_per_head", "valid_from", "valid_to"}, "ration_rate_id", []int{10, 25, 50}),
+					"ration_group", "shed_tag", "feed_item", "grams_per_head",
+				),
 				// The feed-item CATALOG: the tenant's feed vocabulary, and the only table on this
 				// page that is NOT park-scoped — feed_item_catalog is keyed (tenant, item), so both
 				// parks author quantities against one list. Its park-freedom is therefore a
@@ -597,6 +623,30 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
 	t := table(id, title, source, cols, rowParam)
 	t.PageSizeOptions = pageSizes
+	return t
+}
+
+// sortable marks the named columns as sortable in the compiled contract.
+//
+// Sort semantics are backend-owned like every other table label: the renderer draws a sort
+// affordance only where the contract declares one, so a column the operator must NOT reorder --
+// a composite cell, or a value whose order would read as business truth the page cannot back --
+// stays inert without a frontend conditional. Naming a key the table does not declare panics at
+// compile time rather than silently rendering nothing.
+func sortable(t domain.TableContract, keys ...string) domain.TableContract {
+	for _, key := range keys {
+		found := false
+		for i := range t.Columns {
+			if t.Columns[i].Key == key {
+				t.Columns[i].Sortable = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic(fmt.Sprintf("adminui: table %q has no column %q to mark sortable", t.ID, key))
+		}
+	}
 	return t
 }
 
@@ -2092,6 +2142,100 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.rejecting":               "Rejecting...",
 			"action.cancel":                  "Cancel",
 		}
+	case "vendors":
+		// Backend-owned copy for the register. The client renders these verbatim; per the golden
+		// rule it must not hardcode a label, an empty state or a disabled reason of its own.
+		return map[string]string{
+			"crumb":                     "Procurement",
+			"section.vendors.title":     "Vendors",
+			"section.vendors.aria":      "Procurement vendor register",
+			"section.vendors.row_hint":  "click a row to see full details",
+			"filter.search_label":       "Search vendors",
+			"filter.search_placeholder": "Business, contact, phone or city",
+			"filter.record_type":        "Record type",
+			"filter.status":             "Status",
+			"filter.state":              "State",
+			"filter.city":               "City",
+			"filter.breed":              "Breed",
+			"filter.all":                "All",
+			"filter.clear":              "Clear filters",
+			"filter.apply":              "Apply filters",
+			"filter.applying":           "Applying...",
+			// Shown on hover when Apply is disabled: the control must say WHY it cannot be pressed
+			// rather than looking broken.
+			"filter.apply.nothing_staged": "Change a filter to apply it.",
+			"column.business_name":        "Vendor",
+			"column.record_type":          "Type",
+			"column.phone_number":         "Phone",
+			"column.location_display":     "Location",
+			"column.status":               "Status",
+			"action.add":                  "Add vendor",
+			"action.edit":                 "Edit details",
+			"action.save_status":          "Update status",
+			// Write-feedback copy. actionFeedbackCopy resolves the action_key straight through copy(),
+			// which THROWS on a missing key and takes the whole page down with it -- so every key an
+			// action can redirect with must exist here.
+			"action.vendor_created":        "Vendor added.",
+			"action.vendor_updated":        "Vendor updated.",
+			"action.vendor_status_changed": "Vendor status updated.",
+			"action.vendor_save_failed":    "Could not save this vendor. Check the fields and try again.",
+			"action.vendor_status_failed":  "Could not update this vendor's status. Reload and try again.",
+			// withActionFeedback substitutes this key when an action passes one without the "action."
+			// prefix, so it must resolve rather than crash the page.
+			"action.error_form":         "Could not complete that action.",
+			"action.save":               "Save",
+			"action.saving":             "Saving...",
+			"action.cancel":             "Cancel",
+			"action.close":              "Close",
+			"action.next_page":          "Next",
+			"action.prev_page":          "Back",
+			"pager.page":                "Page",
+			"pager.of":                  "of",
+			"drawer.detail.title":       "Vendor details",
+			"drawer.add.title":          "Add vendor",
+			"drawer.edit.title":         "Edit vendor",
+			"group.identity":            "Identity",
+			"group.commercial":          "Commercial",
+			"group.location":            "Location",
+			"group.payment":             "Payment details",
+			"group.notes":               "Notes",
+			"field.business_name":       "Business name",
+			"field.contact_person_name": "Contact person",
+			"field.phone_number":        "Phone number",
+			"field.record_type":         "Record type",
+			"field.breed":               "Breed",
+			"field.feed":                "Feed",
+			"field.status":              "Status",
+			"field.filtered_stock":      "Filtered stock",
+			"field.price_per_goat":      "Price per goat",
+			"field.ready_to_filtered":   "Ready to filtered",
+			"field.eta_after_order":     "ETA after order (days)",
+			"field.details":             "Details",
+			"field.state":               "State",
+			"field.city":                "City",
+			"field.bank_name":           "Bank name",
+			"field.account_no":          "Account number",
+			"field.ifsc_code":           "IFSC code",
+			"field.upi_id":              "UPI ID",
+			"field.pan_number":          "PAN number",
+			"field.comments":            "Comments",
+			"value.none":                "Not recorded",
+			// Shown in place of the payment block for a caller without the finance permission, so a
+			// withheld value never reads as "this vendor has no bank details".
+			"payment.hidden":      "Payment details are hidden for your role.",
+			"payment.none":        "No payment details recorded.",
+			"empty.vendors":       "No vendors match these filters.",
+			"empty.vendors.unset": "No vendors yet. Add the first one to start the register.",
+			"summary.count":       "vendors",
+			"error.load":          "Could not load the vendor register. Refresh to try again.",
+			"error.save":          "Could not save this vendor.",
+			"required.hint":       "Business name, record type, state and status are required.",
+			// A NEW vendor is held to the same bar as the Slack intake questionnaire. Rows imported
+			// without a contact person, phone or city stay editable, so the two hints differ on
+			// purpose -- see domain.VendorWrite.ValidateForCreate.
+			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
+			"disabled.write":       "Your current role can view vendors but not change them.",
+		}
 	case "source-entry":
 		return map[string]string{
 			"crumb":                          "Procurement",
@@ -3061,23 +3205,30 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.feed_items.noun":      "feed item",
 			"label.feed_item_name":       "Feed item name",
 			"label.feed_item_name_note":  "The name that appears on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
-			// Retiring a feed item. Worded as REMOVE-and-RESTORE rather than as a status toggle,
-			// because that is what it does to the farm: a retired item leaves every feed sheet issued
-			// from that point. The consequence line is mandatory copy, not decoration — this control
-			// changes what animals eat, and its authored rates vanish from the grid at the same time.
-			// Deliberately terse: this control sits INLINE beside the status chip in a table cell, and
-			// the chip already supplies the subject ("In feeding" / "Not fed"). The full consequence
-			// — that it leaves every feed sheet and its rates disappear from the grid — is on hover
-			// and again on the confirm step, which is where a reader needs it.
-			"action.retire_feed_item":         "Remove",
-			"action.restore_feed_item":        "Restore",
+			// Changing a feed item's status. Worded as ACTIVE / INACTIVE (maintainer decision
+			// 2026-08-13), replacing the earlier "In feeding" / "Not fed" chip and its
+			// "Remove" / "Restore" controls. The old wording read as a deletion, which this has
+			// never been: an inactive item keeps every authored rate, shed factor and experiment
+			// cell exactly as it was, and reactivating returns them without re-entering anything.
+			// "Remove" beside a Restore button invited the opposite reading.
+			//
+			// The consequence line stays mandatory copy, not decoration — the wording changed, the
+			// effect did not. This control changes what animals eat from the next issued sheet, and
+			// its authored rates leave the ration grid at the same moment. Deliberately terse on the
+			// button itself: it sits INLINE beside the status chip in a table cell, so the full
+			// consequence rides on hover and again on the confirm step, where a reader needs it.
+			//
+			// Display copy only. STORAGE vocabulary is still `active` / `retired` — the chip resolves
+			// through these keys rather than printing row.status precisely so the two can differ.
+			"action.retire_feed_item":         "Deactivate",
+			"action.restore_feed_item":        "Activate",
 			"action.feed_item_status_changed": "Saved. What is fed has changed — check the next Feed Direction for every park.",
-			"reason.retire_feed_item":         "Removes this item from every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so putting the item back restores them without re-entering anything.",
+			"reason.retire_feed_item":         "Takes this item off every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, shed factors and experiment quantities are kept exactly as they are, so reactivating the item restores them without re-entering anything.",
 			"reason.restore_feed_item":        "Puts this item back into feeding. Its authored rates return to the ration grid above exactly as they were.",
-			"label.feed_item_active":          "In feeding",
+			"label.feed_item_active":          "Active",
 			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
-			"label.feed_item_retired":         "Not fed",
-			"label.feed_item_retired_note":    "This item has been removed from feeding. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so putting it back restores them.",
+			"label.feed_item_retired":         "Inactive",
+			"label.feed_item_retired_note":    "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
 			"label.energy_kcal_per_kg":        "Energy (kcal/kg)",
 			"label.dry_matter_factor":         "Dry matter factor",
 			"label.wastage_factor":            "Wastage factor",
