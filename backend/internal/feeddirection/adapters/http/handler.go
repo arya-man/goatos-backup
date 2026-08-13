@@ -292,8 +292,15 @@ func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
 // feed-distribution video, and water-distribution video). The Idempotency-Key header, not the body,
 // carries the replay key.
 type completeDistributionRequest struct {
-	ParkID               string `json:"park_id"`
-	ShedID               string `json:"shed_id"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel is part of the completion's IDENTITY, not decoration: a partitioned shed has one
+	// completion PER PEN. It was DECLARED in OpenAPI and MISSING here, so encoding/json dropped the
+	// pen the phone sent, the write path resolved it to the 'whole' shed, and the catalog check
+	// rejected every partitioned shed with ErrInvalidPartition -- a 400 that made feed distribution
+	// unsubmittable for any pen (reported 2026-08-13, Castro - 1 session 2). The packing sibling
+	// carried the field all along; only this route lacked it.
+	PartitionLabel       string `json:"partition_label"`
 	SessionNo            int32  `json:"session_no"`
 	TargetDate           string `json:"target_date"`
 	Workflow             string `json:"workflow"`
@@ -377,6 +384,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		TenantID:             tenantID,
 		ParkID:               strings.TrimSpace(body.ParkID),
 		ShedID:               strings.TrimSpace(body.ShedID),
+		PartitionLabel:       strings.TrimSpace(body.PartitionLabel),
 		SessionNo:            body.SessionNo,
 		TargetDate:           targetDate,
 		Workflow:             strings.TrimSpace(body.Workflow),

@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -46,6 +47,61 @@ class FeedDistributionCompleteViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    // A CANCELLED re-capture must leave the existing proof alone. The old order discarded the row
+    // first and only then opened the camera, so cancelling it (or a camera failure, or a black
+    // preview) deleted a good proof and left the slot empty -- the operator's "proof disappeared".
+    @Test
+    fun `a cancelled re-capture keeps the existing proof`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        // ONE photo available: the first capture consumes it, so the retake finds the camera empty
+        // and returns null, which is exactly what a cancel looks like to the ViewModel.
+        val photoSource = FakePhotoCaptureSource(
+            mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = photoSource,
+            proofCaptureRepository = proofCaptureRepository,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+        assertEquals("the first capture must record one proof", 1, proofCaptureRepository.captureCalls.size)
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+
+        // Retake, and cancel it.
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+
+        assertEquals(
+            "a cancelled retake must not write a second proof",
+            1,
+            proofCaptureRepository.captureCalls.size,
+        )
+        // Assert the ROW, not the flag. The flag stays true even when the row is gone -- which is
+        // why the defect looked fine on screen and the proof was simply missing underneath.
+        val survivingRows = proofCaptureRepository.observeProofs("any", null).first()
+        assertEquals(
+            "the existing proof row must survive a cancelled retake -- discarding it first is what lost it",
+            1,
+            survivingRows.size,
+        )
+        assertEquals("/proof/feed-weight.jpg", survivingRows.first().localUri)
+    }
 
     @Test
     fun `completion unlocks after all three proof uploads sync and then submits`() = runTest(dispatcher) {
@@ -113,6 +169,64 @@ class FeedDistributionCompleteViewModelTest {
         assertEquals("proof-outbox-1", syncRepository.lastFeedWeightProofOutboxItemId)
         assertEquals("proof-outbox-2", syncRepository.lastDistributionProofOutboxItemId)
         assertEquals("proof-outbox-3", syncRepository.lastWaterProofOutboxItemId)
+    }
+
+    /**
+     * Re-entering the screen on a PARTITIONED pen must rehydrate an already-captured proof from
+     * Room. The view model is scoped to its nav back stack entry, so leaving the screen clears all
+     * in-memory state (and the SavedStateHandle with it) — the durable proof read is the only thing
+     * that can restore the capture, and it was silently returning nothing.
+     *
+     * The write stores partitionKey "whole" (the feed capture calls pass no label), while the read
+     * used to pass the pen label and therefore asked for "3". Empty result, so the operator came
+     * back to a blank form for a video already recorded and uploading. It only ever worked on an
+     * UNDIVIDED shed, where both sides collapse to "whole" — which is why the case above passes
+     * and this one did not.
+     */
+    @Test
+    fun `captured proof rehydrates when the screen is reopened on a partitioned pen`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        // ONE repository across both view models: the durable Room-backed store that survives the
+        // screen being popped off the back stack.
+        val proofCaptureRepository = FakeProofCaptureRepository()
+
+        fun viewModelForPen() = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/feed.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(
+                mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    // A real pen, e.g. Godel 1 - Part 3. This is the whole point of the case.
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                ),
+            ),
+        )
+
+        val first = viewModelForPen()
+        first.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        advanceUntilIdle()
+        assertEquals(true, first.state.value.videoCaptured)
+
+        // Back navigation pops the entry and clears the view model; reopening builds a fresh one
+        // against the same durable store.
+        val reopened = viewModelForPen()
+        advanceUntilIdle()
+
+        assertEquals(true, reopened.state.value.videoCaptured)
+        assertEquals("/proof/feed.mp4", reopened.state.value.videoPreviewPath)
     }
 }
 

@@ -32,6 +32,11 @@ const (
 	destEmptyPark = "00000000-0000-4000-8000-000000003004"
 	// Parent shed + partition catalog used to prove old same-park partition aliases are suppressed.
 	destCastroParentCPT = "00000000-0000-4000-8000-000000004104"
+	// The OTHER alias spelling: a parent "Mandela 1" whose catalog pen is labelled "Part 3", beside
+	// the legacy location literally named "Mandela 1 - Part 3". Both render "Mandela 1 - Part 3",
+	// so the picker showed the same pen twice under two different shed ids.
+	destMandelaParentCPT = "00000000-0000-4000-8000-000000004105"
+	destMandelaPartCPT   = "00000000-0000-4000-8000-000000004106"
 )
 
 func seedDestinationTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -114,6 +119,67 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 	}
 	if len(labels) != 1 || labels[0] != "Castro - 1" {
 		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
+	}
+}
+
+// TestShiftingDestinationCatalogSuppressesPartSpelledPartitionAliases is the sibling of the test
+// above for the OTHER alias spelling, and it is the one that was actually shipping duplicates.
+//
+// "Castro 1" normalizes to "castro1", so stripping the parent "castro" leaves "1" -- which equals
+// the catalog's normalized_label and was suppressed. "Mandela 1 - Part 3" normalizes to
+// "mandela1part3", so stripping the parent "mandela1" leaves "part3", which never equalled "3".
+// Every "- Part N" alias therefore survived, and the live picker carried 75 exact-duplicate rows
+// (195 rows for 120 real operational locations) with two different shed ids behind one label.
+func TestShiftingDestinationCatalogSuppressesPartSpelledPartitionAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	// Separate Execs for the same prepared-statement reason as the test above.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-MANDELA1', 'Mandela 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destMandelaParentCPT); err != nil {
+		t.Fatalf("seed parent Mandela shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-MANDELA1-P3', 'Mandela 1 - Part 3', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destMandelaPartCPT); err != nil {
+		t.Fatalf("seed legacy Mandela part alias: %v", err)
+	}
+	// The catalog stores the HUMAN label "Part 3" against the matching key "3" -- the exact pairing
+	// that made the remainder comparison fail.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
+		countsTenant, destMandelaParentCPT); err != nil {
+		t.Fatalf("seed parent Mandela partition: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("ShiftingDestinationCatalog: %v", err)
+	}
+
+	var labels []string
+	for _, park := range catalog.Parks {
+		if park.ParkID != countsPark {
+			continue
+		}
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destMandelaParentCPT || shed.ShedID == destMandelaPartCPT {
+				labels = append(labels, shed.Display)
+			}
+		}
+	}
+	if len(labels) != 1 || labels[0] != "Mandela 1 - Part 3" {
+		t.Fatalf("Mandela destination labels in one park = %v, want only the canonical parent partition \"Mandela 1 - Part 3\"", labels)
 	}
 }
 

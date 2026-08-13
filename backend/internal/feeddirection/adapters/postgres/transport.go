@@ -32,6 +32,19 @@ var _ ports.TransportStore = (*Repository)(nil)
 //
 // partition_label is written EMPTY on every new row. The column stays only so pre-000152 rows keep
 // naming the pen they were filmed for.
+//
+// A PEN CAN ALSO REACH THIS QUERY THROUGH THE LOCATION ROW, not just through partition_label, and
+// 000152 did not close that half. `locations` still carries the farm's OLD per-pen rows -- active,
+// typed 'shed', named "Castro 1" or "Godel 1 - Part 3" -- alongside the canonical parent shed and
+// its shed_partitions entry. Membership of "active shed" therefore counted 126 sheds where the farm
+// has 21, and a partitioned shed such as Mandela 1 raised ELEVEN transport tasks for one load: the
+// shed plus one per pen. The grain looked correct at the column (an empty partition_label on every
+// row) while being wrong at the row. Excluding the aliases restores the contract in
+// docs/decisions/feed-transport-verification.md and AGENTS.md: ONE task, ONE video, per physical
+// shed per day.
+//
+// The exclusion is the shared oploc predicate rather than a third hand-rolled copy; the two earlier
+// copies already drifted, and the counts one does not catch the "- Part N" shape.
 func (r *Repository) MaterializeTransportTasks(ctx context.Context, p ports.MaterializeTransportParams) (ports.MaterializeTransportResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -53,6 +66,7 @@ FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
+  AND `+oploc.PartitionAliasExclusionSQL("s")+`
 ON CONFLICT (tenant_id, business_date, shed_id) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
 		if err != nil {
 			return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)
@@ -73,6 +87,7 @@ FROM locations s
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
 WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed' AND s.status = 'active'
   AND p.location_type = 'park' AND p.status = 'active'
+  AND `+oploc.PartitionAliasExclusionSQL("s")+`
 ON CONFLICT (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''), 'whole')) DO NOTHING`, p.TenantID, day.Format("2006-01-02"))
 	if err != nil {
 		return ports.MaterializeTransportResult{}, fmt.Errorf("feeddirection: materialize transport tasks: %w", err)

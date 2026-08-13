@@ -155,20 +155,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
         when (event) {
             FeedPackingCompleteEvent.RecordPackingVideo -> capturePackingVideo()
             // Re-record: drop the discarded take's queued upload, then capture afresh.
-            FeedPackingCompleteEvent.ReRecordPackingVideo -> {
-                viewModelScope.launch {
-                    if (_state.value.isCapturingVideo) return@launch
-                    if (!discardExistingProof()) {
-                        _state.update { it.copy(videoMessage = it.videoMessage ?: PROOF_FAILED) }
-                        return@launch
-                    }
-                    drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
-                    draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
-                    videoKey.invalidate()
-                    _state.update { it.copy(videoCaptured = false, canComplete = false, videoMessage = null) }
-                    capturePackingVideo()
-                }
-            }
+            // Re-record runs the camera FIRST and drops the old take's queued upload only once new
+            // media exists (see capturePackingVideo). Discarding up front deleted a good clip
+            // whenever the operator cancelled or the camera failed, leaving the slot empty.
+            FeedPackingCompleteEvent.ReRecordPackingVideo -> capturePackingVideo(replacing = true)
             FeedPackingCompleteEvent.MarkDone -> markDone()
             FeedPackingCompleteEvent.SyncNow -> syncNow()
             FeedPackingCompleteEvent.Back -> Unit // navigation — handled by the nav host.
@@ -177,8 +167,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     /** MANDATORY packing video — a LIVE in-app camera clip. It enqueues a PROOF_UPLOAD on the shed-session group so it
      *  drains before the completion. */
-    private fun capturePackingVideo() {
-        if (_state.value.isCapturingVideo || _state.value.videoCaptured || shedId.isBlank()) return
+    private fun capturePackingVideo(replacing: Boolean = false) {
+        if (_state.value.isCapturingVideo || shedId.isBlank()) return
+        // A re-record starts from a FILLED slot, so videoCaptured only blocks a fresh record.
+        if (!replacing && _state.value.videoCaptured) return
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
@@ -197,6 +189,18 @@ class FeedPackingCompleteViewModel @Inject constructor(
             if (captured == null) {
                 _state.update { it.copy(isCapturingVideo = false) }
                 return@launch
+            }
+            // New media is in hand, so the old take can now be dropped. Nothing above this line
+            // destroys the existing proof: a cancelled camera leaves the slot exactly as it was.
+            if (replacing) {
+                if (!discardExistingProof()) {
+                    _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                    return@launch
+                }
+                drafts.clearProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO)
+                draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
+                videoKey.invalidate()
+                _state.update { it.copy(videoCaptured = false, canComplete = false) }
             }
             when (
                 val result = proofCaptureRepository.capture(
@@ -257,7 +261,15 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     private fun observeDurableProof() {
         viewModelScope.launch {
-            proofCaptureRepository.observeProofs(groupKey, partitionLabel)
+            // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
+            // partitionMatchToken), so this read is pen-scoped by the task id alone. Passing the
+            // label as well filtered on proof_capture.partitionKey, which capture() writes as
+            // "whole" because the feed capture calls do not pass a label — so on a partitioned
+            // shed the read asked for "3" while the row said "whole" and rehydration silently
+            // returned nothing. Re-entering the screen showed an empty form for a video that was
+            // sitting in Room and already uploading. Keep read and write symmetric (feed transport
+            // and weighing omit it on both sides too); do not "restore" the label on one side only.
+            proofCaptureRepository.observeProofs(groupKey)
                 .collect { rows ->
                     val row = rows
                         .filter { it.fieldKey == FIELD_FEED_PACKING_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
@@ -317,7 +329,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private suspend fun discardExistingProof(): Boolean {
         val proofOutboxItemId = draft.proofs[STEP_VIDEO]
         val rowId = videoProofRowId ?: proofCaptureRepository
-            .observeProofs(groupKey, partitionLabel)
+            .observeProofs(groupKey)
             .first()
             .firstOrNull { it.outboxItemId == proofOutboxItemId }
             ?.id

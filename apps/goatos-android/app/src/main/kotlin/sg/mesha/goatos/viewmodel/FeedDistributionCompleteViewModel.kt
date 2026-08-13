@@ -186,16 +186,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingFeedWeightPhoto = false,
-                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
-                        feedWeightPhotoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 photoCaptureSource.capturePhoto(
                     PhotoCaptureContext(
@@ -209,6 +199,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingFeedWeightPhoto = false,
+                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
+                        feedWeightPhotoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
@@ -292,16 +296,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingVideo = false,
-                        videoStatus = FeedDistributionProofStatus.FAILED,
-                        videoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 proofCaptureSource.captureVideo(feedVideoContext())
             } catch (error: Exception) {
@@ -310,6 +304,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingVideo = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingVideo = false,
+                        videoStatus = FeedDistributionProofStatus.FAILED,
+                        videoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
@@ -392,16 +400,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
-                _state.update {
-                    it.copy(
-                        isCapturingWaterVideo = false,
-                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
-                        waterVideoMessage = PROOF_FAILED,
-                    )
-                }
-                return@launch
-            }
             val captured = try {
                 proofCaptureSource.captureVideo(waterVideoContext())
             } catch (error: Exception) {
@@ -410,6 +408,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             }
             if (captured == null) {
                 _state.update { it.copy(isCapturingWaterVideo = false) }
+                return@launch
+            }
+            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
+            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
+            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
+            // that fails; nothing is destroyed until it has succeeded.
+            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
+                _state.update {
+                    it.copy(
+                        isCapturingWaterVideo = false,
+                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
+                        waterVideoMessage = PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             when (
@@ -604,7 +616,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ProofSlot.WATER_VIDEO -> waterVideoProofItemId
         }
         val rowId = rowIdState.value ?: proofCaptureRepository
-            .observeProofs(groupKey, partitionLabel)
+            .observeProofs(groupKey)
             .first()
             .firstOrNull { it.outboxItemId == outboxState.value }
             ?.id
@@ -632,7 +644,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
 
     private fun observeDurableProofs() {
         viewModelScope.launch {
-            proofCaptureRepository.observeProofs(groupKey, partitionLabel)
+            // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
+            // partitionMatchToken), so this read is pen-scoped by the task id alone. Passing the
+            // label as well filtered on proof_capture.partitionKey, which capture() writes as
+            // "whole" because the feed capture calls do not pass a label — so on a partitioned
+            // shed the read asked for "3" while the row said "whole" and rehydration silently
+            // returned nothing. Re-entering the screen showed an empty form for a video that was
+            // sitting in Room and already uploading. Keep read and write symmetric (feed transport
+            // and weighing omit it on both sides too); do not "restore" the label on one side only.
+            proofCaptureRepository.observeProofs(groupKey)
                 .collect { rows ->
                     hydrateSlotFromProof(ProofSlot.FEED_WEIGHT_PHOTO, rows.latestFor(FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO))
                     hydrateSlotFromProof(ProofSlot.FEED_VIDEO, rows.latestFor(FIELD_FEED_DISTRIBUTION_VIDEO))

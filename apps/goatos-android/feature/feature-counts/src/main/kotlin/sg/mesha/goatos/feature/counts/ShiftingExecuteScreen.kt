@@ -87,6 +87,13 @@ data class ShiftingExecuteUiState(
     /** The "Mark done" write result. */
     val result: CountsWriteResultUi = CountsWriteResultUi(),
     val canComplete: Boolean = false,
+    /**
+     * Server-confirmed completion: the operator has nothing left to do on this movement, so the host
+     * pops back to the Actions queue and shows [submissionNotice] there instead of leaving them on a
+     * finished form reading a banner.
+     */
+    val returnToActions: Boolean = false,
+    val submissionNotice: String? = null,
 )
 
 sealed interface ShiftingExecuteEvent {
@@ -104,6 +111,9 @@ sealed interface ShiftingExecuteEvent {
     data object ReRecordFeedGivenVideo : ShiftingExecuteEvent
     data object MarkDone : ShiftingExecuteEvent
     data object Back : ShiftingExecuteEvent
+
+    /** The host consumed [ShiftingExecuteUiState.returnToActions]; clear it so it fires once. */
+    data object NavigationHandled : ShiftingExecuteEvent
 }
 
 @Composable
