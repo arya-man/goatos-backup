@@ -947,14 +947,14 @@ class DefaultProofCaptureRepository(
             )
             if (result is AppResult.Ok) {
                 val newId = result.value.id
-                val newCapturedAtMs = result.value.capturedAtMs
                 // After successful capture, re-read ALL active rows for the slot and remove all non-newest ones.
                 // Keep only the row with the highest capturedAtMs (the one we just captured).
                 val allActive = observeProofs(taskId, partitionLabel).first()
                     .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
                 allActive.forEach { row ->
-                    // Remove all rows except the newest by capturedAtMs
-                    if (row.capturedAtMs < newCapturedAtMs) {
+                    // Remove every non-new active row. Id-based (not capturedAtMs) so two captures
+                    // landing in the same clock millisecond still converge to exactly one row.
+                    if (row.id != newId) {
                         remove(taskId, row.id)
                     }
                 }
