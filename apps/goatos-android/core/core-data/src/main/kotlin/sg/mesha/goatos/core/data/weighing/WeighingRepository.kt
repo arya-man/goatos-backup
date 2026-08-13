@@ -23,6 +23,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
@@ -842,15 +844,22 @@ class DefaultWeighingRepository(
         // same attempt, and re-applied it -- the exact double-apply this mechanism exists
         // to prevent, crossing transition types instead of repeating within one.
         val scopeId = "$transition:$rawScopeId"
-        val dao = epochDao ?: return "weighing:$transition:$scopeId:" +
-            inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
-        // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
-        // the write and then reads the winner's epoch, so both send the SAME key.
-        dao.insertIfAbsent(
-            WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+        val epoch = epochDao?.let {
+            // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
+            // the write and then reads the winner's epoch, so both send the SAME key.
+            it.insertIfAbsent(
+                WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+            )
+            it.get(scopeId) ?: idGenerator()
+        } ?: inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
+
+        val identity = ProofIdentity(
+            flow = ProofFlow.WEIGHING_SHED,
+            taskId = rawScopeId,
+            transition = transition,
+            transitionEpoch = epoch,
         )
-        val epoch = dao.get(scopeId) ?: idGenerator()
-        return "weighing:$transition:$scopeId:$epoch"
+        return identity.weighingTransitionKey()
     }
 
     /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */

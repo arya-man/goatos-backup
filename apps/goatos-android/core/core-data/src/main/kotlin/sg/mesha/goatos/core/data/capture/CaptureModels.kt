@@ -35,6 +35,9 @@ data class ProofIdentity(
     val targetDate: String = "", // YYYY-MM-DD for feed operations
     val sessionNo: Int = 0, // feed session number
     val workflow: String = "", // "normal" or "experiment" for feed operations
+    // Weighing transition fields
+    val transition: String = "", // "update", "submit", "reopen", "close-shed", "close-campaign"
+    val transitionEpoch: String = "", // epoch identifier for the transition
 ) {
     /** Storage key for Room/proof row identification (animal/partition grain). */
     fun storageKey(): String {
@@ -70,6 +73,13 @@ data class ProofIdentity(
             ?.let { it.lowercase().replace(Regex("\\s+"), " ") }
             ?: "whole"
         return "$flowPrefix:$dateToken:$taskId:$partitionToken:$sessionNo:$workflow"
+    }
+
+    /** Weighing transition idempotency key for scope state changes (update/submit/reopen/close).
+     *  Epoch is managed externally; this produces the format incorporating it. */
+    fun weighingTransitionKey(): String {
+        val scopeId = "$transition:$taskId"
+        return "weighing:$transition:$scopeId:$transitionEpoch"
     }
 }
 
