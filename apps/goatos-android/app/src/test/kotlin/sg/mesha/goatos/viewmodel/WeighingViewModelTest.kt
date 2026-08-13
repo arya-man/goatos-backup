@@ -1935,6 +1935,80 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `shed-partition double-tap confirmSubmit enqueues exactly once`() = runTest(dispatcher) {
+        // Guards against double-tap on PER_SHED_PARTITION_CATEGORY submit confirmation
+        val scans = FakeScanCaptureRepository()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = scans,
+            weighingCategory = "shed_partition", // Per-shed-partition category
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+        assertTrue(vm.state.value.showSubmitConfirmation)
+
+        // Double-tap on confirm should enqueue only once
+        vm.confirmSubmitIndividualScope()
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertEquals(1, repository.submitIndividualScopeCalls.size)
+    }
+
+    @Test
+    fun `reinstall after durable-draft: fresh VM with no drafts rejects submit on already-submitted scope`() = runTest(dispatcher) {
+        // Simulates: app killed after submit confirmation enqueued, relaunched fresh
+        // The scope was submitted, but the VM is reconstructed empty (SavedStateHandle fresh, no local cache)
+        val repository = FakeWeighingRepository(
+            // The scope is already submitted (server state)
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = emptyList(), // Empty: fresh startup before cache loads
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+                verificationStatus = "pending_verification", // Already submitted
+            ),
+        )
+        val freshHandle = androidx.lifecycle.SavedStateHandle(
+            mapOf(
+                "campaignId" to "campaign-1",
+                "workGroupId" to "group-1",
+                "campaignShedId" to "campaign-shed-1",
+            ),
+        )
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            savedStateHandle = freshHandle,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // The fresh VM should recognize the scope is already submitted and block capture
+        assertFalse("fresh VM with submitted scope must not allow submit", vm.state.value.individualSubmitReady)
+        // No crash, just read-only state
+        assertNotNull("view model should be stable without crashing", vm.state.value)
+    }
+
+    @Test
     fun `the plan wizard tracks a step-reached event each time the step actually changes`() = runTest(dispatcher) {
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val wizardVm = WeighingPlanWizardViewModel(
