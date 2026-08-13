@@ -85,6 +85,75 @@ WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID)
 	}
 }
 
+// Experiment membership is owned by the complete destination operational location, not by its
+// parent shed. A partitioned shed may mix ordinary and experiment pens: an experiment allocation
+// for pen 1 must not block a high-priority movement into ordinary pen 10. This is the exact live
+// Yashoda 10 failure from 2026-08-13.
+func TestHighPriorityShiftingExperimentConfigIsScopedToDestinationPartition(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatID := "00000000-0000-4000-8000-00000000d104"
+	goatIDs := []string{goatID}
+	seedApprovalGoatWithStage(t, ctx, pool, goatID, countsShedA, "Adult")
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+
+	eventID, approvalID := submitShiftingApproval(t, ctx, repo, "verify-high-sibling-experiment", goatIDs)
+	seedBlankTargetStageFeedConfig(t, ctx, pool, goatIDs, eventID)
+	if _, _, err := approveShifting(repo, ctx, "verify-high-sibling-experiment", approvalID, eventID, goatIDs); err != nil {
+		t.Fatalf("approve shifting: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events
+SET destination_partition_label='10'
+WHERE tenant_id=$1::uuid AND shifting_event_id=$2::uuid`, countsTenant, eventID); err != nil {
+		t.Fatalf("set destination partition: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_experiment_config (
+  tenant_id, park_id, shed_id, partition_label, feed_item_label,
+  absolute_kg, head_count, experiment_category, status
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, '1', 'Experiment Concentrate',
+  5, 10, 'Sibling pen experiment', 'active'
+)`, countsTenant, countsPark, countsShedB); err != nil {
+		t.Fatalf("seed sibling experiment: %v", err)
+	}
+
+	requirements, err := loadShiftingFeedRequirements(ctx, pool, countsTenant, []string{eventID}, time.Now())
+	if err != nil {
+		t.Fatalf("resolve feed requirement with sibling experiment: %v", err)
+	}
+	if requirement := requirements[eventID]; requirement.Status != "ready" {
+		t.Fatalf("status=%q blocked_reason=%q, want ready -- experiment pen 1 must not leak onto destination pen 10",
+			requirement.Status, requirement.BlockedReason)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_experiment_config (
+  tenant_id, park_id, shed_id, partition_label, feed_item_label,
+  absolute_kg, head_count, experiment_category, status
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, '10', 'Experiment Concentrate',
+  5, 10, 'Destination pen experiment', 'active'
+)`, countsTenant, countsPark, countsShedB); err != nil {
+		t.Fatalf("seed exact-destination experiment: %v", err)
+	}
+	requirements, err = loadShiftingFeedRequirements(ctx, pool, countsTenant, []string{eventID}, time.Now())
+	if err != nil {
+		t.Fatalf("resolve feed requirement with exact experiment: %v", err)
+	}
+	requirement := requirements[eventID]
+	if requirement.Status != "blocked" {
+		t.Fatalf("status=%q, want blocked -- exact destination experiment must remain fail-closed", requirement.Status)
+	}
+	want := "destination shed uses experiment feed config; no stage-matched ration may be guessed"
+	if requirement.BlockedReason != want {
+		t.Fatalf("blocked_reason=%q, want %q", requirement.BlockedReason, want)
+	}
+}
+
 // An animal with no stage on either side is a herd-data gap, and that DOES still block -- there is
 // no cohort to price against. The message must not blame the raiser for a selection.
 func TestHighPriorityShiftingStillBlocksWhenAnimalHasNoStageAtAll(t *testing.T) {
