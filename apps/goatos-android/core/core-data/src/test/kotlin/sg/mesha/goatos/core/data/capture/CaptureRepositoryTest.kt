@@ -1960,6 +1960,101 @@ class CaptureRepositoryTest {
             db.close()
         }
     }
+
+    @Test
+    fun `one video covers multiple obligations in vaccination contract (animal grain, prove readiness)`() = runTest {
+        // Vaccination contract: One goat with 2 vaccine obligations (e.g., PPR + ET+TT).
+        // One proof video captures both obligations' requirements.
+        // Expectations:
+        // - Roster row grain is animal (ScanProofIdentityTest ensures this)
+        // - Done tracked per obligation underneath (via scanned goat rows)
+        // - Both obligations' submit readiness satisfied by single clip
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val scans = DefaultScanCaptureRepository(
+                db.scannedGoatDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+            )
+            val proofs = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+                reconcileOnStartup = false,
+            )
+
+            val taskId = "vax-campaign-1"
+            val goatId = "goat-multi-vacc"
+            val pprObligation = "obl-ppr"
+            val ettObligation = "obl-et-tt"
+            val tag = "C1-901007000504418"
+
+            // Goat scanned for both obligations (different vaccine schedules on same animal)
+            scans.recordScan(
+                taskId = taskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = tag,
+                goatId = goatId,
+                obligationId = pprObligation,
+            )
+            scans.recordScan(
+                taskId = taskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = tag,
+                goatId = goatId,
+                obligationId = ettObligation,
+            )
+
+            // One proof capture for the goat covers both obligations
+            val captureResult = proofs.capture(
+                taskId = taskId,
+                fieldKey = "goat_scan_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = goatId,
+                localUri = "file://multi-vax.mp4",
+                mimeType = "video/mp4",
+                caption = "Vaccination · Multivacc · $tag · PPR+ET+TT",
+                rfidTag = tag,
+                scopeType = "task",
+                scopeId = taskId,
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = ProofPolicy(
+                    proofMode = "per_goat_video",
+                    subjectScope = "goat",
+                    expectedSubjects = listOf("goat"),
+                    maximumCount = 5,
+                    maximumCountPerSubject = 5,
+                ),
+                partitionLabel = null,
+                awaitUploadEnqueue = false,
+                uploadGroupKey = null,
+            )
+            assertTrue("Proof capture must succeed", captureResult is AppResult.Ok)
+
+            // Both obligations have scanned evidence
+            val allScans = scans.observeAllForTask(taskId).first()
+            assertEquals("Both obligations scanned for same goat", 2, allScans.size)
+            val scannedObligations = allScans.sortedBy { it.obligationId }.map { it.obligationId }
+            assertEquals(
+                listOf(ettObligation, pprObligation),
+                scannedObligations,
+            )
+            assertEquals("Both scans for same goat", listOf(goatId, goatId), allScans.sortedBy { it.obligationId }.map { it.goatId })
+
+            // Roster row grain is animal (one proof for goat, two obligations underneath)
+            val proofCount = proofs.observeProofs(taskId).first().size
+            assertEquals("One proof clip for the goat", 1, proofCount)
+            val singleProof = proofs.observeProofs(taskId).first().single()
+            assertEquals("Proof subject is the goat", goatId, singleProof.subjectId)
+            assertEquals("Proof references tag", tag, singleProof.rfidTag)
+        } finally {
+            db.close()
+        }
+    }
 }
 
 private fun proofEntity(
