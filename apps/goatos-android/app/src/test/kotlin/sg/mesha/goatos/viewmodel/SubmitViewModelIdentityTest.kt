@@ -78,6 +78,22 @@ class SubmitViewModelIdentityTest {
     }
 
     @Test
+    fun `shed submit with partition key includes partition segment unconditionally when whole`() {
+        val task = TaskSummaryDto(taskId = "task-shared", sopVersionId = "sop-v1", scopeId = "godel-2", rowVersion = 4)
+
+        // 3-arg version with includePartition=true should emit partition segment even when partition="whole"
+        assertEquals(
+            "shed-submit:task-shared:scope:godel-2:partition:whole:rv:4",
+            SubmitViewModel.stableSubmissionKey(task, activeShedId = "godel-2", partitionLabel = "whole")
+        )
+        // 3-arg version with explicit shed id and partition should emit partition segment
+        assertEquals(
+            "shed-submit:task-shared:scope:godel-2:partition:shed-a:rv:4",
+            SubmitViewModel.stableSubmissionKey(task, activeShedId = "godel-2", partitionLabel = "shed-a")
+        )
+    }
+
+    @Test
     fun `stale outbox status from previous submission scope is ignored`() = runTest(dispatcher) {
         val viewModel = SubmitViewModel(
             repo = CapturingTasksRepository(),

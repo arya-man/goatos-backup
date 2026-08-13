@@ -1369,6 +1369,7 @@ class ScanViewModel @Inject constructor(
         proofCaptureGoatId = row.goatId
         strandedGoatTag = row.primaryTag
         proofCaptureVideoCaptured = false
+        _lastProofCaptureError.update { null }  // Clear previous error on new capture start
         // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
         // compares job identity, and a body that completed before the assignment would compare
         // against the previous job and skip its own cleanup.
@@ -1402,9 +1403,6 @@ class ScanViewModel @Inject constructor(
                 // later scan (see the busy-refusal branch above).
                 proofCaptureVideoCaptured = true
                 val syncingStartedAtMs = System.currentTimeMillis()
-                pendingScanCommit?.let { commit ->
-                    recordRosterScan(row, commit.tag, commit.capturedAtMs, commit.rosterRows)
-                }
                 _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
 
                 // B6: Row must NOT enter done-set until proof capture() persisted OK.
@@ -1431,10 +1429,17 @@ class ScanViewModel @Inject constructor(
                     )
                 ) {
                     is AppResult.Ok -> {
+                        // B6: Scan row persisted only after proof capture succeeds.
+                        // Failed capture leaves no scan record, so re-scan is not blocked as duplicate.
+                        pendingScanCommit?.let { commit ->
+                            recordRosterScan(row, commit.tag, commit.capturedAtMs, commit.rosterRows)
+                        }
                         // B6: Only mark row done after proof capture succeeds.
                         pendingScanCommit?.let { commit ->
                             markRowDone(row, commit.capturedAtMs, commit.obligationIds)
                         }
+                        // Clear previous capture error now that capture succeeded
+                        _lastProofCaptureError.update { null }
                         analytics.track(
                             AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS,
                             vaccinationActionProps(row, row.primaryTag) +
