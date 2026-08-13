@@ -115,6 +115,49 @@ code:
 | upload starts/ends | `proof_upload_started`, `proof_upload_completed` |
 | upload retry/dead-letter | `proof_upload_failed`, `proof_dead_lettered` |
 
+### 3.2. Stuck submit diagnostics
+
+The submit screen must emit both coarse Firebase events and durable backend/Room
+evidence for every visible submit state:
+
+| UI state | Firebase/logcat event | Required compact params | Durable place to inspect |
+|---|---|---|---|
+| queued/yellow | `submit_status` | `task_id`, `submit_status=queued` | Android Room `outbox` row by `idempotency_key` |
+| syncing/yellow | `submit_status` | `task_id`, `submit_status=syncing`, `attempt_count`, `max_attempts` | Android Room `outbox.status=IN_FLIGHT` |
+| retrying/yellow | `submit_status` | `task_id`, `submit_status=retrying`, `reason`, `attempt_count`, `max_attempts` | Android Room `outbox.lastError` and `nextAttemptAt` |
+| backend rejected/red | `submit_status`, `funnel_submit_failed` | `task_id`, `submit_status=conflict`, `reason` | backend `sop_submit_attempt` API log, `audit_log`, `sop_submissions`, scan/proof tables |
+| dead letter/red | `submit_status`, `funnel_submit_failed` | `task_id`, `submit_status=dead_letter`, `reason`, `attempt_count`, `max_attempts` | Android Room `outbox` failed row; backend may have no submission if transport never reached API |
+| accepted/green | `submit_status`, `funnel_submit_succeeded` | `task_id`, `submit_status=synced` | backend `sop_submissions` plus vaccination completion/proof refs |
+
+For vaccination submit, the common first checks are:
+
+```sql
+SELECT status, attempt_count, max_attempts, last_error, idempotency_key
+FROM outbox
+WHERE idempotency_key LIKE '%<task_id>%'
+ORDER BY updated_at DESC;
+
+SELECT task_id, goat_id, obligation_id, status, captured_at
+FROM sop_task_scan_captures
+WHERE task_id = '<task_id>'
+ORDER BY captured_at DESC;
+
+SELECT proof_id, scope_type, scope_id, subject_type, subject_id, upload_state, storage_uri
+FROM proof_artifacts
+WHERE scope_id IN ('<task_id>', '<shed_id>')
+ORDER BY created_at DESC;
+```
+
+On phone QA, filter logcat with:
+
+```bash
+adb -s <device> logcat -v time | rg 'GoatOSAnalytics|submit_status|funnel_submit|proof_|scan_'
+```
+
+Firebase receives only the compact fields above. Full error text, request id,
+operator/device headers, proof refs, RFID/obligation ids, and server validation
+details belong in backend logs/audit tables and the Room outbox row.
+
 Custom Firebase Performance traces:
 
 ```text

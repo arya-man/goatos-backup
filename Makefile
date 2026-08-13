@@ -362,6 +362,8 @@ vaccination-hrms-source-audit:
 # and docs/observability/GUARDRAIL_RATCHET.md.
 telemetry-guard:
 	python3 -m unittest tools/telemetry-guard/test_telemetry_guard.py
+	node tools/agent-hooks/check-firebase-analytics-param-budget.mjs --self-test
+	node tools/agent-hooks/check-firebase-analytics-param-budget.mjs
 	python3 tools/telemetry-guard/telemetry-guard.py
 
 telemetry-guard-audit:
@@ -795,6 +797,10 @@ mobile-guard:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --self-test
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs
+	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs --self-test
+	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
+	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
+	node tools/agent-hooks/check-android-feed-proof-submit.mjs
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test

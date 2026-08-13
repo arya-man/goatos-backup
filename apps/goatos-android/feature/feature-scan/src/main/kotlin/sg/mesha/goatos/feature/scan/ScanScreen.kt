@@ -440,11 +440,10 @@ fun ScanScreen(
                     items(
                         state.proofActionNeeded,
                         key = { row ->
-                            val baseParts = listOf(row.goatId, row.vaccineLabel, row.primaryTag)
-                            val rowId = row.obligationId.takeIf { it.isNotBlank() }
-                                ?: (baseParts + row.secondaryTag.orEmpty())
-                                    .filter { it.isNotBlank() }
-                                    .joinToString("|")
+                            val rowId = listOf(row.goatId, row.primaryTag, row.secondaryTag.orEmpty())
+                                .filter { it.isNotBlank() }
+                                .joinToString("|")
+                                .ifBlank { row.vaccineLabel }
                             "proof-$rowId"
                         },
                         contentType = { "proof_needed_row" },
@@ -1114,17 +1113,17 @@ private fun FeedRow(
         // its proof is still uploading or failed.
         entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
             entry.proofStatusLabel ?: entry.scannedAtLabel
-        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED ->
-            entry.proofStatusLabel ?: "Upload failed · auto retrying"
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING ->
             entry.proofStatusLabel ?: "Uploading proof…"
+        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED ->
+            entry.proofStatusLabel ?: "Upload failed · auto retrying"
         else -> entry.scannedAtLabel
     }
     val secondaryColor = when {
         entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
             if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.brandD else toneColor
-        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.warning
+        entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
         entry.tone == ScanFeedTone.ACCEPTED -> ScanTokens.brandD
         else -> toneColor
     }
@@ -1593,8 +1592,10 @@ fun ScanListSheet(
                     items(
                         filtered,
                         key = { row ->
-                            row.obligationId.takeIf { it.isNotBlank() }
-                                ?: "${row.goatId}|${row.vaccineLabel}|${row.primaryTag}|${row.secondaryTag.orEmpty()}"
+                            listOf(row.goatId, row.primaryTag, row.secondaryTag.orEmpty())
+                                .filter { it.isNotBlank() }
+                                .joinToString("|")
+                                .ifBlank { row.vaccineLabel }
                         },
                         contentType = { "scan_row" },
                     ) { row -> ScanListRow(row = row) }
@@ -1696,6 +1697,8 @@ private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) 
 private fun ScanListRow(row: RosterRow) {
     val tone = when {
         row.status == ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
+        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 -> ScanFeedTone.ACCEPTED
+        row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading -> ScanFeedTone.DUPLICATE
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed -> ScanFeedTone.REJECTED
         row.status == ScanStatus.DONE && row.proofRequired &&
             row.proofUploadStatus != ProofUploadStatus.SYNCED &&

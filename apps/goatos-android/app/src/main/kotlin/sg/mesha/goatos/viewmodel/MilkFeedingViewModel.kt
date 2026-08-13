@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkFeedingRepository
@@ -253,18 +254,32 @@ class MilkFeedingViewModel @Inject constructor(
     private fun captureProof(code: String) = viewModelScope.launch {
         val proof = state.value.proofs.firstOrNull { it.code == code } ?: return@launch
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }
-        val video = capture.captureVideo(ProofCapturePrompt.MILK_FEEDING, proof.label)
+        val current = state.value
+        val caption = proofOverlayContextLine(
+            feature = "Milk feeding",
+            parkLabel = current.parkLabel.ifBlank { current.parkId },
+            extraLabel = listOf("Session ${current.sessionNo}", proof.label).filter { it.isNotBlank() }.joinToString(" . "),
+        )
+        val video = capture.captureVideo(
+            ProofCaptureContext(
+                title = caption,
+                primaryTag = current.parkLabel.ifBlank { current.parkId },
+                workLabel = proof.label,
+                prompt = ProofCapturePrompt.MILK_FEEDING,
+                headerTitle = proof.label,
+            ),
+        )
         if (video == null) { draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row }) }; return@launch }
         when (val result = proofCaptureRepository.capture(
             taskId = groupKey(),
             fieldKey = "milk_feeding_$code",
             subject = ProofSubject.PARK,
-            subjectId = state.value.parkId,
+            subjectId = current.parkId,
             localUri = video.localUri,
             mimeType = video.mimeType,
-            caption = proof.label,
+            caption = caption,
             scopeType = "park",
-            scopeId = state.value.parkId,
+            scopeId = current.parkId,
             capturedStartMs = video.startedAtMs,
             capturedEndMs = video.endedAtMs,
             capturedByPrincipalId = null,

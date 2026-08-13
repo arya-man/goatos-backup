@@ -1882,10 +1882,12 @@ eligible AS (
   SELECT oi.obligation_id, oi.target_id AS goat_id, g.shed_id
   FROM obligation_instances oi
   JOIN batch b ON b.batch_id = oi.batch_id
+  JOIN obligation_batches ob ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE oi.tenant_id = $1
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
+    AND (oi.status <> 'scheduled' OR COALESCE(ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now())
     AND (NOT $3::boolean OR g.shed_id = $4)
     AND (
       $5::text = ''
@@ -1901,19 +1903,24 @@ eligible AS (
 -- materialize", so drive-% is correct across re-reads and an over-scan can never be masked by a
 -- stale, inflated expected_count.
 expected AS (
-  SELECT count(*) AS n
+  SELECT count(DISTINCT goat_id) AS n
   FROM eligible
 ),
 handled AS (
   SELECT count(DISTINCT c.goat_id) AS n
   FROM sop_task_scan_captures c
-  JOIN eligible e
-    ON e.obligation_id = c.obligation_id
-    OR (c.obligation_id IS NULL AND e.goat_id = c.goat_id)
+  JOIN goats g ON g.tenant_id = c.tenant_id AND g.goat_id = c.goat_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE c.tenant_id = $1
     AND c.task_id = $2
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND c.goat_id IS NOT NULL
+    AND (NOT $3::boolean OR g.shed_id = $4)
+    AND (
+      $5::text = ''
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5::text)), '^part[[:space:]]+', '')
+    )
 ),
 proofed_goat AS (
   SELECT count(DISTINCT p.subject_id) AS n
@@ -1922,10 +1929,18 @@ proofed_goat AS (
   WHERE p.tenant_id = $1
     AND p.scope_type = 'task'
     AND p.scope_id = $2
-    AND p.subject_type = 'goat'
-    AND p.subject_id IS NOT NULL
-    AND p.upload_state = 'completed'
-),
+	    AND p.subject_type = 'goat'
+	    AND p.subject_id IS NOT NULL
+	    AND p.upload_state = 'completed'
+	    AND p.created_at >= COALESCE((
+	      SELECT max(c.captured_at)
+	      FROM sop_task_scan_captures c
+	      WHERE c.tenant_id = p.tenant_id
+	        AND c.task_id = p.scope_id
+	        AND c.field_key IN ('goat_ids', '__scan_roster__')
+	        AND c.goat_id = p.subject_id
+	    ), '-infinity'::timestamptz)
+	),
 proofed_shed AS (
   SELECT count(*) AS n
   FROM proof_artifacts p

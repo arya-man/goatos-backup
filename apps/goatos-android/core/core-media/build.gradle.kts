@@ -3,6 +3,7 @@
 // itself. See ProofMediaHttp.kt.
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {

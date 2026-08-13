@@ -876,26 +876,22 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
  * True when tapping this shed may ONLY open its read-only record — i.e. there is nothing left
  * for the operator to do here.
  *
- * `hasSubmittedRecord()` is a per-ROW status, but a row carries a COUNT of animals. A shed that
- * was submitted and then partly sent back (or that gained a newly-due animal) reports rows whose
- * status is still terminal while `openCount` is above zero -- 3 targeted / 2 done / 1 OPEN. The
- * old predicate looked only at the statuses, so it locked the operator out of a shed whose own
- * card was telling them one animal was still open, with a toast claiming it was fully submitted.
- *
- * Remaining open work therefore VETOES record-only: the card's open count and the tap gate now
- * read the same number, so they can never contradict each other on screen again.
+ * `proofStatus=uploaded` is only "ready to finalize" and must stay open. A submitted/review record
+ * is different: once the backend says `sopStatus=submitted` or `verificationStatus=pending`, stale
+ * open counts must not reopen the scan/camera workflow. The only exception is an explicit redo
+ * state (`rejected`/`deferred`), where the verifier intentionally sent the animal back to the
+ * operator.
  */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
     isNotEmpty() &&
-        all { row -> row.hasSubmittedRecord() } &&
-        sumOf { row -> row.openCount.coerceAtLeast(0) } == 0
+        none { row -> row.needsRedo() } &&
+        all { row -> row.hasSubmittedRecord() }
 
 private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
     sopStatus.isSubmissionTerminalStatus() ||
         verificationStatus.equals("pending", ignoreCase = true) ||
         verificationStatus.equals("accepted", ignoreCase = true) ||
         verificationStatus.equals("verified", ignoreCase = true) ||
-        proofStatus.equals("uploaded", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {

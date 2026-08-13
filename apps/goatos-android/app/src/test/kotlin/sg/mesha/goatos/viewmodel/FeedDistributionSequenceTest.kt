@@ -8,7 +8,7 @@ import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 
 class FeedDistributionSequenceTest {
     @Test
-    fun `three proof actions can be reuploaded independently and submit waits for sync`() {
+    fun `three proof actions can be reuploaded independently and submit only waits for queued proof uploads`() {
         assertTrue(FeedDistributionUiState().feedWeightPhotoCaptureEnabled)
         assertTrue(FeedDistributionUiState().waterVideoCaptureEnabled)
         assertTrue(FeedDistributionUiState(videoCaptured = true, isCapturingVideo = true).waterVideoCaptureEnabled)
@@ -28,9 +28,9 @@ class FeedDistributionSequenceTest {
                 videoCaptured = true,
                 waterVideoCaptured = true,
                 feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
-                videoStatus = FeedDistributionProofStatus.QUEUED,
+                videoStatus = FeedDistributionProofStatus.FAILED,
                 waterVideoStatus = FeedDistributionProofStatus.SYNCED,
-                canComplete = false,
+                canComplete = true,
             ).submitEnabled,
         )
         assertTrue(
@@ -38,8 +38,8 @@ class FeedDistributionSequenceTest {
                 feedWeightPhotoCaptured = true,
                 videoCaptured = true,
                 waterVideoCaptured = true,
-                feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
-                videoStatus = FeedDistributionProofStatus.SYNCED,
+                feedWeightPhotoStatus = FeedDistributionProofStatus.QUEUED,
+                videoStatus = FeedDistributionProofStatus.UPLOADING,
                 waterVideoStatus = FeedDistributionProofStatus.SYNCED,
                 canComplete = true,
             ).submitEnabled,

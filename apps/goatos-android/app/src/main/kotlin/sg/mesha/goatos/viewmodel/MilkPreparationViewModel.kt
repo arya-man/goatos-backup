@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.MilkPreparationRepository
@@ -395,7 +396,20 @@ class MilkPreparationViewModel @Inject constructor(
         if (!current.isEditable || parkId.isBlank() || !step.enabled || !step.answerComplete || step.captured || step.capturing) return
         draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
         viewModelScope.launch {
-            val video = capture.captureVideo(ProofCapturePrompt.MILK_PREPARATION, step.label)
+            val caption = proofOverlayContextLine(
+                feature = "Milk preparation",
+                parkLabel = current.parkLabel.ifBlank { parkId },
+                extraLabel = step.label,
+            )
+            val video = capture.captureVideo(
+                ProofCaptureContext(
+                    title = caption,
+                    primaryTag = current.parkLabel.ifBlank { parkId },
+                    workLabel = step.label,
+                    prompt = ProofCapturePrompt.MILK_PREPARATION,
+                    headerTitle = step.label,
+                ),
+            )
             if (video == null) { setCapturing(stepCode, false); return@launch }
             when (val result = proofCaptureRepository.capture(
                 taskId = groupKey(),
@@ -404,7 +418,7 @@ class MilkPreparationViewModel @Inject constructor(
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
-                caption = step.label,
+                caption = caption,
                 scopeType = "park",
                 scopeId = parkId,
                 capturedStartMs = video.startedAtMs,

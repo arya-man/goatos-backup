@@ -29,6 +29,7 @@ type Repository interface {
 	CreateProof(ctx context.Context, in domain.CreateUpload, provider string) (domain.Artifact, error)
 	GetProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error)
 	GetProofsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error)
+	ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error)
 	CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error)
 	DeleteUnattachedProof(ctx context.Context, tenantID, proofID, actorID string) (domain.Artifact, error)
 	ApplyRetention(ctx context.Context, tenantID string, proofIDs []string, policy string, expiresAt *time.Time) (int, error)

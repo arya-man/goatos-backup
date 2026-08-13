@@ -24,6 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -494,7 +495,18 @@ class SubmitViewModel @Inject constructor(
         captureInFlightKey = key
         viewModelScope.launch {
             try {
-                val captured = if (source == "gallery_picker") proofCaptureSource.pickVideo() else proofCaptureSource.captureVideo()
+                val caption = submitProofCaption(task, key)
+                val captured = if (source == "gallery_picker") {
+                    proofCaptureSource.pickVideo()
+                } else {
+                    proofCaptureSource.captureVideo(
+                        ProofCaptureContext(
+                            title = caption,
+                            primaryTag = submitProofLocationLabel(task).ifBlank { task.scopeId },
+                            workLabel = key,
+                        ),
+                    )
+                }
                 if (captured != null) {
                     val shedScopeId = selectedShedId.value
                         ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
@@ -505,7 +517,7 @@ class SubmitViewModel @Inject constructor(
                         subjectId = if (subject == ProofSubject.SHED) shedScopeId else null,
                         localUri = captured.localUri,
                         mimeType = captured.mimeType,
-                        caption = null,
+                        caption = caption,
                         scopeType = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) "shed" else "task",
                         scopeId = if (subject == ProofSubject.SHED && !shedScopeId.isNullOrBlank()) shedScopeId else task.taskId,
                         capturedStartMs = captured.startedAtMs,
@@ -864,6 +876,23 @@ class SubmitViewModel @Inject constructor(
         val activeKey = idempotencyKey
         val activeItemId = outboxItemId
         if (item.id != activeItemId && (activeKey == null || item.idempotencyKey != activeKey)) return
+        val analyticsTaskId = currentTask?.taskId ?: item.groupKey
+        val submitStatus = when {
+            item.status == SyncItemStatus.QUEUED -> "queued"
+            item.status == SyncItemStatus.IN_FLIGHT -> "syncing"
+            item.status == SyncItemStatus.SUCCEEDED -> "synced"
+            item.conflict -> "conflict"
+            item.isDeadLetter -> "dead_letter"
+            else -> "retrying"
+        }
+        AnalyticsFunnels.trackSubmitStatus(
+            analytics = analytics,
+            taskId = analyticsTaskId,
+            status = submitStatus,
+            reason = item.lastError,
+            attemptCount = item.attemptCount,
+            maxAttempts = item.maxAttempts,
+        )
         if (item.status == SyncItemStatus.SUCCEEDED) scopeSubmissionAcked = true
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
@@ -877,7 +906,7 @@ class SubmitViewModel @Inject constructor(
                 submitInFlight = false
                 // Answers: did the enqueued submit actually reach and get accepted by the
                 // backend — closes the funnel's last stage, previously invisible.
-                AnalyticsFunnels.trackSubmitSucceeded(analytics, (currentTask?.taskId ?: item.groupKey))
+                AnalyticsFunnels.trackSubmitSucceeded(analytics, analyticsTaskId)
                 if (task != null) {
                     _state.value = terminalAckState(task, currentForm).copy(snackbarMessage = SubmitSnackbarMessage.SUCCEEDED)
                 } else {
@@ -893,7 +922,7 @@ class SubmitViewModel @Inject constructor(
                     IllegalStateException(item.lastError ?: "conflict"),
                     "SubmitViewModel submit rejected (conflict)",
                 )
-                AnalyticsFunnels.trackSubmitFailed(analytics, (currentTask?.taskId ?: item.groupKey), item.lastError?.ifBlank { "conflict" } ?: "conflict")
+                AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "conflict" } ?: "conflict")
                 _state.update {
                     it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.CONFLICT)
                 }
@@ -906,7 +935,7 @@ class SubmitViewModel @Inject constructor(
                     IllegalStateException(item.lastError ?: "dead_letter"),
                     "SubmitViewModel submit dead-lettered",
                 )
-                AnalyticsFunnels.trackSubmitFailed(analytics, (currentTask?.taskId ?: item.groupKey), item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
+                AnalyticsFunnels.trackSubmitFailed(analytics, analyticsTaskId, item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
                 _state.update {
                     it.copy(
                         syncState = SyncState.DEAD_LETTER,
@@ -1207,6 +1236,33 @@ class SubmitViewModel @Inject constructor(
 
     /** Generic non-vaccination forms may still map named media subjects. Vaccination goat
      *  clips are captured from the scan row with [ProofSubject.GOAT] and never use this mapper. */
+    private fun submitProofCaption(task: TaskSummaryDto, fieldKey: String): String =
+        proofOverlayContextLine(
+            feature = task.presentation?.title?.takeIf { it.isNotBlank() }
+                ?: task.title.ifBlank { "Proof" },
+            parkLabel = task.contextString("parkLabel")
+                ?: task.contextString("park_label")
+                ?: task.contextString("parkName")
+                ?: task.contextString("park_name"),
+            locationLabel = submitProofLocationLabel(task),
+            extraLabel = currentForm.fields.firstOrNull { it.key == fieldKey }?.label?.takeIf { it.isNotBlank() }
+                ?: fieldKey.replace('_', ' '),
+        )
+
+    private fun submitProofLocationLabel(task: TaskSummaryDto): String =
+        task.contextString("operational_location_display")
+            ?: task.contextString("operationalLocationDisplay")
+            ?: task.contextString("shedLabel")
+            ?: task.contextString("shed_label")
+            ?: task.contextString("shedName")
+            ?: task.contextString("shed_name")
+            ?: activePartitionLabel()
+            ?: selectedShedId.value
+            ?: ""
+
+    private fun TaskSummaryDto.contextString(key: String): String? =
+        (context[key] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+
     // R50-027: derive subject from the task's proof policy expectedSubjects, not hardcoded.
     // Falls back to per-key hardcoded mapping only when policy has no explicit mapping.
     private fun subjectForFieldKey(key: String): ProofSubject {

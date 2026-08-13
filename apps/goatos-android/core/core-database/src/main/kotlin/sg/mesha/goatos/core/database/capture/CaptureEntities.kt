@@ -29,8 +29,9 @@ enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 @Entity(
     tableName = "scanned_goat_capture",
     indices = [
-        // Dedup is per operational partition. One task may cover sibling partitions of one shed.
-        Index(value = ["taskId", "partitionKey", "fieldKey", "tag"], unique = true),
+        // Dedup is per operational partition and hidden due-item. The screen still shows one
+        // animal, but if that animal has two vaccines due, both due-items must sync.
+        Index(value = ["taskId", "partitionKey", "fieldKey", "tag", "obligationId"], unique = true),
         Index(value = ["taskId", "partitionKey", "fieldKey", "capturedAtMs"]),
     ],
 )
@@ -110,6 +111,19 @@ interface ScannedGoatDao {
     ): ScannedGoatEntity?
 
     @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey AND tag = :tag " +
+            "AND ((obligationId IS NULL AND :obligationId IS NULL) OR obligationId = :obligationId) LIMIT 1",
+    )
+    suspend fun findByTaskFieldTagObligation(
+        taskId: String,
+        partitionKey: String,
+        fieldKey: String,
+        tag: String,
+        obligationId: String?,
+    ): ScannedGoatEntity?
+
+    @Query(
         "UPDATE scanned_goat_capture SET goatId = :goatId, obligationId = :obligationId, " +
             "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus WHERE id = :id",
     )
@@ -120,7 +134,7 @@ interface ScannedGoatDao {
      * obligation cycle — must stay deduped) from a tag re-scanned for a DIFFERENT/reopened
      * obligation (a verifier-rejected obligation reopened, or the same physical tag reassigned
      * to a new obligation) — which is fresh evidence and must be written through, never
-     * silently absorbed by the unique (taskId, partitionKey, fieldKey, tag) index.
+     * silently absorbed by the unique (taskId, partitionKey, fieldKey, tag, obligationId) index.
      *
      * ROOT CAUSE this closes: the plain [insert] (OnConflictStrategy.IGNORE) treated ANY tag
      * collision as a duplicate — including a STALE, already-SYNCED row left over from a PRIOR
@@ -140,7 +154,7 @@ interface ScannedGoatDao {
      * `scan_captures` on the backend.
      *
      * Deliberately NOT `@Transaction`: this app has exactly one writer for a given
-     * (taskId, partitionKey, fieldKey, tag) at a time (one physical RFID reader stream, sequential
+     * (taskId, partitionKey, fieldKey, tag, obligationId) at a time (one physical RFID reader stream, sequential
      * onTagRead handling), and the unique index on that composite key is the actual concurrency
      * safety net — a racing insert can still only ever leave one row. Wrapping this
      * read-then-write in a DAO-interface `@Transaction` default method was found (via a
@@ -153,7 +167,20 @@ interface ScannedGoatDao {
      * to do more than this call needs.
      */
     suspend fun upsertScan(entity: ScannedGoatEntity): ScanUpsertResult {
-        val existing = findByTaskFieldTag(entity.taskId, entity.partitionKey, entity.fieldKey, entity.tag)
+        val existing = if (entity.obligationId == null) {
+            // SQLite unique indexes do not consider NULL equal to NULL, so the DAO must collapse
+            // local/null-obligation scans before insert. Once a scan is tied to explicit vaccine
+            // obligations the obligation-grain query below preserves one hidden sync row per due item.
+            findByTaskFieldTag(entity.taskId, entity.partitionKey, entity.fieldKey, entity.tag)
+        } else {
+            findByTaskFieldTagObligation(
+                entity.taskId,
+                entity.partitionKey,
+                entity.fieldKey,
+                entity.tag,
+                entity.obligationId,
+            )
+        }
         if (existing == null) {
             insert(entity)
             return ScanUpsertResult.INSERTED
@@ -236,13 +263,15 @@ interface ScannedGoatDao {
     @Query(
         "UPDATE scanned_goat_capture SET syncStatus = :status " +
             "WHERE taskId = :taskId AND partitionKey = :partitionKey " +
-            "AND fieldKey = :fieldKey AND tag = :tag",
+            "AND fieldKey = :fieldKey AND tag = :tag " +
+            "AND (:obligationId IS NULL OR obligationId = :obligationId)",
     )
     suspend fun markFieldTagStatus(
         taskId: String,
         partitionKey: String,
         fieldKey: String,
         tag: String,
+        obligationId: String?,
         status: String,
     )
 
@@ -389,6 +418,8 @@ data class ProofCaptureEntity(
      *  `description`/`help_text` covers the NAMED fields; this is the free-text caption for a
      *  field the operator added themselves. */
     val caption: String? = null,
+    /** Human-readable RFID/tag to burn on individual-animal overlays. Never a goat UUID. */
+    val rfidTag: String? = null,
     val capturedAtMs: Long,
     /** Freshness/attribution metadata (docs/mobile/proof-capture-sync-and-e2e.md
      *  "Capture-source rules"): device-clock capture/import start/stop, so a verifier can see
@@ -435,8 +466,11 @@ data class ProofCaptureEntity(
     val targetVideoBitrate: Int? = null,
     val targetAudioBitrate: Int? = null,
     val locationStatus: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val gpsAccuracyM: Double? = null,
     val geocoderStatus: String? = null,
+    val geocodedAddress: String? = null,
     val lastErrorStage: String? = null,
     val lastErrorClass: String? = null,
     val lastErrorRetryable: Boolean? = null,
@@ -445,6 +479,9 @@ data class ProofCaptureEntity(
     val objectGeneration: String? = null,
     val uploadedAtMs: Long? = null,
     val attachedAtMs: Long? = null,
+    /** Android Gallery copy already written for this proof row. Prevents retry/recovery from
+     *  flooding Gallery with duplicate final media. */
+    val gallerySavedUri: String? = null,
     val updatedAtMs: Long = capturedAtMs,
 )
 
@@ -617,7 +654,7 @@ interface ProofCaptureDao {
     suspend fun findById(id: String): ProofCaptureEntity?
 
     @Query("UPDATE proof_capture SET outboxItemId = :outboxItemId WHERE id = :id")
-    suspend fun setOutboxItemId(id: String, outboxItemId: String)
+    suspend fun setOutboxItemId(id: String, outboxItemId: String?)
 
     @Query(
         "UPDATE proof_capture SET syncStatus = :status, serverProofId = :serverProofId, " +
@@ -669,8 +706,16 @@ interface ProofCaptureDao {
         updatedAtMs: Long,
     )
 
+    @Query(
+        "UPDATE proof_capture SET gallerySavedUri = :gallerySavedUri, updatedAtMs = :updatedAtMs WHERE id = :id",
+    )
+    suspend fun markGallerySaved(id: String, gallerySavedUri: String, updatedAtMs: Long)
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity)
+
+    @Query("SELECT COUNT(*) FROM proof_capture_state_event WHERE proofId = :proofId AND stage = :stage")
+    suspend fun countStateEvents(proofId: String, stage: String): Int
 
     @Query("DELETE FROM proof_capture WHERE id = :id AND taskId = :taskId")
     suspend fun delete(id: String, taskId: String)

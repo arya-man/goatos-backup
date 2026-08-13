@@ -72,6 +72,7 @@ import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.UploadedProofListResponseDto
 import sg.mesha.goatos.core.network.dto.forCreateUpload
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -459,6 +460,15 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ProofUploadRequestDto,
     ): ProofUploadResponseDto
+
+    @GET("app/proofs/uploads")
+    suspend fun listUploadedProofs(
+        @Query("scope_type") scopeType: String,
+        @Query("scope_id") scopeId: String,
+        @Query("client_task_key") clientTaskKey: String?,
+        @Query("field_key") fieldKey: String?,
+        @Query("limit") limit: Int?,
+    ): UploadedProofListResponseDto
 
     @DELETE("app/proofs/{proof_id}")
     suspend fun deleteProof(@Path("proof_id") proofId: String)
@@ -1090,6 +1100,14 @@ class RetrofitAppApi(
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         service.registerProof(idempotencyKey, request.forCreateUpload())
+
+    override suspend fun listUploadedProofs(
+        scopeType: String,
+        scopeId: String,
+        clientTaskKey: String?,
+        fieldKey: String?,
+        limit: Int?,
+    ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
 
     override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 

@@ -27,7 +27,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
-import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
 import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
 import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
@@ -227,7 +226,7 @@ class GoatDatabaseUpgradeCrashTest {
             // (so the ordering column Room now validates against actually exists post-upgrade), and the
             // dropped scan_roster_cache blob table is gone.
             assertEquals(3L, rosterDao.observeRowsWindow(scopeKey, 20).first().single().seq)
-            assertEquals("pending", counts.single().status)
+            assertEquals("due", counts.single().status)
 
             // 6. The v12 shed_completion_summary_cache table (vaccination shed acknowledgement) is
             //    present and usable post-upgrade — a write + read round-trip proves MIGRATION_11_12
@@ -1077,14 +1076,15 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
             MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
-            MIGRATION_36_37, MIGRATION_37_38,
+            MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
+            MIGRATION_41_42,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —
-         *  i.e. everything except MIGRATION_25_26 onwards, the last THIRTEEN entries of
+         *  i.e. everything except MIGRATION_25_26 onwards, the last SEVENTEEN entries of
          *  ALL_TEST_MIGRATIONS. Keep this drop count in lockstep with the array above: adding a
          *  migration without bumping it silently writes a wrong-version file. */
-        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(13)
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(17)
     }
 }
 
@@ -1120,7 +1120,7 @@ abstract class OldGoatDatabaseV1 : RoomDatabase() {
         RosterTimetableCacheEntity::class,
         RosterCoverageCacheEntity::class,
         TaskDetailCacheEntity::class,
-        ScannedGoatEntity::class,
+        ScannedGoatEntityV10::class,
         RfidScanAttemptEntity::class,
         ProofCaptureEntityV10::class,
         VerificationQueueCacheEntity::class,
@@ -1160,6 +1160,24 @@ interface ScanRosterRowDaoV10 {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ScanRosterRowEntityV10)
 }
+
+@Entity(
+    tableName = "scanned_goat_capture",
+    indices = [
+        Index(value = ["taskId", "fieldKey", "tag"], unique = true),
+        Index(value = ["taskId", "fieldKey", "capturedAtMs"]),
+    ],
+)
+data class ScannedGoatEntityV10(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val fieldKey: String,
+    val tag: String,
+    val goatId: String?,
+    val obligationId: String?,
+    val capturedAtMs: Long,
+    val syncStatus: String = "PENDING",
+)
 
 /**
  * The v10 shape of the `scan_roster_cache` JSON-blob table (schemas/<db>/10.json): the standard

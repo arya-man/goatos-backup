@@ -86,6 +86,44 @@ func TestWeighedAndSubmittedAgreeMidShift(t *testing.T) {
 	assertOperatorFacts(t, ctx, repo, baseWeighed+3, baseSubmitted+3, "post-submit operator")
 }
 
+func TestListCampaignShedsTerminalShedStatusOneToManyPageBoundaryStatusMatrixBeatsStaleWorkItemStatus(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	campaignID := lcpUUID(16051)
+	bucketID := lcpUUID(16061)
+	lcpInsertCampaign(t, ctx, pool, campaignID, repoPark, "2026-07-30", domain.StatusPublished, repoOperator)
+	lcpInsertBucket(t, ctx, pool, bucketID, campaignID, repoExpectedShed, domain.CategoryIndividualAnimal, repoOperator, 0, domain.StatusCompleted)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_work_items (
+  tenant_id, campaign_id, campaign_shed_id, park_id, operator_user_id, weighing_category,
+  shed_label, shed_location_id, planned_business_date, due_business_date, work_state
+)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6,
+        'Gandhi 1', $7::uuid, '2026-07-30'::date, '2026-08-11'::date, 'scheduled')`,
+		repoTenant, campaignID, bucketID, repoPark, repoOperator, domain.CategoryIndividualAnimal, repoExpectedShed)
+
+	page, err := repo.ListCampaignSheds(ctx, repoTenant, campaignID, "", 50, ports.CampaignAccess{Unrestricted: true})
+	if err != nil {
+		t.Fatalf("list campaign sheds: %v", err)
+	}
+	for _, shed := range page.Items {
+		if shed.CampaignShedID != bucketID {
+			continue
+		}
+		if shed.Status != domain.StatusCompleted {
+			t.Fatalf("shed status=%s, want completed when terminal shed status conflicts with stale work item", shed.Status)
+		}
+		return
+	}
+	t.Fatalf("bucket %s not in page", bucketID)
+}
+
 // TestLumpSumWeighedIsAnimalGrainOnBothSurfaces pins the grain half of the defect.
 // A lump-sum proof IS the submission, so a standing (non-withdrawn) shed
 // observation contributes its recorded animal_count to BOTH facts -- and it must

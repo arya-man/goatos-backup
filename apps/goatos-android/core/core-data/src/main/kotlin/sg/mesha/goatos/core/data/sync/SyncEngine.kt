@@ -366,6 +366,7 @@ class SyncEngine(
                     partitionKey = payload.partitionKey,
                     fieldKey = payload.request.fieldKey,
                     tag = payload.request.tag,
+                    obligationId = payload.request.obligationId?.takeIf { it.isNotBlank() },
                     status = CaptureSyncStatus.SYNCED.name,
                 )
             }

@@ -8,6 +8,8 @@ import android.provider.MediaStore
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import java.io.File
 import java.net.URI
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /** Best-effort operator convenience copy. Upload remains app-private/Room-first source of truth. */
 fun interface GalleryProofSaver {
@@ -26,17 +28,20 @@ class MediaStoreGalleryProofSaver(
         if (localFilePath.isBlank()) return
         val mimeType = request.mimeType.ifBlank { fallbackMimeType(localFilePath, request.proofType) }
         val isImage = mimeType.startsWith("image/", ignoreCase = true) || request.proofType.equals("photo", ignoreCase = true)
+        val relativePath = galleryRelativePath(isImage)
+        val displayName = proofDisplayName(request.proofType, idempotencyKey, mimeType, request.uploadOriginal)
         val collection = if (isImage) {
             MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         } else {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
+        if (existingProofCopy(collection, displayName, relativePath) != null) return
         val target = context.contentResolver.insert(
             collection,
             ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, proofDisplayName(request.proofType, idempotencyKey, mimeType, nowMs()))
+                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
                 put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, galleryRelativePath(isImage))
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
         ) ?: return
@@ -58,6 +63,19 @@ class MediaStoreGalleryProofSaver(
         }
     }
 
+    private fun existingProofCopy(collection: Uri, displayName: String, relativePath: String): Uri? {
+        val projection = arrayOf(MediaStore.MediaColumns._ID)
+        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?"
+        val args = arrayOf(displayName, "$relativePath/")
+        context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                return Uri.withAppendedPath(collection, id.toString())
+            }
+        }
+        return null
+    }
+
     private fun openInput(localFilePath: String) =
         when {
             localFilePath.startsWith("content:", ignoreCase = true) ->
@@ -75,7 +93,10 @@ private fun galleryRelativePath(isImage: Boolean): String =
         "${Environment.DIRECTORY_MOVIES}/GoatOS Proofs"
     }
 
-private fun proofDisplayName(proofType: String, idempotencyKey: String, mimeType: String, nowMs: Long): String {
+private val ProofUploadRequestDto.uploadOriginal: Boolean
+    get() = (metadata["upload_original"] as? JsonPrimitive)?.booleanOrNull == true
+
+private fun proofDisplayName(proofType: String, idempotencyKey: String, mimeType: String, uploadOriginal: Boolean): String {
     val safeKey = idempotencyKey
         .takeLast(48)
         .replace(Regex("[^A-Za-z0-9._-]+"), "-")
@@ -86,7 +107,8 @@ private fun proofDisplayName(proofType: String, idempotencyKey: String, mimeType
         .replace(Regex("[^a-z0-9]+"), "-")
         .trim('-')
         .ifBlank { "proof" }
-    return "goatos_${safeType}_${nowMs}_$safeKey.${extensionFor(mimeType)}"
+    val artifact = if (uploadOriginal) "original" else "processed"
+    return "goatos_${safeType}_${artifact}_$safeKey.${extensionFor(mimeType)}"
 }
 
 private fun fallbackMimeType(localFilePath: String, proofType: String): String =

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type Service interface {
 	CreateUpload(ctx context.Context, in domain.CreateUpload) (domain.UploadTarget, error)
 	CompleteUpload(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error)
 	StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error)
+	ListUploadedProofs(ctx context.Context, query domain.ListUploadedProofsQuery) ([]domain.Artifact, error)
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 	OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error)
 	DeleteUpload(ctx context.Context, tenantID, proofID, actorID string) error
@@ -46,6 +48,7 @@ func NewHandler(service Service, log ...*slog.Logger) *Handler {
 
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/proofs/uploads", h.CreateUpload)
+	mux.HandleFunc("GET /app/proofs/uploads", h.ListUploadedProofs)
 	mux.HandleFunc("PUT /app/proofs/{proof_id}/upload", h.UploadLocal)
 	mux.HandleFunc("POST /app/proofs/{proof_id}/complete", h.CompleteUpload)
 	mux.HandleFunc("GET /app/proofs/{proof_id}/download", h.Download)
@@ -87,6 +90,7 @@ type proofResponse struct {
 	DurationMS      *int64         `json:"duration_ms,omitempty"`
 	ContentHash     string         `json:"content_hash"`
 	Metadata        map[string]any `json:"metadata"`
+	DownloadURL     string         `json:"download_url,omitempty"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UploadedAt      *time.Time     `json:"uploaded_at,omitempty"`
 }
@@ -99,6 +103,10 @@ type createUploadResponse struct {
 	ExpiresAt      time.Time         `json:"expires_at"`
 	UploadProtocol string            `json:"upload_protocol"`
 	ChunkSizeBytes int64             `json:"chunk_size_bytes,omitempty"`
+}
+
+type listUploadedProofsResponse struct {
+	Proofs []proofResponse `json:"proofs"`
 }
 
 type downloadURLResponse struct {
@@ -157,6 +165,37 @@ func (h *Handler) UploadLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]proofResponse{"proof": toProofResponse(proof)})
+}
+
+func (h *Handler) ListUploadedProofs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 20
+	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = parsed
+		}
+	}
+	proofs, err := h.service.ListUploadedProofs(r.Context(), domain.ListUploadedProofsQuery{
+		TenantID:      tenantID(r),
+		ScopeType:     q.Get("scope_type"),
+		ScopeID:       q.Get("scope_id"),
+		ClientTaskKey: q.Get("client_task_key"),
+		FieldKey:      q.Get("field_key"),
+		Limit:         limit,
+	})
+	if err != nil {
+		h.respondErr(w, r, err)
+		return
+	}
+	out := make([]proofResponse, 0, len(proofs))
+	for _, proof := range proofs {
+		response := toProofResponse(proof)
+		if url, err := h.service.DownloadURL(r.Context(), tenantID(r), proof.ProofID); err == nil {
+			response.DownloadURL = url
+		}
+		out = append(out, response)
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, listUploadedProofsResponse{Proofs: out})
 }
 
 func (h *Handler) UploadLocalSigned(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.capture.ProofCapturePrompt
+import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -238,7 +239,16 @@ class WorkflowDetailViewModel @Inject constructor(
         _state.update { it.copy(isCapturingVideo = true, message = null) }
         viewModelScope.launch {
             val captured = try {
-                proofCaptureSource.captureVideo(prompt, action?.title)
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = workflowProofCaption(current, action),
+                        primaryTag = current.subjectLocationDisplay.ifBlank { current.displayId },
+                        secondaryTag = current.displayId.takeIf { it.isNotBlank() },
+                        workLabel = action?.title.orEmpty(),
+                        prompt = prompt,
+                        headerTitle = action?.title,
+                    ),
+                )
             } catch (error: Exception) {
                 crashReporter.recordException(error, "workflow video capture failed")
                 null
@@ -279,7 +289,7 @@ class WorkflowDetailViewModel @Inject constructor(
                 subjectId = goatId,
                 localUri = captured.localUri,
                 mimeType = captured.mimeType,
-                caption = action?.title ?: actionId,
+                caption = workflowProofCaption(current, action),
                 scopeType = "goat",
                 scopeId = goatId,
                 capturedStartMs = captured.startedAtMs,
@@ -362,7 +372,7 @@ class WorkflowDetailViewModel @Inject constructor(
                     subjectId = draft.subjectGoatId,
                     localUri = draft.localUri,
                     mimeType = draft.mimeType,
-                    caption = action.title,
+                    caption = workflowProofCaption(current, action),
                     scopeType = "goat",
                     scopeId = draft.subjectGoatId,
                     capturedStartMs = draft.startedAtMs,
@@ -415,6 +425,13 @@ class WorkflowDetailViewModel @Inject constructor(
             if (parsed.scheme == "file") File(parsed).delete()
         }
     }
+
+    private fun workflowProofCaption(current: WorkflowDetailUiState, action: WorkflowActionUi?): String =
+        proofOverlayContextLine(
+            feature = current.templateLine.ifBlank { "Workflow proof" },
+            locationLabel = current.subjectLocationDisplay,
+            extraLabel = action?.title,
+        )
 
     private fun onWriteFailed(kind: String, error: AppResult.Err) {
         error.cause?.let { crashReporter.recordException(it, "workflow $kind enqueue failed") }
