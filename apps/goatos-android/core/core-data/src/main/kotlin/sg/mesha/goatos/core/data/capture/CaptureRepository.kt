@@ -608,6 +608,19 @@ class DefaultProofCaptureRepository(
         } else {
             proofPolicy.maximumCountPerSubject
         }
+        // A policy that caps PER SLOT is counted per slot. Screens whose slots are distinct required
+        // steps (feed distribution's weight photo / feed video / water video) share one subject —
+        // the shed — so the per-subject count below pools all three into one budget, and the screen
+        // locks itself out long before any single slot is over-filled.
+        val perFieldCap = proofPolicy.maximumCountPerField
+        if (perFieldCap != null) {
+            val existingForField = dao.activeCountForField(taskId, partitionKey, fieldKey)
+            if (existingForField >= perFieldCap) {
+                return@withContext AppResult.Err(
+                    "This proof is already recorded. Use re-capture to replace it.",
+                )
+            }
+        }
         val existing = when {
             subject == ProofSubject.GOAT && effectiveSubjectId != null ->
                 dao.activeCountForSubject(taskId, partitionKey, effectiveSubjectId)
