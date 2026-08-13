@@ -537,7 +537,10 @@ class SubmitViewModel @Inject constructor(
                                 "SubmitViewModel.requestVideoCapture proof persist failed",
                             )
                             _state.update {
-                                it.copy(lastError = captureResult.message.ifBlank { "Could not save proof video. Try again." })
+                                it.copy(
+                                    lastError = captureResult.message.ifBlank { "Could not save proof video. Try again." },
+                                    snackbarMessage = SubmitSnackbarMessage.PROOF_SAVE_FAILED,
+                                )
                             }
                         }
                     }
