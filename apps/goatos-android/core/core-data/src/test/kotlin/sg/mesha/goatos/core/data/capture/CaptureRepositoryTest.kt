@@ -2233,6 +2233,8 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         delegate.activeCountForSubject(taskId, partitionKey, subjectId)
     override suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int =
         delegate.activeCountForSubjectType(taskId, partitionKey, proofSubject)
+    override suspend fun activeCountForField(taskId: String, partitionKey: String, fieldKey: String): Int =
+        delegate.activeCountForField(taskId, partitionKey, fieldKey)
     override suspend fun findById(id: String): ProofCaptureEntity? = delegate.findById(id)
     override suspend fun setOutboxItemId(id: String, outboxItemId: String?) = delegate.setOutboxItemId(id, outboxItemId)
     override suspend fun updateStatus(id: String, status: String, serverProofId: String?, lastError: String?) {
