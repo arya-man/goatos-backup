@@ -29,6 +29,9 @@
     <string name="proof_camera_recording_time">Recording · %1$s</string>
     <string name="proof_camera_upload_background">Proof uploads in background</string>
     <string name="proof_camera_unavailable">Camera unavailable. Cancel and try again.</string>
+    <string name="proof_camera_preview_timeout">Camera preview did not start. Tap retry or cancel.</string>
+    <string name="proof_camera_retry">Retry</string>
+    <string name="proof_capture_invalid_video">Recording could not be saved. Please re-record.</string>
     <string name="proof_camera_cancel">Cancel proof recording</string>
     <string name="proof_camera_start_recording">Start proof recording</string>
     <string name="proof_camera_stop_recording">Stop and save proof recording</string>

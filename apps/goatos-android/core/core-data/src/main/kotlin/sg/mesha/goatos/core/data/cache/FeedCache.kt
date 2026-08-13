@@ -105,18 +105,28 @@ interface FeedDirectionItemDao {
      * session (see [sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.lifecycleStatus]'s kdoc),
      * so any one matching row is authoritative — there is no need to reconstruct the exact
      * `queryKey` the list screen happened to be filtered by when it cached the row. `grainKey` is
-     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`; uses prefix
-     * LIKE within a suffix constraint so the grainKey index is usable for the prefix scan.
+     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`.
+     *
+     * The prefix is bound with `>= :prefix AND < :prefixEnd` (NOT `LIKE :prefix || '%'`) because a
+     * LIKE pattern built from a concatenated-parameter expression compiles to a full table SCAN —
+     * SQLite's LIKE-optimizes-to-index-seek transform only fires for a LITERAL pattern or a bare
+     * bound parameter, never a runtime-concatenated expression, and this table never enables
+     * `PRAGMA case_sensitive_like` either. A caller-precomputed `[prefix, prefixEnd)` range against
+     * the indexed `grainKey` column is a plain index range seek every SQLite build supports.
+     *
+     * The trailing `sessionNo` match is a SUBSTR equality on the exact `'|' + sessionNo` tail
+     * (position derived from both lengths), NOT a `LIKE '%|' || :sessionNo` — that reads narrower
+     * than the OLD query's mid-string LIKE too: the old pattern could false-match a single-pipe
+     * grainKey containing the session number as a substring; this can only match the true suffix.
      */
     @Query(
-        "SELECT * FROM feed_direction_items WHERE grainKey LIKE " +
-            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|%' AND grainKey LIKE '%|' || :sessionNo " +
+        "SELECT * FROM feed_direction_items WHERE grainKey >= :prefix AND grainKey < :prefixEnd " +
+            "AND SUBSTR(grainKey, LENGTH(grainKey) - LENGTH(:sessionNo)) = '|' || :sessionNo " +
             "ORDER BY updatedAt DESC LIMIT 1",
     )
-    fun observeRowForShedSession(
-        shedId: String,
-        partitionLabel: String,
-        workflow: String,
+    fun observeRowForShedSessionInRange(
+        prefix: String,
+        prefixEnd: String,
         sessionNo: String,
     ): Flow<FeedDirectionItemEntity?>
 
