@@ -896,6 +896,168 @@ SELECT raised_at FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_ev
 	}
 }
 
+// pinBadgeWindow pins a movement's raise instant to a FIXED business day and returns the
+// selected-day window plus the business clock to read it at.
+//
+// A vaccination-style business-DAY anchor, not an hour offset from time.Now(): the ACTIONS LEAD
+// TIME branches on whether the raise was before or after 13:30 IST, so a fixture raised at the wall
+// clock makes the badge visible in the morning and suppressed in the evening. The first draft of
+// this test did exactly that and failed only because it happened to run after 13:30.
+//
+// Raised 09:00 IST (before the 13:30 cutoff) => due the NEXT day, and the window is that next day,
+// read at 09:00 -- so the row is unambiguously due and the assertions measure the STATUS predicate
+// alone, never the lead time.
+func pinBadgeWindow(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string,
+) (from, before, now time.Time) {
+	t.Helper()
+	raised := time.Date(2026, 8, 12, 9, 0, 0, 0, biztime.DefaultLocation())
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET raised_at = $3, effective_at = $3
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		countsTenant, eventID, raised.UTC()); err != nil {
+		t.Fatalf("pin raised_at: %v", err)
+	}
+	from = time.Date(2026, 8, 13, 0, 0, 0, 0, biztime.DefaultLocation())
+	return from, from.AddDate(0, 0, 1), from.Add(9 * time.Hour)
+}
+
+// TestPreviousDatesCountOnlyOutstandingWork is the badge on the operator's bell: it must count work
+// still to DO, never work already done.
+//
+// Reported 2026-08-13. A movement raised on the 12th was approved and then executed with proof, and
+// the previous-dates badge still advertised "1" for the 12th while every status tab for that same
+// date read authorized=0, rework=0, completed=1. The badge's only status predicate was
+// `event_status <> 'canceled'`, so a finished movement kept being counted for the full 90-day
+// lookback -- and an unapproved 'pending' row, which the operator cannot act on at all, was counted
+// too.
+//
+// The assertions walk the movement through its real lifecycle rather than seeding an end state, so
+// the count is proved to FALL as the work is actually done.
+func TestPreviousDatesCountOnlyOutstandingWork(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	eventID := authorizedShifting(t, ctx, pool, repo, "badge-outstanding",
+		[]string{"00000000-0000-4000-8000-00000000f401"})
+
+	from, before, now := pinBadgeWindow(t, ctx, pool, eventID)
+
+	badgeFor := func(t *testing.T, when string) int {
+		t.Helper()
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("list previous dates %s: %v", when, err)
+		}
+		total := 0
+		for _, d := range page.PreviousDates {
+			total += d.ActionCount
+		}
+		return total
+	}
+
+	// APPROVED, not yet executed: this IS outstanding work and must be advertised.
+	if got := badgeFor(t, "while authorized"); got != 1 {
+		t.Fatalf("badge=%d while the movement is approved and unexecuted, want 1", got)
+	}
+
+	if _, _, err := completeShifting(repo, ctx, "badge-outstanding", eventID); err != nil {
+		t.Fatalf("complete shifting: %v", err)
+	}
+
+	// EXECUTED with proof. The verifier has not reviewed it yet (verification_state='unverified'),
+	// which is precisely the state the reported movement sat in -- evidence review is NOT operator
+	// work, so it must not hold the badge up.
+	var eventStatus, verificationState string
+	if err := pool.QueryRow(ctx, `
+SELECT event_status, verification_state FROM shifting_events
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		countsTenant, eventID).Scan(&eventStatus, &verificationState); err != nil {
+		t.Fatalf("read completed state: %v", err)
+	}
+	if eventStatus != "applied" || verificationState != "unverified" {
+		t.Fatalf("event_status=%q verification_state=%q, want applied/unverified -- the reported state",
+			eventStatus, verificationState)
+	}
+	if got := badgeFor(t, "after completion"); got != 0 {
+		t.Fatalf("badge=%d after the movement was completed with proof, want 0", got)
+	}
+}
+
+// TestPreviousDatesCountReworkAndIgnoreUnapproved covers the two remaining buckets the badge has to
+// get right, and they pull in opposite directions: a verifier REJECTION is fresh operator work (a
+// re-shoot) and must reappear, while an unapproved movement is not the operator's to act on and must
+// stay out -- the APPROVE-FIRST gate (maintainer decision 2026-08-09) keeps it off the work list, so
+// a badge counting it would advertise work no tab can offer.
+func TestPreviousDatesCountReworkAndIgnoreUnapproved(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	eventID := authorizedShifting(t, ctx, pool, repo, "badge-rework",
+		[]string{"00000000-0000-4000-8000-00000000f402"})
+	if _, _, err := completeShifting(repo, ctx, "badge-rework", eventID); err != nil {
+		t.Fatalf("complete shifting: %v", err)
+	}
+
+	from, before, now := pinBadgeWindow(t, ctx, pool, eventID)
+
+	badge := func(t *testing.T, when string) int {
+		t.Helper()
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, RaisedFrom: &from, RaisedBefore: &before, Now: now,
+		})
+		if err != nil {
+			t.Fatalf("list previous dates %s: %v", when, err)
+		}
+		total := 0
+		for _, d := range page.PreviousDates {
+			total += d.ActionCount
+		}
+		return total
+	}
+
+	if got := badge(t, "after completion"); got != 0 {
+		t.Fatalf("badge=%d after completion, want 0", got)
+	}
+
+	// The verifier sends the evidence back: the operator owes a new video, so the badge lights again.
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET verification_state = 'rejected'
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, eventID); err != nil {
+		t.Fatalf("reject evidence: %v", err)
+	}
+	if got := badge(t, "after evidence rejection"); got != 1 {
+		t.Fatalf("badge=%d after the verifier rejected the evidence, want 1 -- a re-shoot is real work", got)
+	}
+
+	// A second movement is RAISED on the same date and left unapproved. It is raised for real
+	// rather than forced into 'pending' with an UPDATE: an applied row cannot be rewound that way
+	// (shifting_events_applied_shape_check rejects it), and a hand-forced state would prove nothing
+	// about the shape production actually produces.
+	seedApprovalGoat(t, ctx, pool, "00000000-0000-4000-8000-00000000f403", countsShedA)
+	pendingID, _ := submitShiftingApproval(t, ctx, repo, "badge-unapproved",
+		[]string{"00000000-0000-4000-8000-00000000f403"})
+	pinBadgeWindow(t, ctx, pool, pendingID)
+
+	var pendingStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT event_status FROM shifting_events WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`,
+		countsTenant, pendingID).Scan(&pendingStatus); err != nil {
+		t.Fatalf("read pending state: %v", err)
+	}
+	if pendingStatus != "pending" {
+		t.Fatalf("event_status=%q for an unapproved movement, want pending", pendingStatus)
+	}
+	// Still 1 -- the rework row, and only it. The unapproved movement adds nothing.
+	if got := badge(t, "with an unapproved movement alongside"); got != 1 {
+		t.Fatalf("badge=%d, want 1 -- an unapproved movement is not the operator's work to do", got)
+	}
+}
+
 // TestListPendingExecutionFiltersBySourceShed proves the optional shed filter is the second half of
 // the operator's farm -> shed cascade: it narrows to the SOURCE shed the animals stand in, returns
 // empty for a shed with no movement, and returns everything when omitted. authorizedShifting seeds
