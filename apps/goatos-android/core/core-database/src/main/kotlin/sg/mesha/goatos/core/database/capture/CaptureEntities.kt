@@ -650,6 +650,21 @@ interface ProofCaptureDao {
     )
     suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int
 
+    /**
+     * Active proofs held by ONE capture SLOT.
+     *
+     * A screen whose slots are distinct required steps — feed distribution's weight photo, feed
+     * video and water video — must cap each slot on its own. Those three share the shed as their
+     * subject, so a per-SUBJECT cap pools them: one shared budget of five for three slots, leaving
+     * only two re-captures across the whole screen before every further capture is refused and
+     * silently writes no row. See ProofPolicy.maximumCountPerField.
+     */
+    @Query(
+        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
+            "AND fieldKey = :fieldKey AND syncStatus != 'FAILED'",
+    )
+    suspend fun activeCountForField(taskId: String, partitionKey: String, fieldKey: String): Int
+
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?
 

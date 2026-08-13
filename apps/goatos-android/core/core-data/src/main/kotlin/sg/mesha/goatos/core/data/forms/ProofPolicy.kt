@@ -34,6 +34,22 @@ data class ProofPolicy(
     /** Falls back to the historical hardcoded cap ([MAX_PROOFS_PER_GOAT]) when the backend has
      *  not published this field yet. */
     val maximumCountPerSubject: Int = MAX_PROOFS_PER_GOAT,
+    /**
+     * Cap ONE capture slot, instead of pooling every slot under the subject cap. Null keeps the
+     * historical per-subject behaviour.
+     *
+     * Set this when a screen's slots are DISTINCT required steps rather than repeat takes of one
+     * thing. Feed distribution is the case it was added for: its weight photo, feed video and water
+     * video all carry the shed as their subject, so the per-subject cap gave three slots ONE shared
+     * budget of five. Re-capturing spends that budget — and until 2026-08-13 a re-capture after
+     * leaving the screen leaked its old row instead of replacing it, so pens reached five and every
+     * later capture was refused, writing no row at all. The operator saw a proof that simply never
+     * came back.
+     *
+     * A per-slot cap of 1 also makes the leak unrepresentable: a slot cannot hold a second row, so a
+     * discard that does not happen blocks the capture loudly instead of quietly accumulating.
+     */
+    val maximumCountPerField: Int? = null,
     /** Falls back to the historical hardcoded value the client always sent before this policy
      *  existed. */
     val captureSource: String = "in_app_camera",
