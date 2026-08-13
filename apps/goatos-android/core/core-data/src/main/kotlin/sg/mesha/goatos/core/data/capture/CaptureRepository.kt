@@ -503,7 +503,11 @@ interface ProofCaptureRepository {
      *
      *  [proofPolicy] (R50-027) drives the per-subject cap and the `capture_source` metadata sent
      *  with the registration; callers that have not loaded the task's SOP proof policy yet may
-     *  omit it and fall back to [ProofPolicy.Default] (the historical hardcoded values). */
+     *  omit it and fall back to [ProofPolicy.Default] (the historical hardcoded values).
+     *
+     *  [allowReplacementOverCap] permits captureReplacingLatest to bypass per-field cap temporarily
+     *  for the new capture (the transient second row during replace). Manohar ordering: new proof
+     *  succeeds first, old removed after. */
     suspend fun capture(
         taskId: String,
         fieldKey: String,
@@ -524,6 +528,7 @@ interface ProofCaptureRepository {
         partitionLabel: String? = null,
         awaitUploadEnqueue: Boolean = false,
         uploadGroupKey: String? = null,
+        allowReplacementOverCap: Boolean = false,
     ): AppResult<ProofCaptureRow>
 
     suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit>
@@ -644,6 +649,7 @@ class DefaultProofCaptureRepository(
     reconcileOnStartup: Boolean = true,
 ) : ProofCaptureRepository {
     private val gallerySaveLocks = ConcurrentHashMap<String, Mutex>()
+    private val slotReplaceLocks = ConcurrentHashMap<String, Mutex>()
 
     init {
         // R50-028: never block DI construction on a Room read — launch on the app-lifetime scope
@@ -683,6 +689,7 @@ class DefaultProofCaptureRepository(
         partitionLabel: String?,
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
+        allowReplacementOverCap: Boolean,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
         val partitionKey = executionPartitionKey(partitionLabel)
         val effectiveSubjectId = subjectId?.takeIf { it.isNotBlank() }
@@ -702,7 +709,7 @@ class DefaultProofCaptureRepository(
         // the shed — so the per-subject count below pools all three into one budget, and the screen
         // locks itself out long before any single slot is over-filled.
         val perFieldCap = proofPolicy.maximumCountPerField
-        if (perFieldCap != null) {
+        if (perFieldCap != null && !allowReplacementOverCap) {
             val existingForField = dao.activeCountForField(taskId, partitionKey, fieldKey)
             if (existingForField >= perFieldCap) {
                 return@withContext AppResult.Err(
@@ -890,6 +897,70 @@ class DefaultProofCaptureRepository(
 
     override suspend fun activeCount(slot: EvidenceSlot): Int = withContext(dispatchers.io) {
         dao.activeCountForField(slot.identity.taskId, executionPartitionKey(slot.identity.partitionKey), slot.fieldKey)
+    }
+
+    override suspend fun captureReplacingLatest(
+        slot: EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> {
+        // Use Mutex per slot to serialize concurrent replaces, ensuring they converge to one active row.
+        // Key must be stable across calls for the same slot.
+        val slotKey = "${slot.identity.taskId}|${slot.fieldKey}"
+        val mutex = slotReplaceLocks.getOrPut(slotKey) { Mutex() }
+
+        return mutex.withLock {
+            val taskId = slot.identity.taskId
+            val partitionLabel = slot.identity.partitionKey.takeUnless { it == "whole" }
+            // Capture with allowReplacementOverCap=true to bypass per-field cap during replace (Manohar ordering).
+            val result = capture(
+                taskId = taskId,
+                fieldKey = slot.fieldKey,
+                subject = subject,
+                subjectId = subjectId,
+                localUri = localUri,
+                mimeType = mimeType,
+                caption = caption,
+                rfidTag = rfidTag,
+                scopeType = scopeType,
+                scopeId = scopeId,
+                capturedStartMs = capturedStartMs,
+                capturedEndMs = capturedEndMs,
+                capturedByPrincipalId = capturedByPrincipalId,
+                proofPolicy = proofPolicy,
+                partitionLabel = partitionLabel,
+                awaitUploadEnqueue = awaitUploadEnqueue,
+                uploadGroupKey = uploadGroupKey,
+                allowReplacementOverCap = true,  // Allow transient second row during replace
+            )
+            if (result is AppResult.Ok) {
+                val newId = result.value.id
+                val newCapturedAtMs = result.value.capturedAtMs
+                // After successful capture, re-read ALL active rows for the slot and remove all non-newest ones.
+                // Keep only the row with the highest capturedAtMs (the one we just captured).
+                val allActive = observeProofs(taskId, partitionLabel).first()
+                    .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
+                allActive.forEach { row ->
+                    // Remove all rows except the newest by capturedAtMs
+                    if (row.capturedAtMs < newCapturedAtMs) {
+                        remove(taskId, row.id)
+                    }
+                }
+            }
+            result
+        }
     }
 
     /** Startup/process-recreation recovery for the two proof/outbox crash gaps:
