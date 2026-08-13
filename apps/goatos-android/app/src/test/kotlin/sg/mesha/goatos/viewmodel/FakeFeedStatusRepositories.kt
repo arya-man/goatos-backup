@@ -5,7 +5,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedPackingQuery

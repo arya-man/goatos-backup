@@ -254,12 +254,20 @@ class DefaultFeedRepository(
         partitionLabel: String,
         workflow: String,
         sessionNo: Int,
-    ): Flow<String?> =
-        database.feedDirectionItemDao()
-            .observeRowForShedSession(shedId, partitionLabel, workflow, sessionNo.toString())
+    ): Flow<String?> {
+        // Pre-concatenated HERE (not inside the SQL string) so the query binds a plain literal
+        // range against the indexed grainKey column instead of a runtime-concatenated LIKE
+        // pattern SQLite cannot turn into an index seek — see observeRowForShedSessionInRange's
+        // kdoc. "￿" sorts above every ASCII byte this key's components use, so
+        // [prefix, prefixEnd) covers exactly this shed/partition/workflow's rows.
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val prefixEnd = prefix + "￿"
+        return database.feedDirectionItemDao()
+            .observeRowForShedSessionInRange(prefix, prefixEnd, sessionNo.toString())
             .map { entity -> entity?.let { json.decodeFromString<FeedDirectionRowDto>(it.dtoJson).lifecycleStatus } }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
+    }
 }
 
 /**

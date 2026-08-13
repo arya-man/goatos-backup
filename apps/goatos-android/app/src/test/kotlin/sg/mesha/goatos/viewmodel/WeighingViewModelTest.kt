@@ -1936,42 +1936,78 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `shed-partition double-tap confirmSubmit enqueues exactly once`() = runTest(dispatcher) {
-        // Guards against double-tap on PER_SHED_PARTITION_CATEGORY submit confirmation
-        val scans = FakeScanCaptureRepository()
+    fun `shed-partition double-tap recordShedPartition enqueues exactly once`() = runTest(dispatcher) {
+        // Guards against double-tap on WeighingViewModel.PER_SHED_PARTITION_CATEGORY's real submit
+        // entry point, recordShedPartition() -- the lump-sum path, not the RFID-scoped
+        // submitIndividualScope()/confirmSubmitIndividualScope() flow that category short-circuits.
+        val recordGate = CompletableDeferred<AppResult<ShedWeighingDraft>>()
         val repository = FakeWeighingRepository(
+            recordShedPartitionGate = recordGate,
             scopeState = WeighingScopeState(
                 rosterWindow = emptyList(),
-                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
-                shedDrafts = emptyList(),
-                totalExpected = 1,
+                individualDrafts = emptyList(),
+                // A non-empty shedDrafts list is what activeWeighingProofs() reads as "this scope
+                // has an OPEN round" -- without it, a SYNCED shed proof is filtered out of
+                // observedProofs entirely (a reopen-superseded clip guard), and recordShedPartition
+                // never sees a syncedProof to submit at all.
+                shedDrafts = listOf(
+                    ShedWeighingDraft(
+                        shedObservationId = "open-round-1",
+                        resultJson = "{}",
+                        proofReady = false,
+                        readyToSubmit = false,
+                        idempotencyKey = "weighing:shed:open-round-1",
+                    ),
+                ),
+                totalExpected = 0,
             ),
         )
+        // A SYNCED shed-partition video for THIS scope's expected location is the gate
+        // recordShedPartition checks before it will submit at all (see
+        // WeighingViewModel.recordShedPartition / activeWeighingProofs).
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also {
+            it.seedProofs(
+                proofRow(
+                    id = "shed-proof-synced",
+                    fieldKey = "weighing_shed_partition_video",
+                    proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1",
+                    caption = "Weighing lump-sum · Gandhi 1 · video 1",
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-shed-proof-synced",
+                ),
+            )
+        }
         val vm = weighingViewModel(
             repository = repository,
             scoped = true,
-            scanCaptureRepository = scans,
-            weighingCategory = "shed_partition", // Per-shed-partition category
+            proofCaptureRepository = proofs,
+            weighingCategory = WeighingViewModel.PER_SHED_PARTITION_CATEGORY,
         )
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
-        scans.recordScan(
-            taskId = "campaign-1:group-1:campaign-shed-1",
-            fieldKey = "weighing_free_flow_scan",
-            tag = TEST_TAG,
+
+        vm.onWeightInputChange("120")
+        vm.onAnimalCountInputChange("10")
+        advanceUntilIdle()
+
+        // Double-tap: the FIRST call's coroutine is held suspended on recordGate, so the
+        // actionInFlight flag it set synchronously before launching is still true when the second
+        // tap runs -- proving the guard, not racing it (an ungated fake completes the first call's
+        // whole coroutine, including its `finally` reset, before the second synchronous call under
+        // UnconfinedTestDispatcher, which would falsely pass a broken guard).
+        vm.recordShedPartition {}
+        vm.recordShedPartition {}
+        assertEquals(
+            "the second tap must be rejected while the first submit is still in flight",
+            1,
+            repository.recordShedPartitionCalls.size,
         )
+
+        recordGate.complete(AppResult.Ok(ShedWeighingDraft("shed-obs-1", "{}", true, true, "weighing:shed:1")))
         advanceUntilIdle()
 
-        vm.submitIndividualScope {}
-        advanceUntilIdle()
-        assertTrue(vm.state.value.showSubmitConfirmation)
-
-        // Double-tap on confirm should enqueue only once
-        vm.confirmSubmitIndividualScope()
-        vm.confirmSubmitIndividualScope()
-        advanceUntilIdle()
-
-        assertEquals(1, repository.submitIndividualScopeCalls.size)
+        assertEquals(1, repository.recordShedPartitionCalls.size)
     }
 
     @Test
@@ -2538,6 +2574,12 @@ class WeighingViewModelTest {
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
         private val recordIndividualGate: CompletableDeferred<AppResult<IndividualWeighingDraft>>? = null,
         private val recordIndividualGates: ArrayDeque<CompletableDeferred<AppResult<IndividualWeighingDraft>>> = ArrayDeque(),
+        // Same shape as [recordIndividualGate] but for the lump-sum path -- lets a double-tap test
+        // hold the FIRST recordShedPartition call suspended so the second tap's actionInFlight
+        // check is exercised under UnconfinedTestDispatcher, which otherwise races the guard by
+        // completing the first call's whole coroutine (including its `finally` reset) before the
+        // second synchronous call happens.
+        private val recordShedPartitionGate: CompletableDeferred<AppResult<ShedWeighingDraft>>? = null,
         // A22 regression coverage: the backend filters `listAssignments` server-side by parkId, so
         // a fake that mimics that (rather than always returning the same full list regardless of
         // parkId) is needed to reproduce "selecting a park collapses the chip row".
@@ -2912,8 +2954,23 @@ class WeighingViewModelTest {
 
         override suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?) {}
 
-        override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
-            AppResult.Err("not used")
+        /** Calls this fake received for the per-shed-partition (lump-sum) submit path -- default
+         *  success, matching [submitIndividualScopeCalls]'s shape for the RFID-scoped path. */
+        val recordShedPartitionCalls = mutableListOf<ShedPartitionWeighingCapture>()
+        var recordShedPartitionResult: AppResult<ShedWeighingDraft> = AppResult.Ok(
+            ShedWeighingDraft(
+                shedObservationId = "fake-shed-observation-id",
+                resultJson = "{}",
+                proofReady = true,
+                readyToSubmit = true,
+                idempotencyKey = "fake-shed-idempotency-key",
+            ),
+        )
+
+        override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> {
+            recordShedPartitionCalls += capture
+            return recordShedPartitionGate?.await() ?: recordShedPartitionResult
+        }
 
         override suspend fun attachShedPartitionProof(
             scopeKey: String,
