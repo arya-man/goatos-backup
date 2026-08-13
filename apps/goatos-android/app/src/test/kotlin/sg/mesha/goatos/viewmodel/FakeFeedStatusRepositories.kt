@@ -5,8 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOf
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedPackingQuery
@@ -30,16 +29,18 @@ import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 internal class FakeFeedRepository : FeedRepository {
     private val packingStatus = MutableStateFlow<String?>(null)
     private val directionStatus = MutableStateFlow<String?>(null)
+    private var delayedPackingStatus: String? = null
+    private var delayedPackingDelayMs: Long = 0
+    private var delayedDirectionStatus: String? = null
+    private var delayedDirectionDelayMs: Long = 0
 
     fun emitPackingStatus(status: String?) {
         packingStatus.value = status
     }
 
     fun emitPackingStatusWithDelay(status: String?, delayMs: Long) {
-        GlobalScope.launch {
-            delay(delayMs)
-            packingStatus.value = status
-        }
+        delayedPackingStatus = status
+        delayedPackingDelayMs = delayMs
     }
 
     fun emitDirectionStatus(status: String?) {
@@ -47,10 +48,8 @@ internal class FakeFeedRepository : FeedRepository {
     }
 
     fun emitDirectionStatusWithDelay(status: String?, delayMs: Long) {
-        GlobalScope.launch {
-            delay(delayMs)
-            directionStatus.value = status
-        }
+        delayedDirectionStatus = status
+        delayedDirectionDelayMs = delayMs
     }
 
     override fun observePackingRowStatus(
@@ -58,14 +57,28 @@ internal class FakeFeedRepository : FeedRepository {
         partitionLabel: String,
         workflow: String,
         sessionNo: Int,
-    ): Flow<String?> = packingStatus
+    ): Flow<String?> = if (delayedPackingStatus != null) {
+        flow {
+            delay(delayedPackingDelayMs)
+            emit(delayedPackingStatus)
+        }
+    } else {
+        packingStatus
+    }
 
     override fun observeDirectionSessionStatus(
         shedId: String,
         partitionLabel: String,
         workflow: String,
         sessionNo: Int,
-    ): Flow<String?> = directionStatus
+    ): Flow<String?> = if (delayedDirectionStatus != null) {
+        flow {
+            delay(delayedDirectionDelayMs)
+            emit(delayedDirectionStatus)
+        }
+    } else {
+        directionStatus
+    }
 
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> = error("unused")
     override fun directionRows(query: FeedDirectionQuery): Flow<PagingData<FeedDirectionRowDto>> = error("unused")
@@ -79,17 +92,24 @@ internal class FakeFeedRepository : FeedRepository {
  */
 internal class FakeFeedTransportStatusSource : FeedTransportStatusSource {
     private val status = MutableStateFlow<String?>(null)
+    private var delayedStatus: String? = null
+    private var delayedDelayMs: Long = 0
 
     fun emit(status: String?) {
         this.status.value = status
     }
 
     fun emitWithDelay(status: String?, delayMs: Long) {
-        GlobalScope.launch {
-            delay(delayMs)
-            this@FakeFeedTransportStatusSource.status.value = status
-        }
+        delayedStatus = status
+        delayedDelayMs = delayMs
     }
 
-    override fun observeTaskStatus(taskId: String): Flow<String?> = status
+    override fun observeTaskStatus(taskId: String): Flow<String?> = if (delayedStatus != null) {
+        flow {
+            delay(delayedDelayMs)
+            emit(delayedStatus)
+        }
+    } else {
+        status
+    }
 }
