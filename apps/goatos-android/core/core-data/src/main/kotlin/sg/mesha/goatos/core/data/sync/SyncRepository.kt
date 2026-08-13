@@ -509,6 +509,13 @@ interface SyncRepository {
     suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
         AppResult.Err("Outbox recovery is not available.")
 
+    /** Finds the single most recent outbox row for (groupKey, opType) through EVERY status,
+     *  including terminal SUCCEEDED — unlike [findOutboxItemByIdempotencyKey], this does not key
+     *  off the current idempotency epoch, so it still finds a row whose success already rotated
+     *  the epoch that would derive a different key today (weighing scope-submit). */
+    suspend fun findLatestOutboxItem(groupKey: String, opType: String): AppResult<SyncQueueItem?> =
+        AppResult.Err("Outbox recovery is not available.")
+
     /** Finds one outbox row by id, including terminal rows. Used by local feature stores to
      *  reconcile their Room SSOT after process/activity churn missed a live terminal emission. */
     suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
@@ -1294,6 +1301,19 @@ class DefaultSyncRepository(
     ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
         try {
             AppResult.Ok(store.findByIdempotencyKey(idempotencyKey)?.toSyncQueueItem())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Couldn't recover outbox item: ${e.message}", e)
+        }
+    }
+
+    override suspend fun findLatestOutboxItem(
+        groupKey: String,
+        opType: String,
+    ): AppResult<SyncQueueItem?> = withContext(dispatchers.io) {
+        try {
+            AppResult.Ok(store.findLatestForGroupAndOpType(groupKey, opType)?.toSyncQueueItem())
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (e: Throwable) {

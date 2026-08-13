@@ -35,6 +35,11 @@ class FakeOutboxStore : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? =
         rows.value.firstOrNull { it.idempotencyKey == key }
 
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
+        rows.value
+            .filter { it.groupKey == groupKey && it.opType == opType }
+            .maxByOrNull { it.createdAt }
+
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         val snapshot = rows.value
         return snapshot

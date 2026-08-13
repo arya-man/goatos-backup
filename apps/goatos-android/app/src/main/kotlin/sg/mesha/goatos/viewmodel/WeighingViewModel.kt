@@ -413,7 +413,9 @@ class WeighingViewModel @Inject constructor(
      * True once THIS scope's own submit has reached the outbox and not (yet, or ever) failed --
      * i.e. QUEUED, IN_FLIGHT or SUCCEEDED. Backed by the durable outbox row `submitIndividualScope`
      * itself enqueues (see [sg.mesha.goatos.core.data.weighing.WeighingRepository.findPendingSubmit],
-     * which resolves the outbox by the SAME idempotency key the submit uses), never a transient
+     * which resolves the outbox by (groupKey, opType) identity -- NOT by re-deriving today's
+     * idempotency key, which rotates the moment this same row reaches SUCCEEDED and would then
+     * miss it), never a transient
      * VM-only flag -- so a fresh VM re-entering an already-submitted scope (killed process, or the
      * operator simply navigating back in) renders read-only from a Room read, not from something
      * this VM instance remembered doing itself. A FAILED submit is intentionally NOT read-only: the
@@ -1171,11 +1173,16 @@ class WeighingViewModel @Inject constructor(
         val syncStatuses = syncRepository?.observeStatus()
         if (syncStatuses != null) viewModelScope.launch {
             syncStatuses.collect { status ->
-                // Live re-check on every outbox change (not only submit-time): a shed submitted
-                // from ANOTHER device (leadership tooling, a re-install) or reconciled while this
-                // screen is sitting open must flip it to read-only reactively, not only the next
-                // time the operator taps something.
-                refreshScopeSubmitted()
+                // Live re-check when THIS scope's own submit row changed status (not on every
+                // outbox emission app-wide -- that fired a Room query on every unrelated write in
+                // every other feature's queue). Still reactive to a reconcile/retry/failure that
+                // lands while this screen sits open, just scoped to the row that can actually
+                // change scopeSubmitted's answer.
+                if (scopeKey != null &&
+                    status.items.any { it.opType == WEIGHING_SCOPE_SUBMIT_OP && it.groupKey == campaignShedId }
+                ) {
+                    refreshScopeSubmitted()
+                }
                 val conflictedKeys = status.items
                     .filter { it.opType == WEIGHING_ANIMAL_OBSERVATION_OP && it.conflict }
                     .map { it.idempotencyKey }
@@ -3588,6 +3595,7 @@ private data class WeighingWeek(
 // sync port hands ViewModels a String opType precisely so `:app` never depends on core-database's
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
+private const val WEIGHING_SCOPE_SUBMIT_OP = "WEIGHING_SCOPE_SUBMIT"
 
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"

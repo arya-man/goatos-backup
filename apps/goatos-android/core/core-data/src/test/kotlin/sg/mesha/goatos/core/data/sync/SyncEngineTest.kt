@@ -1297,6 +1297,8 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun insert(entity: OutboxEntity) = inner.insert(entity)
     override suspend fun findById(id: String) = inner.findById(id)
     override suspend fun findByIdempotencyKey(key: String) = inner.findByIdempotencyKey(key)
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String) =
+        inner.findLatestForGroupAndOpType(groupKey, opType)
 
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         drainLimits += limit

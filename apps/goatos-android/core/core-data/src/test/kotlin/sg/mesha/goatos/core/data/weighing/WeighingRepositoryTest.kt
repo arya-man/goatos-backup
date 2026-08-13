@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.FakeOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
@@ -1423,6 +1424,72 @@ class WeighingRepositoryTest {
             connectivityGate = { false },
             appScope = appScope,
             clock = { 1000L },
+        )
+    }
+
+    // ---- P0: weighing scope-submit epoch-key rotation must not defeat the read-only guard ----
+    //
+    // WeighingRepository.transitionIdempotencyKey derives a key from the CURRENT epoch for the
+    // (transition="submit", campaignId, campaignShedId) scope. SyncEngine.reconcileFeatureSuccess
+    // advances that SAME epoch the moment the WEIGHING_SCOPE_SUBMIT row reaches SUCCEEDED. If
+    // findPendingSubmit re-derived the key AFTER that (the pre-fix behaviour), it would compute a
+    // DIFFERENT key than the one the succeeded row was written under and miss it entirely --
+    // scopeSubmitted flips back to false, the screen unlocks, and a re-tap dispatches a genuinely
+    // new POST under a fresh key against an already-submitted shed. This test drives the REAL
+    // epoch DAO (db.weighingTransitionEpochDao(), the same table WeighingRepository itself reads)
+    // through the REAL SyncEngine reconcile path, not a stubbed findPendingSubmit.
+    @Test
+    fun `a scope submit that reaches SUCCEEDED still resolves as submitted after its epoch rotates`() = runTest {
+        val store = FakeOutboxStore()
+        var online = false
+        val engine = SyncEngine(
+            store = store,
+            api = FakeAppApi(),
+            connectivityGate = { online },
+            clock = { 1000L },
+            weighingTransitionEpochDao = db.weighingTransitionEpochDao(),
+        )
+        val syncRepository = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { online },
+            appScope = appScope,
+            clock = { 1000L },
+        )
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
+            syncRepository = syncRepository,
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        // 1. submit — enqueues under the epoch's key K0. `online = false` so the enqueue's own
+        //    fire-and-forget triggerDrainAsync() no-ops instead of racing the manual drain below.
+        val submitted = repository.submitIndividualScope("campaign-1", "campaign-shed-1", listOf("TAG-1"))
+        assertTrue("submit must enqueue successfully", submitted is AppResult.Ok)
+
+        // 2. drain to SUCCEEDED — this is the real SyncEngine.reconcileFeatureSuccess path, which
+        //    advances the epoch (K0 -> K1) in the REAL epochDao the moment the row lands.
+        online = true
+        engine.drainOnce()
+
+        val queued = store.snapshot().single()
+        assertEquals("SUCCEEDED", queued.status)
+
+        // 3. the assertion that actually catches the regression: findPendingSubmit must still
+        //    find the SUCCEEDED row by its (groupKey, opType) identity, not by a key that the
+        //    row's own success has already rotated past.
+        val pending = repository.findPendingSubmit("campaign-1", "campaign-shed-1")
+        assertTrue("findPendingSubmit must succeed", pending is AppResult.Ok)
+        val item = (pending as AppResult.Ok).value
+        assertTrue(
+            "scopeSubmitted MUST stay resolvable as submitted after the epoch rotates on success " +
+                "-- a null/missing result here reopens the double-submit hole: the screen unlocks " +
+                "and a re-tap dispatches a genuinely new POST under a fresh key",
+            item != null && item.status == SyncItemStatus.SUCCEEDED,
         )
     }
 

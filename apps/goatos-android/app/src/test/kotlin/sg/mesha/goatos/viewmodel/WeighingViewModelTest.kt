@@ -1746,13 +1746,36 @@ class WeighingViewModelTest {
                 lastError = null,
             ),
         )
-        syncRepository.touch()
+        syncRepository.touchScope(opType = "WEIGHING_SCOPE_SUBMIT", groupKey = "campaign-shed-1")
         advanceUntilIdle()
 
         assertTrue(
             "the screen must flip to read-only REACTIVELY once the outbox reflects the submit, " +
                 "without the operator navigating away and back",
             vm.state.value.isReadOnly,
+        )
+    }
+
+    @Test
+    fun `refreshScopeSubmitted is NOT re-run for outbox activity unrelated to this scope`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val syncRepository = FakeWeighingSyncRepository()
+        val vm = weighingViewModel(repository = repository, scoped = true, syncRepository = syncRepository)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        val callsAfterInit = repository.findPendingSubmitCallCount
+
+        // A conflict on an unrelated animal-observation write in the same shed's outbox must NOT
+        // re-trigger the scope-submitted check -- that query only ever answers a WEIGHING_SCOPE_SUBMIT
+        // question, so re-running it on every unrelated write is pure waste, not correctness.
+        syncRepository.conflict("some-other-idempotency-key")
+        advanceUntilIdle()
+
+        assertEquals(
+            "an outbox emission with no WEIGHING_SCOPE_SUBMIT row for this shed must not re-query " +
+                "findPendingSubmit",
+            callsAfterInit,
+            repository.findPendingSubmitCallCount,
         )
     }
 
@@ -2355,6 +2378,30 @@ class WeighingViewModelTest {
             status.value = status.value.copy(lastSyncAt = (status.value.lastSyncAt ?: 0L) + 1)
         }
 
+        /** Same as [touch] but also carries a [SyncQueueItem] for the given (opType, groupKey) --
+         *  WeighingViewModel now only re-derives scopeSubmitted when the live sync-status snapshot
+         *  actually contains a row for THIS scope (see the `refreshScopeSubmitted()` scoping fix),
+         *  so a test simulating a real "this scope's outbox row changed" tick must carry one. */
+        fun touchScope(opType: String, groupKey: String) {
+            val now = (status.value.lastSyncAt ?: 0L) + 1
+            status.value = status.value.copy(
+                lastSyncAt = now,
+                items = status.value.items + SyncQueueItem(
+                    id = "touch-$now",
+                    idempotencyKey = "touch-$now",
+                    opType = opType,
+                    groupKey = groupKey,
+                    status = SyncItemStatus.SUCCEEDED,
+                    attemptCount = 1,
+                    maxAttempts = 5,
+                    conflict = false,
+                    createdAt = now,
+                    updatedAt = now,
+                    lastError = null,
+                ),
+            )
+        }
+
         override fun observeStatus(): StateFlow<SyncStatus> = status
         override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
         override suspend fun enqueueShedSubmit(
@@ -2806,10 +2853,17 @@ class WeighingViewModelTest {
          */
         var pendingSubmitResult: AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
 
+        /** Counts calls to [findPendingSubmit] -- asserts the scoped `refreshScopeSubmitted()`
+         *  trigger does not re-query on outbox activity unrelated to this scope's own submit row. */
+        var findPendingSubmitCallCount: Int = 0
+
         override suspend fun findPendingSubmit(
             campaignId: String,
             campaignShedId: String,
-        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = pendingSubmitResult
+        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> {
+            findPendingSubmitCallCount++
+            return pendingSubmitResult
+        }
 
         override suspend fun reopenScope(
             campaignId: String,
