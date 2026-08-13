@@ -15,6 +15,7 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.camera.view.PreviewView.StreamState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +64,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -86,7 +88,11 @@ fun InAppVideoRecorderOverlay(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { ProofCameraSession() }
+    val artifactValidator = remember { FileSystemProofArtifactValidator() }
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
+    val previewTimeoutMessage = stringResource(R.string.proof_camera_preview_timeout)
+    val invalidVideoMessage = stringResource(R.string.proof_capture_invalid_video)
+    val retryLabel = stringResource(R.string.proof_camera_retry)
 
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
@@ -96,7 +102,9 @@ fun InAppVideoRecorderOverlay(
     var cancelled by remember { mutableStateOf(false) }
     var resultDelivered by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
+    var previewStreaming by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    var previewTimeoutTriggered by remember { mutableStateOf(false) }
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -135,13 +143,22 @@ fun InAppVideoRecorderOverlay(
                         file.delete()
                         deliver(null)
                     } else if (!event.hasError()) {
-                        deliver(
-                            CapturedVideo(
-                                localUri = file.toURI().toString(),
-                                startedAtMs = startedAtMs,
-                                endedAtMs = endedAtMs,
-                            ),
-                        )
+                        // Gate 2: Artifact validation at Finalize — ensure file is valid before deliver
+                        val validation = artifactValidator.validateVideoFile(file.toURI().toString())
+                        if (validation.isValid) {
+                            deliver(
+                                CapturedVideo(
+                                    localUri = file.toURI().toString(),
+                                    startedAtMs = startedAtMs,
+                                    endedAtMs = endedAtMs,
+                                ),
+                            )
+                        } else {
+                            // Invalid video — delete file, show error, offer re-record
+                            file.delete()
+                            cameraError = invalidVideoMessage
+                            deliver(null)
+                        }
                     } else {
                         file.delete()
                         deliver(null)
@@ -167,9 +184,21 @@ fun InAppVideoRecorderOverlay(
 
     BackHandler(onBack = ::cancelRecording)
 
-    LaunchedEffect(cameraReady, isRecording, resultDelivered) {
-        if (cameraReady && !isRecording && !resultDelivered) {
+    // Gate 1: Preview readiness gate — record only when preview stream is STREAMING
+    LaunchedEffect(previewStreaming, isRecording, resultDelivered) {
+        if (previewStreaming && !isRecording && !resultDelivered) {
             startRecording()
+        }
+    }
+
+    // Gate 1: Preview timeout (~4s) — if preview never reaches STREAMING, show error + retry
+    LaunchedEffect(cameraReady, previewStreaming, previewTimeoutTriggered) {
+        if (cameraReady && !previewStreaming && !previewTimeoutTriggered) {
+            delay(4000L)
+            if (!previewStreaming) {
+                previewTimeoutTriggered = true
+                cameraError = previewTimeoutMessage
+            }
         }
     }
 
@@ -203,6 +232,13 @@ fun InAppVideoRecorderOverlay(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // Gate 1: Monitor preview stream state
+                    view.previewStreamState.observe(lifecycleOwner) { streamState ->
+                        previewStreaming = streamState == StreamState.STREAMING
+                        if (previewStreaming) {
+                            previewTimeoutTriggered = false  // Reset timeout on successful streaming
+                        }
+                    }
                     cameraSession.bind(
                         context = ctx,
                         previewView = view,
@@ -214,6 +250,7 @@ fun InAppVideoRecorderOverlay(
                         },
                         onError = {
                             cameraReady = false
+                            previewStreaming = false
                             cameraError = cameraUnavailableMessage
                         },
                     )
@@ -221,6 +258,7 @@ fun InAppVideoRecorderOverlay(
             },
             onRelease = {
                 cameraReady = false
+                previewStreaming = false
                 videoCapture = null
                 cameraSession.release()
             },
@@ -291,7 +329,17 @@ fun InAppVideoRecorderOverlay(
             Spacer(Modifier.height(12.dp))
             StopRecordingButton(
                 isRecording = isRecording,
-                enabled = cameraReady,
+                enabled = previewStreaming && !previewTimeoutTriggered,
+                cameraError = cameraError,
+                retryLabel = retryLabel,
+                onRetry = {
+                    cameraError = null
+                    previewTimeoutTriggered = false
+                    cameraSession.release()
+                    cameraReady = false
+                    videoCapture = null
+                    previewStreaming = false
+                },
                 onClick = { if (isRecording) finishRecording() else startRecording() },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -524,6 +572,9 @@ private fun StopRecordingButton(
     isRecording: Boolean,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    cameraError: String? = null,
+    retryLabel: String = "Retry",
+    onRetry: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val actionDescription = stringResource(
@@ -532,32 +583,74 @@ private fun StopRecordingButton(
     val recordingState = stringResource(
         if (isRecording) R.string.proof_camera_state_recording else R.string.proof_camera_state_ready,
     )
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MeshaColors.Brand,
-            contentColor = MeshaColors.OnBrand,
-            disabledContainerColor = MeshaColors.Surf3,
-            disabledContentColor = MeshaColors.Faint,
-        ),
-        shape = RoundedCornerShape(20.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .minimumInteractiveComponentSize()
-            .height(58.dp)
-            .semantics {
-                contentDescription = actionDescription
-                stateDescription = recordingState
-                role = Role.Button
-            },
-    ) {
-        Icon(MeshaIcons.Video, contentDescription = null)
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = if (isRecording) stringResource(R.string.proof_camera_stop_label) else stringResource(R.string.proof_camera_start_label),
-            style = MeshaType.button,
-        )
+
+    if (cameraError != null && !isRecording) {
+        // Show retry UI when preview timeout or invalid video occurs
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(58.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MeshaColors.Brand,
+                    contentColor = MeshaColors.OnBrand,
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(58.dp)
+                    .semantics {
+                        contentDescription = retryLabel
+                        role = Role.Button
+                    },
+            ) {
+                Text(text = retryLabel, style = MeshaType.button)
+            }
+            Button(
+                onClick = { /* Cancel handled by BackHandler */ },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MeshaColors.Surf3,
+                    contentColor = MeshaColors.Muted,
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(58.dp),
+            ) {
+                Text(text = stringResource(R.string.proof_camera_cancel), style = MeshaType.button)
+            }
+        }
+    } else {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MeshaColors.Brand,
+                contentColor = MeshaColors.OnBrand,
+                disabledContainerColor = MeshaColors.Surf3,
+                disabledContentColor = MeshaColors.Faint,
+            ),
+            shape = RoundedCornerShape(20.dp),
+            modifier = modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .height(58.dp)
+                .semantics {
+                    contentDescription = actionDescription
+                    stateDescription = recordingState
+                    role = Role.Button
+                },
+        ) {
+            Icon(MeshaIcons.Video, contentDescription = null)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = if (isRecording) stringResource(R.string.proof_camera_stop_label) else stringResource(R.string.proof_camera_start_label),
+                style = MeshaType.button,
+            )
+        }
     }
 }
 
