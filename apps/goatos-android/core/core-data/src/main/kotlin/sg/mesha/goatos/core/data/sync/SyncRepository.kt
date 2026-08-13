@@ -34,6 +34,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import java.security.MessageDigest
 import java.util.UUID
@@ -260,6 +261,21 @@ interface SyncRepository {
         idempotencyKey: String,
         request: WeighingShedObservationRequestDto,
     ): AppResult<String> = AppResult.Err("weighing shed observation sync is not configured")
+
+    /** Enqueues a weighing scope SUBMIT transition (`POST
+     *  /app/weighing/campaigns/{id}/sheds/{id}/submit`), durable and retryable like every other
+     *  outbox write instead of the direct, at-most-once HTTP call this replaced. [groupKey] is the
+     *  campaign-shed id, so two submit attempts for the same shed drain strictly oldest-first.
+     *  [idempotencyKey] MUST be the caller's existing Room-backed transition-epoch key
+     *  (`WeighingRepository.transitionIdempotencyKey`) — never a fresh one per call — so a
+     *  server-committed-but-client-unrecorded retry dedupes instead of double-submitting. */
+    suspend fun enqueueWeighingScopeSubmit(
+        campaignId: String,
+        campaignShedId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ): AppResult<String> = AppResult.Err("weighing scope submit sync is not configured")
 
     /**
      * Enqueues a Shifting EXECUTION "Mark done" (`POST /app/counts/shifting-events/{id}/complete`) —
@@ -831,6 +847,21 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(WeighingShedObservationPayload(campaignId = campaignId, request = request)),
+    )
+
+    override suspend fun enqueueWeighingScopeSubmit(
+        campaignId: String,
+        campaignShedId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: WeighingScopeSubmitRequestDto,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.WEIGHING_SCOPE_SUBMIT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            WeighingScopeSubmitPayload(campaignId = campaignId, campaignShedId = campaignShedId, request = request),
+        ),
     )
 
     override suspend fun enqueueShiftingComplete(

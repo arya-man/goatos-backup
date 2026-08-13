@@ -114,7 +114,7 @@ class WeighingViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val repeatSeedStore: WeighingRepeatSeedStore,
     private val exportFileWriter: sg.mesha.goatos.export.WeighingExportFileWriter,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
     private val workGroupId = savedStateHandle.get<String>(Routes.WEIGHING_WORK_GROUP_ARG).orEmpty()
@@ -1055,6 +1055,13 @@ class WeighingViewModel @Inject constructor(
                 currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
                 restoreLumpSumInputDraft()
             }
+            // A recreated process (killed while the submit confirmation was showing) restores the
+            // dialog too, instead of leaving it silently gone with no way back short of re-scanning
+            // every animal. confirmSubmitIndividualScope() recomputes identifiers fresh either way
+            // (see its comment), so re-arming here only needs to reopen the gate.
+            if (savedStateHandle.get<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS) != null) {
+                showSubmitConfirmation.value = true
+            }
             viewModelScope.launch {
                 scanCaptureRepository.observeScannedTags(scopeKey, WEIGHING_SCAN_FIELD_KEY).collect { scans ->
                     scannedRows.value = scans.map { unknownWeighingRow(scopeKey, it.tag, it.capturedAtMs) }
@@ -1703,8 +1710,16 @@ class WeighingViewModel @Inject constructor(
         recordIndividualRow(key, row, useGlobalBusyGate = false)
     }
 
-    fun submitIndividualScope(onSubmitted: () -> Unit) {
-        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+    /**
+     * The scope's ready-to-submit identifiers, recomputed FRESH from durable, Room-observed
+     * state (`scopeState`/`scannedRows`/`state.visibleRows`) every time it's called -- never
+     * cached. This is what [confirmSubmitIndividualScope] now calls instead of trusting a
+     * previously-stashed list, so a confirm can never silently no-op just because a stashed
+     * value went missing (see that function's comment for why that used to happen).
+     *
+     * Returns null when the scope is not submittable.
+     */
+    private fun computeSubmittableIdentifiers(): List<String>? {
         val drafts = scopeState.value?.individualDrafts.orEmpty()
         val scannedIdentifiers = scannedRows.value
             .map { it.animalId }
@@ -1733,12 +1748,17 @@ class WeighingViewModel @Inject constructor(
                 null
             }
         }.plus(readyVisibleRows).distinct()
-        if (
-            scannedIdentifiers.isEmpty() ||
-            submittedIdentifiers.size != scannedIdentifiers.size ||
-            submittedIdentifiers.size != readyVisibleRows.size ||
-            submittedIdentifiers.any { it !in scannedIdentifiers }
-        ) {
+        val ready = scannedIdentifiers.isNotEmpty() &&
+            submittedIdentifiers.size == scannedIdentifiers.size &&
+            submittedIdentifiers.size == readyVisibleRows.size &&
+            submittedIdentifiers.none { it !in scannedIdentifiers }
+        return submittedIdentifiers.takeIf { ready }
+    }
+
+    fun submitIndividualScope(onSubmitted: () -> Unit) {
+        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+        val submittedIdentifiers = computeSubmittableIdentifiers()
+        if (submittedIdentifiers == null) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
             analytics.track(
                 AnalyticsEvents.SUBMIT_BLOCKED,
@@ -1753,18 +1773,44 @@ class WeighingViewModel @Inject constructor(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_OPENED,
             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
         )
-        submitPendingIdentifiers = submittedIdentifiers
+        // Durable across process death via SavedStateHandle -- kept ONLY as a hint for
+        // `confirmSubmitIndividualScope` to prefer (skipping a redundant recompute); it is never
+        // the sole source of truth the way it used to be (see that function).
+        savedStateHandle[KEY_SUBMIT_PENDING_IDENTIFIERS] = ArrayList(submittedIdentifiers)
+        // NOT durable: a lambda cannot survive process death (SavedStateHandle only stores Bundle-
+        // compatible values). `confirmSubmitIndividualScope` no longer treats its absence as a
+        // reason to silently skip the submit -- see the comment there.
         submitPendingCallback = onSubmitted
     }
 
-    private var submitPendingIdentifiers: List<String>? = null
     private var submitPendingCallback: (() -> Unit)? = null
 
     fun confirmSubmitIndividualScope() {
-        val identifiers = submitPendingIdentifiers ?: return
-        val callback = submitPendingCallback ?: return
+        // ONLY proceeds when the gate is actually open -- mirrors SubmitViewModel.confirmSubmit's
+        // gate-first contract instead of trusting a stashed identifier list to prove it.
+        if (!showSubmitConfirmation.value) return
+        // RECOMPUTE, never trust a stash. The identifiers used to live ONLY in a plain `var`
+        // (`submitPendingIdentifiers`) set once in submitIndividualScope() and read here with
+        // `?: return` -- silently doing nothing if it had gone missing. A killed-and-recreated
+        // process is exactly the case where that happens: the VM comes back with
+        // `showSubmitConfirmation` reset and no memory of which identifiers were armed, so if the
+        // recomposed dialog's Confirm ever reached this function the tap did precisely nothing --
+        // no error, no submit, no sign anything was wrong. Recomputing from the same durable,
+        // Room-observed state `submitIndividualScope` used closes that gap: the identifiers can
+        // never be null while the gate is legitimately open.
+        val identifiers = computeSubmittableIdentifiers()
+        if (identifiers == null) {
+            // The scope stopped being submittable between arm and confirm (e.g. a proof upload
+            // regressed) -- close the dialog and say so, rather than either submitting a stale
+            // list or silently doing nothing.
+            showSubmitConfirmation.value = false
+            savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
+            message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
+            return
+        }
+        val callback = submitPendingCallback
         showSubmitConfirmation.value = false
-        submitPendingIdentifiers = null
+        savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
         submitPendingCallback = null
         actionInFlight.value = true
         analytics.track(
@@ -1797,7 +1843,20 @@ class WeighingViewModel @Inject constructor(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                         )
-                        callback()
+                        // The write is now DURABLY QUEUED (outbox), not yet server-confirmed --
+                        // WeighingRepository.submitIndividualScope enqueues instead of calling the
+                        // network directly, so the sync engine retries it independently even if
+                        // this VM/process dies before it drains. If the navigation callback itself
+                        // didn't survive (process death between arm and confirm), the submit still
+                        // happened; only the auto-navigate is skipped, never the write.
+                        if (callback != null) {
+                            callback()
+                        } else {
+                            crashReporter.recordException(
+                                IllegalStateException("weighing submit confirmed with no navigation callback"),
+                                "weighing individual scope submit succeeded without a live callback",
+                            )
+                        }
                     }
                     is AppResult.Err -> {
                         // Show the SERVER's reason when it has one. A rework bounce ("a video was
@@ -1830,7 +1889,7 @@ class WeighingViewModel @Inject constructor(
 
     fun dismissSubmitConfirmation() {
         showSubmitConfirmation.value = false
-        submitPendingIdentifiers = null
+        savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
         submitPendingCallback = null
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CANCELLED,
@@ -2002,7 +2061,7 @@ class WeighingViewModel @Inject constructor(
                 )) {
                     is AppResult.Ok -> {
                         repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId, syncedProofIds)
-                        lumpSumDrafts.remove(lumpSumDraftKey(key))
+                        clearLumpSumInputDraft(lumpSumDraftKey(key))
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
@@ -2113,6 +2172,13 @@ class WeighingViewModel @Inject constructor(
 
     fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId)
 
+    // Durable across process death via SavedStateHandle -- NOT the file-scope `mutableMapOf` this
+    // replaced. A process-wide static map neither survives a killed process (the operator's
+    // half-typed lump-sum weight/count silently vanished) nor scopes cleanly to one VM instance
+    // (every WeighingViewModel in the process shared the same map, so its entries outlived the
+    // screen that wrote them). SavedStateHandle is this VM's own Bundle -- durable across process
+    // death, and gone for good once this destination is popped, exactly matching the draft's
+    // actual lifetime.
     private fun saveLumpSumInputDraft() {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
@@ -2120,22 +2186,34 @@ class WeighingViewModel @Inject constructor(
         val animalCount = animalCountInput.value
         val draftKey = lumpSumDraftKey(key)
         if (weight.isBlank() && animalCount.isBlank()) {
-            lumpSumDrafts.remove(draftKey)
+            clearLumpSumInputDraft(draftKey)
         } else {
-            lumpSumDrafts[draftKey] = LumpSumInputDraft(weight, animalCount)
+            savedStateHandle[lumpSumWeightKey(draftKey)] = weight
+            savedStateHandle[lumpSumCountKey(draftKey)] = animalCount
         }
     }
 
     private fun restoreLumpSumInputDraft() {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
-        val draft = lumpSumDrafts[lumpSumDraftKey(key)] ?: return
-        if (weightInput.value.isBlank()) weightInput.value = draft.weightInput
-        if (animalCountInput.value.isBlank()) animalCountInput.value = draft.animalCountInput
+        val draftKey = lumpSumDraftKey(key)
+        val draftWeight = savedStateHandle.get<String>(lumpSumWeightKey(draftKey))
+        val draftCount = savedStateHandle.get<String>(lumpSumCountKey(draftKey))
+        if (draftWeight == null && draftCount == null) return
+        if (weightInput.value.isBlank()) weightInput.value = draftWeight.orEmpty()
+        if (animalCountInput.value.isBlank()) animalCountInput.value = draftCount.orEmpty()
+    }
+
+    private fun clearLumpSumInputDraft(draftKey: String) {
+        savedStateHandle.remove<String>(lumpSumWeightKey(draftKey))
+        savedStateHandle.remove<String>(lumpSumCountKey(draftKey))
     }
 
     private fun lumpSumDraftKey(scope: String): String =
         listOf(tenantId.ifBlank { "unknown_tenant" }, currentPrincipalId ?: "unknown_principal", scope).joinToString(":")
+
+    private fun lumpSumWeightKey(draftKey: String): String = "weighing.lumpSum.weight:$draftKey"
+    private fun lumpSumCountKey(draftKey: String): String = "weighing.lumpSum.count:$draftKey"
 
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
@@ -3144,6 +3222,7 @@ class WeighingViewModel @Inject constructor(
         @JvmStatic
         internal var scanScopePrefixOverride: Boolean? = null
 
+        const val KEY_SUBMIT_PENDING_IDENTIFIERS = "weighing.submitPendingIdentifiers"
         const val ROSTER_WINDOW_SIZE = 20
         const val LIST_PREFETCH_DISTANCE = 3
         const val ROSTER_SYNC_MAX_ROWS = MAX_SCOPE_HYDRATION_ROWS
@@ -3346,12 +3425,6 @@ internal fun parsePositiveWeighingAnimalCount(value: String?): Int? =
 private fun normalizeFreeFlowTag(tag: String): String =
     tag.filter { it.isLetterOrDigit() }.lowercase()
 
-private data class LumpSumInputDraft(
-    val weightInput: String,
-    val animalCountInput: String,
-)
-
-private val lumpSumDrafts = mutableMapOf<String, LumpSumInputDraft>()
 
 /**
  * The business week the planner catalog is read for.
