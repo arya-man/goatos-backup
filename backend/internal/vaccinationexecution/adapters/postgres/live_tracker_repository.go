@@ -230,13 +230,13 @@ scoped AS (
     AND oi.due_at >= (SELECT due_floor FROM day_window)
     AND oi.due_at < (SELECT day_end FROM day_window)
     AND COALESCE(ovr.override_date, (oi.due_at AT TIME ZONE '` + istZone + `')::date) = $2::date
-    AND ($3::text = '' OR g.park_id::text = $3::text)
+    AND ($3::text = '' OR g.park_id = NULLIF($3::text, '')::uuid)
     -- $8 is the AUTHORIZATION park set, distinct from $3 (the caller's own park selection). It is
     -- NULL only for a genuinely tenant-wide capability holder. The filter-bar vocabulary is compiled
     -- with $3 empty so the park control cannot self-collapse, which means $8 is the ONLY thing
     -- keeping a park-scoped actor who holds grants in two parks from being handed the whole tenant's
     -- shed, operator and vaccine vocabulary.
-    AND ($8::text[] IS NULL OR g.park_id::text = ANY($8::text[]))
+    AND ($8::uuid[] IS NULL OR g.park_id = ANY($8::uuid[]))
 ),
 scoped_enriched AS (
   SELECT
@@ -262,9 +262,9 @@ scoped_enriched AS (
   LEFT JOIN day_proofs dp ON dp.goat_id = s.goat_id
   LEFT JOIN day_scans ds ON ds.goat_id = s.goat_id
   LEFT JOIN day_attempts da ON da.goat_id = s.goat_id
-  WHERE ($4::text = '' OR s.shed_id::text = $4::text)
+  WHERE ($4::text = '' OR s.shed_id = NULLIF($4::text, '')::uuid)
     AND ($5::text = '' OR s.part_norm = $5::text)
-    AND ($6::text = '' OR asg.operator_id::text = $6::text)
+    AND ($6::text = '' OR asg.operator_id = NULLIF($6::text, '')::uuid)
     AND ($7::text = '' OR s.vaccine_family = $7::text)
 )`
 
@@ -762,7 +762,7 @@ LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxOperatorOptions) + `)
 
 UNION ALL
 
-(SELECT 'shed', se.shed_id::text, '', se.part_norm, COALESCE(sh.name, '') || chr(31) || se.partition_label,
+(SELECT 'shed', se.shed_id::text, '', se.part_norm, COALESCE(sh.name, '') || chr(31) || se.partition_label, -- operational-location:ignore: owner=ravi issue=LT-OPT-SORT scope=internal-sort-key-not-user-display expiry=2026-11-30
   (count(*) OVER ())::int
 FROM scoped_enriched se
 LEFT JOIN locations sh ON sh.tenant_id = $1::uuid AND sh.location_id = se.shed_id
@@ -802,12 +802,12 @@ FROM verification_items vi
 CROSS JOIN day_window w
 	WHERE vi.tenant_id = $1::uuid
 	  AND (vi.module = 'vaccination' OR vi.source_module = 'vaccination')
-	  AND ($3::text = '' OR vi.park_id::text = $3::text)
-	  AND ($4::text = '' OR vi.shed_id::text = $4::text)
+	  AND ($3::text = '' OR vi.park_id = NULLIF($3::text, '')::uuid)
+	  AND ($4::text = '' OR vi.shed_id = NULLIF($4::text, '')::uuid)
 	  -- $5 is the AUTHORIZATION park set, separate from the caller's selected $3. A multi-park
 	  -- scoped actor can legitimately leave $3 empty to see both granted parks, but that must still
 	  -- never widen to tenant-wide verification counts.
-	  AND ($5::text[] IS NULL OR vi.park_id::text = ANY($5::text[]))`
+	  AND ($5::uuid[] IS NULL OR vi.park_id = ANY($5::uuid[]))`
 
 // liveTrackerCell is one park × shed × partition × vaccine × operator rollup row.
 type liveTrackerCell struct {
@@ -1370,23 +1370,24 @@ func liveTrackerShedRows(cells []liveTrackerCell, now time.Time) []domain.LiveTr
 			remaining = 0
 		}
 		row := domain.LiveTrackerShedRow{
-			ShedID:              c.shedID,
-			ShedName:            c.shedName,
-			PhysicalShed:        c.shedName,
-			PartitionLabel:      c.partitionLabel,
-			ShedLabel:           domain.ShedDisplayLabel(c.shedName, c.partitionLabel),
-			ParkID:              c.parkID,
-			ParkName:            c.parkName,
-			VaccineCode:         c.vaccineFamily,
-			VaccineLabel:        vaccinatdomain.DoseDisplayLabel(c.protocolName, c.doseCode),
-			OperatorID:          c.operatorID,
-			OperatorName:        c.operatorName,
-			ScheduledAdmins:     c.scheduled,
-			ClosedAdmins:        c.closed,
-			ProofVideosReceived: c.proofed,
-			Remaining:           remaining,
-			LastProofAt:         c.lastProofAt,
-			ExtraAttemptCount:   c.extraAttempts,
+			ShedID:                     c.shedID,
+			ShedName:                   c.shedName,
+			PhysicalShed:               c.shedName,
+			PartitionLabel:             c.partitionLabel,
+			ShedLabel:                  domain.ShedDisplayLabel(c.shedName, c.partitionLabel),
+			OperationalLocationDisplay: domain.ShedDisplayLabel(c.shedName, c.partitionLabel),
+			ParkID:                     c.parkID,
+			ParkName:                   c.parkName,
+			VaccineCode:                c.vaccineFamily,
+			VaccineLabel:               vaccinatdomain.DoseDisplayLabel(c.protocolName, c.doseCode),
+			OperatorID:                 c.operatorID,
+			OperatorName:               c.operatorName,
+			ScheduledAdmins:            c.scheduled,
+			ClosedAdmins:               c.closed,
+			ProofVideosReceived:        c.proofed,
+			Remaining:                  remaining,
+			LastProofAt:                c.lastProofAt,
+			ExtraAttemptCount:          c.extraAttempts,
 		}
 		row.State = liveTrackerShedState(row, c.lastActivityAt, now)
 		out = append(out, row)
@@ -1574,24 +1575,28 @@ func liveTrackerAttention(sheds []domain.LiveTrackerShedRow, operators []domain.
 	for _, shed := range sheds {
 		if shed.ExtraAttemptCount > 0 {
 			out = append(out, domain.LiveTrackerAttentionRow{
-				Kind:         domain.LiveTrackerAttentionExtraAttempts,
-				SubjectLabel: shed.ShedLabel,
-				ShedID:       shed.ShedID,
-				MetricCount:  shed.ExtraAttemptCount,
-				TotalCount:   shed.ScheduledAdmins,
-				SinceAt:      shed.LastProofAt,
-				Severity:     "warn",
+				Kind:                       domain.LiveTrackerAttentionExtraAttempts,
+				SubjectLabel:               shed.ShedLabel,
+				ShedID:                     shed.ShedID,
+				PartitionLabel:             shed.PartitionLabel,
+				OperationalLocationDisplay: shed.ShedLabel,
+				MetricCount:                shed.ExtraAttemptCount,
+				TotalCount:                 shed.ScheduledAdmins,
+				SinceAt:                    shed.LastProofAt,
+				Severity:                   "warn",
 			})
 		}
 		if shed.State == domain.LiveTrackerShedSlow {
 			row := domain.LiveTrackerAttentionRow{
-				Kind:         domain.LiveTrackerAttentionSlowShed,
-				SubjectLabel: shed.ShedLabel,
-				ShedID:       shed.ShedID,
-				MetricCount:  shed.ProofVideosReceived,
-				TotalCount:   shed.ScheduledAdmins,
-				SinceAt:      shed.LastProofAt,
-				Severity:     "warn",
+				Kind:                       domain.LiveTrackerAttentionSlowShed,
+				SubjectLabel:               shed.ShedLabel,
+				ShedID:                     shed.ShedID,
+				PartitionLabel:             shed.PartitionLabel,
+				OperationalLocationDisplay: shed.ShedLabel,
+				MetricCount:                shed.ProofVideosReceived,
+				TotalCount:                 shed.ScheduledAdmins,
+				SinceAt:                    shed.LastProofAt,
+				Severity:                   "warn",
 			}
 			// Measured: minutes since this shed's last completed proof. With no proof at all there is
 			// nothing to measure, so the row reports no elapsed figure rather than a stand-in — the

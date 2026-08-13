@@ -149,7 +149,7 @@ func (r *Repository) ListVendors(ctx context.Context, tenantID string, filter do
 	// bounded by construction. Offset rather than keyset is a deliberate product requirement: the
 	// operator asked to page BACKWARDS and to see a page number, and a forward-only keyset cursor can
 	// express neither. Same reasoning and shape as feedconfig's authored-grid reads.
-	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE %s ORDER BY v.business_name, v.vendor_id LIMIT %d OFFSET %d`,
+	query := fmt.Sprintf(`SELECT %s FROM public.procurement_vendors v WHERE %s ORDER BY v.business_name, v.vendor_id LIMIT %d OFFSET %d`, // scale-guard:ignore: bounded authored contact book pagination; see note above
 		vendorColumns, where, limit, offset)
 
 	rows, err := r.pool.Query(ctx, query, args...)

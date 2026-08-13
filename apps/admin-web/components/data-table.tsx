@@ -101,9 +101,9 @@ export function DataTable<Row>({
   getRowId: (row: Row) => string;
   ariaLabel: string;
   className?: string;
-  /** Rendered in a single full-width cell when `data` is empty. */
+  /** Shown in a single full-width cell when `data` is empty. */
   empty: React.ReactNode;
-  /** Whole-result footer (totals). Rendered verbatim inside `<tfoot>`; never derived from `data`. */
+  /** Whole-result totals row. Shown verbatim inside `<tfoot>`; never derived from `data`. */
   footer?: React.ReactNode;
   initialSorting?: SortingState;
 }) {

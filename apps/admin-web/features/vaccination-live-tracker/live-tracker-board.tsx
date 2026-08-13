@@ -6,7 +6,7 @@ import { scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
-import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination/full-vaccine-schedule";
+import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
 import { LiveTrackerOperators } from "./live-tracker-operators";
 import { LiveTrackerSheds } from "./live-tracker-sheds";

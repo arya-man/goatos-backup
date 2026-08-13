@@ -133,7 +133,7 @@ test("vaccination shed summary row keys include the full rendered summary grain"
   for (const token of [
     "row.parkId",
     "row.shedId",
-    "row.partition_label",
+    "row.partitionLabel",
     "row.nextDue",
     "row.status",
     "row.capacity",
@@ -147,7 +147,7 @@ test("vaccination shed summary row keys include the full rendered summary grain"
   }
   assert.doesNotMatch(
     shedBoardSource,
-    /const partitionAwareKey = `\$\{row\.shedId\}\|\$\{row\.partition_label/,
+    /const partitionAwareKey = `\$\{row\.shedId\}\|\$\{row\.partitionLabel/,
     "shed + partition is not unique when the backend returns multiple summary rows for one shed",
   );
 });
