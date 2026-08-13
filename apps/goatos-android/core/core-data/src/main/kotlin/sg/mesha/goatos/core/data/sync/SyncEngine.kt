@@ -671,7 +671,7 @@ class SyncEngine(
             FeedDistributionCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
-                partitionLabel = null,
+                partitionLabel = payload.partitionLabel,
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
@@ -703,7 +703,7 @@ class SyncEngine(
             FeedPackingCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
-                partitionLabel = null,
+                partitionLabel = payload.partitionLabel,
                 // A row queued by the old day-level build carries no session, so it decodes as 0. The route
                 // rejects 0, which would strand an operator's already-recorded video on a 400 forever.
                 // Map it to session 1 -- the same choice migration 000150 makes for the day-level rows

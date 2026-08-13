@@ -110,11 +110,11 @@ class FeedCompletionLocalStoreTest {
     }
 
     @Test
-    fun `one pen completion does not badge sibling pen done`() {
+    fun `one stale parent completion does not badge sibling hidden location done`() {
         val store = FeedCompletionLocalStore()
 
-        val pen1 = FeedCompletionLocalStore.key("castro", "1", 1, "feed_direction")
-        val pen2 = FeedCompletionLocalStore.key("castro", "2", 1, "feed_direction")
+        val pen1 = FeedCompletionLocalStore.key("castro", "1", 1, "feed_direction", "castro|legacy-partition|1")
+        val pen2 = FeedCompletionLocalStore.key("castro", "2", 1, "feed_direction", "castro|legacy-partition|2")
         store.markCompleted(pen1)
 
         assertTrue("precondition: submitted pen is optimistically complete", store.isCompleted(pen1))

@@ -84,39 +84,7 @@ export function buildShedFilterOptions(
     }
   }
 
-  // Shed NAMES repeat across parks -- there are two "Castro", two "Gandhi", two "Yashoda". Keying
-  // by park_id + shed_id already keeps them distinct in the DATA, but the rendered LABELS were
-  // identical, so the dropdown showed "Yashoda", "Yashoda 1", ... twice with nothing to tell a CEO
-  // which park each belonged to. Only names that actually collide get a park suffix, so the common
-  // case stays clean.
-  // NEVER fall back to park_id here: it is a UUID, and rendering it would put a raw internal id in
-  // front of a CEO (the copy-firewall rule in AGENTS.md). With no human park label available we
-  // simply omit the suffix -- an ambiguous-but-clean label beats a leaked identifier.
-  const parkLabelFor = new Map<string, string>(parkLabels);
-  for (const shed of filtered) {
-    const label = (shed.park_label ?? "").trim();
-    if (shed.park_id && label) {
-      parkLabelFor.set(shed.park_id, label);
-    }
-  }
-  // Detect if a shed label appears in multiple parks (for display disambiguation).
-  // Key by park + visible exact shed label to avoid treating alias UUIDs as separate farm sheds.
-  const needsParkSuffix = (shedLabel: string): boolean => {
-    const parksWithLabel = new Set<string>();
-    for (const shed of byExactDisplay.values()) {
-      const label = (shed.operational_location_display || shed.label || "").trim();
-      if (label === shedLabel) {
-        parksWithLabel.add(shed.park_id);
-      }
-    }
-    return parksWithLabel.size > 1;
-  };
-  const withPark = (label: string, shedName: string, parkId: string): string => {
-    if (!needsParkSuffix(shedName)) return label;
-    const park = parkLabelFor.get(parkId);
-    return park ? `${label} · ${park}` : label;
-  };
-
+  void parkLabels;
   const options: BreakdownFilterOption[] = [];
 
   const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
@@ -138,7 +106,7 @@ export function buildShedFilterOptions(
     options.push({
       key: `${parkId}|${shedId}`,
       value: shedId,
-      label: withPark(label, row.label, parkId),
+      label,
     });
   }
 

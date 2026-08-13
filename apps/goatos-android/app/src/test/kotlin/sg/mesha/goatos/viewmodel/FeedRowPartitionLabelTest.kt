@@ -2,6 +2,7 @@ package sg.mesha.goatos.viewmodel
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
@@ -223,13 +224,15 @@ class FeedPackingSessionRowTest {
     }
 
     @Test
-    fun `legacy partition labels do not split one packing shed-session`() {
+    fun `legacy parent shed partition labels keep packing rows separate until cleanup`() {
         val two = json.decodeFromString<FeedPackingRowDto>(morning)
         val three = json.decodeFromString<FeedPackingRowDto>(
-            morning.replace(""""partition_label":"2"""", """"partition_label":"3""""),
+            morning
+                .replace(""""partition_label":"2"""", """"partition_label":"3"""")
+                .replace(""""operational_location_display":"Castro 2"""", """"operational_location_display":"Castro 3""""),
         )
 
-        assertEquals(two.grainKey, three.grainKey)
+        assertNotEquals(two.grainKey, three.grainKey)
     }
 
     @Test

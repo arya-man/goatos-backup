@@ -55,6 +55,8 @@ data class FeedPackingRowUi(
     val shedLabel: String,
     /** Legacy backend compatibility metadata; never used for live display or completion identity. */
     val partitionLabel: String,
+    /** Hidden compatibility identity for stale parent-shed rows; exact rows equal [shedId]. */
+    val locationIdentityKey: String = shedId,
     val sessionLabel: String,
     val workflow: String,
     val experimentArm: String,
@@ -146,6 +148,8 @@ sealed interface FeedPackingEvent {
         val workflow: String,
         val shedLabel: String,
         val sessionLabel: String,
+        val locationIdentityKey: String,
+        val compatibilityPartitionLabel: String,
     ) : FeedPackingEvent
     data object ClearFilters : FeedPackingEvent
 }
@@ -233,6 +237,8 @@ fun FeedPackingScreen(
                                 workflow = row.workflow,
                                 shedLabel = row.shedLabel,
                                 sessionLabel = row.sessionLabel,
+                                locationIdentityKey = row.locationIdentityKey,
+                                compatibilityPartitionLabel = row.compatibilityPartitionLabel(),
                             ),
                         )
                     }
@@ -241,6 +247,9 @@ fun FeedPackingScreen(
         }
     }
 }
+
+private fun FeedPackingRowUi.compatibilityPartitionLabel(): String =
+    partitionLabel.takeIf { locationIdentityKey != shedId }.orEmpty()
 
 @Composable
 private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEvent) -> Unit) {

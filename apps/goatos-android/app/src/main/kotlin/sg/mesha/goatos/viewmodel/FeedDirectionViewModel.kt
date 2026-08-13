@@ -304,7 +304,8 @@ class FeedDirectionViewModel @Inject constructor(
         shedId = shedId,
         sessionNo = sessionNo,
         shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, null) },
-        partitionLabel = "",
+        partitionLabel = partitionLabel.orEmpty(),
+        locationIdentityKey = operationalLocationIdentityKey,
         shedTag = shedTag,
         breed = breed,
         rationGroup = rationGroup,
@@ -318,7 +319,15 @@ class FeedDirectionViewModel @Inject constructor(
         blocked = blocked,
         overduePending = overduePending,
         // Backend truth OR the optimistic local overlay for a just-completed shed-session.
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, "", sessionNo, workflow)),
+        completed = completed || locallyCompleted.contains(
+            FeedCompletionLocalStore.key(
+                shedId = shedId,
+                partitionLabel = partitionLabel,
+                sessionNo = sessionNo,
+                workflow = workflow,
+                locationIdentityKey = operationalLocationIdentityKey,
+            ),
+        ),
         lifecycleStatus = lifecycleStatus,
     )
 

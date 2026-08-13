@@ -273,7 +273,8 @@ class FeedPackingViewModel @Inject constructor(
         // Prefers the backend-composed exact shed display and falls back to the shed label only
         // when an older server omits the field. The client never appends partitionLabel.
         shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, null) },
-        partitionLabel = "",
+        partitionLabel = partitionLabel.orEmpty(),
+        locationIdentityKey = operationalLocationIdentityKey,
         sessionLabel = sessionLabel,
         workflow = workflow,
         experimentArm = experimentArm,
@@ -281,7 +282,15 @@ class FeedPackingViewModel @Inject constructor(
         items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
         totalKg = totalKg,
         status = status,
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
+        completed = completed || locallyCompleted.contains(
+            FeedCompletionLocalStore.key(
+                shedId = shedId,
+                partitionLabel = partitionLabel,
+                sessionNo = sessionNo,
+                workflow = workflow,
+                locationIdentityKey = operationalLocationIdentityKey,
+            ),
+        ),
         lifecycleStatus = lifecycleStatus,
         reworkReason = reworkReason,
     )

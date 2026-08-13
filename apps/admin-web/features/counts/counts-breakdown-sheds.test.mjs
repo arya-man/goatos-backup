@@ -59,16 +59,10 @@ const PARTITIONED = [
 ];
 const PARK_LABELS = new Map([[PARK_A, "CBE"], [PARK_B, "CPT"]]);
 
-test("same-named sheds across parks are told apart by their park", () => {
-  // The disambiguation was DEAD CODE: it read `park_label` off the shed facet, a field neither the
-  // Go struct nor the OpenAPI schema declares and nothing has ever sent. Passing the park
-  // vocabulary from facets.parks is what makes it fire.
+test("same-named sheds across parks keep the exact shed name", () => {
   const labels = buildShedFilterOptions(PARTITIONED, "", PARK_LABELS).map((o) => o.label);
-  assert.ok(labels.includes("Yashoda 1 · CBE"), `expected a CBE-suffixed option, got ${JSON.stringify(labels)}`);
-  assert.ok(labels.includes("Yashoda 1 · CPT"));
-  // Every visible option is unique — no two rows read identically.
-  assert.equal(new Set(labels).size, labels.length, `duplicate visible labels: ${JSON.stringify(labels)}`);
-  // A name that exists in only ONE park stays clean; the suffix is disambiguation, not decoration.
+  assert.equal(labels.filter((label) => label === "Yashoda 1").length, 2);
+  assert.ok(!labels.some((label) => label.includes(" · CBE") || label.includes(" · CPT")));
   assert.ok(labels.includes("Ho Chi Minh 1"));
 });
 
@@ -95,10 +89,10 @@ test("same park alias rows with the same physical shed name collapse before rend
 
   assert.deepEqual(
     options.map((o) => o.label),
-    ["Castro 1 · CBE", "Castro 1 · CPT"],
+    ["Castro 1", "Castro 1"],
   );
-  assert.equal(options.filter((o) => o.label === "Castro 1 · CBE").length, 1);
-  assert.equal(options.find((o) => o.label === "Castro 1 · CBE").value, SHED_A);
+  assert.equal(options.filter((o) => o.label === "Castro 1").length, 2);
+  assert.equal(options.find((o) => o.value === SHED_A).label, "Castro 1");
 });
 
 test("park id is never leaked as a label when the park vocabulary is missing", () => {

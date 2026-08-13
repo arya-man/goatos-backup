@@ -35,7 +35,8 @@ class FeedCaptureGroupKeyTest {
         sessionNo: Int = 1,
         workflow: String = "normal",
         targetDate: String = today,
-    ) = feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
+        locationIdentityKey: String = "",
+    ) = feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate, locationIdentityKey)
 
     @Test
     fun `stale partition labels do not split one exact shed-day key`() {
@@ -44,6 +45,28 @@ class FeedCaptureGroupKeyTest {
             packing(shedId = "shed-castro-1", partitionLabel = "1"),
             packing(shedId = "shed-castro-2", partitionLabel = "1"),
         )
+    }
+
+    @Test
+    fun `legacy parent shed completion keys carry hidden location identity`() {
+        val parentPart1 = packing(
+            shedId = "shed-castro",
+            partitionLabel = "1",
+            locationIdentityKey = "shed-castro|legacy-partition|1",
+        )
+        val parentPart2 = packing(
+            shedId = "shed-castro",
+            partitionLabel = "2",
+            locationIdentityKey = "shed-castro|legacy-partition|2",
+        )
+        val exactWithStalePartition = packing(
+            shedId = "shed-castro-2",
+            partitionLabel = "2",
+            locationIdentityKey = "shed-castro-2",
+        )
+
+        assertNotEquals(parentPart1, parentPart2)
+        assertEquals(packing(shedId = "shed-castro-2", partitionLabel = "3"), exactWithStalePartition)
     }
 
     @Test

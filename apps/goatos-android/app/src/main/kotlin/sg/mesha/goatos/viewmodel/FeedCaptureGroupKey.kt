@@ -30,10 +30,13 @@ package sg.mesha.goatos.viewmodel
  * claims to be that task's identity. Pass the row's own `target_date` (`YYYY-MM-DD`); it is already
  * on the route and already sent in the request body.
  *
- * [partitionLabel] is the raw pen from the row ("2", "Part 3"), blank for an undivided shed.
+ * [partitionLabel] is the raw legacy partition from the row ("2", "Part 3"), blank for an
+ * undivided/exact shed.
  *
  * Exact shed id is the physical shed identity. [partitionLabel] remains in the function signature
- * for older callers, but it is compatibility metadata and must not split one shed's drafts.
+ * for older callers, but it is compatibility metadata and must not split one exact shed's drafts.
+ * [locationIdentityKey] is a temporary hidden escape hatch for stale cached/pre-cutover rows whose
+ * `shedId` is still the old parent. Exact rows pass blank or the same value as [shedId].
  */
 internal fun feedCaptureGroupKey(
     prefix: String,
@@ -42,8 +45,9 @@ internal fun feedCaptureGroupKey(
     sessionNo: Int,
     workflow: String,
     targetDate: String,
+    locationIdentityKey: String = "",
 ): String =
-    "$prefix:${dateToken(targetDate)}:$shedId:$sessionNo:$workflow"
+    "$prefix:${dateToken(targetDate)}:${locationIdentityKey.trim().ifEmpty { shedId }}:$sessionNo:$workflow"
 
 /**
  * The feed day as a key segment.
