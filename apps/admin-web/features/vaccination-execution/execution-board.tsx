@@ -81,8 +81,8 @@ function physicalShedName(row: VaccinationExecutionRow): string {
   return (row.operational_location_display || row.shedName || row.physicalShed || "").trim() || row.shedName;
 }
 
-function partitionLabel(row: VaccinationExecutionRow): string {
-  return row.operational_location_display || row.shedName;
+function exactShedLabel(row: VaccinationExecutionRow): string {
+  return row.operational_location_display;
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {
@@ -152,7 +152,7 @@ function executionDriveLabel(row: VaccinationExecutionRow): string {
 }
 
 function executionActionTitle(pageContract: AdminUiPageContract, row: VaccinationExecutionRow): string {
-  const location = partitionLabel(row);
+  const location = exactShedLabel(row);
   if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${location}`;
   if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${location}`;
   if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${location}`;
@@ -161,22 +161,21 @@ function executionActionTitle(pageContract: AdminUiPageContract, row: Vaccinatio
 
 function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {
   const driveLabel = executionDriveLabel(row);
-  const shedLabel = physicalShedName(row);
-  const partition = partitionLabel(row);
+  const exactShed = exactShedLabel(row);
   return (
     <LocalOverlayLink
       href={drawerHref}
       scroll={false}
       className="pexr"
-      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${shedLabel} ${partition}`}
-      title={`${shedLabel} · ${partition} · ${driveLabel} · ${row.nextAction}`}
+      aria-label={`${copy(pageContract, "action.open_shed_event_for")} ${exactShed}`}
+      title={`${exactShed} · ${driveLabel} · ${row.nextAction}`}
     >
       <div className="pexc pexc-shed">
         <div className="pexc-h">{labels[0]}</div>
         <span className="lk small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Layers className="ic" style={{ width: 14 }} aria-hidden="true" />
-          <ClipText title={`${shedLabel} · ${partition}`} className="inline">
-            {partition}
+          <ClipText title={exactShed} className="inline">
+            {exactShed}
           </ClipText>
         </span>
         <ClipText title={row.animalStage} className="muted small" style={{ marginTop: 2 }}>
@@ -538,8 +537,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.shed")}</div>
-              <div className="v">{/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
-              {partitionLabel(row)}</div>
+              <div className="v">{exactShedLabel(row)}</div>
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.owner_assist")}</div>
@@ -556,7 +554,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
               </div>
             </div>
           </div>
-          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${partitionLabel(row)}`} vaccineName={driveLabel} pageContract={pageContract} />
+          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${exactShedLabel(row)}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
             <ShedEventActions pageContract={pageContract} />
           </div>

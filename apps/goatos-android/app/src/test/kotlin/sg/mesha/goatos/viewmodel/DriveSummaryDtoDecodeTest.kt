@@ -39,9 +39,9 @@ class DriveSummaryDtoDecodeTest {
              "total_animals":70,"completed_animals":42,
              "sheds":[
                {"shed_id":"shed-castro","shed_name":"Castro","partition_label":"1",
-                "operational_location_display":"Castro - 1","total_animals":35},
+                "operational_location_display":"Castro 1","total_animals":35},
                {"shed_id":"shed-castro","shed_name":"Castro","partition_label":"2",
-                "operational_location_display":"Castro - 2","total_animals":35}
+                "operational_location_display":"Castro 2","total_animals":35}
              ]}
         """.trimIndent()
         val dto = json.decodeFromString<DriveSummaryDto>(current)
@@ -50,7 +50,7 @@ class DriveSummaryDtoDecodeTest {
         assertEquals(324, dto.driveTotal)
         assertEquals(70, dto.totalAnimals)
         assertEquals(42, dto.completedAnimals)
-        assertEquals(listOf("Castro - 1", "Castro - 2"), summary.locations.map { it.operationalLocationDisplay })
+        assertEquals(listOf("Castro 1", "Castro 2"), summary.locations.map { it.operationalLocationDisplay })
         assertEquals(listOf("1", "2"), summary.locations.map { it.partitionLabel })
         assertEquals(listOf(35, 35), summary.locations.map { it.totalAnimals })
     }

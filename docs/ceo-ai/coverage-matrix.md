@@ -297,11 +297,11 @@ scoped-refusal exclusion so the bot says "not covered yet" rather than inventing
 
 ## Partition-scoped reporting rule (migration 000110, 2026-08-05)
 
-OperationalLocation = park + physical shed + OPTIONAL partition
-(`backend/internal/platform/oploc`). `goats.shed_id` is always the PARENT
-physical shed; `goat_shed_partitions` (PK `(tenant_id, goat_id)`) carries the
-actual sub-location for a goat that lives in a partitioned shed. Not every shed
-has partitions — a non-partitioned shed renders as the bare shed name, never a
+OperationalLocation = park + exact shed (`backend/internal/platform/oploc`).
+`goats.shed_id` is the real physical shed. `goats.shed_group_id` and legacy
+`goat_shed_partitions` rows may preserve grouping/history, but they are not the
+goat's live residence. Not every shed has a group — a non-grouped shed renders
+as the bare shed name, never a
 synthetic "whole" location; shed names repeat across parks, so grouping/
 filtering must always key off `shed_id`, never the shed name alone.
 

@@ -195,9 +195,10 @@ These invariants should become testable for every vertical.
 
 9. Location Grain Invariant
 
-   An animal's ground location is `OperationalLocation = park + physical_shed +
-   optional partition_label`. When a partition exists, every surface must
-   render/answer it:
+   An animal's ground location is `OperationalLocation = park + exact_shed`.
+   The exact shed name already contains the farm-visible partition text when
+   that is how the shed is named. Compatibility `partition_label` fields must
+   not be appended to display or used as live identity:
    
    - No partition → `Yashoda` (bare shed name)
    - Numeric partition → `Castro 2`

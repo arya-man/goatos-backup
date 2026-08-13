@@ -2605,11 +2605,9 @@ WHERE g.tenant_id = $1
 //	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
 //	$5 management_stage, $6 breed, $7 sex
 //
-// partition_key is the SQL twin of oploc.NormalizePartition: NULL/""/"whole" (any case/
-// whitespace) collapse to 'whole', and the 'Part N' convention normalizes to bare 'N' so both
-// label conventions group together. Keep this expression byte-for-byte identical to the
-// operator-execution normalizer at vaccinationexecution/adapters/postgres/repository.go and to
-// oploc.NormalizePartition -- see internal/platform/oploc for the shared Go-side contract.
+// partition_key is legacy compatibility only. Once g.shed_id is the exact physical shed, the key
+// collapses to 'whole' so stale goat_shed_partitions rows cannot split "Castro 2" into "Castro 2 2".
+// Old pre-cutover rows may still use the key temporarily while the batched repair catches up.
 const partitionKeyExpr = `CASE
       WHEN exact_sp.operational_location_id IS NOT NULL THEN 'whole'
       ELSE regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -2769,30 +2767,26 @@ SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count), '', ''
 FROM grouped gr GROUP BY gr.sex
 UNION ALL
 SELECT * FROM (
-  -- One bar PER PEN. The label is NOT composed here: this returns the shed name, the raw partition
-  -- label and the park separately, and Go composes them with oploc.OperationalLocation.Display().
-  -- Composing in SQL is
-  -- the sql-display-drift defect the operational-location guard blocks, and OL-7 is the worked
-  -- example — six SQL paths, six different renderings of the same location.
-  -- partition-review: membership=same canonical goats rows as the grouped CTE; group_key=(shed_id, park_id, partition_key) — the pen, mapped from denormalized goats columns plus the normalized partition key; aggregation=summed within the pen, NOT rolled up across partitions (maintainer decision 2026-08-12); join_cardinality=locations joined once per shed and once per park on (tenant_id, location_id) for labels only; pagination=whole-result rollup capped at 12 PENS for chart legibility; scope=same tenant plus predicates as the page query
+  -- One bar per exact shed. The label is the exact locations.name when available; partition_label is
+  -- only a pre-cutover bridge and must not be joined onto that exact shed name.
+  -- partition-review: membership=same canonical goats rows as the grouped CTE; group_key=(shed_id, park_id, partition_key) where partition_key collapses to whole for exact partition sheds; aggregation=summed within the exact shed, NOT a parent-shed rollup; join_cardinality=locations joined once per shed and once per park on (tenant_id, location_id) for labels only; pagination=whole-result rollup capped at 12 exact sheds for chart legibility; scope=same tenant plus predicates as the page query
   SELECT 'shed' AS dimension,
-         -- oploc.Key() convention: bare shed uuid for an undivided shed, "<uuid>#<normalized>" for a
-         -- pen. Same key shape the facets branch emits, so the two describe locations identically.
+         -- oploc.Key() convention after exact-shed cutover: bare shed uuid. The suffix exists only
+         -- while a pre-cutover row has not yet been repaired to its exact shed_id.
          COALESCE(gr.shed_id::text, '') ||
            CASE WHEN gr.partition_key = 'whole' THEN '' ELSE '#' || gr.partition_key END AS series_key,
          COALESCE(min(gr.source_shed_name_raw), NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
          sum(gr.animal_count) AS series_count,
          COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
-         -- partition_label_raw, never partition_key: the key is a scrubbed MATCHING value ('3') and
-         -- the label is the human one ('Part 3'). Rendering the key shipped "Mandela 2 - 3" once and
-         -- survived six review rounds.
+         -- partition_label_raw is emitted only for pre-cutover compatibility rows. Exact shed rows
+         -- emit '' so clients cannot re-append it.
          COALESCE(CASE WHEN gr.partition_key = 'whole' THEN '' ELSE min(gr.partition_label_raw) END, '') AS partition_label
   FROM grouped gr
   LEFT JOIN locations shed
          ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
   LEFT JOIN locations park
          ON park.tenant_id = $1::uuid AND park.location_id = gr.park_id
-  -- projection-review: membership=the same grouped CTE the page query uses, re-rolled to PEN grain; group_key=(shed_id, park_id, partition_key), the pen — partitions are no longer collapsed (maintainer decision 2026-08-12); join_cardinality=locations joined twice on its (tenant_id, location_id) primary key, 1:{0,1} each, label-only, no fan-out; pagination=whole-result rollup capped to the top 12 PENS for display only, never the source of a business total; scope=identical tenant/park/shed/stage/breed/sex predicates as the page query
+  -- projection-review: membership=the same grouped CTE the page query uses, re-rolled to exact-shed grain; group_key=(shed_id, park_id, partition_key) where partition_key is whole for exact sheds; join_cardinality=locations joined twice on its (tenant_id, location_id) primary key, 1:{0,1} each, label-only, no fan-out; pagination=whole-result rollup capped to the top 12 exact sheds for display only, never the source of a business total; scope=identical tenant/park/shed/stage/breed/sex predicates as the page query
   GROUP BY gr.shed_id, gr.park_id, gr.partition_key, shed.name, shed.location_code, park.location_code, park.name
   ORDER BY series_count DESC, series_key
   LIMIT 500
@@ -2895,11 +2889,9 @@ WHERE g.tenant_id = $1::uuid
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.park_id::text, ''), park.location_code, park.name
 UNION ALL
--- Parent-shed aggregate option ("Castro"): every animal in the physical shed regardless of
--- partition. shed_id is the parent physical shed on every goats row -- never the inactive alias
--- location -- so this branch already excludes inactive alias rows by construction (it never joins
--- locations by name).
--- projection-review: membership=canonical live goats for the tenant (no shed/partition self-filter, because a facet must never filter by its own dimension); group_key=(shed_id, park_id) for this PARENT-SHED aggregate option, deliberately WITHOUT the partition -- the per-partition options are separate UNION branches below, so the two never overlap and cannot double count; join_cardinality=locations LEFT JOINed once on its (tenant_id, location_id) primary key, 1:{0,1} label lookup, no fan-out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
+-- Exact-shed option ("Castro 1", "Mandela 2 Part 1", "Yashoda"): every animal whose goats.shed_id
+-- points at that physical shed. No partition-label suffix is emitted from this facet.
+-- projection-review: membership=canonical live goats for the tenant (no shed self-filter, because a facet must never filter by its own dimension); group_key=(shed_id, park_id) for the exact physical shed; join_cardinality=locations LEFT JOINed once on its (tenant_id, location_id) primary key, 1:{0,1} label lookup, no fan-out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
 SELECT 'shed', COALESCE(g.shed_id::text, ''),
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        count(*), COALESCE(g.park_id::text, ''), ''
@@ -3034,10 +3026,8 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: charts scan: %w", err)
 		}
 		if dimension == "shed" {
-			// The pen's own name, via the one helper that owns this composition (shed alone when the
-			// shed is undivided, "Shed - Pen" when it is not), then the park in front of it. Both
-			// halves always travel together: a bar reading just "Gandhi" cannot say which park's
-			// Gandhi it is, and 66 of 154 real shed names exist in both.
+			// The exact shed name, then the park in front of it. partition_label may still arrive
+			// from compatibility rows but must never alter the display.
 			label = oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display()
 			if parkLabel != "" && label != "" {
 				label = parkLabel + " · " + label

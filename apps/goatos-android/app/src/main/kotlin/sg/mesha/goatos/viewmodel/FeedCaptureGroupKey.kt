@@ -1,7 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 /**
- * The identity of ONE feed capture flow: a shed's PEN, on one feed DAY, in one session, in one
+ * The identity of ONE feed capture flow: an exact shed, on one feed DAY, in one session, in one
  * workflow.
  *
  * This key is load-bearing three times over, which is why it lives in one tested function instead
@@ -32,12 +32,8 @@ package sg.mesha.goatos.viewmodel
  *
  * [partitionLabel] is the raw pen from the row ("2", "Part 3"), blank for an undivided shed.
  *
- * NOTE ON NORMALIZATION: [partitionMatchToken] is a DEVICE-LOCAL token, not the backend's
- * `domain.PartitionMatchKey`. It never leaves the phone — the request body carries the raw
- * `partition_label`, and the server does its own normalizing. It exists only so a whitespace or
- * case variant of the same pen across two page loads cannot split one pen into two drafts. Do not
- * "align" it with the Go function: that would create a twin needing to be kept in sync for no
- * behaviour, which is the drift this codebase keeps paying for.
+ * Exact shed id is the physical shed identity. [partitionLabel] remains in the function signature
+ * for older callers, but it is compatibility metadata and must not split one shed's drafts.
  */
 internal fun feedCaptureGroupKey(
     prefix: String,
@@ -47,7 +43,7 @@ internal fun feedCaptureGroupKey(
     workflow: String,
     targetDate: String,
 ): String =
-    "$prefix:${dateToken(targetDate)}:$shedId:${partitionMatchToken(partitionLabel)}:$sessionNo:$workflow"
+    "$prefix:${dateToken(targetDate)}:$shedId:$sessionNo:$workflow"
 
 /**
  * The feed day as a key segment.
@@ -62,20 +58,4 @@ internal fun feedCaptureGroupKey(
  */
 private fun dateToken(targetDate: String): String = targetDate.trim().ifEmpty { UNDATED_TOKEN }
 
-/**
- * Device-local matching token for a pen: trimmed, lowercased, internal whitespace collapsed.
- *
- * Blank collapses to [WHOLE_SHED_TOKEN] so an undivided shed has ONE stable key rather than an
- * empty segment — the same "a shed with no pens is still exactly one operational location" rule the
- * generated `partition_key` column encodes. Never render it: "whole" is a key, never copy.
- */
-internal fun partitionMatchToken(partitionLabel: String): String {
-    val normalized = partitionLabel.trim().lowercase().replace(WHITESPACE_RUN, " ")
-    return normalized.ifEmpty { WHOLE_SHED_TOKEN }
-}
-
-private const val WHOLE_SHED_TOKEN = "whole"
-
 private const val UNDATED_TOKEN = "undated"
-
-private val WHITESPACE_RUN = Regex("\\s+")

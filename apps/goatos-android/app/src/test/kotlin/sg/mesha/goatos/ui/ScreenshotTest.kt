@@ -624,7 +624,7 @@ class ScreenshotTest {
                     shedId = "shed-castro",
                     name = "Castro",
                     partitionLabel = "2",
-                    operationalLocationDisplay = "Castro - 2",
+                    operationalLocationDisplay = "Castro 2",
                 ),
                 ShiftingShedUi(
                     shedId = "shed-gandhi-1",
@@ -1022,7 +1022,7 @@ class ScreenshotTest {
      * The packing worklist: bags to make up today for tomorrow's feed.
      *
      * ONE CARD PER PEN PER SESSION (maintainer decision 2026-08-11, reverting the 2026-08-10 pen-day
-     * card). Castro - 2 therefore appears TWICE, Morning and Evening, and that repetition is the
+     * card). Castro 2 therefore appears TWICE, Morning and Evening, and that repetition is the
      * shape the golden exists to hold: two bags, two cards, two videos.
      *
      * The session labels are the farm's real authored names. A fixture that asserts a shape the farm
@@ -1034,7 +1034,7 @@ class ScreenshotTest {
         val rows = flowOf(
             PagingData.from(
                 listOf(
-                    // Castro - 2's TWO bags, both sent BACK by the afternoon feed correction
+                    // Castro 2's TWO bags, both sent BACK by the afternoon feed correction
                     // (maintainer decision 2026-08-10): animals shifted in after they were packed and
                     // filmed, so the quantities on both cards are no longer the ones the operator
                     // packed to. BOTH sessions are here because head count scales the morning and the
@@ -1048,7 +1048,7 @@ class ScreenshotTest {
                     // golden is what proves an operator can.
                     FeedPackingRowUi(
                         grainKey = "pack-3", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 1,
-                        shedLabel = "Castro - 2",
+                        shedLabel = "Castro 2",
                         partitionLabel = "2", sessionLabel = "Morning",
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",
@@ -1058,7 +1058,7 @@ class ScreenshotTest {
                     ),
                     FeedPackingRowUi(
                         grainKey = "pack-4", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 2,
-                        shedLabel = "Castro - 2",
+                        shedLabel = "Castro 2",
                         partitionLabel = "2", sessionLabel = "Evening",
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",

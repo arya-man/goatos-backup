@@ -368,7 +368,6 @@ export function ExperimentCellEditor({
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
-      <input type="hidden" name="partition_label" value={partitionLabel} />
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
@@ -478,7 +477,6 @@ export function ExperimentCellAdder({
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
-      <input type="hidden" name="partition_label" value={partitionLabel} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-item`}>{copy(pageContract, "filter.feed_item_label")}</label>
         <select id={`${fieldId}-item`} name="feed_item" defaultValue="">
@@ -561,16 +559,11 @@ export function ExperimentShedSwitch({
   action: SaveAction;
   parkId: string;
   shedId: string;
-  /** The PEN's display name, exactly as the row above shows it ("Godel 1 - Part 3"). */
+  /** The exact shed display name, exactly as the row above shows it ("Godel 1 - Part 3"). */
   shedName: string;
-  /**
-   * The raw authored pen this switch applies to; blank for an undivided shed.
-   *
-   * Load-bearing, not decorative: without it the write was shed-wide while this control was
-   * captioned with one pen's name, so retiring "Godel 1 - Part 3" retired all ten Godel 1 pens.
-   */
+  /** Legacy compatibility metadata. New exact-shed writes leave this blank. */
   partitionLabel: string;
-  /** "active" enrols the pen onto absolute kg; "retired" returns it to the per-head grid. */
+  /** "active" enrols the shed onto absolute kg; "retired" returns it to the per-head grid. */
   targetStatus: "active" | "retired";
 }) {
   const labelKey =
@@ -586,10 +579,9 @@ export function ExperimentShedSwitch({
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
-      <input type="hidden" name="partition_label" value={partitionLabel} />
       <input type="hidden" name="status" value={targetStatus} />
-      {/* The pen is named back to the operator before they apply. This control is one click away
-          from changing a park's feed plan, so it confirms WHICH pen and WHAT will happen — and the
+      {/* The shed is named back to the operator before they apply. This control is one click away
+          from changing a park's feed plan, so it confirms WHICH shed and WHAT will happen — and the
           name shown is now the same scope the write touches. */}
       <div className="small" style={{ lineHeight: 1.5 }}>
         <b>{shedName}</b>
@@ -730,15 +722,12 @@ export function ExperimentPenEnroller({
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor="exp-new-pen">{copy(pageContract, "filter.pen_label")}</label>
-        {/* The pen carries its shed id and its RAW partition label as one JSON value. A delimiter
-            would be unsafe — a partition label is free text and may contain spaces or hyphens, so
-            any separator character could occur inside it. The label travels verbatim; the backend
-            normalizes and validates it against the shed's own catalog. */}
+        {/* The value is the exact shed id. The visible label is the exact shed name from backend. */}
         <select id="exp-new-pen" name="pen" defaultValue="" disabled={parkPens.length === 0}>
           {parkPens.map((pen) => (
             <option
-              key={`${pen.shedId}#${pen.partitionLabel}`}
-              value={JSON.stringify({ s: pen.shedId, p: pen.partitionLabel })}
+              key={pen.shedId}
+              value={pen.shedId}
             >
               {pen.display}
             </option>

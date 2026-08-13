@@ -2,7 +2,6 @@ package sg.mesha.goatos.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Path
@@ -12,8 +11,8 @@ class ExecutionRouteIdentityTest {
     @Test
     fun `scan and submit routes preserve selected execution identity`() {
         val routes = listOf(
-            Routes.scanRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
-            Routes.submitRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
+            Routes.scanRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3"),
+            Routes.submitRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3"),
         )
 
         routes.forEach { route ->
@@ -24,7 +23,8 @@ class ExecutionRouteIdentityTest {
             assertTrue(route.contains("sopVersionId=sop-a"))
             assertTrue(route.contains("taskRowVersion=7"))
             assertTrue(route.contains("scanTitle=Gandhi%201%20-%20Part%203"))
-            assertTrue(route.contains("partitionLabel=Part%203"))
+            assertFalse(route.contains("partitionLabel="))
+            assertFalse(route.contains("partition_label="))
         }
     }
 
@@ -36,21 +36,21 @@ class ExecutionRouteIdentityTest {
     }
 
     @Test
-    fun `record route preserves selected partition`() {
-        val route = Routes.recordRoute("shed-a", "Part 2")
+    fun `record route uses exact shed identity only`() {
+        val route = Routes.recordRoute("shed-a")
 
         assertTrue(route.contains("shedId=shed-a"))
-        assertTrue(route.contains("partitionLabel=Part%202"))
+        assertFalse(route.contains("partitionLabel="))
+        assertFalse(route.contains("partition_label="))
     }
 
     @Test
-    fun `notification rework targets preserve sibling partitions`() {
+    fun `notification rework targets ignore legacy partition query`() {
         val partOne = pushTargetRoute("/vaccination/record/shed-a?partition_label=Part+1")
         val partTwo = pushTargetRoute("/vaccination/record/shed-a?partition_label=Part+2")
 
-        assertEquals(Routes.recordRoute("shed-a", "Part 1"), partOne)
-        assertEquals(Routes.recordRoute("shed-a", "Part 2"), partTwo)
-        assertNotEquals(partOne, partTwo)
+        assertEquals(Routes.recordRoute("shed-a"), partOne)
+        assertEquals(Routes.recordRoute("shed-a"), partTwo)
     }
 
     @Test

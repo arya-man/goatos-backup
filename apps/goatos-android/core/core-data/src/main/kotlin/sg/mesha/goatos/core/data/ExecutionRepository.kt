@@ -290,7 +290,7 @@ class DefaultExecutionRepository(
         limit: Int?,
         partitionLabel: String?,
     ): VaccinationExecutionShedDrilldownDto =
-        api.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit, partitionLabel)
+        api.getVaccinationExecutionShed(shedId, asOf, dueBefore, limit, null)
 
     override fun observeShed(
         shedId: String,
@@ -326,9 +326,8 @@ class DefaultExecutionRepository(
         taskId: String?,
         cursor: String?,
         limit: Int?,
-        partitionLabel: String?,
     ): ScanRosterResponseDto =
-        api.getScanRoster(shedId, taskId, cursor, limit, partitionLabel)
+        api.getScanRoster(shedId, taskId, cursor, limit, null)
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -378,12 +377,12 @@ class DefaultExecutionRepository(
             var authoritativeForTask = !taskId.isNullOrBlank()
             while (true) {
                 val page = try {
-                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit, partitionLabel = partitionLabel)
+                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit)
                 } catch (error: Throwable) {
                     if (cursor != null || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
                     fetchTaskId = null
                     authoritativeForTask = false
-                    scanRoster(shedId, taskId = null, cursor = null, limit = limit, partitionLabel = partitionLabel)
+                    scanRoster(shedId, taskId = null, cursor = null, limit = limit)
                 }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 val next = page.nextCursor ?: break
@@ -568,11 +567,8 @@ private fun Throwable.isHttpNotFound(): Boolean =
 internal fun scanRosterRowScopeKey(shedId: String, taskId: String?, partitionLabel: String?): String =
     cacheKey(shedId, executionPartitionKey(partitionLabel), taskId ?: "shed-wide")
 
-internal fun executionPartitionKey(raw: String?): String {
-    val normalized = raw.orEmpty().trim().lowercase()
-        .replace(Regex("^part[\\s]+"), "")
-    return normalized.ifBlank { "whole" }
-}
+@Suppress("UNUSED_PARAMETER")
+internal fun executionPartitionKey(raw: String?): String = "whole"
 
 internal fun canonicalRosterTag(tag: String): String = tag.filter(Char::isLetterOrDigit).lowercase()
 

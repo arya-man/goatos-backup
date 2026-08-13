@@ -1,16 +1,11 @@
 package domain
 
-// AggregateCountsBreakdownRowsByShed rolls partition-grain CountsBreakdownRow rows (the default
-// grain GetCountsBreakdown returns) up to the parent-shed grain: one row per
-// (park_id, shed_id, management_stage, breed, sex), losing PartitionLabel and
-// OperationalLocationDisplay's partition suffix.
+// AggregateCountsBreakdownRowsByShed rolls duplicate compatibility rows up to exact-shed grain:
+// one row per (park_id, shed_id, management_stage, breed, sex), losing any stale PartitionLabel.
 //
-// This is the explicit "parent aggregate" mode called out by the partition-aware breakdown
-// contract: partition rows are the default detail grain, but a caller that wants Castro's total
-// rather than Castro 1 + Castro 2 + Castro 3 as separate lines gets it by re-rolling this
-// function over the SAME rows the partitioned query already returned -- never a second query --
-// so the parent aggregate is definitionally the sum of its partitions and can never drift from
-// them.
+// This is a defensive compatibility helper, not a parent-shed view. After the exact-shed cutover,
+// Castro 1, Castro 2, and Castro 3 are separate sheds. If legacy partition metadata arrives beside
+// an exact shed id, it is discarded so rows cannot render or key as "Castro 2 2".
 func AggregateCountsBreakdownRowsByShed(rows []CountsBreakdownRow) []CountsBreakdownRow {
 	type key struct {
 		parkID, shedID, stage, breed, sex string
@@ -36,8 +31,8 @@ func AggregateCountsBreakdownRowsByShed(rows []CountsBreakdownRow) []CountsBreak
 				ManagementStage: row.ManagementStage,
 				Breed:           row.Breed,
 				Sex:             row.Sex,
-				// Parent aggregate rows carry no partition -- OperationalLocationDisplay
-				// collapses to the bare shed label, matching oploc's non-partitioned rendering.
+				// Exact shed rows carry no appended partition. The shed label is already the
+				// physical location name.
 				OperationalLocationDisplay: row.ShedLabel,
 			}
 			byKey[k] = agg

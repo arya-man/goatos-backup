@@ -671,7 +671,7 @@ class SyncEngine(
             FeedDistributionCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
-                partitionLabel = payload.partitionLabel,
+                partitionLabel = null,
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
@@ -703,12 +703,12 @@ class SyncEngine(
             FeedPackingCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
-                partitionLabel = payload.partitionLabel,
-                // A row queued by the PEN-DAY build carries no session, so it decodes as 0. The route
+                partitionLabel = null,
+                // A row queued by the old day-level build carries no session, so it decodes as 0. The route
                 // rejects 0, which would strand an operator's already-recorded video on a 400 forever.
-                // Map it to session 1 -- the same choice migration 000150 makes for the pen-day rows
+                // Map it to session 1 -- the same choice migration 000150 makes for the day-level rows
                 // already on the server, so the phone and the database agree on what an unlabelled
-                // pen-day video proves: the morning bag.
+                // video proves: the morning bag.
                 //
                 // NOT a silent widening: a 0 can only come from a row written before this build, and
                 // every row this build writes carries a real session. See FeedPackingCompletePayload.

@@ -97,11 +97,11 @@ class DefaultTasksRepository(
 
     // offline-first-guard:ignore: Room-backed — reads shedCompletionSummaryDao.observe(); heuristic misses the dao read through the .map/readCachedJson helper.
     override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> =
-        shedCompletionSummaryDao.observe(shedCompletionSummaryCacheKey(taskId, shedId, partitionLabel))
+        shedCompletionSummaryDao.observe(shedCompletionSummaryCacheKey(taskId, shedId))
             .map { entity ->
                 readCachedJson<ShedCompletionSummaryDto>(
                     json = json,
-                    cacheKey = shedCompletionSummaryCacheKey(taskId, shedId, partitionLabel),
+                    cacheKey = shedCompletionSummaryCacheKey(taskId, shedId),
                     dtoJson = entity?.dtoJson,
                     updatedAt = entity?.updatedAt,
                     now = clock(),
@@ -112,10 +112,10 @@ class DefaultTasksRepository(
 
     // offline-first-guard:ignore: Room-backed — upserts via shedCompletionSummaryDao.upsert() inside runCatching; heuristic misses the upsert through the runCatching block.
     override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> = runCatching {
-        val dto = api.getShedCompletionSummary(taskId, shedId, partitionLabel)
+        val dto = api.getShedCompletionSummary(taskId, shedId, null)
         shedCompletionSummaryDao.upsert(
             ShedCompletionSummaryCacheEntity(
-                cacheKey = shedCompletionSummaryCacheKey(taskId, shedId, partitionLabel),
+                cacheKey = shedCompletionSummaryCacheKey(taskId, shedId),
                 dtoJson = json.encodeToString(dto),
                 updatedAt = clock(),
             ),
@@ -151,11 +151,11 @@ class DefaultTasksRepository(
     }
 }
 
-private fun shedCompletionSummaryCacheKey(taskId: String, shedId: String?, partitionLabel: String?): String =
+private fun shedCompletionSummaryCacheKey(taskId: String, shedId: String?): String =
     listOf(
         taskId,
         shedId?.takeIf { it.isNotBlank() } ?: "task-wide",
-        partitionLabel?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole",
+        "whole",
     ).joinToString("|")
 
 private fun TaskDetailResponseDto.toDomain(): TaskDetail = TaskDetail(

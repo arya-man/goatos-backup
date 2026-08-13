@@ -82,7 +82,7 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
-    fun `execution continuation keeps sibling partitions under one shed`() {
+    fun `execution continuation collapses legacy sibling partitions under one shed`() {
         val first = VaccinationExecutionResponseDto(
             rows = listOf(executionRow("shed-a", "task-a").copy(partitionLabel = "Part 1")),
         )
@@ -92,7 +92,7 @@ class ExecutionRepositoryPaginationTest {
 
         val merged = mergeExecutionRowsPage(first, second)
 
-        assertEquals(listOf("Part 1", "2"), merged.rows.map { it.partitionLabel })
+        assertEquals(listOf("Part 1"), merged.rows.map { it.partitionLabel })
     }
 
     @Test
@@ -120,7 +120,7 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
-    fun `partition scoped roster requests and caches stay separate`() = runTest {
+    fun `legacy partition scoped roster requests and caches use exact shed identity`() = runTest {
         withRepository { repository, backend, requests ->
             backend.response = { cursor ->
                 check(cursor == null)
@@ -133,32 +133,32 @@ class ExecutionRepositoryPaginationTest {
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "2").getOrThrow()
 
-            assertEquals(listOf("Part 1", "2"), requests.map { it.partitionLabel })
+            assertEquals(listOf(null, null), requests.map { it.partitionLabel })
             assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 1").first())
             assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "2").first())
-            assertTrue(repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 3").first() == 0)
+            assertEquals(1, repository.observeScanRosterTotal(SHED_ID, TASK_ID, "Part 3").first())
         }
     }
 
     @Test
-    fun `partition scoped shed drilldowns use separate requests and cache entries`() = runTest {
+    fun `legacy partition scoped shed drilldowns use exact shed request and cache entry`() = runTest {
         withRepository { repository, backend, _ ->
             backend.shedResponse = { partitionLabel ->
                 VaccinationExecutionShedDrilldownDto(
                     shedId = SHED_ID,
                     shedName = "Castro",
                     partitionLabel = partitionLabel,
-                    operationalLocationDisplay = partitionLabel?.let { "Castro - $it" } ?: "Castro",
+                    operationalLocationDisplay = partitionLabel?.let { "Castro $it" } ?: "Castro",
                 )
             }
 
             repository.refreshShed(SHED_ID, partitionLabel = "Part 1").getOrThrow()
             repository.refreshShed(SHED_ID, partitionLabel = "2").getOrThrow()
 
-            assertEquals(listOf("Part 1", "2"), backend.shedPartitions)
-            assertEquals("Part 1", repository.observeShed(SHED_ID, partitionLabel = "Part 1").first().data?.partitionLabel)
-            assertEquals("2", repository.observeShed(SHED_ID, partitionLabel = "2").first().data?.partitionLabel)
-            assertNull(repository.observeShed(SHED_ID, partitionLabel = "Part 3").first().data)
+            assertEquals(listOf(null, null), backend.shedPartitions)
+            assertNull(repository.observeShed(SHED_ID, partitionLabel = "Part 1").first().data?.partitionLabel)
+            assertNull(repository.observeShed(SHED_ID, partitionLabel = "2").first().data?.partitionLabel)
+            assertEquals("Castro", repository.observeShed(SHED_ID, partitionLabel = "Part 3").first().data?.shedName)
         }
     }
 
@@ -310,13 +310,13 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
-    fun `partition roster refresh never prunes a sibling partition capture`() = runTest {
+    fun `roster refresh prunes the exact shed capture scope`() = runTest {
         withRepositoryAndDatabase { repository, backend, _, database ->
             database.scannedGoatDao().insert(
                 ScannedGoatEntity(
                     id = "scan-part-1",
                     taskId = TASK_ID,
-                    partitionKey = "1",
+                    partitionKey = "whole",
                     fieldKey = "__scan_roster__",
                     tag = "tag-1",
                     goatId = "goat-1",
@@ -329,7 +329,7 @@ class ExecutionRepositoryPaginationTest {
                 ScannedGoatEntity(
                     id = "scan-part-2",
                     taskId = TASK_ID,
-                    partitionKey = "2",
+                    partitionKey = "whole",
                     fieldKey = "__scan_roster__",
                     tag = "tag-2",
                     goatId = "goat-2",
@@ -356,10 +356,9 @@ class ExecutionRepositoryPaginationTest {
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE, partitionLabel = "Part 1").getOrThrow()
 
-            assertTrue(database.scannedGoatDao().listForField(TASK_ID, "1", "__scan_roster__").isEmpty())
             assertEquals(
-                listOf("scan-part-2"),
-                database.scannedGoatDao().listForField(TASK_ID, "2", "__scan_roster__").map { it.id },
+                listOf("scan-part-1"),
+                database.scannedGoatDao().listForField(TASK_ID, "whole", "__scan_roster__").map { it.id },
             )
         }
     }

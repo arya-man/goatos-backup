@@ -275,18 +275,12 @@ function RegisterGoatDrawer({
   const [selectedLocationKey, setSelectedLocationKey] = useState<string>("");
   const scopedSheds = sheds.filter((s) => s.parentId === parkId);
   const shedOptions = scopedSheds.length > 0 ? scopedSheds : sheds;
-  const partitionedShedIds = new Set(
-    operationalLocations
-      .filter((location) => location.partitionLabel)
-      .map((location) => location.shedId),
-  );
   const operationalOptions = operationalLocations
-    .filter((location) => !parkId || location.parkId === parkId)
-    .filter((location) => location.partitionLabel || !partitionedShedIds.has(location.shedId));
+    .filter((location) => !parkId || location.parkId === parkId);
   const operationalShedIds = new Set(operationalOptions.map((location) => location.shedId));
   const unpartitionedEmptyShedOptions = operationalLocationsAvailable
     ? shedOptions
-      .filter((shed) => !partitionedShedIds.has(shed.id) && !operationalShedIds.has(shed.id))
+      .filter((shed) => !operationalShedIds.has(shed.id))
       .map((shed) => ({
         key: shed.id,
         shedId: shed.id,
@@ -377,7 +371,6 @@ function RegisterGoatDrawer({
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_shed">{copy(pageContract, "field.shed_required")}</label>
             <input type="hidden" name="shed_id" value={selectedLocation?.shedId ?? ""} />
-            <input type="hidden" name="partition_label" value={selectedLocation?.partitionLabel ?? ""} />
             <select
               id="rg_shed"
               required

@@ -345,22 +345,24 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
     return { ok: false, messageKey: REJECTED };
   }
 
-  // The pen select carries shed id and raw partition label as one JSON value. A delimiter would be
-  // unsafe: a partition label is free text ("Part 3"), so any separator could appear inside it.
   let shedId = "";
   let partitionLabel = "";
   try {
     const parsed: unknown = JSON.parse(penRaw);
-    if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
-    const pen = parsed as { s?: unknown; p?: unknown };
-    if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
-    // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
-    if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
-    shedId = pen.s.trim();
-    partitionLabel = (pen.p ?? "").toString().trim();
+    if (typeof parsed === "string") {
+      shedId = parsed.trim();
+    } else if (typeof parsed === "object" && parsed !== null) {
+      const pen = parsed as { s?: unknown; p?: unknown };
+      if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
+      shedId = pen.s.trim();
+      partitionLabel = "";
+    } else {
+      return { ok: false, messageKey: REJECTED };
+    }
   } catch {
-    return { ok: false, messageKey: REJECTED };
+    shedId = penRaw.trim();
   }
+  if (!shedId) return { ok: false, messageKey: REJECTED };
 
   const headCount = readOptionalCount(formData, "head_count");
   if (headCount !== undefined && Number.isNaN(headCount)) {
@@ -412,9 +414,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   if (!parkId || !shedId || !feedItem || !category) {
     return { ok: false, messageKey: REJECTED };
   }
-  // NOT readRequiredText: an undivided shed authors a blank pen legitimately, so blank must reach
-  // the backend as "the whole-shed row" rather than being rejected as a missing field.
-  const partitionLabel = (formData.get("partition_label") ?? "").toString().trim();
+  const partitionLabel = "";
 
   const absoluteKg = readAuthoredNumber(formData, "absolute_kg");
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
@@ -431,8 +431,6 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
     {
       park_id: parkId,
       shed_id: shedId,
-      // Identifies WHICH PEN is being authored. Without it the write lands on the shed-wide row and
-      // the author's number never reaches the pen they edited.
       partition_label: partitionLabel,
       feed_item: feedItem,
       // Sent verbatim. A negative or over-precise value is the backend's to reject.
@@ -458,24 +456,16 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
  * Move ONE PEN onto or off the experiment workflow.
  *
  * This is the switch the maintainer asked to be explicit: it is not a filter or a display toggle. An
- * active pen is fed the absolute kg authored for it; a retired one is fed from the ration grid
+ * active shed is fed the absolute kg authored for it; a retired one is fed from the ration grid
  * again. The status is read as a literal and validated against the two legal values rather than
  * being inferred from a checkbox — an unparsed value must never fall through to a default, because
- * both defaults would change what a pen's animals eat.
- *
- * PEN-SCOPED since 2026-08-09. The write used to be shed-wide while this screen was already
- * pen-grouped, so the button captioned "Return Godel 1 - Part 3" retired all ten Godel 1 pens. The
- * partition is sent verbatim and NOT defaulted when absent: a blank label is a real value meaning
- * "undivided shed", so it cannot be distinguished from a missing one here — the backend validates
- * it against the shed's catalog and rejects a blank on a subdivided shed rather than guessing.
+ * both defaults would change what the shed's animals eat.
  */
 export async function setExperimentShedStatus(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
   const status = readRequiredText(formData, "status");
-  // Optional by shape, meaningful when blank: an undivided shed legitimately has no pen.
-  const partitionRaw = formData.get("partition_label");
-  const partitionLabel = typeof partitionRaw === "string" ? partitionRaw.trim() : "";
+  const partitionLabel = "";
   if (!parkId || !shedId || (status !== "active" && status !== "retired")) {
     return { ok: false, messageKey: REJECTED };
   }

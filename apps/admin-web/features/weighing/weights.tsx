@@ -299,7 +299,7 @@ export async function WeighingWeightsPage({
     .slice()
     .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
     .map((row) => ({
-      key: `${row.location_id}|${row.partition_label ?? ""}`,
+      key: row.location_id,
       label: row.operational_location_display || row.shed_display_name,
       value: Number(row.average_weight_kg.toFixed(1)),
     }));
@@ -342,20 +342,16 @@ export async function WeighingWeightsPage({
     ...(growth.ok ? growth.data.shed_leaderboard : [])
       .filter((shed) => shed.adg_pair_count > 0)
       .map((shed) => ({
-        // Keyed by location AND partition, because that is the grain the leaderboard is
-        // grouped at (`GROUP BY location_id, partition_label` in growth.go). A partitioned
-        // shed returns one row PER PEN under one shared location_id -- Mandela 1 returns ten
-        // -- so keying on location_id alone gave nine React children the same key, which is
-        // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
-        // the shed-weights chart above, both of which already key on the pair.
-        key: `${shed.location_id}|${shed.partition_label ?? ""}`,
+        // Exact shed id is the location grain. partition_label is legacy metadata and must not
+        // create duplicate chart identities like "Castro 2 2".
+        key: shed.location_id,
         label: shed.display_name,
         value: Math.round(shed.median_adg_g_per_day),
       })),
     ...visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
-        key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
+        key: `${row.location_id}-shed`,
         // Park-qualified, and carrying the span it was measured over. Two parks both
         // hold a "Castro 2", so an unqualified shed name puts two different sheds on
         // the chart under one name. The span is on the label because a figure drawn
@@ -660,7 +656,7 @@ export async function WeighingWeightsPage({
                   {slice.map((row) => {
                     const mode = modeTag(row, pageContract);
                     return (
-                      <tr key={`${row.location_id}|${row.partition_label ?? ""}`}>
+                      <tr key={row.location_id}>
                         <td>{row.park_name}</td>
                         <td>
                           <b>{row.operational_location_display || row.shed_display_name}</b>

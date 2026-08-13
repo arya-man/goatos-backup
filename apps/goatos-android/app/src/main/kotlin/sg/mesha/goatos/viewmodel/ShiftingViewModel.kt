@@ -378,7 +378,7 @@ class ShiftingViewModel @Inject constructor(
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
-        destinationPartitionLabel = destinationPartitionLabel,
+        destinationPartitionLabel = null,
         priority = priority,
         category = category,
         // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
@@ -516,7 +516,7 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     shedId = locationPath.shedId.orEmpty(),
     parkName = locationPath.parkName.orEmpty(),
     shedName = locationPath.shedName.orEmpty(),
-    partitionLabel = locationPath.partitionLabel,
+    partitionLabel = null,
     locationLabel = locationPath.operationalLocationDisplay,
     // Carried for the death target (Birth/Death screen): the write sends this row_version verbatim
     // and the confirmation card shows sex + status. Shifting ignores all three.

@@ -69,7 +69,7 @@ export async function VaccinationWorkflowDrilldownPage({
 	            <b>{copy(pageContract, "crumb")}</b>
 	          </div>
 	          <h1>{title}</h1>
-	          <div className="sub">{drive} · {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · {row.animal_stage} — {pageContract.subtitle}</div>
+	          <div className="sub">{drive} · {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name })} · {row.animal_stage} — {pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <Link href={backHref} className="btn">

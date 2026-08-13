@@ -83,11 +83,11 @@ data class FeedPackingQuery(
      * The cache namespace for this scope.
      *
      * [PACKING_CACHE_SHAPE] is part of the key so rows cached by an EARLIER app version can never be
-     * read back into the current DTO. This has now mattered twice in opposite directions: the pen-day
+     * read back into the current DTO. This has now mattered twice in opposite directions: the day-level
      * build stored `sessions` where this one stores `items`, and vice versa. Either way the stale JSON
      * deserializes WITHOUT ERROR into a card with no feed lines at all, because
      * kotlinx-serialization fills the missing field with its default empty list -- a packer would
-     * open the app to a pen with nothing to pack. Bumping the namespace orphans those rows instead,
+     * open the app to a shed-session with nothing to pack. Bumping the namespace orphans those rows instead,
      * and the existing newest-queries eviction reclaims the space.
      */
     fun roomKey(): String =
@@ -99,7 +99,7 @@ data class FeedPackingQuery(
  *
  * v3 = back to one row per shed-SESSION with a flat `items` list (maintainer decision 2026-08-11).
  * Never REUSE an old value when reverting to an old shape: `session-v1` rows may still be sitting in
- * a phone's cache from before the pen-day build, and they are not guaranteed to match today's DTO in
+ * a phone's cache from before the day-level build, and they are not guaranteed to match today's DTO in
  * every other field.
  */
 private const val PACKING_CACHE_SHAPE = "session-v3"

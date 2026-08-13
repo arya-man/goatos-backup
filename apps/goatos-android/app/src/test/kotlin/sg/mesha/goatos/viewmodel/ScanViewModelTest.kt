@@ -301,10 +301,10 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Gandhi 1 - Part 3 Scan", vm.state.value.cohortLabel)
-        assertEquals("Part 3", repo.lastRefreshPartitionLabel)
+        assertNull(repo.lastRefreshPartitionLabel)
         reader.emit("TAG-100")
         advanceUntilIdle()
-        assertEquals("3", scans.rowsForTask("task-1").single().partitionKey)
+        assertEquals("whole", scans.rowsForTask("task-1").single().partitionKey)
     }
 
     @Test

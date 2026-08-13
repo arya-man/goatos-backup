@@ -287,19 +287,18 @@ the session-scoped `(tenant, park, business_date, cap_per_operator)` availabilit
 cache. A direct repo/port call from any one of those helpers is a recurrence of
 the N+1 fan-out bug, even when the seed fixture has only three operators.
 
-Do not model raw partition-bearing shed names as separate canonical buildings.
-`Gandhi 1/2/3` are partitions under `Gandhi`; `Godel 1 - Part 3` is partition
-`Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
-rows multiplies work, breaks operator ownership, and makes UI grouping lie.
+Model farm-visible shed names as the canonical physical sheds. `Gandhi 1`,
+`Gandhi 2`, and `Godel 1 - Part 3` are shed names, not display strings composed
+from a parent shed plus a partition label. Collapsing them into a parent row and
+re-appending `partition_label` multiplies work, breaks operator ownership, and
+makes UI grouping lie.
 
-**STORAGE IS ONLY ONE HALF — PRODUCT/DISPLAY IS THE OTHER.** Storage collapses
-`Castro 1`/`Castro 2` into shed `Castro` + partitions `1`/`2`. PRODUCT does the
-opposite: an animal's ground location is `OperationalLocation = park +
-physical_shed + optional partition_label`, and every user-facing surface (counts,
-herd register, shifting destinations, vaccination detail, Action Center, CEO
-reporting) must answer with the partition when one exists. In the maintainer's
+**STORAGE AND PRODUCT MUST AGREE.** An animal's ground location is
+`OperationalLocation = park + exact_shed`, and every user-facing surface
+(counts, herd register, shifting destinations, vaccination detail, Action
+Center, CEO reporting) must answer with that exact shed. In the maintainer's
 words: **"Castro 1 and Castro 2 is the only correct way. Castro is not
-correct."** Both halves are true; they describe different layers. Full display
+correct."** Full display
 rule and examples: `docs/decisions/operational-location-display-contract.md`.
 
 Derive a person's role from their AUTHORITATIVE current position, not a frozen

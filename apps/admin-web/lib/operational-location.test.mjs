@@ -43,9 +43,9 @@ test("operationalLocationLabel: exact shed names never re-append stale compatibi
 });
 
 test("operationalLocationLabel: sourceShedName is already partition-bearing, never re-suffixed", () => {
-  // REGRESSION: this used to assert "Castro 1 1". sourceShedName is the raw name the row was
+  // REGRESSION: this used to assert "duplicate Castro suffix". sourceShedName is the raw name the row was
   // normalized FROM and already carries the partition, so appending partitionLabel re-suffixed it
-  // and reproduced the "Godel 1 1" defect the convention bans. It is a display value, not a prefix.
+  // and reproduced the "duplicate Godel suffix" defect the convention bans. It is a display value, not a prefix.
   assert.equal(
     operationalLocationLabel({ shedName: null, sourceShedName: "Castro 1", partitionLabel: "1" }),
     "Castro 1",

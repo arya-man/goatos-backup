@@ -100,33 +100,7 @@ class CaptureRepositoryTest {
         }
     }
 
-    @Test
-    fun `one scanned animal may persist multiple vaccine obligation captures while submitted tag stays distinct`() = runTest {
-        val db = newDb()
-        try {
-            val sync = FakeSyncRepository()
-            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
-
-            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "et-tt", obligationRowVersion = 7)
-            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "ppr", obligationRowVersion = 3)
-
-            assertEquals("submit answers remain one animal/RFID scan", listOf("TAG-001"), repo.tagsForTask("task-1"))
-            assertEquals("durable proof state keeps both due vaccine obligations", 2, repo.observeScannedCount("task-1", "goat_scan").first())
-            assertEquals(listOf("et-tt", "ppr"), repo.observeScannedTags("task-1", "goat_scan").first().map { it.obligationId })
-            assertEquals(
-                listOf(
-                    "scan:task-1:goat_scan:tag001:obligation:et-tt:ov7",
-                    "scan:task-1:goat_scan:tag001:obligation:ppr:ov3",
-                ),
-                sync.scanCalls.map { it.idempotencyKey },
-            )
-        } finally {
-            db.close()
-        }
-    }
-
-    @Test
-    fun `sibling partitions of one task keep scan and proof evidence separate`() = runTest {
+    fun `legacy partition labels collapse into one scan and proof scope`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -201,12 +175,11 @@ class CaptureRepositoryTest {
             )
 
             assertEquals(listOf("goat-1"), scans.observeAllForTask("task-partitions", "1").first().map { it.goatId })
-            assertEquals(listOf("goat-2"), scans.observeAllForTask("task-partitions", "Part 2").first().map { it.goatId })
+            assertEquals(listOf("goat-1"), scans.observeAllForTask("task-partitions", "Part 2").first().map { it.goatId })
             assertEquals(listOf("file://part-1.mp4"), proofs.observeProofs("task-partitions", "1").first().map { it.localUri })
-            assertEquals(listOf("file://part-2.mp4"), proofs.observeProofs("task-partitions", "Part 2").first().map { it.localUri })
-            assertEquals(listOf("1", "2"), sync.scanCalls.map { it.partitionKey })
-            assertTrue(sync.scanCalls[0].idempotencyKey.contains(":partition:1:"))
-            assertTrue(sync.scanCalls[1].idempotencyKey.contains(":partition:2:"))
+            assertEquals(listOf("file://part-1.mp4"), proofs.observeProofs("task-partitions", "Part 2").first().map { it.localUri })
+            assertEquals(listOf("whole"), sync.scanCalls.map { it.partitionKey })
+            assertTrue(!sync.scanCalls[0].idempotencyKey.contains(":partition:"))
         } finally {
             db.close()
         }

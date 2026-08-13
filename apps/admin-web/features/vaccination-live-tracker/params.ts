@@ -13,7 +13,6 @@ export type LiveTrackerParams = {
   scope: Scope;
   parkId?: string;
   shedId?: string;
-  partitionLabel?: string;
   operatorId?: string;
   vaccineCode?: string;
   status?: VaccinationLiveTrackerStatus;
@@ -57,7 +56,6 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
   // there is one park truth on the page rather than a second inline scope.
   const parkId = scope.parkId;
   const shedId = uuidOrUndefined(one(sp, "lt_shed"));
-  const partitionLabel = boundedText(one(sp, "lt_partition"), 64);
   const operatorId = uuidOrUndefined(one(sp, "lt_operator"));
   const vaccineCode = boundedText(one(sp, "lt_vaccine"), 64);
   const status = STATUS_VALUES.find((value) => value === one(sp, "lt_status"));
@@ -72,7 +70,6 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
     scope,
     parkId,
     shedId,
-    partitionLabel,
     operatorId,
     vaccineCode,
     status,
@@ -80,8 +77,8 @@ export function parseLiveTrackerParams(searchParams: RouteSearchParams | undefin
     activityLimit,
     activityBefore,
     activityBeforeId,
-    hasFilter: Boolean(shedId || partitionLabel || operatorId || vaccineCode || status),
-    hasNarrowing: Boolean(parkId || shedId || partitionLabel || operatorId || vaccineCode || status),
+    hasFilter: Boolean(shedId || operatorId || vaccineCode || status),
+    hasNarrowing: Boolean(parkId || shedId || operatorId || vaccineCode || status),
   };
 }
 
@@ -93,7 +90,6 @@ export function liveTrackerHref(params: LiveTrackerParams, overrides: Record<str
   const scopeOverride = "park" in overrides ? { park: park ?? null, mode: (park ? "park" : "company") as "park" | "company" } : {};
   return scopeHref(LIVE_TRACKER_PATH, params.scope, scopeOverride, {
     lt_shed: params.shedId,
-    lt_partition: params.partitionLabel,
     lt_operator: params.operatorId,
     lt_vaccine: params.vaccineCode,
     lt_status: params.status,

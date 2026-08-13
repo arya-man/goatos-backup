@@ -16,30 +16,19 @@ import (
 // adopted from its destination shed. The shifting path writes "shifting_raise_request".
 const reclassifyStageSource = "counts_shed_reclassification"
 
-// scopeSQL selects the live animals of ONE pen.
+// scopeSQL selects the live animals of ONE exact physical shed.
 //
 // Two things here are load-bearing and must not be "simplified":
-//
-//  1. The partition predicate uses the canonical SQL normalizer, byte-for-byte identical to
-//     oploc.NormalizePartition, because goat_shed_partitions stores the normalized key ('3') while
-//     catalogs and callers carry the display label ('Part 3'). Comparing raw labels silently
-//     matches nothing and would reclassify zero animals while reporting success.
-//  2. The LEFT JOIN with COALESCE(..., 'whole') is what makes an undivided shed work: those animals
-//     have no goat_shed_partitions row at all, and must match a 'whole' request.
 //
 // "Live" uses the write-path definition (not merged, not exited) AND lifecycle_status, so a
 // reclassification can never touch an animal the herd register no longer counts.
 const reclassifyScopeSQL = `
     FROM goats g
-    LEFT JOIN goat_shed_partitions gsp
-      ON gsp.tenant_id = g.tenant_id
-     AND gsp.goat_id = g.goat_id
     WHERE g.tenant_id = $1::uuid
       AND g.shed_id = $2::uuid
       AND g.lifecycle_status = 'alive'
       AND g.merged_into_goat_id IS NULL
-      AND g.exited_at IS NULL
-      AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = $3::text`
+      AND g.exited_at IS NULL`
 
 // PreviewReclassifyShedStage answers "what would this button do" without writing anything.
 //
@@ -61,8 +50,6 @@ func (r *Repository) PreviewReclassifyShedStage(ctx context.Context, cmd ports.R
 	if err != nil {
 		return nil, err
 	}
-
-	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
 
 	// Whole-scope aggregate over the pen, not a page of rows: one grouped read answers total,
 	// changing, unchanged, and the composition breakdown together.
@@ -89,7 +76,7 @@ SELECT COALESCE(g.management_stage, '') AS stage,
 `+reclassifyScopeSQL+`
     GROUP BY 1, 2
     ORDER BY animals DESC, stage ASC`,
-		cmd.TenantID, cmd.ShedID, partitionKey)
+		cmd.TenantID, cmd.ShedID)
 	if err != nil {
 		return nil, fmt.Errorf("identity: preview reclassify shed stage: %w", err)
 	}
@@ -98,7 +85,7 @@ SELECT COALESCE(g.management_stage, '') AS stage,
 	preview := &ports.ReclassifyShedStagePreview{
 		ShedID:                     cmd.ShedID,
 		ShedName:                   location.ShedName,
-		PartitionLabel:             location.PartitionLabel,
+		PartitionLabel:             "",
 		OperationalLocationDisplay: location.Display(),
 		ManagementStage:            resolution.stage,
 		AgeBand:                    resolution.ageBand,
@@ -162,9 +149,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	if err != nil {
 		return nil, err
 	}
-	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
-
-	totalLive, err := r.countReclassifyScope(ctx, tx, cmd, partitionKey)
+	totalLive, err := r.countReclassifyScope(ctx, tx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +160,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 		return nil, ports.ErrReclassifyScopeTooLarge
 	}
 
-	goatIDs, eventIDs, err := r.insertReclassifyIdentityEvents(ctx, tx, cmd, resolution, partitionKey)
+	goatIDs, eventIDs, err := r.insertReclassifyIdentityEvents(ctx, tx, cmd, resolution)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +174,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	result := &ports.ReclassifyShedStageResult{
 		ShedID:                     cmd.ShedID,
 		ShedName:                   location.ShedName,
-		PartitionLabel:             location.PartitionLabel,
+		PartitionLabel:             "",
 		OperationalLocationDisplay: location.Display(),
 		ManagementStage:            resolution.stage,
 		AgeBand:                    resolution.ageBand,
@@ -232,12 +217,8 @@ func (r *Repository) resolveReclassifyStage(ctx context.Context, tx pgx.Tx, cmd 
 	return resolution, nil
 }
 
-// resolveReclassifyLocation resolves the pen's display identity and fails closed when the shed id
-// is not an active shed, or when the requested partition is not in that shed's active catalog.
-//
-// Validating against shed_partitions (the CATALOG) rather than against where animals happen to be
-// is deliberate: this is a WRITE picker. The catalog answers "which pens exist", which is the
-// question being asked, and it keeps an empty-but-real pen addressable.
+// resolveReclassifyLocation resolves the exact shed's display identity and fails closed when the
+// shed id is not an active shed.
 func (r *Repository) resolveReclassifyLocation(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand) (oploc.OperationalLocation, error) {
 	var location oploc.OperationalLocation
 	err := tx.QueryRow(ctx, `
@@ -255,31 +236,12 @@ WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid
 	}
 	location.ShedID = cmd.ShedID
 
-	raw := stringValue(cmd.PartitionLabel)
-	if !oploc.IsPartitioned(raw) {
-		return location, nil
-	}
-	// The catalog stores the DISPLAY label and its normalized key side by side. Match on the key
-	// (so 'Part 3' and '3' both resolve) but return the label, because normalized_label is a
-	// matching key and must never reach a screen.
-	var label string
-	err = tx.QueryRow(ctx, `
-SELECT partition_label FROM shed_partitions
-WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND normalized_label = $3::text AND status = 'active'`,
-		cmd.TenantID, cmd.ShedID, oploc.NormalizePartition(raw)).Scan(&label)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return oploc.OperationalLocation{}, ports.ErrInvalidReference
-	}
-	if err != nil {
-		return oploc.OperationalLocation{}, fmt.Errorf("identity: reclassify shed stage: resolve partition: %w", err)
-	}
-	location.PartitionLabel = label
 	return location, nil
 }
 
-func (r *Repository) countReclassifyScope(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand, partitionKey string) (int, error) {
+func (r *Repository) countReclassifyScope(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand) (int, error) {
 	var total int
-	err := tx.QueryRow(ctx, `SELECT count(*)`+reclassifyScopeSQL, cmd.TenantID, cmd.ShedID, partitionKey).Scan(&total)
+	err := tx.QueryRow(ctx, `SELECT count(*)`+reclassifyScopeSQL, cmd.TenantID, cmd.ShedID).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("identity: reclassify shed stage: count scope: %w", err)
 	}
@@ -297,7 +259,7 @@ func (r *Repository) countReclassifyScope(ctx context.Context, tx pgx.Tx, cmd po
 // reclassifications of overlapping pens acquire locks in a deterministic order and cannot deadlock.
 func (r *Repository) insertReclassifyIdentityEvents(
 	ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand,
-	resolution destinationStageResolution, partitionKey string,
+	resolution destinationStageResolution,
 ) ([]string, []string, error) {
 	rows, err := tx.Query(ctx, `
 WITH targets AS (
@@ -333,7 +295,7 @@ FROM targets t
 RETURNING goat_id::text, identity_event_id::text`,
 		cmd.TenantID,              // $1
 		cmd.ShedID,                // $2
-		partitionKey,              // $3
+		"",                        // $3 legacy partition placeholder
 		resolution.stage,          // $4
 		goatStageChangedEventType, // $5
 		cmd.OccurredAt,            // $6

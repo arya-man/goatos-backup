@@ -172,7 +172,6 @@ function adherenceLocationDetail(row: AdherenceRow): string {
     row.operational_location_display ||
     operationalLocationLabel({
       shedName: row.shed_name,
-      partitionLabel: row.partition_label,
       sourceShedName: row.source_shed_name,
     })
   );

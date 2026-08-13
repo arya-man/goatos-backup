@@ -13,26 +13,20 @@ import (
 // to touch is `locations` itself (already flattened into weighing_campaign_sheds.display_name /
 // PlannerShed.Name at bucket-creation time).
 //
-// A partition-bearing shed's catalog name already carries the operational suffix in EXACTLY the
-// two conventions oploc documents ("Castro 2", "Godel 1 - Part 3"), because that name is sourced
-// from the same `locations` catalog the vaccination/counts side reads. Weighing keeps that exact
-// name as the operator identity; it only uses a stored legacy partition_label when reading rows
-// written before the exact-shed cutover.
-// splitShedPartitionName delegates to oploc.SplitShedPartitionName, the single Go home of the
-// catalog naming rule. It was a private regex here until 2026-08-07; the feed seeder needed the
-// same parse, and two copies of this convention is exactly how one caller comes to believe
-// "Godel 1 - Part 3" is shed "Godel" while the other reads shed "Godel 1".
+// A partition-bearing shed's catalog name is the operational shed name itself: "Castro 2",
+// "Godel 1 - Part 3", "Mandela 2 Part 1". Weighing keeps that exact name as the operator
+// identity; it only tolerates a stored legacy partition_label when reading rows written before the
+// exact-shed cutover.
 //
-// Weighing's isolation is untouched: oploc is a platform primitive over NAMES, and this still
+// Weighing's isolation is untouched: oploc is a platform primitive over names, and this still
 // reads only the already-flattened locations catalog name -- no goats, no goat_shed_partitions.
 func splitShedPartitionName(name string) (parentShedName, partitionLabel string) {
 	return oploc.SplitShedPartitionName(name)
 }
 
 // applyShedPartitionDisplay stamps ParentShedName/PartitionLabel/OperationalLocationDisplay on a
-// CampaignShed from its already-loaded DisplayName. OperationalLocationDisplay is composed
-// through oploc.OperationalLocation.Display() so it follows the exact same rendering rule as
-// every other module and can never show the "whole" sentinel.
+// CampaignShed from its already-loaded DisplayName. DisplayName is already the exact shed name:
+// "Castro 2" and "Godel 1 - Part 3" are not rebuilt from a parent shed plus partition label.
 func applyShedPartitionDisplay(shed *domain.CampaignShed) {
 	parent := strings.TrimSpace(shed.DisplayName)
 	shed.ParentShedName = parent
@@ -45,35 +39,9 @@ func applyShedPartitionDisplay(shed *domain.CampaignShed) {
 
 func applyShedPartitionDisplayWithStoredLabel(shed *domain.CampaignShed, storedPartitionLabel string) {
 	applyShedPartitionDisplay(shed)
-	partition := strings.TrimSpace(storedPartitionLabel)
-	if partition == "" {
-		return
-	}
-	parent := parentShedNameFromStoredPartitionDisplay(shed.DisplayName, shed.ParentShedName, partition)
-	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
-	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedID:         shed.LocationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
-	}.Display()
-}
-
-func parentShedNameFromStoredPartitionDisplay(displayName, parsedParent, partition string) string {
-	display := strings.TrimSpace(displayName)
-	partition = strings.TrimSpace(partition)
-	for _, suffix := range []string{" - " + partition, " " + partition} {
-		if partition != "" && strings.HasSuffix(display, suffix) {
-			parent := strings.TrimSpace(strings.TrimSuffix(display, suffix))
-			if parent != "" {
-				return parent
-			}
-		}
-	}
-	if strings.TrimSpace(parsedParent) != "" {
-		return strings.TrimSpace(parsedParent)
-	}
-	return display
+	// Stored partition_label is compatibility/history metadata. Keeping it blank in the read model
+	// prevents callers from rendering "Castro 2 2" or stripping "Godel 1 - Part 3" back to "Godel 1".
+	_ = storedPartitionLabel
 }
 
 // applyPlannerShedPartitionDisplay is the PlannerShed twin of applyShedPartitionDisplay.
@@ -92,10 +60,9 @@ func applyPlannerShedOperationalDisplay(shed *domain.PlannerShed) {
 	if parent == "" {
 		parent = strings.TrimSpace(shed.Name)
 	}
-	partition := strings.TrimSpace(shed.PartitionLabel)
-	display := operationalLocationDisplay(shed.LocationID, parent, partition)
+	display := operationalLocationDisplay(shed.LocationID, parent, "")
 	shed.ParentShedName = parent
-	shed.PartitionLabel = partition
+	shed.PartitionLabel = ""
 	shed.Name = display
 	shed.OperationalLocationDisplay = display
 }
@@ -116,11 +83,8 @@ func matchesOperationalLocationDisplay(candidate, shedID, shedName, partitionLab
 	if strings.EqualFold(candidate, operationalLocationDisplay(shedID, shedName, partitionLabel)) {
 		return true
 	}
-	partition := strings.TrimSpace(partitionLabel)
-	if partition == "" {
-		return false
-	}
-	return strings.EqualFold(candidate, strings.Join([]string{strings.TrimSpace(shedName), partition}, " "))
+	_ = partitionLabel
+	return false
 }
 
 // applyLeadershipShedPartitionDisplay is the LeadershipShedVideos twin of
@@ -129,15 +93,9 @@ func matchesOperationalLocationDisplay(candidate, shedID, shedName, partitionLab
 // backend never emits is a contract the client cannot rely on, and that exact shape
 // (schema declares it, Go never populates it) has shipped on this branch more than once.
 func applyLeadershipShedPartitionDisplay(shed *domain.LeadershipShedVideos) {
-	parent, parsedPartition := splitShedPartitionName(shed.ShedName)
-	partition := strings.TrimSpace(shed.PartitionLabel)
-	if partition == "" {
-		partition = parsedPartition
-	}
-	parent = parentShedNameFromStoredPartitionDisplay(shed.ShedName, parent, partition)
-	shed.PartitionLabel = partition
+	exact := strings.TrimSpace(shed.ShedName)
+	shed.PartitionLabel = ""
 	shed.OperationalLocationDisplay = oploc.OperationalLocation{
-		ShedName:       parent,
-		PartitionLabel: partition,
+		ShedName: exact,
 	}.Display()
 }

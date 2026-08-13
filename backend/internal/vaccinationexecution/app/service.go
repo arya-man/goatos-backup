@@ -394,20 +394,22 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		workState = computedWorkState
 	}
 	targetCount, openCount, doneCount := executionDisplayCounts(p)
-	physicalShed := strings.TrimSpace(p.PhysicalShed)
+	physicalShed := strings.TrimSpace(p.ShedName)
+	if physicalShed == "" {
+		physicalShed = strings.TrimSpace(p.PhysicalShed)
+	}
 	partition := strings.TrimSpace(p.Partition)
-	if physicalShed == "" || partition == "" {
-		physicalShed, partition = domain.NormalizeDriveShed(p.ShedName)
+	if physicalShed == "" {
+		physicalShed, partition = domain.NormalizeDriveShed(p.PhysicalShed)
 	}
 	if partition == "" {
 		partition = "whole"
 	}
 	location := oploc.OperationalLocation{
-		ParkID:         p.ParkID,
-		ParkName:       p.ParkName,
-		ShedID:         p.ShedID,
-		ShedName:       physicalShed,
-		PartitionLabel: partition,
+		ParkID:   p.ParkID,
+		ParkName: p.ParkName,
+		ShedID:   p.ShedID,
+		ShedName: physicalShed,
 	}
 	var partitionLabel *string
 	if location.IsPartitioned() {

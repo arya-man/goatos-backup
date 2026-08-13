@@ -129,15 +129,14 @@ The five physical tags are `901007000504418`, `901007000504332`,
 
 This intentionally covers both shed shapes:
 
-- a normal shed with no split partition, represented by `partition_label =
-  'whole'`
-- a partitioned shed, represented by `goat_shed_partitions.partition_label` and
-  `vaccination_drive_assignments.partition_label`
+- a normal shed with no legacy split evidence
+- an exact shed whose farm-visible name already includes the part text, with
+  legacy `partition_label` fields retained only for compatibility/history
 
 Location names must stay clean: `Godel 1`, `Yashoda 1`, `Mandela 2`,
-`Castro 1`, and so on. Do not concatenate park + shed + partition into
-`locations.name`. Park chips/filters should come from the parent park, and
-partition text should come from the assignment/partition fields.
+`Castro 1`, and so on. Do not concatenate parent names with compatibility labels anywhere.
+Park chips/filters should come from the parent park; the shed label is the exact
+`locations.name`.
 
 Weighing is free-flow:
 

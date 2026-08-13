@@ -1255,7 +1255,6 @@ derived AS (
         ':rule:' || stateful.rule_id::text ||
         ':protocol_version:' || stateful.protocol_version_id::text ||
         ':shed:' || stateful.shed_uuid::text ||
-        ':partition:' || COALESCE(NULLIF(stateful.partition_label, ''), 'whole') ||
         ':date:' || (stateful.execution_due_at AT TIME ZONE 'Asia/Kolkata')::date::text
       ELSE 'obligation:' || stateful.obligation_id
     END AS row_id,

@@ -222,15 +222,15 @@ latest_bucket AS (
   -- WITH DATA wins. last_weighed NULLS LAST is what makes that true — ordering by
   -- period_start_date alone would let an empty newer bucket hide a weighed older
   -- one and report the shed as never weighed.
-  SELECT DISTINCT ON (park_id, location_id, COALESCE(partition_label, '')) *
+  SELECT DISTINCT ON (park_id, location_id) *
   FROM per_bucket
-  ORDER BY park_id, location_id, COALESCE(partition_label, ''),
+  ORDER BY park_id, location_id,
            (last_weighed IS NULL), last_weighed DESC,
            period_start_date DESC, created_at DESC, campaign_shed_id DESC
 )
 SELECT b.location_id, b.park_id,
        COALESCE(NULLIF(pk.location_code, ''), pk.name, ''), COALESCE(sh.name, ''),
-       COALESCE(b.partition_label, ''),
+       ''::text,
        b.weighing_category, b.bucket_status,
        b.animals, b.avg_kg, b.total_kg, b.last_weighed,
        b.ge_lower, b.ge_upper, b.threshold_basis,

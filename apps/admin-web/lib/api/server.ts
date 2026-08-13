@@ -1796,7 +1796,7 @@ export async function postponeVaccinationDriveDate(body: {
 
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
-  params: { asOf?: string; partitionLabel?: string } = {},
+  params: { asOf?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionShedDrilldown>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1805,7 +1805,7 @@ export async function getVaccinationExecutionShedDrilldown(
   return request(() =>
     client.request<VaccinationExecutionShedDrilldown>(path, {
       cache: "no-store",
-      query: compactQuery({ as_of: params.asOf, partition_label: params.partitionLabel }),
+      query: compactQuery({ as_of: params.asOf }),
     }),
   );
 }
@@ -1939,11 +1939,10 @@ export async function getVaccinationCommandBoard(params: {
 // each extra endpoint would multiply the refresh cost.
 export async function getVaccinationLiveTracker(
   params: {
-    businessDate?: string;
-    parkId?: string;
-    shedId?: string;
-    partitionLabel?: string;
-    operatorId?: string;
+	    businessDate?: string;
+	    parkId?: string;
+	    shedId?: string;
+	    operatorId?: string;
     vaccineCode?: string;
     status?: VaccinationLiveTrackerStatus;
     activityLimit?: number;
@@ -1962,11 +1961,10 @@ export async function getVaccinationLiveTracker(
         cache: "no-store",
         signal,
         query: compactQuery({
-          business_date: params.businessDate,
-          park_id: params.parkId,
-          shed_id: params.shedId,
-          partition_label: params.partitionLabel,
-          operator_id: params.operatorId,
+	          business_date: params.businessDate,
+	          park_id: params.parkId,
+	          shed_id: params.shedId,
+	          operator_id: params.operatorId,
           vaccine_code: params.vaccineCode,
           status: params.status,
           activity_limit: params.activityLimit,

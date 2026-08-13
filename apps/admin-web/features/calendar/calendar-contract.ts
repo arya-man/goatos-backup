@@ -342,12 +342,6 @@ export function driveExecutionPath(shedId: string): string {
   return `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
 }
 
-export function eventPartitionLabel(event: CalendarEvent): string | null {
-  if (event.partition_label) return event.partition_label;
-  const labels = event.shed_partition_labels?.filter((label) => label && label.trim() !== "") ?? [];
-  return labels.length === 1 ? labels[0] : null;
-}
-
 export function hasWorkflowLink(event: CalendarEvent): boolean {
   return linkPresent(event.links ?? {}, "workflow");
 }

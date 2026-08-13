@@ -617,10 +617,10 @@ class VerifyQueueViewModel @Inject constructor(
         // Every item in a group shares one shed/park/operator/category — the shed submission's
         // own metadata, not any one animal's.
         // Prefer the backend-COMPOSED location. shedLabel is the bare shed, so a verifier could
-        // not tell "Godel 1 - Part 3" from "Godel 1 - Part 1" -- the wire carried the partition
-        // but this screen kept reading the old field.
+        // Fall back to the exact shed label only; partitionLabel is legacy metadata and is never
+        // appended client-side.
 		val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
-			?: operationalLocationLabel(representative.shedLabel, representative.partitionLabel))?.takeIf { it.isNotBlank() }
+			?: operationalLocationLabel(representative.shedLabel, null))?.takeIf { it.isNotBlank() }
         val title = listOfNotNull(shedLabel, "$size goats · $pendingCount to review")
             .joinToString(" · ")
             .ifBlank { humanizeCategory(representative.category) }
@@ -643,7 +643,7 @@ class VerifyQueueViewModel @Inject constructor(
             subtitle = subtitle,
             scopeType = VerifyScopeType.INDIVIDUAL,
             shedId = representative.shedId,
-            partitionLabel = representative.partitionLabel,
+            partitionLabel = null,
             shedLabel = shedLabel.orEmpty(),
             animalLabel = "",
             weightLabel = "",
@@ -665,8 +665,7 @@ class VerifyQueueViewModel @Inject constructor(
         // mislabels as "Vaccination proof".
         // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
         // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
-        // Prefer the backend-COMPOSED location. operationalLocationDisplay carries partition labels
-        // so a verifier can tell "Godel 1 - Part 3" from "Godel 1 - Part 1".
+        // Prefer the backend-composed exact shed location.
         val displayShedLabel = (operationalLocationDisplay?.takeIf { it.isNotBlank() }
             ?: shedLabel)?.takeIf { it.isNotBlank() }
         val title = listOfNotNull(
@@ -686,7 +685,7 @@ class VerifyQueueViewModel @Inject constructor(
             subtitle = subtitle,
             scopeType = scopeType,
             shedId = shedId,
-            partitionLabel = partitionLabel,
+            partitionLabel = null,
             shedLabel = displayShedLabel ?: subjectLabel.orEmpty(),
             animalLabel = when (scopeType) {
                 VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
@@ -782,9 +781,10 @@ internal fun humanizeCategory(category: String): String =
  * sent back: the original card kept its rejected animal forever and the redo appeared as a
  * separate one-goat card, so the verifier could never see the shed as a whole.
  *
- * `taskId` + `shedId` + normalized partition are stable across redos (all survive a new
- * submission), so the redone animal lands back on the operational location it belongs to without
- * merging sibling partitions. `submissionId` remains the fallback for items that carry no
+ * `taskId` + exact `shedId` are stable across redos (all survive a new
+ * submission), so the redone animal lands back on the operational location it belongs to. Legacy
+ * partition labels are not live identity and must not split one exact shed into multiple cards.
+ * `submissionId` remains the fallback for items that carry no
  * task/shed, and `itemId` the last resort — a group of exactly itself, which renders and is judged
  * exactly as a single item always was.
  */
@@ -792,22 +792,16 @@ internal fun VerificationQueueItem.verificationGroupKey(): String {
     val taskID = source.taskId?.takeIf { it.isNotBlank() }
     val shedID = shedId?.takeIf { it.isNotBlank() }
     if (taskID != null && shedID != null) {
-        return "task:$taskID|shed:$shedID|partition:${verificationPartitionKey()}"
+        return "task:$taskID|shed:$shedID"
     }
     val submissionID = source.submissionId?.takeIf { it.isNotBlank() }
     if (submissionID != null && shedID != null) {
-        return "submission:$submissionID|shed:$shedID|partition:${verificationPartitionKey()}"
+        return "submission:$submissionID|shed:$shedID"
     }
     return submissionID ?: itemId
 }
 
-private val verificationPartPrefix = Regex("^part\\s+", RegexOption.IGNORE_CASE)
-
-internal fun VerificationQueueItem.verificationPartitionKey(): String {
-    val raw = partitionLabel?.trim().orEmpty()
-    if (raw.isBlank() || raw.equals("whole", ignoreCase = true)) return "whole"
-    return raw.lowercase().replaceFirst(verificationPartPrefix, "").trim()
-}
+internal fun VerificationQueueItem.verificationPartitionKey(): String = "whole"
 
 internal fun statusTone(status: String): VerifyTone = when (status) {
     VerificationStatus.APPROVED -> VerifyTone.APPROVED

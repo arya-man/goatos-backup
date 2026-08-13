@@ -111,7 +111,7 @@ export default function InfraPage() {
                     {group.shedName}
                   </h2>
                   <span className="text-[#8899AA] text-xs">
-                    {group.partitions.length} partitions
+                    {group.partitions.length} records
                   </span>
                 </div>
 

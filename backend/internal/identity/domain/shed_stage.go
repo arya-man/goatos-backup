@@ -3,10 +3,8 @@ package domain
 // ReclassifyShedStageRequest is the wire body for both the preview and the commit of a whole-pen
 // cohort reclassification.
 //
-// ShedID is always the PARENT physical shed and PartitionLabel is the pen inside it -- the
-// operational-location convention. An omitted or empty PartitionLabel means the shed is genuinely
-// undivided, never "every partition of this shed"; the two are different requests and only the
-// first is expressible here on purpose.
+// ShedID is the exact physical shed to reclassify. PartitionLabel is legacy compatibility metadata
+// and is ignored by the exact-shed path.
 type ReclassifyShedStageRequest struct {
 	ShedID         string `json:"shed_id"`
 	PartitionLabel string `json:"partition_label,omitempty"`

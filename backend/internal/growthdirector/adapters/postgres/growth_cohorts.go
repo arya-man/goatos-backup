@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // fairFight compares the same (breed, sex) across sheds. A cohort renders only
@@ -42,18 +41,17 @@ cohorted AS (
 ` + breedSexJoin + `
 ),
 shed_cohort AS (
-  -- Grain is the OPERATIONAL location (shed + partition): per
-  -- docs/decisions/partition-is-operational-shed.md each partition IS the shed
-  -- for operator work, so two partitions of one location are two rows here.
-  SELECT breed, sex, shed_id, shed_label, partition_label, park_name,
+  -- Grain is the exact physical shed. Legacy partition_label is compatibility
+  -- metadata only and must not split one shed into duplicate growth rows.
+  SELECT breed, sex, shed_id, shed_label, park_name,
          percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day) AS median_adg_g_day,
          count(*) AS pair_identity_count
   FROM cohorted
   WHERE shed_id IS NOT NULL
-  GROUP BY breed, sex, shed_id, shed_label, partition_label, park_name
+  GROUP BY breed, sex, shed_id, shed_label, park_name
   HAVING count(*) >= 3                 -- a median of 2 is a coin flip
 )
-SELECT breed, sex, shed_id::text, COALESCE(shed_label, ''), COALESCE(partition_label, ''), COALESCE(park_name, ''), pair_identity_count, median_adg_g_day
+SELECT breed, sex, shed_id::text, COALESCE(shed_label, ''), ''::text, COALESCE(park_name, ''), pair_identity_count, median_adg_g_day
 FROM (
   SELECT sc.*, count(*) OVER (PARTITION BY breed, sex) AS sheds_in_cohort
   FROM shed_cohort sc
@@ -140,15 +138,15 @@ cohorted AS (
   FROM adg a
 ` + breedSexJoin + `
 )
-SELECT shed_id::text, COALESCE(shed_label, ''), COALESCE(partition_label, ''), COALESCE(park_name, ''), breed, sex,
+SELECT shed_id::text, COALESCE(shed_label, ''), ''::text, COALESCE(park_name, ''), breed, sex,
        count(*) FILTER (WHERE NOT implausible) AS pair_count,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day)           FILTER (WHERE NOT implausible) AS median_adg_g_day,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_noise_adj_g_day) FILTER (WHERE NOT implausible) AS median_noise_adj_g_day
 FROM cohorted
 WHERE shed_id IS NOT NULL
-GROUP BY shed_id, shed_label, partition_label, park_name, breed, sex
+GROUP BY shed_id, shed_label, park_name, breed, sex
 HAVING count(*) FILTER (WHERE NOT implausible) >= 3
-ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, partition_label, breed, sex`
+ORDER BY median_noise_adj_g_day ASC NULLS LAST, shed_id, breed, sex`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -198,7 +196,7 @@ func (r *Repository) weekOverWeekDeltas(ctx context.Context, tenantID string, pa
 WITH ` + weighingObsCTE + `,
 ` + roundLatestCTE + `,
 consec AS (
-  SELECT tag_key, shed_id, partition_label, period_start_date AS week_start,
+  SELECT tag_key, shed_id, ''::text AS partition_label, period_start_date AS week_start,
          weight_kg, accepted_at::date AS obs_date, observation_id,
          lag(weight_kg)          OVER w AS prev_w,
          lag(accepted_at::date)  OVER w AS prev_date
@@ -260,24 +258,20 @@ WHERE cur.solid_rn = 1`
 	return deltas, rows.Err()
 }
 
-// operationalKey is the stable identity of an operational location: parent shed
-// uuid plus normalized partition (docs/decisions/partition-is-operational-shed.md).
+// operationalKey is the stable identity of an operational location: the exact shed uuid.
 func operationalKey(shedID, partitionLabel string) string {
-	return (oploc.OperationalLocation{ShedID: shedID, PartitionLabel: partitionLabel}).Key()
+	_ = partitionLabel
+	return shedID
 }
 
 // operationalLabel renders the park-disambiguated operational display. Both
 // parks field identically-named sheds (a "Castro 1" exists in each), so a bare
-// shed label is ambiguous on any cross-park widget. The bucket display_name may
-// already carry the partition (legacy backfill rows) — appending again would
-// manufacture "Castro 1 - 1", so the partition is appended only when the label
-// does not already end with it.
+// shed label is ambiguous on any cross-park widget. The shed label itself is the
+// exact shed name; partitionLabel is compatibility metadata and must never be
+// appended.
 func operationalLabel(parkName, shedLabel, partitionLabel string) string {
+	_ = partitionLabel
 	label := strings.TrimSpace(shedLabel)
-	partition := strings.TrimSpace(partitionLabel)
-	if partition != "" && !strings.HasSuffix(label, partition) {
-		label = (oploc.OperationalLocation{ShedName: label, PartitionLabel: partition}).Display()
-	}
 	if parkName = strings.TrimSpace(parkName); parkName != "" {
 		return parkName + " · " + label
 	}

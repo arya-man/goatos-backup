@@ -16,7 +16,6 @@ import (
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 type Repository struct {
@@ -450,12 +449,8 @@ func goatSummaryColumns() string {
   g.growth_cohort_tag,
   g.management_stage,
   g.health_status,
-  -- location_display is the operational residence label. For partitioned goats, shed_id is the
-  -- exact partition/pen and shed_group_id is the parent/grouping key; applyLocationPartition
-  -- rewrites the display to "<group shed> - <partition>".
-  -- Exact filtering above uses current_location_id only, so a parent shed never masquerades as
-  -- the animal's physical residence.
-  COALESCE(shed_group.name, shed.name, park.name, 'Unknown location'),
+  -- location_display is the exact operational residence. shed_group_id is grouping metadata only.
+  COALESCE(shed.name, park.name, 'Unknown location'),
   g.farm_id::text,
   farm.location_code,
   farm.name,
@@ -464,14 +459,12 @@ func goatSummaryColumns() string {
   park.name,
   g.shed_id::text,
   shed.location_code,
-  COALESCE(shed_group.name, shed.name),
+  shed.name,
   g.cohort_id::text,
   cohort.location_code,
   cohort.name,
-  -- '' when not a real partition (NULL row or the 'whole' sentinel): never surface the sentinel.
-  CASE WHEN gsp.partition_label IS NULL OR lower(btrim(gsp.partition_label)) = 'whole'
-       THEN '' ELSE gsp.partition_label END,
-  COALESCE(gsp.source_shed_name, ''),
+  ''::text,
+  '',
   latest_weight.weight_kg,
   g.species,
   g.merged_into_goat_id::text,
@@ -749,25 +742,11 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 	return summary, species, stringPtr(mergedInto), rowVersion, nil
 }
 
-// applyLocationPartition recomposes LocationPath.Display as an oploc.OperationalLocation so a
-// partitioned shed renders "Castro 2" / "Godel 1 - Part 3" instead of the bare shed name, and
-// stamps PartitionLabel/SourceShedName/OperationalLocationDisplay. Non-partitioned sheds and
-// shed-less animals are left exactly as the caller's COALESCE(shed.name, park.name, ...)
-// composed them -- oploc.Display() only changes output when a real partition is present.
+// applyLocationPartition is now a compatibility no-op for current residence display. The query
+// already returns exact shed id/name; legacy partition fields must not re-suffix it.
 func applyLocationPartition(loc *domain.LocationPath, partitionLabel, sourceShedName sql.NullString) {
-	if partitionLabel.Valid && strings.TrimSpace(partitionLabel.String) != "" {
-		label := partitionLabel.String
-		loc.PartitionLabel = &label
-	}
-	if sourceShedName.Valid && strings.TrimSpace(sourceShedName.String) != "" {
-		src := sourceShedName.String
-		loc.SourceShedName = &src
-	}
-	if loc.ShedID != nil && loc.PartitionLabel != nil && loc.ShedName != nil {
-		loc.OperationalLocationDisplay = oploc.OperationalLocation{
-			ShedName:       *loc.ShedName,
-			PartitionLabel: *loc.PartitionLabel,
-		}.Display()
+	if loc.ShedID != nil && loc.ShedName != nil {
+		loc.OperationalLocationDisplay = strings.TrimSpace(*loc.ShedName)
 	}
 }
 

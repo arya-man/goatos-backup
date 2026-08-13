@@ -1,6 +1,6 @@
 import { ShedExecutionDetailPage } from "@/features/vaccination-execution";
 import { requireAdminWebPageContract } from "@/lib/api/server";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import type { RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,6 @@ export default async function Page({
   return (
     <ShedExecutionDetailPage
       shedId={shedId}
-      partitionLabel={one(sp, "partition_label")}
       scope={scope}
       asOf={backendScope(scope).asOf}
       pageContract={pageContract}

@@ -152,7 +152,6 @@ export async function createGoatAction(formData: FormData): Promise<void> {
 
     const animalIdentifier1 = requiredString(formData, "animal_identifier_1");
     const animalIdentifier2 = optionalString(formData, "animal_identifier_2");
-    const partitionLabel = optionalString(formData, "partition_label");
     if (animalIdentifier2 && animalIdentifier1.trim().toUpperCase() === animalIdentifier2.trim().toUpperCase()) {
       throw new Error("Animal ID 1 and Animal ID 2 must be different.");
     }
@@ -163,7 +162,6 @@ export async function createGoatAction(formData: FormData): Promise<void> {
       species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
       park_id: requiredString(formData, "park_id"),
       shed_id: requiredString(formData, "shed_id"),
-      ...(partitionLabel ? { partition_label: partitionLabel } : {}),
       farm_id: optionalString(formData, "farm_id"),
       breed: optionalString(formData, "breed"),
       management_stage: requiredString(formData, "management_stage"),

@@ -32,32 +32,32 @@ func TestApplyLocationPartitionNonPartitionedShedStaysBare(t *testing.T) {
 	}
 }
 
-func TestApplyLocationPartitionComposesPartitionSuffix(t *testing.T) {
+func TestApplyLocationPartitionKeepsExactShedNameWhenLegacyPartitionExists(t *testing.T) {
 	loc := domain.LocationPath{
-		OperationalLocationDisplay: "Castro",
-		ShedID:                     strPtr("shed-castro"),
-		ShedName:                   strPtr("Castro"),
+		OperationalLocationDisplay: "Castro 2",
+		ShedID:                     strPtr("shed-castro-2"),
+		ShedName:                   strPtr("Castro 2"),
 	}
 	applyLocationPartition(&loc, nullStr("2"), nullStr("Castro 2"))
 	if loc.OperationalLocationDisplay != "Castro 2" {
 		t.Fatalf("Display = %q, want %q", loc.OperationalLocationDisplay, "Castro 2")
 	}
-	if loc.PartitionLabel == nil || *loc.PartitionLabel != "2" {
-		t.Fatalf("PartitionLabel = %v, want \"2\"", loc.PartitionLabel)
+	if loc.PartitionLabel != nil {
+		t.Fatalf("PartitionLabel = %v, want nil because exact shed already carries the identity", loc.PartitionLabel)
 	}
-	if loc.SourceShedName == nil || *loc.SourceShedName != "Castro 2" {
-		t.Fatalf("SourceShedName = %v, want %q", loc.SourceShedName, "Castro 2")
+	if loc.SourceShedName != nil {
+		t.Fatalf("SourceShedName = %v, want nil because source labels are legacy metadata", loc.SourceShedName)
 	}
 	if loc.OperationalLocationDisplay != "Castro 2" {
 		t.Fatalf("OperationalLocationDisplay = %q, want %q", loc.OperationalLocationDisplay, "Castro 2")
 	}
 }
 
-func TestApplyLocationPartitionPartPrefixConvention(t *testing.T) {
+func TestApplyLocationPartitionDoesNotAppendPartPrefixConvention(t *testing.T) {
 	loc := domain.LocationPath{
-		OperationalLocationDisplay: "Godel 1",
-		ShedID:                     strPtr("shed-godel-1"),
-		ShedName:                   strPtr("Godel 1"),
+		OperationalLocationDisplay: "Godel 1 - Part 3",
+		ShedID:                     strPtr("shed-godel-1-part-3"),
+		ShedName:                   strPtr("Godel 1 - Part 3"),
 	}
 	applyLocationPartition(&loc, nullStr("Part 3"), nullStr("Godel 1 - Part 3"))
 	if loc.OperationalLocationDisplay != "Godel 1 - Part 3" {

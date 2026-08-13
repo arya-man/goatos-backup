@@ -49,19 +49,18 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStat
 /**
  * Room-first SSOT for a task's `goat_scan` recording-form field
  * (docs/mobile/proof-capture-sync-and-e2e.md §1). Every completed tag is written to Room
- * BEFORE it is reflected in the UI, deduped by (task, partition, field, tag) at the DB layer — the UI
+ * BEFORE it is reflected in the UI, deduped by (task, field, tag) at the DB layer — the UI
  * observes [observeScannedTags]/[observeScannedCount], it never owns the list as transient
  * ViewModel state.
  *
- * `partitionLabel` is part of the operational identity for every execution read and write.
- * Callers opening a partition must pass that route label consistently; `null` means the shed is
- * unpartitioned and is normalized to `whole`, never "all partitions".
+ * `partitionLabel` remains on this API for legacy callers, but it is always normalized to the
+ * exact-shed `whole` compatibility key and never splits capture identity.
  */
 interface ScanCaptureRepository {
     fun observeScannedTags(taskId: String, fieldKey: String, partitionLabel: String? = null): Flow<List<ScannedGoatRow>>
     fun observeScannedCount(taskId: String, fieldKey: String, partitionLabel: String? = null): Flow<Int>
 
-    /** Every scanned tag across every `goat_scan` field of [taskId] in [partitionLabel] — the single Flow a
+    /** Every scanned tag across every `goat_scan` field of [taskId] — the single Flow a
      *  ViewModel observes (one field or several); group by [ScannedGoatRow.fieldKey] for a
      *  per-field count/list. */
     fun observeAllForTask(taskId: String, partitionLabel: String? = null): Flow<List<ScannedGoatRow>>
@@ -324,15 +323,14 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
  */
 private fun scanCaptureIdempotencyKey(
     taskId: String,
+    @Suppress("UNUSED_PARAMETER")
     partitionKey: String,
     fieldKey: String,
     tag: String,
     obligationId: String?,
     obligationRowVersion: Int = 0,
 ): String {
-    val partitionSegment = if (partitionKey == "whole") "" else ":partition:$partitionKey"
-    val obligationSegment = obligationId?.takeIf { it.isNotBlank() }?.let { ":obligation:$it" }.orEmpty()
-    return "scan:$taskId$partitionSegment:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}$obligationSegment:ov$obligationRowVersion"
+    return "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}:ov$obligationRowVersion"
 }
 
 interface ScanAttemptRepository {
@@ -491,8 +489,8 @@ private fun normalizeTag(tag: String): String = tag.filter { it.isLetterOrDigit(
  * endpoint — see [sg.mesha.goatos.core.data.sync.SyncEngine.dispatchProofUpload]), so a row only
  * reaches [CaptureSyncStatus.SYNCED] once the video is actually durable server-side.
  *
- * `partitionLabel` is part of the operational identity for execution evidence. `null` means the
- * unpartitioned `whole` scope, not a task-wide wildcard.
+ * `partitionLabel` remains on this API for legacy callers, but it is always normalized to the
+ * exact-shed `whole` compatibility key and never splits proof identity.
  */
 interface ProofCaptureRepository {
     fun observeProofs(taskId: String, partitionLabel: String? = null): Flow<List<ProofCaptureRow>>

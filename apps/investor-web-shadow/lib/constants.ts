@@ -171,8 +171,6 @@ export type FarmTabId = (typeof FARM_TABS)[number]["id"];
 // ── Shed capacities ──
 
 export const SHED_CAPACITIES: Record<string, number> = {
-  "Gandhi 1 - Part 1": 50,
-  "Gandhi 1 - Part 2": 50,
   "Gandhi 1": 50,
   "Gandhi 2": 50,
   "Gandhi 3": 50,

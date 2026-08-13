@@ -4,41 +4,36 @@ import "testing"
 
 func strp(v string) *string { return &v }
 
-// TestAggregateCountsBreakdownRowsByShedSumsExactlyToParent is the CRITICAL INVARIANT proof: the
-// partition-grain rows returned by GetCountsBreakdown, rolled up to parent-shed grain, must sum
-// to EXACTLY the same total as the parent aggregate -- no double counting and no lost animals.
-func TestAggregateCountsBreakdownRowsByShedSumsExactlyToParent(t *testing.T) {
-	shedID := "shed-castro"
+func TestAggregateCountsBreakdownRowsByShedCollapsesOnlyDuplicateExactShedRows(t *testing.T) {
+	shedID := "shed-castro-2"
 	parkID := "park-cpt"
-	partitionRows := []CountsBreakdownRow{
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro", PartitionLabel: "1",
-			OperationalLocationDisplay: "Castro 1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 40},
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro", PartitionLabel: "2",
-			OperationalLocationDisplay: "Castro 2", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 35},
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro", PartitionLabel: "3",
-			OperationalLocationDisplay: "Castro 3", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 25},
+	rows := []CountsBreakdownRow{
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro 2", PartitionLabel: "2",
+			OperationalLocationDisplay: "Castro 2", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 20},
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro 2", PartitionLabel: "",
+			OperationalLocationDisplay: "Castro 2", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 15},
 	}
 	wantTotal := int64(0)
-	for _, r := range partitionRows {
+	for _, r := range rows {
 		wantTotal += r.Count
 	}
 
-	aggregated := AggregateCountsBreakdownRowsByShed(partitionRows)
+	aggregated := AggregateCountsBreakdownRowsByShed(rows)
 	if len(aggregated) != 1 {
-		t.Fatalf("expected one parent-shed row, got %d: %+v", len(aggregated), aggregated)
+		t.Fatalf("expected one exact-shed row, got %d: %+v", len(aggregated), aggregated)
 	}
 	got := aggregated[0]
 	if got.Count != wantTotal {
-		t.Fatalf("parent aggregate count = %d, want sum of partitions = %d (no double counting, no dropped animals)", got.Count, wantTotal)
+		t.Fatalf("exact-shed count = %d, want %d (no double counting, no dropped animals)", got.Count, wantTotal)
 	}
-	if got.ShedLabel != "Castro" {
-		t.Fatalf("parent aggregate ShedLabel = %q, want bare shed name %q", got.ShedLabel, "Castro")
+	if got.ShedLabel != "Castro 2" {
+		t.Fatalf("ShedLabel = %q, want exact shed name %q", got.ShedLabel, "Castro 2")
 	}
 	if got.PartitionLabel != "" {
-		t.Fatalf("parent aggregate PartitionLabel = %q, want empty (aggregate has no single partition)", got.PartitionLabel)
+		t.Fatalf("PartitionLabel = %q, want empty compatibility metadata", got.PartitionLabel)
 	}
-	if got.OperationalLocationDisplay != "Castro" {
-		t.Fatalf("parent aggregate OperationalLocationDisplay = %q, want bare shed name %q (never a partition suffix, never \"whole\")", got.OperationalLocationDisplay, "Castro")
+	if got.OperationalLocationDisplay != "Castro 2" {
+		t.Fatalf("OperationalLocationDisplay = %q, want exact shed name %q", got.OperationalLocationDisplay, "Castro 2")
 	}
 }
 
@@ -46,11 +41,11 @@ func TestAggregateCountsBreakdownRowsByShedSumsExactlyToParent(t *testing.T) {
 // count: aggregating twice is idempotent per shed grouping, and two distinct sheds never merge.
 func TestAggregateCountsBreakdownRowsByShedNoDoubleCounting(t *testing.T) {
 	rows := []CountsBreakdownRow{
-		{ParkID: strp("park-cpt"), ShedID: strp("shed-castro-cpt"), ShedLabel: "Castro", PartitionLabel: "1",
+		{ParkID: strp("park-cpt"), ShedID: strp("shed-castro-1-cpt"), ShedLabel: "Castro 1", PartitionLabel: "1",
 			ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 10},
-		// Same shed NAME, different park/shed_id (two "Castro" sheds across parks) -- must stay
+		// Same shed NAME, different park/shed_id (two "Castro 1" sheds across parks) -- must stay
 		// two separate rows, never merged by name.
-		{ParkID: strp("park-cbe"), ShedID: strp("shed-castro-cbe"), ShedLabel: "Castro", PartitionLabel: "1",
+		{ParkID: strp("park-cbe"), ShedID: strp("shed-castro-1-cbe"), ShedLabel: "Castro 1", PartitionLabel: "1",
 			ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 99},
 		// Non-partitioned shed alongside a partitioned one.
 		{ParkID: strp("park-cpt"), ShedID: strp("shed-yashoda"), ShedLabel: "Yashoda", PartitionLabel: "",
@@ -64,11 +59,11 @@ func TestAggregateCountsBreakdownRowsByShedNoDoubleCounting(t *testing.T) {
 	for _, r := range aggregated {
 		byShedID[derefOrEmpty(r.ShedID)] = r.Count
 	}
-	if byShedID["shed-castro-cpt"] != 10 {
-		t.Fatalf("CPT Castro count = %d, want 10 (must not merge with CBE Castro)", byShedID["shed-castro-cpt"])
+	if byShedID["shed-castro-1-cpt"] != 10 {
+		t.Fatalf("CPT Castro 1 count = %d, want 10 (must not merge with CBE Castro 1)", byShedID["shed-castro-1-cpt"])
 	}
-	if byShedID["shed-castro-cbe"] != 99 {
-		t.Fatalf("CBE Castro count = %d, want 99 (must not merge with CPT Castro)", byShedID["shed-castro-cbe"])
+	if byShedID["shed-castro-1-cbe"] != 99 {
+		t.Fatalf("CBE Castro 1 count = %d, want 99 (must not merge with CPT Castro 1)", byShedID["shed-castro-1-cbe"])
 	}
 	if byShedID["shed-yashoda"] != 7 {
 		t.Fatalf("Yashoda count = %d, want 7", byShedID["shed-yashoda"])
@@ -107,12 +102,10 @@ func TestNonPartitionedShedNeverRendersWhole(t *testing.T) {
 // a changed grain. Partition is a NEW dimension on this read model, so each one asks the same
 // question from a different angle: can the partition dimension make the parent total drift?
 
-// TestPartitionRollupCardinalityOneToMany: the partition join is 1:{0,1} per animal
-// (goat_shed_partitions PK is (tenant_id, goat_id)), so adding the dimension must SPLIT a shed's
-// animals across rows, never MULTIPLY them. A many-side join would silently inflate every total.
-func TestPartitionRollupCardinalityOneToMany(t *testing.T) {
+// TestExactShedRollupCardinalityOneToMany: stale compatibility partition rows are 1:{0,1} per
+// animal, so the helper may merge duplicate rows for the SAME exact shed but never multiply totals.
+func TestExactShedRollupCardinalityOneToMany(t *testing.T) {
 	shedID, parkID := "shed-godel", "park-cbe"
-	// One shed, one cohort, fanned across many partitions: the classic one-to-many shape.
 	var rows []CountsBreakdownRow
 	want := int64(0)
 	for i, n := range []int64{49, 37, 40, 44, 9, 8, 7, 5} {
@@ -127,7 +120,7 @@ func TestPartitionRollupCardinalityOneToMany(t *testing.T) {
 		t.Fatalf("rolled up to %d rows, want 1 (one shed x one cohort)", len(got))
 	}
 	if got[0].Count != want {
-		t.Fatalf("parent total = %d, want %d (partition fan-out must not multiply animals)", got[0].Count, want)
+		t.Fatalf("exact shed total = %d, want %d (compatibility fan-out must not multiply animals)", got[0].Count, want)
 	}
 }
 
@@ -154,11 +147,11 @@ func TestPartitionRollupPageBoundaryPagination(t *testing.T) {
 // TestPartitionRollupDateShiftIndependence: partition is a LOCATION dimension. Rows that differ only
 // by an execution/scheduled date must still roll up by location, and must not be collapsed or
 // dropped because a date differs.
-func TestPartitionRollupDateShiftIndependence(t *testing.T) {
-	shedID, parkID := "shed-castro", "park-cpt"
+func TestExactShedRollupDateShiftIndependence(t *testing.T) {
+	shedID, parkID := "shed-castro-2", "park-cpt"
 	rows := []CountsBreakdownRow{
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro", PartitionLabel: "1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 33},
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro", PartitionLabel: "2", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 31},
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro 2", PartitionLabel: "2", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 33},
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Castro 2", PartitionLabel: "", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 31},
 	}
 	got := AggregateCountsBreakdownRowsByShed(rows)
 	if len(got) != 1 || got[0].Count != 64 {
@@ -166,12 +159,12 @@ func TestPartitionRollupDateShiftIndependence(t *testing.T) {
 	}
 }
 
-// TestPartitionRollupParkScopeHierarchy: shed NAMES repeat across parks (two "Castro"). The rollup
+// TestPartitionRollupParkScopeHierarchy: shed NAMES repeat across parks (two "Castro 1"). The rollup
 // key must be (park, shed), never the shed NAME, or two parks' animals merge into one row.
 func TestPartitionRollupParkScopeHierarchy(t *testing.T) {
 	rows := []CountsBreakdownRow{
-		{ParkID: strp("park-cpt"), ShedID: strp("shed-castro-cpt"), ShedLabel: "Castro", PartitionLabel: "1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 33},
-		{ParkID: strp("park-cbe"), ShedID: strp("shed-castro-cbe"), ShedLabel: "Castro", PartitionLabel: "1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 63},
+		{ParkID: strp("park-cpt"), ShedID: strp("shed-castro-1-cpt"), ShedLabel: "Castro 1", PartitionLabel: "1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 33},
+		{ParkID: strp("park-cbe"), ShedID: strp("shed-castro-1-cbe"), ShedLabel: "Castro 1", PartitionLabel: "1", ManagementStage: "adult", Breed: "boer", Sex: "female", Count: 63},
 	}
 	got := AggregateCountsBreakdownRowsByShed(rows)
 	if len(got) != 2 {
@@ -179,22 +172,19 @@ func TestPartitionRollupParkScopeHierarchy(t *testing.T) {
 	}
 }
 
-// TestPartitionRollupEveryStatusBuckets: every status/stage bucket in a shed must survive the new
-// partition dimension intact -- rows sharing a cohort but sitting in different partitions still sum
-// to that cohort's shed total, with none absorbed or dropped.
-func TestPartitionRollupEveryStatusBuckets(t *testing.T) {
-	shedID, parkID := "shed-mandela", "park-cbe"
+// TestExactShedRollupEveryStatusBuckets: every status/stage bucket in an exact shed must survive
+// stale compatibility metadata intact, with none absorbed or dropped.
+func TestExactShedRollupEveryStatusBuckets(t *testing.T) {
+	shedID, parkID := "shed-mandela-1-part-1", "park-cbe"
 	rows := []CountsBreakdownRow{
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Mandela 1", PartitionLabel: "Part 1", ManagementStage: "K1", Breed: "boer", Sex: "male", Count: 11},
-		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Mandela 1", PartitionLabel: "Part 2", ManagementStage: "K1", Breed: "boer", Sex: "male", Count: 16},
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Mandela 1 Part 1", PartitionLabel: "Part 1", ManagementStage: "K1", Breed: "boer", Sex: "male", Count: 11},
+		{ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Mandela 1 Part 1", PartitionLabel: "", ManagementStage: "K1", Breed: "boer", Sex: "male", Count: 16},
 	}
 	got := AggregateCountsBreakdownRowsByShed(rows)
 	if len(got) != 1 {
 		t.Fatalf("got %d rows, want 1", len(got))
 	}
-	// Both partitions belong to the same shed x cohort, so the rolled-up total is their exact sum:
-	// no status/stage bucket may absorb or drop an animal when the partition dimension is added.
 	if got[0].Count != 27 {
-		t.Fatalf("parent total = %d, want 27 (11 + 16 across two partitions of one cohort)", got[0].Count)
+		t.Fatalf("exact shed total = %d, want 27", got[0].Count)
 	}
 }

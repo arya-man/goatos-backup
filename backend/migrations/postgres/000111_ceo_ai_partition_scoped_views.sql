@@ -4,11 +4,11 @@
 -- decision (backend/internal/platform/oploc is the shared OperationalLocation
 -- primitive; see its package doc for the domain rule this migration implements).
 --
--- OperationalLocation = park + physical shed + OPTIONAL partition. goats.shed_id
--- is always the PARENT physical shed; goat_shed_partitions (tenant_id, goat_id)
--- carries the actual sub-location for goats that live in a partitioned shed. Not
--- every shed has partitions -- a non-partitioned shed must render as the bare
--- shed name, never as a synthetic "whole" location. Before this migration, four
+-- OperationalLocation = park + exact shed. After the exact-shed cutover,
+-- goats.shed_id is the real shed id; goat_shed_partitions (tenant_id, goat_id)
+-- is compatibility/history evidence only. Not every shed belongs to a group --
+-- an ungrouped shed must render as the bare shed name, never as a synthetic
+-- "whole" location. Before this migration, four
 -- ceo_ai views silently collapsed every partition of a shed into one shed-grain
 -- row, so "how many kids in Castro 1" and "how many kids in Castro 2" both
 -- answered with the Castro TOTAL.

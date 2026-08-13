@@ -64,9 +64,10 @@ data class FeedDirectionRowUi(
     val parkId: String,
     val parkLabel: String,
     val shedId: String,
-    val partitionLabel: String = "",
     val sessionNo: Int,
     val shedLabel: String,
+    /** Legacy backend compatibility metadata; never used for live display or completion identity. */
+    val partitionLabel: String,
     val shedTag: String,
     val breed: String,
     val rationGroup: String,
@@ -189,7 +190,6 @@ sealed interface FeedDirectionEvent {
         val workflow: String,
         val shedLabel: String,
         val sessionLabel: String,
-        val partitionLabel: String,
         val lifecycleStatus: String,
     ) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
@@ -275,7 +275,6 @@ fun FeedDirectionScreen(
                                     workflow = row.workflow,
                                     shedLabel = row.shedLabel,
                                     sessionLabel = row.sessionLabel,
-                                    partitionLabel = row.partitionLabel,
                                     lifecycleStatus = row.lifecycleStatus,
                                 ),
                             )

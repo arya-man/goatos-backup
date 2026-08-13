@@ -177,7 +177,7 @@ data class FeedDirectionRowDto(
      */
     val grainKey: String
         get() = listOf(
-            shedId,
+            feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay),
             workflow,
             rationGroup,
             experimentArm,
@@ -260,19 +260,61 @@ data class FeedPackingRowDto(
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String
-        // The PEN-SESSION identity, matching the completion's natural key. Both the PARTITION and the
-        // SESSION are load-bearing and were each lost once: the key was shedId|workflow|sessionNo, so
-        // every partition of a shed collapsed into one bag line (Castro 1 and Castro 2 are packed
-        // separately and can carry very different quantities), and it was
-        // shedId|partition|workflow between 2026-08-10 and 2026-08-11, which collapsed a pen's
-        // morning and evening into one card.
-        get() = listOf(shedId, partitionLabel.orEmpty(), workflow, sessionNo.toString()).joinToString("|")
+        get() = listOf(
+            feedOperationalLocationIdentityKey(shedId, shedLabel, partitionLabel, operationalLocationDisplay),
+            workflow,
+            sessionNo.toString(),
+        ).joinToString("|")
 
     companion object {
         const val STATUS_READY = "ready"
         const val STATUS_BLOCKED = "blocked"
         const val STATUS_EMPTY = "empty"
     }
+}
+
+internal fun feedOperationalLocationIdentityKey(
+    shedId: String,
+    shedLabel: String,
+    partitionLabel: String?,
+    operationalLocationDisplay: String,
+): String {
+    val partition = partitionIdentityToken(partitionLabel) ?: return shedId
+    val shedName = shedLabel.trim()
+    val display = operationalLocationDisplay.trim()
+    val visible = display.ifBlank { shedName }
+    if (visible.isNotBlank() && visible.equals(shedName, ignoreCase = true) && shedNameEncodesPartition(shedName, partition)) {
+        return shedId
+    }
+    if (display.isNotBlank() && !display.equals(shedName, ignoreCase = true)) {
+        return listOf(shedId, "legacy-display", display.lowercase()).joinToString("|")
+    }
+    if (shedNameEncodesPartition(shedName, partition)) {
+        return shedId
+    }
+    return listOf(shedId, "legacy-partition", partition).joinToString("|")
+}
+
+private fun partitionIdentityToken(raw: String?): String? {
+    val trimmed = raw?.trim().orEmpty()
+    if (trimmed.isBlank() || trimmed.equals("whole", ignoreCase = true)) return null
+    return trimmed.lowercase()
+        .replace(Regex("^part\\s+"), "")
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+        .ifBlank { null }
+}
+
+private fun shedNameEncodesPartition(shedName: String, partitionToken: String): Boolean {
+    val normalized = shedName.lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+    if (normalized.isBlank()) return false
+    if (Regex("""\bpart\s+${Regex.escape(partitionToken)}\b""").containsMatchIn(normalized)) return true
+    if ("part" in normalized) return false
+    val numberedShedFamily = Regex("""^(?:castro|gandhi|(?:new\s+)?yashoda|old\s+yashoda)\s+""")
+        .containsMatchIn(normalized)
+    return numberedShedFamily && normalized.endsWith(" $partitionToken")
 }
 
 private object NullAsEmptyFeedItemQuantityListSerializer :
@@ -408,8 +450,7 @@ data class FeedTransportTaskPageDto(
 data class FeedDistributionCompleteRequestDto(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
-    /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
-     *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
+    /** Legacy compatibility only. Live identity is the exact shed_id; new clients send null. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
@@ -455,8 +496,7 @@ data class FeedDistributionCompleteResponseDto(
 data class FeedPackingCompleteRequestDto(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
-    /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
-     *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
+    /** Legacy compatibility only. Live identity is the exact shed_id; new clients send null. */
     @SerialName("partition_label") val partitionLabel: String? = null,
     /** The feeding session packed and filmed. REQUIRED and part of the completion's IDENTITY
      *  (maintainer decision 2026-08-11): one video proves one session's bag, and the route rejects a

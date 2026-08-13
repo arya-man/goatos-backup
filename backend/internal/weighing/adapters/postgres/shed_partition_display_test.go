@@ -63,6 +63,31 @@ func TestApplyShedPartitionDisplayKeepsExactShedName(t *testing.T) {
 	}
 }
 
+func TestApplyShedPartitionDisplayWithStoredLabelKeepsExactShedName(t *testing.T) {
+	cases := []struct {
+		name        string
+		storedLabel string
+	}{
+		{name: "Castro 2", storedLabel: "2"},
+		{name: "Gandhi 1", storedLabel: "1"},
+		{name: "Godel 2 - Part 1", storedLabel: "Part 1"},
+		{name: "Mandela 2 Part 1", storedLabel: "Part 1"},
+	}
+	for _, c := range cases {
+		shed := domain.CampaignShed{LocationID: "loc", DisplayName: c.name}
+		applyShedPartitionDisplayWithStoredLabel(&shed, c.storedLabel)
+		if shed.ParentShedName != c.name {
+			t.Fatalf("%s ParentShedName = %q, want exact shed name", c.name, shed.ParentShedName)
+		}
+		if shed.PartitionLabel != "" {
+			t.Fatalf("%s PartitionLabel = %q, want blank compatibility label", c.name, shed.PartitionLabel)
+		}
+		if shed.OperationalLocationDisplay != c.name {
+			t.Fatalf("%s OperationalLocationDisplay = %q, want exact shed name", c.name, shed.OperationalLocationDisplay)
+		}
+	}
+}
+
 func TestApplyPlannerShedPartitionDisplay(t *testing.T) {
 	shed := domain.PlannerShed{LocationID: "loc-3", Name: "Godel 1 - Part 3"}
 	applyPlannerShedPartitionDisplay(&shed)
@@ -140,5 +165,20 @@ func TestPlannerParkBucketsPartitionStatusMatrixNeverRendersWholeSentinel(t *tes
 		if shed.OperationalLocationDisplay != "Castro" {
 			t.Fatalf("status %s display = %q, want parent-only for whole sentinel", status, shed.OperationalLocationDisplay)
 		}
+	}
+}
+
+func TestPlannerOperationalDisplayIgnoresCompatibilityPartitionLabel(t *testing.T) {
+	shed := domain.PlannerShed{
+		LocationID:      "godel-2-part-1",
+		ParentShedName: "Godel 2 - Part 1",
+		PartitionLabel: "Part 1",
+	}
+	applyPlannerShedOperationalDisplay(&shed)
+	if shed.Name != "Godel 2 - Part 1" || shed.OperationalLocationDisplay != "Godel 2 - Part 1" {
+		t.Fatalf("display = (%q, %q), want exact shed name", shed.Name, shed.OperationalLocationDisplay)
+	}
+	if shed.PartitionLabel != "" {
+		t.Fatalf("PartitionLabel = %q, want blank compatibility label", shed.PartitionLabel)
 	}
 }

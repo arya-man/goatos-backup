@@ -38,7 +38,7 @@ function locationLabel(location: ProcurementLocationOption): string {
 }
 
 function optionKey(location: ProcurementLocationOption): string {
-  return `${location.id}|${location.partitionLabel ?? ""}`;
+  return location.id;
 }
 
 export function ParkLocationSelect({
@@ -148,7 +148,6 @@ export function ParkShedLocationSelects({
       <div className="fld" style={{ flex: 1, minWidth: 180 }}>
         <label>{copy(pageContract, "field.shed_location_id")}</label>
         <input type="hidden" name="shed_location_id" value={selectedShed?.id ?? ""} />
-        <input type="hidden" name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
         <select required value={shedKey} disabled={shedDisabled} onChange={(event) => setShedKey(event.target.value)} title={shedTitle}>
           <option value="">
             {!parkId

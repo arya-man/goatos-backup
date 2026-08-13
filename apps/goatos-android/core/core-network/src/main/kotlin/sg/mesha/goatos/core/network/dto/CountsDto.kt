@@ -300,7 +300,7 @@ data class CountsShiftingPendingExecutionItemDto(
     @SerialName("destination_shed_name") val destinationShedName: String = "",
     @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
     /**
-     * Backend-composed labels for each end of the movement ("Castro - 1" -> "Castro - 2"). Render
+     * Backend-composed labels for each end of the movement ("Castro 1" -> "Castro 2"). Render
      * these; do not rebuild them from shed name + partition. Both were added 2026-08-06 together
      * with the server fields that populate them — until then this DTO's partition fields were
      * declared but nothing ever sent them, so approve/execute read "Castro -> Castro".

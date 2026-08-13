@@ -748,9 +748,9 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
         CalendarDriveLocationSummary(
             shedId = shed.shedId,
             shedName = shed.shedName,
-            partitionLabel = shed.partitionLabel,
+            partitionLabel = null,
             operationalLocationDisplay = shed.operationalLocationDisplay.ifBlank {
-                operationalLocationLabel(shed.shedName, shed.partitionLabel)
+                operationalLocationLabel(shed.shedName, null)
             },
             totalAnimals = shed.totalAnimals,
         )

@@ -9,12 +9,12 @@
 -- table is this migration's owner; see backend/internal/platform/oploc for the
 -- shared OperationalLocation primitive this closes the gap against.
 --
--- OperationalLocation = park + physical shed + OPTIONAL partition. goats.shed_id
--- is always the PARENT physical shed; goat_shed_partitions (tenant_id, goat_id)
--- carries the actual sub-location. Not every shed has partitions -- a
--- non-partitioned shed must keep rendering as the bare shed name, never a
--- synthetic "whole" location; NULLIF(...,'whole') is used everywhere below so
--- the matching sentinel never leaks into a reporting column.
+-- OperationalLocation = park + exact shed. After the exact-shed cutover,
+-- goats.shed_id is the real shed id; goat_shed_partitions (tenant_id, goat_id)
+-- is compatibility/history evidence only. Not every shed belongs to a group --
+-- an ungrouped shed must keep rendering as the bare shed name, never a synthetic
+-- "whole" location; NULLIF(...,'whole') is used everywhere below so the matching
+-- sentinel never leaks into a reporting column.
 --
 -- 1. vaccination_eligibility_rollups gains partition_label. The grain is
 --    ADDITIVE and NEVER destructive: this ALTER only adds a nullable column,

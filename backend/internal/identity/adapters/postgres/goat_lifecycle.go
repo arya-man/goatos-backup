@@ -175,17 +175,16 @@ INSERT INTO goat_location_history (
 	// matters as much as the upsert: a move to a shed with no pen named must CLEAR any pen the
 	// animal used to occupy, or it keeps a goat_shed_partitions row pointing at the shed it just
 	// left and every partition-aware read reports it in the wrong place.
-	if toPartitionLabel != nil {
-		label := strings.TrimSpace(*toPartitionLabel)
+	if toLocationID != "" && toShedID != "" && toLocationID != toShedID {
 		if _, err := tx.Exec(ctx, `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, now())
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'whole', $4, now())
 ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
     shed_id = EXCLUDED.shed_id,
     partition_label = EXCLUDED.partition_label,
     source_shed_name = EXCLUDED.source_shed_name,
     updated_at = now()`,
-			cmd.TenantID, cmd.GoatID, cmd.ToShedID, label, cmd.ToShedID); err != nil {
+			cmd.TenantID, cmd.GoatID, toLocationID, toLocationID); err != nil {
 			return nil, fmt.Errorf("identity: move goat: upsert goat_shed_partitions: %w", err)
 		}
 	} else if _, err := tx.Exec(ctx,

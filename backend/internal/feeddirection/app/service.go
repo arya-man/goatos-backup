@@ -450,16 +450,14 @@ func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]pa
 	return out
 }
 
-// completedKey is the identity of ONE completion: a shed's PEN, in one SESSION, in one workflow.
+// completedKey is the identity of ONE completion: an exact physical shed, in one SESSION, in one workflow.
 // Shared by feed DISTRIBUTION and feed PACKING -- both are gated per shed-session again, after the
 // 2026-08-10 pen-day grain was reverted on 2026-08-11.
 //
-// The pen is not decoration here. It was missing until 2026-08-08, so all three Castro pens shared
-// a single key: submitting the Castro - 1 morning video flipped Castro - 2 and Castro - 3 to "in
-// review" as well, and one clip stood as proof for pens nobody filmed. Normalized via
-// PartitionMatchKey so 'Part 3'/'part 3' are one pen and an undivided shed is a stable 'whole'.
+// partitionLabel is ignored because shedID is already the physical shed after the exact-shed cutover.
 func completedKey(shedID, partitionLabel string, sessionNo int32, workflow string) string {
-	return shedID + "|" + domain.PartitionMatchKey(partitionLabel) + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
+	_ = partitionLabel
+	return shedID + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
 }
 
 // Preview serves one page of feed direction rows for a feed day.

@@ -243,13 +243,13 @@ export async function VaccinationWorkflowsPage({
                   className={`wfrow${isActive ? " on" : ""}`}
                   aria-current={isActive ? "true" : undefined}
 	                  aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
-	                  title={`${title} · ${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
+	                  title={`${title} · ${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
 	                >
 	                  <span className="wfdot" style={{ background: TONE_SWATCH[optionTone(pageContract, "severity_chips", row.severity) as Tone] }} />
 	                  <div className="wftx">
 	                    <b title={title}>{title}</b>
-	                    <div className="wfsub" title={`${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}>
-	                      {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · {optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
+	                    <div className="wfsub" title={`${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}>
+	                      {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name })} · {optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
 	                    </div>
                     <div className="wfbar">
                       <i style={{ width: `${pct}%` }} />
@@ -381,7 +381,7 @@ export async function VaccinationWorkflowsPage({
                   <>
                     <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
 	                    <span>
-	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
+	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name })}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
 	                    </span>
                   </>
                 ) : rows.length ? (

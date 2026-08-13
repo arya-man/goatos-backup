@@ -39,7 +39,7 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   const rawPartition = (partitionLabel ?? "").trim();
   // sourceShedName is the RAW partition-bearing name a row was normalized FROM ("Castro 1"), so it
   // ALREADY contains the partition. Using it as the shed and then appending partitionLabel produced
-  // "Castro 1 1" -- the same defect class as the "Godel 1 1" bug this convention exists to prevent.
+  // "duplicate Castro suffix" -- the same defect class as the "duplicate Godel suffix" bug this convention exists to prevent.
   // It is a display value in its own right, never a prefix. Go's oploc.Display() deliberately never
   // reads this field and Kotlin's helper has no such parameter; this keeps the three in agreement.
   if (!shed) {

@@ -634,7 +634,7 @@ class VerifyDetailViewModel @Inject constructor(
 
     /**
      * The producing module's "what was expected" rows -- for a feed packing proof, the frozen ration
-     * for that pen-session and the head count it was computed from.
+     * for that shed-session and the head count it was computed from.
      *
      * Rendered VERBATIM and in the producer's order. Deliberately not switched on by label and not
      * merged into the fixed rows above: producers add rows whenever they have something to state, so

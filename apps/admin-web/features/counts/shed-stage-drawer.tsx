@@ -24,7 +24,6 @@ import { commitShedStageAction, previewShedStageAction } from "./shed-stage-acti
 export type PenOption = {
   key: string;
   shedId: string;
-  partitionLabel: string;
   label: string;
 };
 
@@ -86,7 +85,6 @@ export function ShedStageDrawer({
     startTransition(async () => {
       const result = await previewShedStageAction({
         shed_id: pen.shedId,
-        partition_label: pen.partitionLabel || undefined,
         management_stage: stage,
       });
       if (!result.ok) {
@@ -105,7 +103,6 @@ export function ShedStageDrawer({
       const result = await commitShedStageAction(
         {
           shed_id: pen.shedId,
-          partition_label: pen.partitionLabel || undefined,
           management_stage: stage,
           reason,
         },

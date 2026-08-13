@@ -160,14 +160,14 @@ day_attempts AS (
 -- ORDER BY assignment_id LIMIT 1 tie-break the LATERAL had, so a duplicate assignment row still
 -- cannot fan an obligation out.
 day_assignments AS (
-  SELECT DISTINCT ON (a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `)
+  SELECT DISTINCT ON (a.shed_id)
     a.shed_id,
-    ` + liveTrackerPartitionNormExpr("a.partition_label") + ` AS part_norm,
+    'whole'::text AS part_norm,
     a.operator_id
   FROM vaccination_drive_assignments a
   WHERE a.tenant_id = $1::uuid
     AND a.planned_date = $2::date
-  ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, a.assignment_id
+  ORDER BY a.shed_id, a.assignment_id
 ),
 scoped AS (
   SELECT
@@ -178,17 +178,14 @@ scoped AS (
     oi.completed_at,
     g.shed_id,
     g.park_id,
-    COALESCE(gsp.partition_label, 'whole') AS partition_label,
-    ` + liveTrackerPartitionNormExpr("gsp.partition_label") + ` AS part_norm,
+    ''::text AS partition_label,
+    'whole'::text AS part_norm,
     pr.dose_code,
     pd.name AS protocol_name,` + liveTrackerVaccineFamilyExpr + ` AS vaccine_family
   FROM obligation_instances oi
   JOIN goats g
     ON g.tenant_id = oi.tenant_id
    AND g.goat_id = oi.target_id
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = oi.tenant_id
-   AND gsp.goat_id = g.goat_id
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id
    AND pr.rule_id = oi.rule_id
@@ -258,18 +255,16 @@ scoped_enriched AS (
   FROM scoped s
   LEFT JOIN day_assignments asg
     ON asg.shed_id = s.shed_id
-   AND asg.part_norm = s.part_norm
   LEFT JOIN day_proofs dp ON dp.goat_id = s.goat_id
   LEFT JOIN day_scans ds ON ds.goat_id = s.goat_id
   LEFT JOIN day_attempts da ON da.goat_id = s.goat_id
   WHERE ($4::text = '' OR s.shed_id = NULLIF($4::text, '')::uuid)
-    AND ($5::text = '' OR s.part_norm = $5::text)
     AND ($6::text = '' OR asg.operator_id = NULLIF($6::text, '')::uuid)
     AND ($7::text = '' OR s.vaccine_family = $7::text)
 )`
 
 // liveTrackerCellsSQL is the board's one aggregate: the day's administrations rolled up to
-// park × shed × partition × vaccine family × assigned operator. Every KPI tile, both tables, the
+// park × exact shed × vaccine family × assigned operator. Every KPI tile, both tables, the
 // attention list and the park split are folded out of THIS result set in Go, so a tile can never
 // disagree with the table under it.
 //
@@ -291,8 +286,8 @@ SELECT
   COALESCE(pk.location_code, ''),
   se.shed_id::text,
   COALESCE(sh.name, ''),
-  se.partition_label,
-  se.part_norm,
+  ''::text AS partition_label,
+  'whole'::text AS part_norm,
   se.vaccine_family,
   min(se.dose_code) AS dose_code,
   min(se.protocol_name) AS protocol_name,
@@ -327,11 +322,11 @@ LEFT JOIN locations sh
 LEFT JOIN workforce_members wm
   ON wm.tenant_id = $1::uuid
  AND wm.workforce_member_id = se.operator_id
-GROUP BY se.park_id, pk.name, pk.location_code, se.shed_id, sh.name, se.partition_label, se.part_norm,
+GROUP BY se.park_id, pk.name, pk.location_code, se.shed_id, sh.name,
          se.vaccine_family, se.operator_id, wm.display_name, wm.display_code
 -- The sort key must be the FULL group key, or WHICH cells survive the cap changes between two 10s
 -- polls and the visible table reshuffles under the reader for no reason.
-ORDER BY pk.name, sh.name, se.part_norm, se.vaccine_family, se.shed_id, se.operator_id
+ORDER BY pk.name, sh.name, se.vaccine_family, se.shed_id, se.operator_id
 LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxCells)
 
 // liveTrackerActorSQL attributes evidence to the person who actually produced it. Videos and scans
@@ -762,11 +757,11 @@ LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxOperatorOptions) + `)
 
 UNION ALL
 
-(SELECT 'shed', se.shed_id::text, '', se.part_norm, COALESCE(sh.name, '') || chr(31) || se.partition_label, -- operational-location:ignore: owner=ravi issue=LT-OPT-SORT scope=internal-sort-key-not-user-display expiry=2026-11-30
+(SELECT 'shed', se.shed_id::text, '', '', COALESCE(sh.name, '') || chr(31) || '', -- operational-location:ignore: owner=ravi issue=LT-OPT-SORT scope=internal-sort-key-not-user-display expiry=2026-11-30
   (count(*) OVER ())::int
 FROM scoped_enriched se
 LEFT JOIN locations sh ON sh.tenant_id = $1::uuid AND sh.location_id = se.shed_id
-GROUP BY se.shed_id, sh.name, se.part_norm, se.partition_label
+GROUP BY se.shed_id, sh.name
 ORDER BY 5
 LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxShedOptions) + `)`
 
@@ -895,7 +890,9 @@ func (r *Repository) LiveTracker(ctx context.Context, q domain.LiveTrackerQuery)
 	shedFilter := optStr(q.ShedID)
 	partitionFilter := ""
 	if q.PartitionLabel != nil {
-		partitionFilter = domain.NormalizePartitionLabel(*q.PartitionLabel)
+		// Exact shed identity is authoritative. Partition labels are legacy compatibility metadata
+		// and must not narrow the live board once shed_id already names the physical shed.
+		partitionFilter = ""
 	}
 	operatorFilter := optStr(q.OperatorID)
 	vaccineFilter := strings.ToLower(strings.TrimSpace(optStr(q.VaccineCode)))
@@ -1267,7 +1264,7 @@ func (r *Repository) liveTrackerFilterOptions(ctx context.Context, tenantID, bus
 			shedName, partitionLabel, _ := strings.Cut(label, "\x1f")
 			out.Sheds = append(out.Sheds, domain.LiveTrackerFilterOption{
 				ID:             id,
-				PartitionLabel: partition,
+				PartitionLabel: "",
 				Label:          domain.ShedDisplayLabel(shedName, partitionLabel),
 			})
 		}
@@ -1373,7 +1370,7 @@ func liveTrackerShedRows(cells []liveTrackerCell, now time.Time) []domain.LiveTr
 			ShedID:                     c.shedID,
 			ShedName:                   c.shedName,
 			PhysicalShed:               c.shedName,
-			PartitionLabel:             c.partitionLabel,
+			PartitionLabel:             "",
 			ShedLabel:                  domain.ShedDisplayLabel(c.shedName, c.partitionLabel),
 			OperationalLocationDisplay: domain.ShedDisplayLabel(c.shedName, c.partitionLabel),
 			ParkID:                     c.parkID,
@@ -1454,7 +1451,7 @@ func liveTrackerOperatorRows(cells []liveTrackerCell, actors []liveTrackerActor,
 		if entry.row.CurrentShedID == "" || (c.lastActivityAt != nil && (entry.bestSeen == nil || c.lastActivityAt.After(*entry.bestSeen))) {
 			entry.row.CurrentShedID = c.shedID
 			entry.row.CurrentShedLabel = domain.ShedDisplayLabel(c.shedName, c.partitionLabel)
-			entry.row.CurrentPartitionLabel = c.partitionLabel
+			entry.row.CurrentPartitionLabel = ""
 			entry.row.CurrentVaccineLabel = vaccinatdomain.DoseDisplayLabel(c.protocolName, c.doseCode)
 			if c.lastActivityAt != nil {
 				entry.bestSeen = c.lastActivityAt

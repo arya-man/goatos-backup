@@ -2197,6 +2197,24 @@ func scanPCHandoff(row scanner) (domain.PCHandoff, error) {
 }
 
 func validateProcurementIntakePartition(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
+	if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		var exactShed bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM locations l
+  WHERE l.tenant_id = $1::uuid
+    AND l.location_id = $2::uuid
+    AND l.location_type = 'shed'
+    AND l.status = 'active'
+)`, tenantID, shedID).Scan(&exactShed); err != nil {
+			return err
+		}
+		if exactShed {
+			return nil
+		}
+	}
+
 	const q = `
 SELECT
   count(*) FILTER (WHERE status = 'active') AS active_partitions,
@@ -2231,6 +2249,32 @@ type procurementIntakeLocation struct {
 }
 
 func resolveProcurementIntakeOperationalLocation(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) (procurementIntakeLocation, error) {
+	if oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
+		var out procurementIntakeLocation
+		err := tx.QueryRow(ctx, `
+SELECT
+  l.location_id::text AS exact_shed_id,
+  COALESCE(sp.shed_id::text, '') AS group_shed_id,
+  ''::text AS partition_label
+FROM locations l
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = l.tenant_id
+ AND sp.operational_location_id = l.location_id
+ AND sp.status = 'active'
+WHERE l.tenant_id = $1::uuid
+  AND l.location_id = $2::uuid
+  AND l.location_type = 'shed'
+  AND l.status = 'active'
+LIMIT 1
+FOR SHARE OF l`, tenantID, shedID).Scan(&out.ExactShedID, &out.GroupShedID, &out.PartitionLabel)
+		if err == nil {
+			return out, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return procurementIntakeLocation{}, err
+		}
+	}
+
 	if !oploc.IsPartitioned(oploc.NormalizePartition(partitionLabel)) {
 		var out procurementIntakeLocation
 		err := tx.QueryRow(ctx, `

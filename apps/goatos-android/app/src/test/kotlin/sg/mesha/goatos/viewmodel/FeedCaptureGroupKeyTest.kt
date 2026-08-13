@@ -7,21 +7,20 @@ import org.junit.Test
 /**
  * The feed capture group key must identify exactly one unit of filmable work on one feed DAY.
  *
- * PACKING and DISTRIBUTION are both a PEN-SESSION and share [feedCaptureGroupKey], separated only by
- * their prefix. Packing was briefly a pen-DAY (2026-08-10) and that was reverted on 2026-08-11: a
- * pen's morning and evening bags are filmed separately, so each needs its own draft, its own submit
+ * PACKING and DISTRIBUTION are both a SHED-SESSION and share [feedCaptureGroupKey], separated only by
+ * their prefix. Packing was briefly a shed-DAY (2026-08-10) and that was reverted on 2026-08-11: a
+ * shed's morning and evening bags are filmed separately, so each needs its own draft, its own submit
  * idempotency key and its own outbox group.
  *
- * The pen assertions fail against the pre-2026-08-09 key ("feed-pack:$shedId:$sessionNo:$workflow"),
- * which is the point: that key made two pens of a shed collide, so one pen's video became the
- * other's draft and one pen's submission collapsed the other's as an idempotent replay.
+ * Exact shed id is the physical shed. Compatibility partition labels must not split one exact shed
+ * into multiple drafts; two physical sheds differ by shedId.
  *
- * The DAY assertions fail against both that key and its first pen-aware replacement — the day was
+ * The DAY assertions fail against both that key and its first partition-aware replacement — the day was
  * missing from every version until it was reported in review. Same collision, one dimension over:
- * the same pen and session recur every single day.
+ * the same shed and session recur every single day.
  *
- * The SESSION assertions fail against the pen-day key, which is the third version of this same
- * collision: it made a pen's two bags share one draft, so filming the morning showed the evening as
+ * The SESSION assertions fail against the day-level key, which is the third version of this same
+ * collision: it made a shed's two bags share one draft, so filming the morning showed the evening as
  * already recorded.
  */
 class FeedCaptureGroupKeyTest {
@@ -39,38 +38,40 @@ class FeedCaptureGroupKeyTest {
     ) = feedCaptureGroupKey("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate)
 
     @Test
-    fun `two pens of the same shed-day get different keys`() {
-        // The reported field failure: filming Part 2 then opening Part 3 showed Part 2's draft as
-        // "video uploaded successfully" on a pen nobody had filmed.
-        assertNotEquals(packing(partitionLabel = "Part 2"), packing(partitionLabel = "Part 3"))
+    fun `stale partition labels do not split one exact shed-day key`() {
+        assertEquals(packing(partitionLabel = "Part 2"), packing(partitionLabel = "Part 3"))
+        assertNotEquals(
+            packing(shedId = "shed-castro-1", partitionLabel = "1"),
+            packing(shedId = "shed-castro-2", partitionLabel = "1"),
+        )
     }
 
     @Test
-    fun `the same pen on two days gets different keys`() {
-        // A feed task is raised per pen per DAY, so yesterday's committed draft must not be what
+    fun `the same shed session on two days gets different keys`() {
+        // A feed task is raised per shed per DAY, so yesterday's committed draft must not be what
         // today's operator opens. Sharing the key showed a success screen for a clip nobody had
-        // recorded today, and left the pen unfilmable because the shared draft carries the
+        // recorded today, and left the shed unfilmable because the shared draft carries the
         // committed flag.
         assertNotEquals(packing(targetDate = today), packing(targetDate = tomorrow))
     }
 
     @Test
-    fun `each pen-session gets its own submit idempotency key`() {
+    fun `each physical shed session gets its own submit idempotency key`() {
         // The quieter half of the same defect: a shared key made the backend collapse the second
         // submission as a replay of the first, so it got no completion row, no verification item
         // and no video — while the phone showed success.
-        val part2 = "feed-packing-complete:" + packing(partitionLabel = "Part 2")
-        val part3 = "feed-packing-complete:" + packing(partitionLabel = "Part 3")
-        val part2Tomorrow = "feed-packing-complete:" + packing(partitionLabel = "Part 2", targetDate = tomorrow)
+        val shed1 = "feed-packing-complete:" + packing(shedId = "shed-castro-1", partitionLabel = "Part 2")
+        val shed2 = "feed-packing-complete:" + packing(shedId = "shed-castro-2", partitionLabel = "Part 3")
+        val shed1Tomorrow = "feed-packing-complete:" + packing(partitionLabel = "Part 2", targetDate = tomorrow)
 
-        assertNotEquals(part2, part3)
-        assertNotEquals(part2, part2Tomorrow)
+        assertNotEquals(shed1, shed2)
+        assertNotEquals(shed1, shed1Tomorrow)
     }
 
     /**
      * THE 2026-08-11 REVERT, stated as a key property.
      *
-     * A packing key carries a real session again, so a pen's morning and evening are TWO drafts, TWO
+     * A packing key carries a real session again, so a shed's morning and evening are TWO drafts, TWO
      * idempotency keys and TWO outbox groups — which is what makes them two cards and two videos.
      * Between 2026-08-10 and 2026-08-11 this segment was the literal "day" and the two bags shared
      * everything.
@@ -80,15 +81,15 @@ class FeedCaptureGroupKeyTest {
     @Test
     fun `a packing key carries its session and still separates workflows`() {
         assertEquals(
-            "feed-pack:2026-08-09:shed-mandela-2:part 2:1:normal",
+            "feed-pack:2026-08-09:shed-mandela-2:1:normal",
             packing(),
         )
         assertNotEquals(packing(workflow = "normal"), packing(workflow = "experiment"))
     }
 
-    /** A pen's two bags must never share a draft, an idempotency key or an outbox group. */
+    /** A shed's two daily sessions must never share a draft, an idempotency key or an outbox group. */
     @Test
-    fun `packing separates a pen's morning and evening`() {
+    fun `packing separates a shed's morning and evening`() {
         val morning = packing(sessionNo = 1)
         val evening = packing(sessionNo = 2)
 
@@ -109,23 +110,22 @@ class FeedCaptureGroupKeyTest {
     }
 
     @Test
-    fun `distribution keys are pen and day scoped too and never collide with packing`() {
+    fun `distribution keys are shed-session and day scoped too and never collide with packing`() {
         val distPart2 = feedCaptureGroupKey("feed-dist", shed, "Part 2", 1, "normal", today)
         val distPart3 = feedCaptureGroupKey("feed-dist", shed, "Part 3", 1, "normal", today)
         val distTomorrow = feedCaptureGroupKey("feed-dist", shed, "Part 2", 1, "normal", tomorrow)
 
-        assertNotEquals(distPart2, distPart3)
+        assertEquals(distPart2, distPart3)
         assertNotEquals(distPart2, distTomorrow)
         // Distribution carries two proofs and packing one; sharing a draft across the two flows
-        // would tick the wrong boxes. The PREFIX is the only thing keeping them apart now that both
-        // are pen-session scoped, so it is asserted on the matching session.
+        // would tick the wrong boxes. The PREFIX is the only thing keeping them apart, so it is
+        // asserted on the matching session.
         assertNotEquals(distPart2, packing(sessionNo = 1))
     }
 
     @Test
-    fun `the same pen-session is stable across case and whitespace variants`() {
-        // A pen must not split into two drafts because one page load spelled the label differently
-        // — that would lose the recorded clip on re-entry, the 2026-07-30 defect one layer over.
+    fun `legacy partition labels do not affect the same shed-session key`() {
+        // A shed must not split into two drafts because a legacy compatibility label differed.
         val canonical = packing(partitionLabel = "Part 3", workflow = "experiment")
 
         assertEquals(canonical, packing(partitionLabel = "part 3", workflow = "experiment"))
@@ -142,7 +142,7 @@ class FeedCaptureGroupKeyTest {
         val whitespace = packing(shedId = "shed-yashoda", partitionLabel = "   ")
 
         assertEquals(blank, whitespace)
-        assertEquals("feed-pack:2026-08-09:shed-yashoda:whole:1:normal", blank)
+        assertEquals("feed-pack:2026-08-09:shed-yashoda:1:normal", blank)
     }
 
     @Test
@@ -153,7 +153,7 @@ class FeedCaptureGroupKeyTest {
         // submitted after.
         val undated = packing(shedId = "shed-yashoda", partitionLabel = "", targetDate = "")
 
-        assertEquals("feed-pack:undated:shed-yashoda:whole:1:normal", undated)
+        assertEquals("feed-pack:undated:shed-yashoda:1:normal", undated)
         assertEquals(undated, packing(shedId = "shed-yashoda", partitionLabel = "", targetDate = "  "))
         assertNotEquals(undated, packing(shedId = "shed-yashoda", partitionLabel = ""))
     }

@@ -17,7 +17,7 @@ export function actionDriveLabel(
 }
 
 export function actionWorkTitle(pageContract: AdminUiPageContract, row: ActionCenterObligation): string {
-  const shed = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label }) || copy(pageContract, "label.shed_fallback");
+  const shed = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name }) || copy(pageContract, "label.shed_fallback");
   if (row.owner_state === "missing" || !row.owner?.operator_name) {
     return `${copy(pageContract, "action.assign_owner_chain")} — ${shed}`;
   }

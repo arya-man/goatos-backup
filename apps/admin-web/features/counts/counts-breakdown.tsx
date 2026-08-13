@@ -277,7 +277,6 @@ export async function CountsBreakdownPage({
   const penOptions: PenOption[] = (penResult.ok ? penResult.data.items : []).map((pen: FeedConfigPenOptionItem) => ({
     key: pen.shed_id,
     shedId: pen.shed_id,
-    partitionLabel: "",
     label: pen.operational_location_display,
   }));
 

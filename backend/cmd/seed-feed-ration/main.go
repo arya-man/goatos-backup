@@ -90,7 +90,6 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -702,13 +701,10 @@ WHERE tenant_id = $1::uuid
 	out := map[string]string{}
 	var missing, conflicting []string
 	for _, row := range experiments {
-		// The authored name is an OPERATIONAL LOCATION ("Castro 1", "Godel 1 - Part 3"), while the
-		// catalog holds the PHYSICAL shed ("Castro", "Godel 1") with the partition stored per animal.
-		// Resolve against the physical shed and carry the partition onto the row; matching the raw
-		// name demanded an active partition-named shed row, which the canonical model does not have,
-		// and made every one of the 34 experiment sheds unresolvable (2026-08-07).
-		physicalShed, _ := oploc.SplitShedPartitionName(row.Shed)
-		key := row.Farm + "\x1f" + configNormKey(physicalShed)
+		// The authored name is the exact operational shed ("Castro 1", "Godel 1 - Part 3"). Do not
+		// split it into a parent shed plus partition label; that was the old collapsed model and it
+		// is exactly how feed-direction drifted away from vaccination/counts.
+		key := row.Farm + "\x1f" + configNormKey(row.Shed)
 		if ids, bad := ambiguous[key]; bad {
 			conflicting = append(conflicting, fmt.Sprintf("%s / %s -> %v", row.Farm, row.Shed, ids))
 			continue
@@ -771,19 +767,17 @@ func seedExperiments(
 	var cells []cell
 	locations := map[string]bool{}
 	for _, row := range experiments {
-		// Same split as the resolver: the authored name is an operational location, the catalog key
-		// is the physical shed, and the partition rides onto the row so two partitions of one shed
-		// are two rows rather than a unique-key collision.
-		physicalShed, partitionLabel := oploc.SplitShedPartitionName(row.Shed)
-		shedID, ok := shedIDs[row.Farm+"\x1f"+configNormKey(physicalShed)]
+		// Same rule as the resolver: the authored name is the exact shed. partition_label remains
+		// empty/whole because the shed_id already points at the physical place.
+		partitionLabel := ""
+		shedID, ok := shedIDs[row.Farm+"\x1f"+configNormKey(row.Shed)]
 		if !ok {
 			// Unreachable: resolveExperimentSheds fails closed on a missing shed before this runs. It
 			// is still checked rather than indexed blindly, because the consequence of a silent zero
 			// value here is a row written against the nil UUID.
 			return fmt.Errorf("experiment shed %q in farm %s was not resolved", row.Shed, row.Farm)
 		}
-		// The stat the operator reads is "how many operational locations were seeded" -- 34
-		// partitions across 8 physical sheds, not 8.
+		// The stat the operator reads is "how many operational sheds were seeded".
 		locations[shedID+"\x1f"+partitionLabel] = true
 
 		headers := make([]string, 0, len(row.Kg))

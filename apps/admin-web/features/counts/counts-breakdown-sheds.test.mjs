@@ -85,6 +85,22 @@ test("duplicate exact-shed facet rows collapse to one dropdown option", () => {
   assert.equal(options.find((o) => o.value === SHED_A).group, undefined);
 });
 
+test("same park alias rows with the same physical shed name collapse before rendering", () => {
+  const aliasId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const options = buildShedFilterOptions([
+    { key: aliasId, shed_id: aliasId, label: "Castro 1", partition_label: "1", count: 0, park_id: PARK_A },
+    { key: SHED_A, shed_id: SHED_A, label: "Castro 1", partition_label: "1", operational_location_display: "Castro 1", count: 33, park_id: PARK_A },
+    { key: SHED_B, shed_id: SHED_B, label: "Castro 1", partition_label: "1", operational_location_display: "Castro 1", count: 31, park_id: PARK_B },
+  ], "", PARK_LABELS);
+
+  assert.deepEqual(
+    options.map((o) => o.label),
+    ["Castro 1 · CBE", "Castro 1 · CPT"],
+  );
+  assert.equal(options.filter((o) => o.label === "Castro 1 · CBE").length, 1);
+  assert.equal(options.find((o) => o.label === "Castro 1 · CBE").value, SHED_A);
+});
+
 test("park id is never leaked as a label when the park vocabulary is missing", () => {
   // Rendering a raw UUID in front of a CEO is the copy-firewall violation; an ambiguous-but-clean
   // label beats a leaked identifier.

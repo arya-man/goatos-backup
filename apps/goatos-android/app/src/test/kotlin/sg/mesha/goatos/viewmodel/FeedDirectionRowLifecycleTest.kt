@@ -22,6 +22,7 @@ class FeedDirectionRowLifecycleTest {
         shedId = "shed-1",
         sessionNo = 1,
         shedLabel = "Godel 1",
+        partitionLabel = "",
         shedTag = "",
         breed = "",
         rationGroup = "",

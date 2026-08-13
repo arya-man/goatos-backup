@@ -15,12 +15,13 @@ test("vaccination schedule is driven by persisted operator assignments", () => {
   assert.match(source, /getVaccinationDriveAssignments/);
   assert.match(source, /section\.full_schedule\.operator_title/);
   assert.match(source, /physicalShed/);
-  assert.match(source, /partitionLabel/);
+  assert.match(source, /operational_location_display/);
+  assert.doesNotMatch(source, /partitionLabel/);
   assert.match(source, /originalPlannedDate/);
   assert.match(source, /vaccineOriginalDates/);
   assert.match(source, /operatorName/);
   assert.match(source, /groupOperatorDayRows/);
-  assert.match(source, /shed\.partitions\.push/);
+  assert.doesNotMatch(source, /partitions:/);
   assert.equal(
     source.includes("getVaccinationSchedule"),
     false,
@@ -94,7 +95,7 @@ test("vaccination schedule drawer shed rows deep-link to the execution goat list
   assert.match(source, /const href = shed\.id/);
   assert.match(source, /scopeHref\(\s*`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
   assert.match(source, /park:\s*row\.parkId/);
-  assert.match(source, /partition_label:\s*partition/);
+  assert.doesNotMatch(source, /partition_label:\s*partition/);
   assert.match(source, /ret/);
 });
 
@@ -129,11 +130,10 @@ test("vaccination schedule keeps workload bars animal-based on backend assignmen
 });
 
 test("vaccination shed summary row keys include the full rendered summary grain", () => {
-  assert.match(shedBoardSource, /const partitionAwareKey = \[/);
+  assert.match(shedBoardSource, /const rowKey = \[/);
   for (const token of [
     "row.parkId",
     "row.shedId",
-    "row.partitionLabel",
     "row.nextDue",
     "row.status",
     "row.capacity",
@@ -145,6 +145,7 @@ test("vaccination shed summary row keys include the full rendered summary grain"
   ]) {
     assert.match(shedBoardSource, new RegExp(token.replaceAll(".", "\\.")));
   }
+  assert.doesNotMatch(shedBoardSource, /row\.partitionLabel/);
   assert.doesNotMatch(
     shedBoardSource,
     /const partitionAwareKey = `\$\{row\.shedId\}\|\$\{row\.partitionLabel/,

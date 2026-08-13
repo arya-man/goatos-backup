@@ -445,13 +445,11 @@ type CountsBreakdownRow struct {
 	ParkLabel string  `json:"park_label"`
 	ShedID    *string `json:"shed_id"`
 	ShedLabel string  `json:"shed_label"`
-	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" for a
-	// non-partitioned shed / a shed-less row. Never the "whole" sentinel -- see
-	// internal/platform/oploc.
+	// PartitionLabel is legacy compatibility metadata from old rows. Exact shed_id/name is the
+	// physical location; this field must not be appended to display or used as live identity.
 	PartitionLabel string `json:"partition_label,omitempty"`
-	// OperationalLocationDisplay is oploc.OperationalLocation{ShedName: ShedLabel,
-	// PartitionLabel: PartitionLabel}.Display(): "Castro 2" for a partition, bare "Yashoda" for a
-	// non-partitioned shed, never a synthetic "Yashoda whole".
+	// OperationalLocationDisplay is the exact physical shed name: "Castro 2", "Godel 2 - Part 1",
+	// or bare "Yashoda". Never synthesize it from ShedLabel + PartitionLabel.
 	OperationalLocationDisplay string `json:"operational_location_display"`
 	ManagementStage            string `json:"management_stage"`
 	Breed                      string `json:"breed"`

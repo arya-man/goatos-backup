@@ -90,7 +90,7 @@ export function LiveTrackerSheds({
                 const percent = pct(row.closed_administrations, row.scheduled_administrations);
                 const href = shedHref(row);
                 return (
-                  <tr key={`${row.shed_id}|${row.partition_label}|${row.vaccine_code}|${row.operator_id}`} className="lt-shed-row">
+                  <tr key={`${row.shed_id}|${row.vaccine_code}|${row.operator_id}`} className="lt-shed-row">
                     <td className="lt-shedlbl">
                       <Link
                         href={href}

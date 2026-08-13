@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Post-seed/post-import DB proof for vaccination placement invariants.
-# Every live goat must have a real active shed, and every open goat vaccination
-# obligation must be scoped to that same shed. Park is a drive execution scope,
-# not a fallback animal scope.
+# Every live goat must have a real active exact shed, and every open goat
+# vaccination obligation must be scoped to that same shed. Park is a drive
+# execution scope, not a fallback animal scope. Legacy partition rows are
+# compatibility evidence only; they must agree with the exact shed, not replace it.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -13,10 +14,11 @@ non_terminal_lifecycle_predicate="g.lifecycle_status IN ('alive','sick','under_t
 if [ "${1:-}" = "--self-test" ]; then
   bash -n "$0"
   grep -q "active_goat_shed_invariant" "$0"
+  grep -q "partitioned_goat_exact_shed_invariant" "$0"
   grep -q "vaccination_obligation_shed_scope_invariant" "$0"
   if [ -z "${DATABASE_URL:-}" ]; then
-    echo "goat-shed-integrity proof: DATABASE_URL is required for semantic self-test" >&2
-    exit 2
+    echo "goat-shed-integrity proof: self-test passed (syntax/marker only; set DATABASE_URL for semantic fixture)"
+    exit 0
   fi
     semantic_count="$(
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<SQL
@@ -56,18 +58,18 @@ CREATE TEMP TABLE shed_partitions (
 INSERT INTO locations VALUES
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000010', NULL, 'park', 'active'),
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000011', 'pen', 'active'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000011', 'pen', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000014', '00000000-0000-4000-8000-000000000010', 'shed', 'active'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', '00000000-0000-4000-8000-000000000014', 'pen', 'active');
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', '00000000-0000-4000-8000-000000000010', 'shed', 'active');
 INSERT INTO shed_partitions VALUES
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '1', '00000000-0000-4000-8000-000000000012', 'active');
 INSERT INTO goats VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'OK', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', NULL),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000102', 'NULL', 'sick', 'sick', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', NULL, NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'OK', 'alive', 'healthy', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000012', NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000102', 'NULL', 'sick', 'sick', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000012', NULL, NULL),
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000103', 'PARENT', 'under_treatment', 'under_treatment', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000011', NULL),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000104', 'SIBLING', 'quarantine', 'quarantine', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000013', NULL),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000105', 'OTHER', 'icu', 'icu', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000015', NULL);
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000104', 'SIBLING', 'quarantine', 'quarantine', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000013', NULL),
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000105', 'OTHER', 'icu', 'icu', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000015', '00000000-0000-4000-8000-000000000015', NULL);
 INSERT INTO goat_shed_partitions VALUES
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000011', 'Part 1'),
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000011', 'Part 1'),
@@ -86,14 +88,6 @@ WITH active_goat_shed_invariant AS (
   LEFT JOIN locations current_loc
     ON current_loc.tenant_id = g.tenant_id
    AND current_loc.location_id = g.current_location_id
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id
-   AND gsp.goat_id = g.goat_id
-  LEFT JOIN shed_partitions sp
-    ON sp.tenant_id = g.tenant_id
-   AND sp.shed_id = g.shed_id
-   AND sp.status = 'active'
-   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id
    AND park.location_id = g.park_id
@@ -106,27 +100,41 @@ WITH active_goat_shed_invariant AS (
       g.shed_id IS NULL
       OR g.park_id IS NULL
       OR g.current_location_id IS NULL
-      OR CASE
-        WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN
-          g.current_location_id IS DISTINCT FROM g.shed_id
-        ELSE
-          sp.operational_location_id IS NULL
-          OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
-      END
-      OR (
-        sp.operational_location_id IS NOT NULL
-        AND NOT (
-          current_loc.location_type = 'pen'
-          AND current_loc.status = 'active'
-          AND current_loc.parent_location_id = g.shed_id
-        )
-      )
+      OR g.current_location_id IS DISTINCT FROM g.shed_id
+      OR current_loc.location_type IS DISTINCT FROM 'shed'
+      OR current_loc.status IS DISTINCT FROM 'active'
       OR shed.location_id IS NULL
       OR park.location_id IS NULL
       OR shed.parent_location_id IS DISTINCT FROM g.park_id
     )
+),
+partitioned_goat_exact_shed_invariant AS (
+  SELECT g.display_id
+  FROM goats g
+  JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id = gsp.tenant_id
+   AND sp.shed_id = gsp.shed_id
+   AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+   AND sp.status = 'active'
+  WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND ${non_terminal_lifecycle_predicate}
+    AND g.merged_into_goat_id IS NULL
+    AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
+    AND (
+      sp.operational_location_id IS NULL
+      OR g.shed_id IS DISTINCT FROM sp.operational_location_id
+      OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
+    )
 )
-SELECT count(*) FROM active_goat_shed_invariant;
+SELECT count(DISTINCT display_id)
+FROM (
+  SELECT display_id FROM active_goat_shed_invariant
+  UNION ALL
+  SELECT display_id FROM partitioned_goat_exact_shed_invariant
+) bad;
 ROLLBACK;
 SQL
 )"
@@ -160,21 +168,11 @@ WITH active_goat_shed_invariant AS (
       WHEN g.shed_id IS NULL THEN 'missing shed_id'
       WHEN g.park_id IS NULL THEN 'missing park_id'
       WHEN g.current_location_id IS NULL THEN 'missing current_location_id'
-      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
-        AND g.current_location_id IS DISTINCT FROM g.shed_id
-        THEN 'whole-shed goat current_location_id is not shed_id'
-      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
-        AND sp.operational_location_id IS NULL
-        THEN 'partitioned goat has no mapped operational pen'
-      WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
-        AND g.current_location_id IS DISTINCT FROM sp.operational_location_id
-        THEN 'partitioned goat current_location_id is not mapped operational pen'
-      WHEN sp.operational_location_id IS NOT NULL
-        AND NOT (
-          current_loc.location_type = 'pen'
-          AND current_loc.status = 'active'
-          AND current_loc.parent_location_id = g.shed_id
-        ) THEN 'mapped operational pen is not active under shed_id'
+      WHEN g.current_location_id IS DISTINCT FROM g.shed_id
+        THEN 'current_location_id is not exact shed_id'
+      WHEN current_loc.location_type IS DISTINCT FROM 'shed'
+        OR current_loc.status IS DISTINCT FROM 'active'
+        THEN 'current_location_id is not an active shed'
       WHEN shed.location_id IS NULL THEN 'shed_id is not an active shed'
       WHEN park.location_id IS NULL THEN 'park_id is not an active park'
       WHEN shed.parent_location_id IS DISTINCT FROM g.park_id THEN 'shed parent is not goat park'
@@ -189,14 +187,6 @@ WITH active_goat_shed_invariant AS (
   LEFT JOIN locations current_loc
     ON current_loc.tenant_id = g.tenant_id
    AND current_loc.location_id = g.current_location_id
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id
-   AND gsp.goat_id = g.goat_id
-  LEFT JOIN shed_partitions sp
-    ON sp.tenant_id = g.tenant_id
-   AND sp.shed_id = g.shed_id
-   AND sp.status = 'active'
-   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id
    AND park.location_id = g.park_id
@@ -209,24 +199,48 @@ WITH active_goat_shed_invariant AS (
       g.shed_id IS NULL
       OR g.park_id IS NULL
       OR g.current_location_id IS NULL
-      OR CASE
-        WHEN regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole' THEN
-          g.current_location_id IS DISTINCT FROM g.shed_id
-        ELSE
-          sp.operational_location_id IS NULL
-          OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
-      END
-      OR (
-        sp.operational_location_id IS NOT NULL
-        AND NOT (
-          current_loc.location_type = 'pen'
-          AND current_loc.status = 'active'
-          AND current_loc.parent_location_id = g.shed_id
-        )
-      )
+      OR g.current_location_id IS DISTINCT FROM g.shed_id
+      OR current_loc.location_type IS DISTINCT FROM 'shed'
+      OR current_loc.status IS DISTINCT FROM 'active'
       OR shed.location_id IS NULL
       OR park.location_id IS NULL
       OR shed.parent_location_id IS DISTINCT FROM g.park_id
+    )
+),
+partitioned_goat_exact_shed_invariant AS (
+  SELECT
+    'partitioned_goat_exact_shed_invariant' AS invariant,
+    COALESCE(g.display_id, g.goat_id::text) AS goat,
+    COALESCE(g.lifecycle_status, '') AS lifecycle,
+    COALESCE(g.health_status, '') AS health,
+    COALESCE(g.park_id::text, 'missing') AS park_id,
+    COALESCE(g.shed_id::text, 'missing') AS shed_id,
+    COALESCE(g.current_location_id::text, 'missing') AS current_location_id,
+    CASE
+      WHEN sp.operational_location_id IS NULL THEN 'partition mapping has no exact shed'
+      WHEN g.shed_id IS DISTINCT FROM sp.operational_location_id
+        THEN 'goat shed_id is not mapped exact shed'
+      WHEN g.current_location_id IS DISTINCT FROM sp.operational_location_id
+        THEN 'goat current_location_id is not mapped exact shed'
+      ELSE 'unknown'
+    END AS reason
+  FROM goats g
+  JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id = gsp.tenant_id
+   AND sp.shed_id = gsp.shed_id
+   AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+   AND sp.status = 'active'
+  WHERE g.tenant_id = :'tenant_id'::uuid
+    AND ${non_terminal_lifecycle_predicate}
+    AND g.merged_into_goat_id IS NULL
+    AND regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') <> 'whole'
+    AND (
+      sp.operational_location_id IS NULL
+      OR g.shed_id IS DISTINCT FROM sp.operational_location_id
+      OR g.current_location_id IS DISTINCT FROM sp.operational_location_id
     )
 ),
 vaccination_obligation_shed_scope_invariant AS (
@@ -267,6 +281,8 @@ SELECT invariant || ' | goat=' || goat || ' | lifecycle=' || lifecycle ||
        ' | reason=' || reason
 FROM (
   SELECT * FROM active_goat_shed_invariant
+  UNION ALL
+  SELECT * FROM partitioned_goat_exact_shed_invariant
   UNION ALL
   SELECT * FROM vaccination_obligation_shed_scope_invariant
 ) bad

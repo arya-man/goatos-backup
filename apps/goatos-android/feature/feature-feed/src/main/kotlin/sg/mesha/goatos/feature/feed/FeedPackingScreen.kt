@@ -38,12 +38,12 @@ import java.time.LocalDate
 // ---------------------------------------------------------------------------
 
 /**
- * One PEN-SESSION packing line — the bag a packer fills and films.
+ * One exact shed-session packing line — the bag a packer fills and films.
  *
  * ONE CARD PER SESSION, ONE VIDEO EACH (maintainer decision 2026-08-11, reverting the 2026-08-10
- * pen-day card). A pen's morning and evening shares are separate bags weighed out at separate times,
- * so each gets its own card, its own capture and its own verification item. One clip cannot prove two
- * bags.
+ * day card). A shed's morning and evening shares are separate bags weighed out at separate times,
+ * so each gets its own card, its own capture and its own verification item. One clip cannot prove
+ * two bags.
  */
 @Immutable
 data class FeedPackingRowUi(
@@ -53,8 +53,7 @@ data class FeedPackingRowUi(
     val shedId: String,
     val sessionNo: Int,
     val shedLabel: String,
-    /** The PEN, "" for an undivided shed. Carried separately from the composed [shedLabel]
-     *  because the completion needs the raw pen, not the display string. */
+    /** Legacy backend compatibility metadata; never used for live display or completion identity. */
     val partitionLabel: String,
     val sessionLabel: String,
     val workflow: String,
@@ -146,7 +145,6 @@ sealed interface FeedPackingEvent {
         val sessionNo: Int,
         val workflow: String,
         val shedLabel: String,
-        val partitionLabel: String,
         val sessionLabel: String,
     ) : FeedPackingEvent
     data object ClearFilters : FeedPackingEvent
@@ -234,7 +232,6 @@ fun FeedPackingScreen(
                                 sessionNo = row.sessionNo,
                                 workflow = row.workflow,
                                 shedLabel = row.shedLabel,
-                                partitionLabel = row.partitionLabel,
                                 sessionLabel = row.sessionLabel,
                             ),
                         )

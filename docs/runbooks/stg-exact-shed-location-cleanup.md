@@ -58,6 +58,11 @@ goats.current_location_id = Ho Chi Minh
 goats.shed_group_id = NULL
 ```
 
+The migration links compatibility rows to existing exact shed `locations` rows.
+It must not create `Castro 2`, `Gandhi 1`, or `Godel 1 - Part N` from
+`shed_partitions`. If an exact shed row is missing or ambiguous, the deploy must
+stop and the farm/location list must be reviewed before retrying.
+
 ## Rows That Must Be Rewritten
 
 The cleanup is not only `goats`.
@@ -104,14 +109,58 @@ as a live display contract.
 ## STG Execution Order
 
 1. Take a Cloud SQL backup/snapshot and record the backup id.
-2. Deploy the PR migrations.
-3. Run the batched goat residence backfill (`000154`) to completion.
-4. Run the STG cleanup verification queries below.
-5. Only then publish Android/Firebase or ask users to retest.
+2. Run the exact-shed preflight below and resolve every missing/ambiguous row.
+3. Deploy the PR migrations.
+4. Run the batched goat residence backfill (`000161`) to completion.
+5. Run the STG cleanup verification queries below.
+6. Only then publish Android/Firebase or ask users to retest.
 
 ## Required Proof Queries
 
 These checks must return zero rows unless explicitly listed as historical-only.
+
+### Compatibility rows without an exact shed candidate
+
+This is the preflight shape; the migration has the same fail-closed behavior.
+Resolve every returned row before deploy. Do not create a live shed from
+`shed_partitions` alone.
+
+```sql
+WITH source_names AS (
+  SELECT
+    gsp.tenant_id,
+    gsp.shed_id,
+    regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') AS normalized_label,
+    CASE WHEN count(DISTINCT NULLIF(btrim(gsp.source_shed_name), '')) = 1
+      THEN max(NULLIF(btrim(gsp.source_shed_name), ''))
+      ELSE NULL
+    END AS source_shed_name
+  FROM goat_shed_partitions gsp
+  GROUP BY gsp.tenant_id, gsp.shed_id, regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+)
+SELECT sp.tenant_id, parent.name AS group_shed, sp.partition_label, sn.source_shed_name
+FROM shed_partitions sp
+JOIN locations parent ON parent.tenant_id = sp.tenant_id AND parent.location_id = sp.shed_id
+LEFT JOIN source_names sn
+  ON sn.tenant_id = sp.tenant_id
+ AND sn.shed_id = sp.shed_id
+ AND sn.normalized_label = sp.normalized_label
+WHERE sp.operational_location_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM locations exact
+    WHERE exact.tenant_id = parent.tenant_id
+      AND exact.parent_location_id = parent.parent_location_id
+      AND exact.location_type = 'shed'
+      AND exact.location_id <> sp.shed_id
+      AND (
+        lower(exact.name) = lower(concat_ws(' ', parent.name, NULLIF(btrim(sp.partition_label), '')))
+        OR lower(exact.name) = lower(concat_ws(' - ', parent.name, NULLIF(btrim(sp.partition_label), '')))
+        OR lower(exact.name) = lower(concat_ws(' - Part ', parent.name, NULLIF(btrim(sp.normalized_label), '')))
+        OR (sn.source_shed_name IS NOT NULL AND lower(exact.name) = lower(sn.source_shed_name))
+      )
+  );
+```
 
 ### Live goats still on a grouped shed while partition evidence exists
 

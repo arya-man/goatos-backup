@@ -108,7 +108,7 @@ data class ShiftingShedUi(
     val name: String,
     val partitionLabel: String? = null,
     /**
-     * The backend-composed operational-location label ("Yashoda", "Castro - 2",
+     * The backend-composed operational-location label ("Yashoda", "Castro 2",
      * "Godel 1 - Part 3"). Render this verbatim: the backend owns visible labels, and composing
      * shed + partition on the client duplicates that rule into a second language where it drifts.
      * Falls back to the local composer only when the server sends nothing, so an older backend
@@ -118,7 +118,7 @@ data class ShiftingShedUi(
 ) {
     /** What the operator should read for this option. */
     val displayLabel: String
-        get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
+        get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, null) }
 
     /** Stable dropdown-option key: exact shed id. */
     val optionKey: String
@@ -468,7 +468,7 @@ private fun ShiftingAnimalHero(
                 modifier = Modifier.weight(1f),
                 label = stringResource(R.string.counts_shifting_from),
                 parkLabel = animal.parkName,
-                shedLabel = animal.locationLabel.ifBlank { operationalLocationLabel(animal.shedName, animal.partitionLabel) },
+                shedLabel = animal.locationLabel.ifBlank { operationalLocationLabel(animal.shedName, null) },
                 fallback = animal.locationLabel,
                 accent = MeshaColors.Faint,
             )

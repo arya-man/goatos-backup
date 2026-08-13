@@ -1,7 +1,7 @@
 // Package oploc is the single source of truth for OperationalLocation:
 // the ground location of an animal or a unit of work.
 //
-//	OperationalLocation = park + physical_shed + optional partition_label
+//	OperationalLocation = park + exact physical shed
 //
 // If a place has parts, each part is the operational shed. Legacy rows may still
 // carry a group shed plus partition label during compatibility reads; this
@@ -109,10 +109,10 @@ func (l OperationalLocation) Key() string {
 	return l.ShedID
 }
 
-// shedPartitionSuffix matches the EXACTLY TWO partition-naming conventions the locations catalog
-// uses, and nothing else: the prefixed form ("Godel 1 - Part 3") and the bare numeric form
-// ("Castro 2"). An ordinary non-partitioned name ("Yashoda", "Ho Chi Minh") matches neither and
-// passes through untouched.
+// shedPartitionSuffix matches the legacy worded convention from pre-cutover partition evidence,
+// and nothing else: the prefixed form ("Godel 1 - Part 3"). Active location display must treat
+// that full string as the shed name; this parser exists only for compatibility imports that still
+// need to interpret old group-shed plus label data.
 //
 // Order matters. The prefixed alternative is tried FIRST so "Godel 1 - Part 3" resolves to shed
 // "Godel 1" + partition "Part 3", not shed "Godel" + partition "1" -- a shed name may itself end in
@@ -137,15 +137,13 @@ func (l OperationalLocation) Key() string {
 // Pinned by numeric_name_check_test.go. Do not add the numeric alternative back.
 var shedPartitionSuffix = regexp.MustCompile(`(?i)^(.+?)\s*-\s*part\s+(\S+)$`)
 
-// SplitShedPartitionName parses a shed catalog display name into its physical shed name and
-// partition label, returning an empty label when the name carries no partition.
+// SplitShedPartitionName parses a legacy partition-bearing name into a group shed name and
+// partition label, returning an empty label when the name carries no legacy partition marker.
 //
-// This is the single Go home of the naming rule AGENTS.md states as a STORAGE rule ("Gandhi 1,
-// Gandhi 2, Gandhi 3 are one physical shed Gandhi with partitions 1, 2, 3"; "Godel 1 - Part 3 is
-// physical shed Godel 1 with partition Part 3"). It lives here, next to NormalizePartition and
-// Display, so a caller that needs to go from a catalog name to an operational location never
-// re-derives the convention -- re-deriving it is how two callers end up disagreeing about whether
-// "Godel 1 - Part 3" is one shed or two.
+// Do not call this to render or identify a live location. After the exact-shed cutover, names such
+// as "Castro 2" and "Godel 1 - Part 3" are exact shed names. Live code should carry that shed id
+// and name directly; this function is only for old imported strings whose group/label bridge has
+// not yet been eliminated.
 func SplitShedPartitionName(name string) (shedName, partitionLabel string) {
 	trimmed := strings.TrimSpace(name)
 	m := shedPartitionSuffix.FindStringSubmatch(trimmed)
