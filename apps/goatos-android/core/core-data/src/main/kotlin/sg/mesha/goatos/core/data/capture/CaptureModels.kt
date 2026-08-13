@@ -30,6 +30,11 @@ data class ProofIdentity(
     val shedId: String = "",
     val partitionKey: String = "whole", // normalized via executionPartitionKey
     val subjectKey: String = "", // goatId, obligationId, shed id, etc
+    // Feed-specific fields for capture group key
+    val flowPrefix: String = "", // e.g., "feed-pack", "feed-dist" for feed operations
+    val targetDate: String = "", // YYYY-MM-DD for feed operations
+    val sessionNo: Int = 0, // feed session number
+    val workflow: String = "", // "normal" or "experiment" for feed operations
 ) {
     /** Storage key for Room/proof row identification (animal/partition grain). */
     fun storageKey(): String {
@@ -55,6 +60,16 @@ data class ProofIdentity(
                 "feed:capture:$taskId:${partitionKey.takeIf { it != "whole" }?.let { ":$it" }.orEmpty()}:${flow.wireValue}:$subjectKey"
             else -> "proof:capture:$taskId:${flow.wireValue}:$subjectKey"
         }
+    }
+
+    /** Feed capture group key: the identity of ONE feed capture flow on one feed DAY in one session.
+     *  Used for durable capture drafts, submit idempotency, and outbox grouping. */
+    fun captureGroupKey(): String {
+        val dateToken = targetDate.trim().ifEmpty { "undated" }
+        val partitionToken = partitionKey.takeIf { it != "whole" }
+            ?.let { it.lowercase().replace(Regex("\\s+"), " ") }
+            ?: "whole"
+        return "$flowPrefix:$dateToken:$taskId:$partitionToken:$sessionNo:$workflow"
     }
 }
 
