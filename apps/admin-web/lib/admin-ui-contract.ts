@@ -523,6 +523,33 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
       detail_fields: [],
     },
   },
+  "shed-execution": {
+    "shed-drive-rows": {
+      id: "shed-drive-rows",
+      title: "Drive rows",
+      data_source: "/vaccination/execution/sheds/{shed_id}",
+      columns: [
+        { key: "animal_stage", label: "Animal stage", sortable: false, visible: true },
+        { key: "drive", label: "Drive", sortable: false, visible: true },
+        { key: "due_date", label: "Due date", sortable: false, visible: true },
+        { key: "work_state", label: "Work state", sortable: false, visible: true },
+        { key: "proof_status", label: "Proof status", sortable: false, visible: true },
+        { key: "next_action", label: "Next action", sortable: false, visible: true },
+      ],
+      filters: [],
+      sort_keys: [],
+      page_size_options: [],
+      row_click: {
+        enabled: false,
+        param: "drive_row",
+        target_drawer: "",
+        summary_fields: [],
+        detail_fields: [],
+      },
+      summary_fields: [],
+      detail_fields: [],
+    },
+  },
 };
 
 export function copy(page: AdminUiPageContract, key: string, whenAbsent?: string): string {

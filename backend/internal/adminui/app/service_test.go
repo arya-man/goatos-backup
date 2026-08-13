@@ -393,6 +393,16 @@ func TestShedExecutionBootstrapPublishesAnimalRowActionCopy(t *testing.T) {
 	if got := page.Copy["action.open_passport"]; got != "Open Animal Passport" {
 		t.Fatalf("shed-execution action.open_passport copy = %q", got)
 	}
+	foundDriveRows := false
+	for _, table := range page.Tables {
+		if table.ID == "shed-drive-rows" {
+			foundDriveRows = true
+			break
+		}
+	}
+	if !foundDriveRows {
+		t.Fatal("shed-execution missing shed-drive-rows table contract")
+	}
 }
 
 func TestSourceLoadContractPublishesProcurementSexSelector(t *testing.T) {

@@ -16,6 +16,7 @@ import { ClipText, Tag } from "@/components/ui-primitives";
 import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-schedule-load";
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
+import { HashSectionScroller } from "./hash-section-scroller";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
 import { hasOperationalPartition } from "@/lib/operational-location";
 
@@ -138,7 +139,12 @@ function scheduleMoveRedirect(returnTo: string, params: Record<string, string>):
   return `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`;
 }
 
-function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope): ScheduleDrawerRow[] {
+function executionPartitionLabel(shed: OperatorDayScheduleRow["sheds"][number]): string | undefined {
+  const realPartitions = Array.from(new Set(shed.partitions.map((partition) => partition.label.trim()).filter(hasOperationalPartition)));
+  return realPartitions.length === 1 ? realPartitions[0] : undefined;
+}
+
+function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope, closeHref: string): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
     date: row.plannedDate,
@@ -147,8 +153,15 @@ function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageCon
     totalAnimals: row.animals,
     vaccines: row.vaccineNames,
     sheds: row.sheds.map((shed) => {
+      const ret = scheduleDrawerHref(closeHref, row);
+      const partition = executionPartitionLabel(shed);
       const href = shed.id
-        ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`, scope, { mode: "park", park: row.parkId })
+        ? scopeHref(
+            `/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`,
+            scope,
+            { mode: "park", park: row.parkId },
+            { partition_label: partition, ret },
+          )
         : undefined;
       return {
         label: shedPartitionTitle(pageContract, shed),
@@ -348,6 +361,7 @@ export function VaccinationFullScheduleSkeleton({
 }) {
   return (
     <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }} aria-busy="true">
+      <HashSectionScroller id="full-schedule" />
       <div className="hd vaccination-schedule-hd">
         <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <div style={{ minWidth: 0 }}>
@@ -429,7 +443,7 @@ export async function VaccinationFullSchedule({
   const scheduleMoveShifted = one(searchParams ?? {}, "schedule_move_shifted") === "1";
   const scheduleMoveConflictVaccine = one(searchParams ?? {}, "schedule_move_conflict_vaccine");
   const scheduleMoveConflictDate = one(searchParams ?? {}, "schedule_move_conflict_date");
-  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
+  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope, closeHref);
   const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
   function monthHref(nextYear: number, nextMonth: number) {
@@ -438,6 +452,7 @@ export async function VaccinationFullSchedule({
 
   return (
     <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }}>
+      <HashSectionScroller id="full-schedule" />
       <div className="hd vaccination-schedule-hd">
         <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <div style={{ minWidth: 0 }}>

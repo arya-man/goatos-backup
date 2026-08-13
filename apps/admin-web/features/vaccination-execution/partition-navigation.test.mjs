@@ -12,5 +12,6 @@ test("vaccination execution drilldown preserves sibling partition identity", () 
   assert.match(route, /partitionLabel=\{one\(sp, "partition_label"\)\}/);
   assert.match(route, /<ShedExecutionDetailPage/);
   assert.match(drilldown, /getVaccinationExecutionShedDrilldown\(shedId, \{ asOf, partitionLabel \}\)/);
+  assert.match(drilldown, /tableLabels\(pageContract, "shed-drive-rows"\)/);
   assert.match(server, /partition_label:\s*params\.partitionLabel/);
 });

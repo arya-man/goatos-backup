@@ -6,6 +6,7 @@ import { scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
+import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination/full-vaccine-schedule";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
 import { LiveTrackerOperators } from "./live-tracker-operators";
 import { LiveTrackerSheds } from "./live-tracker-sheds";
@@ -120,7 +121,10 @@ export async function LiveTrackerBoard({
   // "full-vaccine-schedule" is the backend table-contract id and carries no DOM element, so the
   // button navigated to /vaccination and scrolled nowhere. live-tracker.test.mjs pins the two
   // together so this cannot rot again.
-  const scheduleHref = scopeHref("/vaccination", params.scope, {}, {}) + "#" + FULL_SCHEDULE_ANCHOR;
+  const scheduleHref =
+    scopeHref("/vaccination", params.scope, {}, { view: "schedule", schedule_year: String(vaccinationScheduleYear(params.sp)) }) +
+    "#" +
+    FULL_SCHEDULE_ANCHOR;
   const commandHref = scopeHref("/vaccination", params.scope, {}, {});
   // /verify reads parseScope, and the verification counts on this board are park-scoped, so the
   // hand-off has to carry the same scope or the two screens disagree about the same queue.
@@ -341,10 +345,10 @@ function PageHead({
             here — every element still appears, just hosted by the surface that owns it. */}
         {generatedAt && isLiveDay ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
         <div className="lt-headbtns">
-          <Link href={scheduleHref} className="btn">
+          <a href={scheduleHref} className="btn">
             <CalendarDays className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" />
             {copy(pageContract, "action.full_schedule")}
-          </Link>
+          </a>
           <Link href={commandHref} className="btn p">
             <Activity className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" />
             {copy(pageContract, "action.command_board")}

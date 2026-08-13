@@ -290,7 +290,7 @@ export async function VaccinationShedBoard({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {rows.map((row, rowIndex) => {
                   const href = detailHref(row);
                   const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
                     <td className={extra}>
@@ -308,7 +308,19 @@ export async function VaccinationShedBoard({
                       </span>
                     </td>
                   );
-                  const partitionAwareKey = `${row.shedId}|${row.partition_label ?? ""}`;
+                  const partitionAwareKey = [
+                    row.parkId,
+                    row.shedId,
+                    row.partition_label ?? "",
+                    row.nextDue ?? "",
+                    row.status,
+                    row.capacity,
+                    row.animals,
+                    row.due,
+                    row.done,
+                    row.sessions,
+                    rowIndex,
+                  ].join("|");
                   return (
                     <tr key={partitionAwareKey} className="shed-summary-row">
                       {cell(

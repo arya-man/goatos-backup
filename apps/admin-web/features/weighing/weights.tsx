@@ -342,7 +342,13 @@ export async function WeighingWeightsPage({
     ...(growth.ok ? growth.data.shed_leaderboard : [])
       .filter((shed) => shed.adg_pair_count > 0)
       .map((shed) => ({
-        key: shed.location_id,
+        // Keyed by location AND partition, because that is the grain the leaderboard is
+        // grouped at (`GROUP BY location_id, partition_label` in growth.go). A partitioned
+        // shed returns one row PER PEN under one shared location_id -- Mandela 1 returns ten
+        // -- so keying on location_id alone gave nine React children the same key, which is
+        // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
+        // the shed-weights chart above, both of which already key on the pair.
+        key: `${shed.location_id}|${shed.partition_label ?? ""}`,
         label: shed.display_name,
         value: Math.round(shed.median_adg_g_per_day),
       })),

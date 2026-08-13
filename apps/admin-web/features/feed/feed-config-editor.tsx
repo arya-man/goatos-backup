@@ -28,8 +28,13 @@ import { clearSavedRate, publishSavedRate, rationRateKey } from "./feed-rate-opt
 
 // Split across two aliases so the arrow type does not read as `> Promise<` — the contract-literal
 // guard scans for `>text<` to catch visible JSX copy, and an inline generic return type trips it.
+// Split across two aliases deliberately. Written inline as
+// `(formData: FormData) => Promise<FeedConfigActionResult>` the annotation trips
+// check-ui-contract-literals' JSX_TEXT regex (`>` … capital … `<`), which reads the generic as
+// visible copy. Exported so the ration grid table can type the same server action without
+// restating — and re-tripping — it.
 type SaveActionResult = Promise<FeedConfigActionResult>;
-type SaveAction = (formData: FormData) => SaveActionResult;
+export type SaveAction = (formData: FormData) => SaveActionResult;
 
 /**
  * How long a success confirmation stays on screen once the form has closed, in ms.
