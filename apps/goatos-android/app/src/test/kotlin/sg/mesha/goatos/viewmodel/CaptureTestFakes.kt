@@ -2,7 +2,6 @@ package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
@@ -22,15 +21,9 @@ import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
-import sg.mesha.goatos.core.data.sync.SyncQueueItem
-import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
-import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
-import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
-import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 
 /** In-memory [ScanCaptureRepository] test double — real dedup semantics (unique per
@@ -498,127 +491,3 @@ fun feedShedProofPolicy(captureSource: String): ProofPolicy =
         maximumCount = 5,
     )
 
-// Test double for SyncRepository with call counting and item state tracking
-
-data class SyncQueueItemState(
-    val id: String,
-    val groupKey: String,
-    val idempotencyKey: String,
-    var status: String = "pending",
-    var serverResponse: String? = null,
-)
-
-class CountingSyncRepository : SyncRepository {
-    private val items = mutableMapOf<String, SyncQueueItemState>()
-    var proofUploadEnqueueCount = 0
-        private set
-    var feedCompleteEnqueueCount = 0
-        private set
-    var nextItemId = 0
-
-    override fun observeStatus(): Flow<SyncStatus> = flowOf(SyncStatus.empty(online = true))
-
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> {
-        return MutableStateFlow(
-            items[itemId]?.let { state ->
-                SyncQueueItem(
-                    id = state.id,
-                    status = object {
-                        fun isSuccess() = state.status == "succeeded"
-                        override fun toString() = state.status
-                    },
-                )
-            },
-        )
-    }
-
-    override suspend fun enqueueShedSubmit(
-        taskId: String,
-        groupKey: String,
-        idempotencyKey: String,
-        request: SubmitTaskRequestDto,
-    ): AppResult<String> {
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, groupKey, idempotencyKey)
-        return AppResult.Ok(itemId)
-    }
-
-    override suspend fun enqueueReschedule(
-        obligationId: String,
-        groupKey: String,
-        idempotencyKey: String,
-        request: RescheduleObligationRequestDto,
-    ): AppResult<String> {
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, groupKey, idempotencyKey)
-        return AppResult.Ok(itemId)
-    }
-
-    override suspend fun enqueueProofUpload(
-        groupKey: String,
-        idempotencyKey: String,
-        request: ProofUploadRequestDto,
-        localFilePath: String,
-        durationMs: Long?,
-    ): AppResult<String> {
-        proofUploadEnqueueCount++
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, groupKey, idempotencyKey)
-        return AppResult.Ok(itemId)
-    }
-
-    override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> {
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, "", "")
-        return AppResult.Ok(itemId)
-    }
-
-    override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> {
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, "", "")
-        return AppResult.Ok(itemId)
-    }
-
-    override suspend fun enqueueVerificationVerdict(
-        itemId: String,
-        decision: String,
-        reason: String?,
-        rowVersion: Int,
-    ): AppResult<String> = AppResult.Ok(itemId)
-
-    override suspend fun enqueueVerificationBatchClose(batchId: String): AppResult<String> = AppResult.Ok("batch-$batchId")
-
-    override suspend fun retry(itemId: String): AppResult<Unit> {
-        items[itemId]?.status = "pending"
-        return AppResult.Ok(Unit)
-    }
-
-    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> {
-        items.remove(itemId)
-        return AppResult.Ok(Unit)
-    }
-
-    override suspend fun triggerDrain() = Unit
-
-    fun setItemFailed(itemId: String) {
-        items[itemId]?.status = "failed"
-    }
-
-    fun setItemSucceeded(itemId: String) {
-        items[itemId]?.status = "succeeded"
-    }
-
-    suspend fun enqueueFeedDirectionComplete(
-        groupKey: String,
-        idempotencyKey: String,
-        taskId: String,
-    ): AppResult<String> {
-        feedCompleteEnqueueCount++
-        val itemId = "sync-item-${nextItemId++}"
-        items[itemId] = SyncQueueItemState(itemId, groupKey, idempotencyKey)
-        return AppResult.Ok(itemId)
-    }
-}
-
-// Extension for checking sync status
-fun SyncQueueItem?.isSuccess(): Boolean = this?.status?.toString() == "succeeded"
