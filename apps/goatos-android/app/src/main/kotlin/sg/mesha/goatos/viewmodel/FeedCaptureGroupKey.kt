@@ -86,6 +86,25 @@ internal fun feedCaptureGroupKey(
 }
 
 /**
+ * Storage-addressing identity for feed evidence slots: capture()/observeProofs() address feed
+ * proofs by the FULL capture group key as taskId, with partitionKey "whole" — the pen identity
+ * is already embedded in the group key (partitionMatchToken segment). Writing with a pen-scoped
+ * partitionKey while reading group-scoped is exactly the write/read divergence Manohar's
+ * fb3c74af3 fixed; this builder exists so slot construction cannot reintroduce it.
+ */
+internal fun buildFeedEvidenceSlotIdentity(
+    prefix: String,
+    shedId: String,
+    partitionLabel: String,
+    sessionNo: Int,
+    workflow: String,
+    targetDate: String,
+): ProofIdentity {
+    val identity = buildFeedProofIdentity(prefix, shedId, partitionLabel, sessionNo, workflow, targetDate)
+    return identity.copy(taskId = identity.captureGroupKey(), partitionKey = "whole")
+}
+
+/**
  * Device-local matching token for a pen: trimmed, lowercased, internal whitespace collapsed.
  *
  * Blank collapses to [WHOLE_SHED_TOKEN] so an undivided shed has ONE stable key rather than an

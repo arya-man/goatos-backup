@@ -205,7 +205,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
             // the old row is only removed after the new capture succeeds (Manohar ordering).
             val slot = EvidenceSlot(
-                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
                 fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
             )
             when (
@@ -301,7 +301,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
             // the old row is only removed after the new capture succeeds (Manohar ordering).
             val slot = EvidenceSlot(
-                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
                 fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
             )
             when (
@@ -396,7 +396,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
             // the old row is only removed after the new capture succeeds (Manohar ordering).
             val slot = EvidenceSlot(
-                identity = buildFeedProofIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
                 fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
             )
             when (

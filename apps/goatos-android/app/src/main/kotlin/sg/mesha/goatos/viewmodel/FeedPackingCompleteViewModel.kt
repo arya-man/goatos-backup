@@ -194,7 +194,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
             // the old row is only removed after the new capture succeeds (Manohar ordering).
             val slot = EvidenceSlot(
-                identity = buildFeedProofIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                identity = buildFeedEvidenceSlotIdentity("feed-pack", shedId, partitionLabel, sessionNo, workflow, targetDate),
                 fieldKey = FIELD_FEED_PACKING_VIDEO,
             )
             when (
