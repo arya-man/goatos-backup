@@ -1319,6 +1319,12 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":
 		return []string{permissions.ProcurementRead}
+	case "procurement-vendors":
+		// The dedicated register permission, NOT ProcurementRead. ProcurementRead is held by seven
+		// roles including operator and park_head because it gates the source-entry/intake screens
+		// they work; the register carries negotiated prices, contact numbers and banking
+		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
+		return []string{permissions.VendorRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
 	case "weighing-weights":

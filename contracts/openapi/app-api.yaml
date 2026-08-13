@@ -4333,6 +4333,254 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/vendors:
+    get:
+      tags:
+        - Procurement
+      operationId: listProcurementVendors
+      summary: List the procurement vendor register.
+      description: >-
+        One keyset page of the vendor register -- the farm's counterparty contact book, spanning
+        livestock agents and stockists, transport, feed, manure, pellet factories, labour,
+        insurance, test labs and site trades.
+
+
+        `total` is the WHOLE-FILTER count, not the page length: the screen renders it as
+        "306 vendors" while showing 25 of them. Paging is by opaque `cursor`, never offset.
+
+
+        Payment instruments (bank_name, account_no, ifsc_code, upi_id, pan_number) are returned only
+        to a caller holding `procurement.vendor.finance.read`. Otherwise they come back null with
+        `finance_redacted: true`, which lets the client say "hidden" rather than render a blank that
+        reads as "no bank details on file". The caller cannot request them via a parameter.
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema: { type: string, maxLength: 120 }
+          description: >-
+            Matches a fragment anywhere in business name, contact, phone, city or record type.
+            LIKE metacharacters are treated as literal text.
+        - name: record_type
+          in: query
+          required: false
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, inactive, negotiating, banned] }
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: city
+          in: query
+          required: false
+          schema: { type: string }
+        - name: breed
+          in: query
+          required: false
+          schema: { type: string }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+          description: >-
+            Rows to skip. Bounded on purpose -- the register is an authored contact book that grows
+            with supplier count, never with herd size, so a capped offset stays cheap while giving
+            the operator a Back control and a page number, which a forward-only cursor cannot.
+            A request past the cap is REJECTED rather than clamped, so a page number never shows
+            the wrong rows.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        "200":
+          description: One page of the register plus the whole-filter total.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Procurement
+      operationId: createProcurementVendor
+      summary: Add a vendor to the register.
+      description: >-
+        Rejects a duplicate with 409 `vendor_duplicate`. A duplicate is the same business name,
+        record type, state AND phone number (compared as digits only, so spacing cannot defeat it) --
+        deliberately narrow, because one business legitimately has several contacts on different
+        numbers and each is its own row.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcurementVendorWrite"
+      responses:
+        "201":
+          description: The stored vendor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/vendors/{vendor_id}:
+    get:
+      tags:
+        - Procurement
+      operationId: getProcurementVendor
+      summary: Read one vendor.
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The vendor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Procurement
+      operationId: updateProcurementVendor
+      summary: Replace a vendor's fields.
+      description: >-
+        A REPLACE, not a patch: an omitted optional field and a cleared one both store NULL.
+        Fenced on `row_version` -- a stale value is rejected with 409 `vendor_stale_write` rather
+        than silently overwriting another editor's save.
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcurementVendorWrite"
+      responses:
+        "200":
+          description: The updated vendor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/vendors/{vendor_id}/status:
+    post:
+      tags:
+        - Procurement
+      operationId: updateProcurementVendorStatus
+      summary: Change only a vendor's trading status.
+      description: >-
+        A narrow, intention-revealing write for "stop buying from this vendor" / "start again".
+
+
+        It exists separately from PUT /procurement/vendors/{vendor_id} because that endpoint is a
+        REPLACE: driving a status flip through it would require the caller to resend every other
+        field, and any field their screen did not render would be cleared as a side effect.
+
+
+        Fenced on row_version like every other vendor write.
+      parameters:
+        - name: vendor_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, row_version]
+              properties:
+                status: { type: string, enum: [active, inactive, negotiating, banned] }
+                row_version: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: The updated vendor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/vendor-catalog:
+    get:
+      tags:
+        - Procurement
+      operationId: listProcurementVendorCatalog
+      summary: The business-managed dropdown vocabularies behind the register.
+      description: >-
+        Record types, breeds, states, cities, statuses and feed kinds. Entries with
+        `is_active: false` are retired: still rendered on a vendor that carries one, never offered
+        for a new row.
+      responses:
+        "200":
+          description: The vocabularies, grouped by kind.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorCatalog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/ration-groups:
     get:
       tags:
@@ -9163,6 +9411,157 @@ components:
           type: string
         ration_group:
           type: string
+    ProcurementVendor:
+      type: object
+      description: >-
+        One row of the procurement vendor register. Payment instruments are present only for a
+        caller holding `procurement.vendor.finance.read`; see finance_redacted.
+      required:
+        - vendor_id
+        - record_type
+        - business_name
+        - display_name
+        - status
+        - status_label
+        - state
+        - location_display
+        - finance_redacted
+        - created_at
+        - updated_at
+        - row_version
+      properties:
+        vendor_id: { type: string, format: uuid }
+        record_type:
+          type: string
+          description: Business-managed vocabulary (Sheep Agent, Transport Agent, Feed Agent, ...).
+        business_name: { type: string }
+        display_name:
+          type: string
+          description: >-
+            Backend-composed name every surface renders verbatim. "Business - Contact" when a
+            distinct contact exists, otherwise the business name alone -- a missing contact is
+            dropped rather than left as a dangling separator.
+        contact_person_name: { type: string, nullable: true }
+        phone_number: { type: string, nullable: true }
+        breed: { type: string, nullable: true }
+        feed: { type: string, nullable: true }
+        status: { type: string, enum: [active, inactive, negotiating, banned] }
+        status_label:
+          type: string
+          description: Operator-facing label for status. Rendered verbatim; never re-derived client-side.
+        filtered_stock: { type: integer, nullable: true }
+        price_per_goat:
+          type: string
+          nullable: true
+          description: Decimal as a string so the amount never round-trips through a float.
+        ready_to_filtered: { type: string, nullable: true }
+        eta_after_order_days: { type: integer, nullable: true }
+        details: { type: string, nullable: true }
+        state: { type: string }
+        city: { type: string, nullable: true }
+        location_display:
+          type: string
+          description: Backend-composed "City, State", degrading to state alone when no city is recorded.
+        bank_name: { type: string, nullable: true }
+        account_no: { type: string, nullable: true }
+        ifsc_code: { type: string, nullable: true }
+        upi_id: { type: string, nullable: true }
+        pan_number: { type: string, nullable: true }
+        finance_redacted:
+          type: boolean
+          description: >-
+            True when payment fields were WITHHELD for this caller rather than absent. The client
+            must render "hidden" in that case -- a blank would read as "no bank details on file".
+        comments: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        row_version:
+          type: integer
+          format: int64
+          description: Optimistic-concurrency fence. Echo it back on update.
+    ProcurementVendorPage:
+      type: object
+      required: [vendors, total, limit, offset]
+      properties:
+        vendors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendor"
+        total:
+          type: integer
+          description: >-
+            The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this
+            number. The client derives the page count from total and limit.
+        limit:
+          type: integer
+          description: The page size actually applied, after clamping.
+        offset:
+          type: integer
+          description: The offset actually applied. Echoed so the client can render the page number.
+    ProcurementVendorWrite:
+      type: object
+      description: >-
+        Create/update body. A REPLACE: an omitted optional field and a cleared one both store NULL,
+        so there is no patch-vs-replace ambiguity for a client to get wrong.
+      required: [record_type, business_name, status, state]
+      properties:
+        record_type: { type: string, maxLength: 160 }
+        business_name: { type: string, maxLength: 160 }
+        contact_person_name: { type: string, maxLength: 160 }
+        phone_number: { type: string, maxLength: 64 }
+        breed: { type: string, maxLength: 160 }
+        feed: { type: string, maxLength: 160 }
+        status: { type: string, enum: [active, inactive, negotiating, banned] }
+        filtered_stock: { type: integer, minimum: 0, nullable: true }
+        price_per_goat: { type: string, nullable: true }
+        ready_to_filtered: { type: string, maxLength: 160 }
+        eta_after_order_days: { type: integer, minimum: 0, nullable: true }
+        details: { type: string, maxLength: 2000 }
+        state: { type: string, maxLength: 160 }
+        city: { type: string, maxLength: 160 }
+        bank_name: { type: string, maxLength: 160 }
+        account_no: { type: string, maxLength: 160 }
+        ifsc_code: { type: string, maxLength: 160 }
+        upi_id: { type: string, maxLength: 160 }
+        pan_number: { type: string, maxLength: 160 }
+        comments: { type: string, maxLength: 2000 }
+        row_version:
+          type: integer
+          format: int64
+          description: Required on update, ignored on create.
+    ProcurementVendorCatalogEntry:
+      type: object
+      required: [value, label, is_active]
+      properties:
+        value: { type: string }
+        label: { type: string }
+        is_active:
+          type: boolean
+          description: >-
+            False means retired: still rendered on a vendor that carries it, never offered for a
+            new row.
+    ProcurementVendorCatalog:
+      type: object
+      required: [record_types, breeds, states, cities, statuses, feeds]
+      properties:
+        record_types:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        breeds:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        states:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        cities:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        statuses:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
+        feeds:
+          type: array
+          items: { $ref: "#/components/schemas/ProcurementVendorCatalogEntry" }
     FeedConfigRationGroupPage:
       type: object
       additionalProperties: false

@@ -971,6 +971,104 @@ export async function listFeedConfigFeedItems(params: {
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Procurement vendor register (/procurement/vendors)
+// ---------------------------------------------------------------------------------------------
+
+export type ProcurementVendor = AppApiComponents["schemas"]["ProcurementVendor"];
+export type ProcurementVendorPage = AppApiComponents["schemas"]["ProcurementVendorPage"];
+export type ProcurementVendorWrite = AppApiComponents["schemas"]["ProcurementVendorWrite"];
+export type ProcurementVendorCatalog = AppApiComponents["schemas"]["ProcurementVendorCatalog"];
+
+/**
+ * One keyset page of the vendor register.
+ *
+ * `total` on the response is the WHOLE-FILTER count and must be rendered as-is; it is deliberately
+ * not `vendors.length` -- the page count is derived from it.
+ *
+ * Paging is by BOUNDED offset (capped server-side), not a keyset cursor, because the register needs
+ * a Back control and a page number and a forward-only cursor can express neither. See the endpoint
+ * description for why that is safe here and not a licence to use offset on herd-sized tables.
+ */
+export async function listProcurementVendors(params: {
+  search?: string;
+  record_type?: string;
+  status?: string;
+  state?: string;
+  city?: string;
+  breed?: string;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ApiResult<ProcurementVendorPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorPage>("/procurement/vendors", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** The business-managed dropdown vocabularies behind the register's filters and form. */
+export async function listProcurementVendorCatalog(): Promise<ApiResult<ProcurementVendorCatalog>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorCatalog>("/procurement/vendor-catalog", { cache: "no-store" }),
+  );
+}
+
+export async function createProcurementVendor(
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendor>("/procurement/vendors", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Replace a vendor. `body.row_version` MUST carry the value read with the row -- the backend
+ * rejects a stale one with 409 rather than overwriting another editor's save.
+ */
+export async function updateProcurementVendor(
+  vendorId: string,
+  body: ProcurementVendorWrite,
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "PUT", cache: "no-store", body }),
+  );
+}
+
+/**
+ * Change ONLY a vendor's trading status.
+ *
+ * Deliberately not routed through updateProcurementVendor: that is a replace, so a status flip
+ * through it would have to resend every field and would clear anything the caller's screen did not
+ * render (payment details, for a caller without the finance permission).
+ */
+export async function updateProcurementVendorStatus(
+  vendorId: string,
+  body: { status: string; row_version: number },
+): Promise<ApiResult<ProcurementVendor>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/procurement/vendors/${encodeURIComponent(vendorId)}/status` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ProcurementVendor>(path, { method: "POST", cache: "no-store", body }),
+  );
+}
+
 export async function listFeedConfigRationGroups(params: {
   limit?: number;
   offset?: number;

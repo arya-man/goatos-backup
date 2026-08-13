@@ -185,6 +185,22 @@ var protectedRoutes = []Route{
 	{OperationID: "dispatchProcurementSourceEntryLoad", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/dispatch", Permissions: []string{ProcurementWrite}},
 	{OperationID: "recordProcurementArrivalReview", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/arrival-review", Permissions: []string{ProcurementReview}},
 	{OperationID: "acceptProcurementIntake", Method: "POST", Pattern: "/procurement/source-entry/loads/{load_id}/accept-intake", Permissions: []string{ProcurementReview}},
+
+	// Procurement VENDOR REGISTER (/procurement/vendors), the counterparty contact book.
+	//
+	// Gated on the dedicated VendorRead/VendorWrite rather than ProcurementRead/ProcurementWrite:
+	// those are held by seven roles including operator and park_head, and the register carries
+	// negotiated prices, phone numbers and banking instruments. See VendorRead's doc comment.
+	//
+	// The catalog route is the business-managed dropdown vocabulary behind the register's selects
+	// (record types, breeds, states, cities, statuses, feed kinds). It is a READ of the same screen
+	// and carries VendorRead.
+	{OperationID: "listProcurementVendors", Method: "GET", Pattern: "/procurement/vendors", Permissions: []string{VendorRead}},
+	{OperationID: "getProcurementVendor", Method: "GET", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorRead}},
+	{OperationID: "createProcurementVendor", Method: "POST", Pattern: "/procurement/vendors", Permissions: []string{VendorWrite}},
+	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
+	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
+	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 

@@ -55,26 +55,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/app/analytics/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mirror one Android analytics event into backend audit storage.
-         * @description Authenticated app clients call this for every analytics event in parallel with Firebase. The backend stores the event in audit_log with action=app.analytics.event so scan/proof journeys can be queried even when Firebase UI is delayed.
-         */
-        post: operations["recordAppAnalyticsEvent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/admin-web/bootstrap": {
         parameters: {
             query?: never;
@@ -1668,6 +1648,99 @@ export interface paths {
          * @description Authors grams_per_head for one (park, ration_group, shed_tag, feed_item) key. The write is NEVER destructive: if a row is already in force from an earlier business day it is CLOSED (valid_to set) and a new row is opened, so the previous rate survives as history. A re-edit on the SAME business day corrects the open row in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. Re-authoring the identical value writes nothing and reports outcome "unchanged". The response names which of the four happened. grams_per_head is REQUIRED and is validated, not defaulted: absent fails the request (absence of a rate means "not configured", a blocking state -- it must never be filled in as 0), an explicit 0 is accepted as a real authored value, and a negative or over-precise value is rejected with a field error rather than clamped or rounded. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
          */
         post: operations["upsertFeedConfigRationRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/vendors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the procurement vendor register.
+         * @description One keyset page of the vendor register -- the farm's counterparty contact book, spanning livestock agents and stockists, transport, feed, manure, pellet factories, labour, insurance, test labs and site trades.
+         *
+         *     `total` is the WHOLE-FILTER count, not the page length: the screen renders it as "306 vendors" while showing 25 of them. Paging is by opaque `cursor`, never offset.
+         *
+         *     Payment instruments (bank_name, account_no, ifsc_code, upi_id, pan_number) are returned only to a caller holding `procurement.vendor.finance.read`. Otherwise they come back null with `finance_redacted: true`, which lets the client say "hidden" rather than render a blank that reads as "no bank details on file". The caller cannot request them via a parameter.
+         */
+        get: operations["listProcurementVendors"];
+        put?: never;
+        /**
+         * Add a vendor to the register.
+         * @description Rejects a duplicate with 409 `vendor_duplicate`. A duplicate is the same business name, record type, state AND phone number (compared as digits only, so spacing cannot defeat it) -- deliberately narrow, because one business legitimately has several contacts on different numbers and each is its own row.
+         */
+        post: operations["createProcurementVendor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/vendors/{vendor_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one vendor. */
+        get: operations["getProcurementVendor"];
+        /**
+         * Replace a vendor's fields.
+         * @description A REPLACE, not a patch: an omitted optional field and a cleared one both store NULL. Fenced on `row_version` -- a stale value is rejected with 409 `vendor_stale_write` rather than silently overwriting another editor's save.
+         */
+        put: operations["updateProcurementVendor"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/vendors/{vendor_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change only a vendor's trading status.
+         * @description A narrow, intention-revealing write for "stop buying from this vendor" / "start again".
+         *
+         *     It exists separately from PUT /procurement/vendors/{vendor_id} because that endpoint is a REPLACE: driving a status flip through it would require the caller to resend every other field, and any field their screen did not render would be cleared as a side effect.
+         *
+         *     Fenced on row_version like every other vendor write.
+         */
+        post: operations["updateProcurementVendorStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/vendor-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The business-managed dropdown vocabularies behind the register.
+         * @description Record types, breeds, states, cities, statuses and feed kinds. Entries with `is_active: false` are retired: still rendered on a vendor that carries one, never offered for a new row.
+         */
+        get: operations["listProcurementVendorCatalog"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3459,6 +3532,103 @@ export interface components {
             ration_group_id: string;
             breed: string;
             ration_group: string;
+        };
+        /** @description One row of the procurement vendor register. Payment instruments are present only for a caller holding `procurement.vendor.finance.read`; see finance_redacted. */
+        ProcurementVendor: {
+            /** Format: uuid */
+            vendor_id: string;
+            /** @description Business-managed vocabulary (Sheep Agent, Transport Agent, Feed Agent, ...). */
+            record_type: string;
+            business_name: string;
+            /** @description Backend-composed name every surface renders verbatim. "Business - Contact" when a distinct contact exists, otherwise the business name alone -- a missing contact is dropped rather than left as a dangling separator. */
+            display_name: string;
+            contact_person_name?: string | null;
+            phone_number?: string | null;
+            breed?: string | null;
+            feed?: string | null;
+            /** @enum {string} */
+            status: "active" | "inactive" | "negotiating" | "banned";
+            /** @description Operator-facing label for status. Rendered verbatim; never re-derived client-side. */
+            status_label: string;
+            filtered_stock?: number | null;
+            /** @description Decimal as a string so the amount never round-trips through a float. */
+            price_per_goat?: string | null;
+            ready_to_filtered?: string | null;
+            eta_after_order_days?: number | null;
+            details?: string | null;
+            state: string;
+            city?: string | null;
+            /** @description Backend-composed "City, State", degrading to state alone when no city is recorded. */
+            location_display: string;
+            bank_name?: string | null;
+            account_no?: string | null;
+            ifsc_code?: string | null;
+            upi_id?: string | null;
+            pan_number?: string | null;
+            /** @description True when payment fields were WITHHELD for this caller rather than absent. The client must render "hidden" in that case -- a blank would read as "no bank details on file". */
+            finance_redacted: boolean;
+            comments?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency fence. Echo it back on update.
+             */
+            row_version: number;
+        };
+        ProcurementVendorPage: {
+            vendors: components["schemas"]["ProcurementVendor"][];
+            /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. The client derives the page count from total and limit. */
+            total: number;
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. Echoed so the client can render the page number. */
+            offset: number;
+        };
+        /** @description Create/update body. A REPLACE: an omitted optional field and a cleared one both store NULL, so there is no patch-vs-replace ambiguity for a client to get wrong. */
+        ProcurementVendorWrite: {
+            record_type: string;
+            business_name: string;
+            contact_person_name?: string;
+            phone_number?: string;
+            breed?: string;
+            feed?: string;
+            /** @enum {string} */
+            status: "active" | "inactive" | "negotiating" | "banned";
+            filtered_stock?: number | null;
+            price_per_goat?: string | null;
+            ready_to_filtered?: string;
+            eta_after_order_days?: number | null;
+            details?: string;
+            state: string;
+            city?: string;
+            bank_name?: string;
+            account_no?: string;
+            ifsc_code?: string;
+            upi_id?: string;
+            pan_number?: string;
+            comments?: string;
+            /**
+             * Format: int64
+             * @description Required on update, ignored on create.
+             */
+            row_version?: number;
+        };
+        ProcurementVendorCatalogEntry: {
+            value: string;
+            label: string;
+            /** @description False means retired: still rendered on a vendor that carries it, never offered for a new row. */
+            is_active: boolean;
+        };
+        ProcurementVendorCatalog: {
+            record_types: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            breeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            states: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            cities: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            statuses: components["schemas"]["ProcurementVendorCatalogEntry"][];
+            feeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
@@ -5774,7 +5944,6 @@ export interface components {
             driveId?: string;
             driveName?: string;
             /** @description Vaccine chips for this actual shed card. Counts on the card remain animal-grain: if one animal needs multiple vaccines, one proof/video satisfies all listed labels. */
-            /** @description All vaccine labels represented by this execution row. Mobile shed cards render these as vaccine chips; driveName is only the primary/back-compat label. */
             vaccineLabels?: string[];
             /** Format: date */
             dueDate?: string;
@@ -7098,7 +7267,6 @@ export interface components {
             /**
              * Format: date
              * @description Business date originally planned for this operator bucket.
-             * @description Business date originally planned for this operator task.
              */
             planned_business_date?: string;
             /**
@@ -9914,46 +10082,6 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-        };
-    };
-    recordAppAnalyticsEvent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    event_name: string;
-                    properties?: {
-                        [key: string]: string;
-                    };
-                    /** Format: int64 */
-                    client_event_time_ms: number;
-                    flavor: string;
-                    app_version_name: string;
-                    app_version_code: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Analytics event accepted. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        accepted?: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            500: components["responses"]["ServerError"];
         };
     };
     adminWebBootstrap: {
@@ -12817,6 +12945,188 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listProcurementVendors: {
+        parameters: {
+            query?: {
+                /** @description Matches a fragment anywhere in business name, contact, phone, city or record type. LIKE metacharacters are treated as literal text. */
+                search?: string;
+                record_type?: string;
+                status?: "active" | "inactive" | "negotiating" | "banned";
+                state?: string;
+                city?: string;
+                breed?: string;
+                /** @description Rows to skip. Bounded on purpose -- the register is an authored contact book that grows with supplier count, never with herd size, so a capped offset stays cheap while giving the operator a Back control and a page number, which a forward-only cursor cannot. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the register plus the whole-filter total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createProcurementVendor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcurementVendorWrite"];
+            };
+        };
+        responses: {
+            /** @description The stored vendor. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendor"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getProcurementVendor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vendor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vendor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendor"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateProcurementVendor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vendor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcurementVendorWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated vendor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendor"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    updateProcurementVendorStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vendor_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    status: "active" | "inactive" | "negotiating" | "banned";
+                    /** Format: int64 */
+                    row_version: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The updated vendor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendor"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listProcurementVendorCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vocabularies, grouped by kind. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedConfigRationGroups: {
         parameters: {
             query?: {
@@ -13801,10 +14111,6 @@ export interface operations {
                             secondaryTag?: string | null;
                             vaccineLabel?: string;
                             status?: string;
-                            originalShed?: string;
-                            originalPartitionLabel?: string;
-                            detectedShed?: string;
-                            detectedPartitionLabel?: string;
                             /**
                              * Format: date-time
                              * @description Exact RFID scan timestamp persisted by the backend for this task row.
