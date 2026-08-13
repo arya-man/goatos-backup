@@ -1641,7 +1641,7 @@ WHERE tenant_id = $1::uuid
   AND location_type = 'shed'`, in.TenantID, intakeLocation.ExactShedID).Scan(&shedName); err != nil {
 			return nil, fmt.Errorf("procurement: resolve partition source shed: %w", err)
 		}
-		sourceShedName := oploc.OperationalLocation{ShedID: intakeLocation.ExactShedID, ShedName: shedName, PartitionLabel: partitionLabel}.Display()
+		sourceShedName := strings.TrimSpace(shedName)
 		if strings.TrimSpace(sourceShedName) == "" {
 			sourceShedName = intakeLocation.ExactShedID
 		}
@@ -2255,9 +2255,9 @@ func resolveProcurementIntakeOperationalLocation(ctx context.Context, tx pgx.Tx,
 SELECT
   l.location_id::text AS exact_shed_id,
   COALESCE(sp.shed_id::text, '') AS group_shed_id,
-  ''::text AS partition_label
+  COALESCE(sp.partition_label, '') AS partition_label
 FROM locations l
-LEFT JOIN shed_partitions sp
+JOIN shed_partitions sp
   ON sp.tenant_id = l.tenant_id
  AND sp.operational_location_id = l.location_id
  AND sp.status = 'active'

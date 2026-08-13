@@ -5,7 +5,7 @@ Status: Accepted (2026-08-05), tightened (2026-08-13)
 ## Context
 
 Exact physical shed is atomic. If farm operations names a shed `Castro 2`,
-`Gandhi 1`, or `Godel 1 - Part 3`, that full name is the shed where animals
+`Gandhi 1`, or `Godel 1 Part 3`, that full name is the shed where animals
 live. A parent/base name such as `Godel 1` can remain as grouping metadata, but
 live product behavior must not require a separate partition concept to identify
 the animal's residence.
@@ -61,7 +61,7 @@ An animal's ground location is the operational location:
 
 - No partition → `"Yashoda"` (bare shed name)
 - Numbered shed → `"Castro 2"`
-- Part-named shed → `"Godel 1 - Part 3"` or `"Mandela 2 Part 1"` exactly as the
+- Part-named shed → `"Godel 1 Part 3"` or `"Mandela 2 Part 1"` exactly as the
   shed row is named
 
 **Never render `"Yashoda whole"` — `whole` is an internal matching sentinel

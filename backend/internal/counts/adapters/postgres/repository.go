@@ -2605,13 +2605,9 @@ WHERE g.tenant_id = $1
 //	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
 //	$5 management_stage, $6 breed, $7 sex
 //
-// partition_key is legacy compatibility only. Once g.shed_id is the exact physical shed, the key
-// collapses to 'whole' so stale goat_shed_partitions rows cannot split "Castro 2" into "Castro 2 2".
-// Old pre-cutover rows may still use the key temporarily while the batched repair catches up.
-const partitionKeyExpr = `CASE
-      WHEN exact_sp.operational_location_id IS NOT NULL THEN 'whole'
-      ELSE regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
-    END`
+// partition_key is retained only to keep older response shapes stable. Live counts identity is the
+// exact physical shed in goats.shed_id, so this key must never split a shed by goat_shed_partitions.
+const partitionKeyExpr = `COALESCE(NULL::text, 'whole')`
 
 const countsBreakdownGroupedCTE = `
 WITH grouped AS MATERIALIZED (
@@ -2622,16 +2618,8 @@ WITH grouped AS MATERIALIZED (
     COALESCE(g.breed, '')            AS breed,
     g.sex,
     ` + partitionKeyExpr + ` AS partition_key,
-    -- source_shed_name is the legacy bridge to the exact physical shed name for pre-cutover rows.
-    -- partition_label remains only a matching key; it must not be composed into a live location
-    -- name.
-    min(CASE
-      WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL
-      WHEN lower(btrim(COALESCE(gsp.source_shed_name, ''))) IN ('', 'seed') THEN NULL
-      WHEN btrim(COALESCE(gsp.source_shed_name, '')) = btrim(COALESCE(gsp.partition_label, '')) THEN NULL
-      ELSE btrim(gsp.source_shed_name)
-    END) AS source_shed_name_raw,
-    min(CASE WHEN exact_sp.operational_location_id IS NOT NULL THEN NULL ELSE gsp.partition_label END) AS partition_label_raw,
+    NULL::text AS source_shed_name_raw,
+    NULL::text AS partition_label_raw,
     count(*) AS animal_count,
     -- COALESCE is load-bearing: herd_register_is_kid returns NULL when age_band is NULL (NULL='kid'
     -- propagates), and a bare NOT would then drop those animals from BOTH buckets, so kid+adult
@@ -2640,14 +2628,6 @@ WITH grouped AS MATERIALIZED (
     count(*) FILTER (WHERE COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS kid_count,
     count(*) FILTER (WHERE NOT COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS adult_count
   FROM goats g
-  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. A goat with
-  -- no row here is not partitioned and normalizes to 'whole'.
-  LEFT JOIN goat_shed_partitions gsp
-         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  LEFT JOIN shed_partitions exact_sp
-         ON exact_sp.tenant_id = g.tenant_id
-        AND exact_sp.operational_location_id = g.shed_id
-        AND exact_sp.status = 'active'
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -2656,11 +2636,9 @@ WITH grouped AS MATERIALIZED (
     AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
     AND ($6 = '' OR COALESCE(g.breed, '') = $6)
     AND ($7 = '' OR g.sex = $7)
-    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- this hunk adds a PREDICATE, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus the existing park/shed/stage/breed/sex predicates, NARROWED by one optional partition equality
-    -- Partition filter. Compared on the NORMALIZED key so a caller passing 'Part 3' or '3' selects
-    -- the same pen, matching oploc.SamePartition. Empty means "no partition filter" (the parent
-    -- shed aggregate), NOT "the non-partitioned bucket".
-    AND ($8 = '' OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim($8)), '^part[[:space:]]+', ''))
+    -- Compatibility only: exact-shed cutover removes partition_label from live counts identity.
+    -- Keep $8 in the bind contract but do not let a stale partition filter hide the exact shed.
+    AND ($8 = '' OR true)
   GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
            ` + partitionKeyExpr + `
 )`
@@ -3028,7 +3006,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		if dimension == "shed" {
 			// The exact shed name. partition_label may still arrive from compatibility rows but must
 			// never alter the display or produce labels like "Castro 2 2".
-			label = oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display()
+			label = strings.TrimSpace(label)
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {

@@ -202,14 +202,15 @@ class FeedDistributionCompleteViewModelTest {
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
             savedStateHandle = SavedStateHandle(
-                mapOf(
+                mapOf<String, Any?>(
                     FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
                     FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
                     FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
                     FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
                     FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
-                    // A real pen, e.g. Godel 1 - Part 3. This is the whole point of the case.
-                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                    // Stale parent-shed payloads need the hidden compatibility discriminator.
+                    FeedDistributionCompleteViewModel.ARG_LOCATION_IDENTITY_KEY to "shed-1|part-3",
+                    FeedDistributionCompleteViewModel.ARG_COMPAT_PARTITION_LABEL to "Part 3",
                 ),
             ),
         )

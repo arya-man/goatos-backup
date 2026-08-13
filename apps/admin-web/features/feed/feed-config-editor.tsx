@@ -559,7 +559,7 @@ export function ExperimentShedSwitch({
   action: SaveAction;
   parkId: string;
   shedId: string;
-  /** The exact shed display name, exactly as the row above shows it ("Godel 1 - Part 3"). */
+  /** The exact shed display name, exactly as the row above shows it ("Godel 1 Part 3"). */
   shedName: string;
   /** Legacy compatibility metadata. New exact-shed writes leave this blank. */
   partitionLabel: string;
@@ -655,7 +655,7 @@ export function FeedItemStatusSwitch({
  * Three defects in the shed-level predecessor, all fixed here:
  *
  *  1. IT OFFERED SHEDS. A shed with some pens already enrolled was excluded wholesale, so a NEW pen
- *     of that shed (Godel 1 - Part 8) could not be added from this screen at all — the complaint
+ *     of that shed (Godel 1 Part 8) could not be added from this screen at all — the complaint
  *     this control exists to answer.
  *  2. IT DERIVED CANDIDATES FROM THE PAGINATED CELL LIST. A pen whose cells sat on another page
  *     read as unconfigured. Candidates now come from the pen CATALOG, which states per pen whether
@@ -722,12 +722,13 @@ export function ExperimentPenEnroller({
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor="exp-new-pen">{copy(pageContract, "filter.pen_label")}</label>
-        {/* The value is the exact shed id. The visible label is the exact shed name from backend. */}
+        {/* The visible label is the exact shed name from backend. The value may carry legacy
+            compatibility partition metadata only so old rows submit back to their existing grain. */}
         <select id="exp-new-pen" name="pen" defaultValue="" disabled={parkPens.length === 0}>
           {parkPens.map((pen) => (
             <option
-              key={pen.shedId}
-              value={pen.shedId}
+              key={`${pen.shedId}\u001f${pen.partitionLabel}`}
+              value={JSON.stringify({ s: pen.shedId, p: pen.partitionLabel })}
             >
               {pen.display}
             </option>

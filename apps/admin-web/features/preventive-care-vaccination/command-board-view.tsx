@@ -30,11 +30,23 @@ interface GridCell {
 }
 
 interface ShedGridRow {
+  locationKey: string;
   shedName: string;
   shedId: string;
   partitionLabel: string | null;
   operational_location_display: string | null;
   cells: Record<string, GridCell>;
+}
+
+function shedCellLocationKey(cell: {
+  shedId: string;
+  operational_location_display?: string | null;
+  partition_label?: string | null;
+}): string {
+  const display = (cell.operational_location_display ?? "").trim();
+  const legacyPartition = (cell.partition_label ?? "").trim();
+  if (!display && !legacyPartition) return cell.shedId;
+  return [cell.shedId, display, legacyPartition].join("\u001f");
 }
 
 interface AdministeredDateRange {
@@ -283,15 +295,17 @@ function buildShedGrid(
   byShed: ShedGridRow[];
 } {
   const doseSet = new Set<string>();
-  // Key by exact shed id. The shed id already points at the physical shed; partition_label is
-  // compatibility metadata and must not split a shed row.
+  // Key by exact operational identity. Clean rows use the physical shed id; stale compatibility
+  // rows include a hidden discriminator so Castro 1/Castro 2 do not overwrite each other while
+  // still rendering the exact shed display verbatim.
   const shedMap = new Map<string, ShedGridRow>();
 
   matrix.forEach((cell) => {
     doseSet.add(cell.doseRule);
-    const shedKey = cell.shedId;
+    const shedKey = shedCellLocationKey(cell);
     if (!shedMap.has(shedKey)) {
       shedMap.set(shedKey, {
+        locationKey: shedKey,
         shedName: cell.shedName,
         shedId: cell.shedId,
         partitionLabel: cell.partition_label ?? null,
@@ -418,11 +432,10 @@ function enrichDriveOptions(
       if (option.status !== "planned") return true;
       return (!start || date >= start) && (!end || date <= end);
     });
-    // Key by exact shed id. Two same-named sheds across parks still have different ids; partition
-    // labels are not part of current location identity.
+    // Hidden exact operational key; labels still come from operational_location_display/shedName.
     const byShedKey = new Map<string, { shedId: string; shedName: string; partitionLabel: string | null; operationalLocationDisplay: string | null; animalCount: number }>();
     cells.forEach((cell) => {
-      const shedKey = cell.shedId;
+      const shedKey = shedCellLocationKey(cell);
       const existing = byShedKey.get(shedKey);
       if (!existing || cell.animalCount > existing.animalCount) {
         byShedKey.set(shedKey, {
@@ -775,13 +788,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             counts and no future dates by design — a count invites reconciling it against the dose
             matrix, and the two use different grains. */}
         {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
-          // Keyed by exact shed id. Partitioned physical sheds are already separate shed ids.
+          // Hidden exact operational key. Partition metadata is compatibility-only and never
+          // rendered as a second visible suffix.
           const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
           const shedOrder: string[] = [];
           const shedLabel = new Map<string, { name: string; park?: string }>();
           const nameCount = new Map<string, Set<string>>();
           view.shedVaccineMatrix.forEach((cell) => {
-            const opKey = cell.shedId;
+            const opKey = shedCellLocationKey(cell);
             let row = cellsByShed.get(opKey);
             if (!row) {
               row = new Map();
@@ -919,7 +933,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           const queueAgeDays = new Map<string, number>();
           (view.verificationQueue ?? []).forEach((q) => {
             if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
-              const shedKey = q.shedId;
+              const shedKey = shedCellLocationKey({
+                shedId: q.shedId,
+                operational_location_display: "operational_location_display" in q ? q.operational_location_display : null,
+                partition_label: "partition_label" in q ? q.partition_label : null,
+              });
               queueAgeDays.set(`${shedKey}|${q.doseRule}`, q.daysInQueue);
             }
           });
@@ -941,7 +959,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   </thead>
                   <tbody>
                     {grid.byShed.map((row) => {
-                      const shedKey = row.shedId;
+                      const shedKey = row.locationKey;
                       const shedLabel = row.operational_location_display || operationalLocationLabel({
                         shedName: row.shedName,
                       });

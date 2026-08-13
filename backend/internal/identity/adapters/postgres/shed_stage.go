@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -30,6 +31,13 @@ const reclassifyScopeSQL = `
       AND g.merged_into_goat_id IS NULL
       AND g.exited_at IS NULL`
 
+func strptrValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 // PreviewReclassifyShedStage answers "what would this button do" without writing anything.
 //
 // It runs in a read-only transaction and takes NO row locks: the commit re-derives the same scope
@@ -49,6 +57,9 @@ func (r *Repository) PreviewReclassifyShedStage(ctx context.Context, cmd ports.R
 	location, err := r.resolveReclassifyLocation(ctx, tx, cmd)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(location.ShedID) != "" {
+		cmd.ShedID = location.ShedID
 	}
 
 	// Whole-scope aggregate over the pen, not a page of rows: one grouped read answers total,
@@ -149,6 +160,9 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	if err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(location.ShedID) != "" {
+		cmd.ShedID = location.ShedID
+	}
 	totalLive, err := r.countReclassifyScope(ctx, tx, cmd)
 	if err != nil {
 		return nil, err
@@ -221,13 +235,41 @@ func (r *Repository) resolveReclassifyStage(ctx context.Context, tx pgx.Tx, cmd 
 // shed id is not an active shed.
 func (r *Repository) resolveReclassifyLocation(ctx context.Context, tx pgx.Tx, cmd ports.ReclassifyShedStageCommand) (oploc.OperationalLocation, error) {
 	var location oploc.OperationalLocation
+	if label := strings.TrimSpace(strptrValue(cmd.PartitionLabel)); label != "" {
+		err := tx.QueryRow(ctx, `
+SELECT exact.location_id::text, COALESCE(exact.name, ''), COALESCE(park.location_id::text, ''), COALESCE(park.name, '')
+FROM shed_partitions sp
+JOIN locations exact
+  ON exact.tenant_id = sp.tenant_id
+ AND exact.location_id = sp.operational_location_id
+ AND exact.location_type = 'shed'
+ AND exact.status = 'active'
+LEFT JOIN locations park
+  ON park.tenant_id = exact.tenant_id
+ AND park.location_id = exact.parent_location_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND sp.status = 'active'
+  AND regexp_replace(lower(btrim(sp.partition_label)), '^part[[:space:]]+', '') =
+      regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')
+LIMIT 1
+FOR SHARE OF sp, exact`,
+			cmd.TenantID, cmd.ShedID, label).Scan(&location.ShedID, &location.ShedName, &location.ParkID, &location.ParkName)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return oploc.OperationalLocation{}, ports.ErrInvalidReference
+		}
+		if err != nil {
+			return oploc.OperationalLocation{}, fmt.Errorf("identity: reclassify shed stage: resolve partition shed: %w", err)
+		}
+		return location, nil
+	}
 	err := tx.QueryRow(ctx, `
-SELECT COALESCE(shed.name, ''), COALESCE(park.location_id::text, ''), COALESCE(park.name, '')
+SELECT shed.location_id::text, COALESCE(shed.name, ''), COALESCE(park.location_id::text, ''), COALESCE(park.name, '')
 FROM locations shed
 LEFT JOIN locations park ON park.tenant_id = shed.tenant_id AND park.location_id = shed.parent_location_id
 WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid
   AND shed.location_type = 'shed' AND shed.status = 'active'`,
-		cmd.TenantID, cmd.ShedID).Scan(&location.ShedName, &location.ParkID, &location.ParkName)
+		cmd.TenantID, cmd.ShedID).Scan(&location.ShedID, &location.ShedName, &location.ParkID, &location.ParkName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return oploc.OperationalLocation{}, ports.ErrInvalidReference
 	}
@@ -263,7 +305,8 @@ func (r *Repository) insertReclassifyIdentityEvents(
 ) ([]string, []string, error) {
 	rows, err := tx.Query(ctx, `
 WITH targets AS (
-    SELECT g.goat_id, COALESCE(g.management_stage, '') AS from_stage, g.park_id, g.shed_id
+    SELECT g.goat_id, COALESCE(g.management_stage, '') AS from_stage, g.park_id, g.shed_id,
+           $3::text AS legacy_partition_label
 `+reclassifyScopeSQL+`
       AND (
         COALESCE(g.management_stage, '') IS DISTINCT FROM $4::text

@@ -81,7 +81,7 @@ MOP cleanly without duplicate scans, missed animals, or confused proof capture.
 | Operator cap | Maximum unique animals an operator can handle on one date. |
 | Daily capacity | Sum of caps for operators available on that date. |
 | Physical shed | A real building or major shed grouping. |
-| Partition | A sub-area inside a physical shed, usually encoded in source names like `Gandhi 1` or `Godel 1 - Part 4`. |
+| Partition | A sub-area inside a physical shed, usually encoded in source names like `Gandhi 1` or `Godel 1 Part 4`. |
 | Work block | A schedulable unit: usually physical shed + partition + vaccine bundle + species group. |
 | Review hold | Animals that cannot be auto-scheduled because required facts are missing or contradictory. |
 
@@ -133,9 +133,9 @@ Physical shed normalization for the mock run:
 | Physical shed | Source partitions | Total animals | Clean schedulable |
 |---|---|---:|---:|
 | Gandhi | `Gandhi 1`, `Gandhi 2`, `Gandhi 3` | 114 | 114 |
-| Godel 1 | `Godel 1 - Part 1`, `Godel 1 - Part 3`, `Godel 1 - Part 4` | 120 | 120 |
-| Godel 2 | `Godel 2 - Part 4` | 32 | 32 |
-| Mandela 2 | `Mandela 2 - Part 1`, `Part 2`, `Part 3`, `Part 7`, `Part 8` | 47 | 47 |
+| Godel 1 | `Godel 1 Part 1`, `Godel 1 Part 3`, `Godel 1 Part 4` | 120 | 120 |
+| Godel 2 | `Godel 2 Part 4` | 32 | 32 |
+| Mandela 2 | `Mandela 2 Part 1`, `Part 2`, `Part 3`, `Part 7`, `Part 8` | 47 | 47 |
 | Old Yashoda | `Old Yashoda 1`, `Old Yashoda 5` | 11 | 11 |
 
 Current proof operators:
@@ -182,8 +182,8 @@ The planner must normalize common partition patterns:
 |---|---|---|
 | `Gandhi 1` | `Gandhi` | `1` |
 | `Gandhi 2` | `Gandhi` | `2` |
-| `Godel 1 - Part 4` | `Godel 1` | `Part 4` |
-| `Mandela 2 - Part 8` | `Mandela 2` | `Part 8` |
+| `Godel 1 Part 4` | `Godel 1` | `Part 4` |
+| `Mandela 2 Part 8` | `Mandela 2` | `Part 8` |
 | `Old Yashoda 5` | `Old Yashoda` | `5` |
 
 Normalization must preserve the raw source label for audit and proof matching.

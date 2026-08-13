@@ -62,7 +62,7 @@ VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Godel 1', 'active'),
        ($1::uuid, $6::uuid, $4::uuid, 'shed', 'Castro', 'active')`,
 		tenant, godelOne, castroOne, park, bareShed, castroGroup)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 - Part 1', 'active')`,
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 Part 1', 'active')`,
 		tenant, godelOnePartOne, park)
 	exec(`DROP TRIGGER IF EXISTS shed_partitions_operational_location_trg ON shed_partitions`)
 	exec(`DROP FUNCTION IF EXISTS ensure_shed_partition_operational_location()`)
@@ -87,7 +87,7 @@ VALUES ($1::uuid, $2::uuid, 'Part 2', '2', 'retired', 'manual')`, tenant, godelO
   ($10::uuid, $2::uuid, 'G-900004', 'female', 'alive', $3::uuid, $11::uuid, $6::uuid, $11::uuid)`,
 		partitionedGoat, tenant, custodian, godelOne, undividedGoat, park, castroOne, bareGoat, bareShed, castroPartGoat, castroGroup)
 	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 - Part 1')`,
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Godel 1 Part 1')`,
 		tenant, partitionedGoat, godelOne)
 	exec(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1::uuid, $2::uuid, $3::uuid, '1', 'Castro 1')`,
@@ -175,8 +175,8 @@ WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`, tenant, partitionedGoat).
 		Scan(&penName); err != nil {
 		t.Fatalf("query partitioned goat location name: %v", err)
 	}
-	if penName != "Godel 1 - Part 1" {
-		t.Fatalf("partitioned goat mapped to shed name %q, want %q", penName, "Godel 1 - Part 1")
+	if penName != "Godel 1 Part 1" {
+		t.Fatalf("partitioned goat mapped to shed name %q, want %q", penName, "Godel 1 Part 1")
 	}
 
 	var scheduledScope, waivedScope, supersededScope string
@@ -335,7 +335,7 @@ VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenant, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1', 'active')`, tenant, shed, park)
 	exec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 - Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", park)
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', 'Godel 1 Part 1', 'active')`, tenant, "f1460000-0000-4000-8000-000000000010", park)
 
 	raw, err := os.ReadFile("000159_partition_operational_location_mapping.sql")
 	if err != nil {

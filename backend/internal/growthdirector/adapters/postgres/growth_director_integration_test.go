@@ -24,7 +24,7 @@ const (
 	gdTenant   = "00000000-0000-4000-8000-000000000001"
 	gdParty    = "00000000-0000-4000-8000-000000001001"
 	gdPark     = "00000000-0000-4000-8000-000000003001"
-	gdShedG    = "f1b1bad0-47ab-4248-95dc-8fa1472d4fec" // Gandhi 1 - Part 1 (baseline)
+	gdShedG    = "f1b1bad0-47ab-4248-95dc-8fa1472d4fec" // Gandhi 1 Part 1 (baseline)
 	gdOperator = "00000000-0000-4000-8000-000000000301"
 
 	// Fixture-created rows.
@@ -82,8 +82,8 @@ VALUES
 	execGD(t, ctx, pool, `
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
 VALUES
-  ($1::uuid, $6::uuid, $8::uuid, $9::uuid,  'shed', 'Gandhi 1 - Part 1', 'individual_animal', $11::uuid, 0),
-  ($2::uuid, $7::uuid, $8::uuid, $9::uuid,  'shed', 'Gandhi 1 - Part 1', 'individual_animal', $11::uuid, 0),
+  ($1::uuid, $6::uuid, $8::uuid, $9::uuid,  'shed', 'Gandhi 1 Part 1', 'individual_animal', $11::uuid, 0),
+  ($2::uuid, $7::uuid, $8::uuid, $9::uuid,  'shed', 'Gandhi 1 Part 1', 'individual_animal', $11::uuid, 0),
   ($3::uuid, $6::uuid, $8::uuid, $10::uuid, 'shed', 'Q2',                'individual_animal', $11::uuid, 0),
   ($4::uuid, $7::uuid, $8::uuid, $10::uuid, 'shed', 'Q2',                'individual_animal', $11::uuid, 0),
   ($5::uuid, $7::uuid, $8::uuid, $12::uuid, 'shed', 'Lump 1',            'per_shed_partition', $11::uuid, 0)`,
@@ -333,7 +333,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $5, 'issued', now(), 'fp:'||$1, 
 	row := func(issueID string, sessionNo int, item string, quantity any, reasonCode any, headCount int, informational bool, workflow string) {
 		execGD(t, ctx, pool, `
 INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag, breed, session_no, head_count, head_count_informational, workflow, feed_item_label, quantity_kg, blocked_reason_code, blocked_reason_detail, session_total_kg, overdue_pending, row_seq, item_seq)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', '', $5, $6, $7, $8, $9, $10, $11, $11, 0, false, 0, $5)`,
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 Part 1', '', '', $5, $6, $7, $8, $9, $10, $11, $11, 0, false, 0, $5)`,
 			gdTenant, issueID, gdPark, gdShedG, sessionNo, headCount, informational, workflow, item, quantity, reasonCode)
 	}
 

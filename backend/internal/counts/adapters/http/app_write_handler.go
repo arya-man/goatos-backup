@@ -408,7 +408,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		}
 		// The destination catalog is built ONLY from active locations (see
 		// counts/adapters/postgres.shiftingDestinationCatalogQuery), so a shed id present in it can
-		// never be an INACTIVE location -- a retired alias such as "Castro 1"/"Godel 1 - Part 3" never
+		// never be an INACTIVE location -- a retired alias such as "Castro 1"/"Godel 1 Part 3" never
 		// appears here. When the catalog DOES know the shed, validate the operational-location
 		// contract against it (partition required vs allowed, and that a supplied partition is real).
 		// A shed absent from the catalog is not re-litigated here: the relocation write path

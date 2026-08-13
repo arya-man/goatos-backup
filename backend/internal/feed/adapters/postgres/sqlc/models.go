@@ -320,7 +320,7 @@ type CeoAiAnimalCurrentScope struct {
 	Sex             string
 	Breed           string
 	AgeDays         int32
-	PartitionLabel  bool
+	PartitionLabel  pgtype.Text
 }
 
 type CeoAiAnimalsBase struct {
@@ -538,7 +538,7 @@ type CeoAiShedCapacityCurrent struct {
 	TenantID       pgtype.UUID
 	ParkLabel      pgtype.Text
 	ShedLabel      string
-	Animals        interface{}
+	Animals        int64
 	Capacity       pgtype.Int4
 	Variance       int32
 	Status         string
@@ -618,7 +618,7 @@ type CeoAiVaccinationOperatorStatus struct {
 	OperatorDayAssigned int64
 	Utilization         pgtype.Numeric
 	NextAction          string
-	PartitionLabel      bool
+	PartitionLabel      pgtype.Text
 }
 
 type CeoAiVaccinationPrearrivalHistoryReview struct {
@@ -639,10 +639,10 @@ type CeoAiVaccinationShedStatus struct {
 	TenantID        pgtype.UUID
 	ParkLabel       pgtype.Text
 	ShedLabel       string
-	Animals         interface{}
-	Due             interface{}
-	Done            interface{}
-	PlannedSessions interface{}
+	Animals         int64
+	Due             int64
+	Done            int64
+	PlannedSessions int64
 	NextDueDate     pgtype.Date
 	ManagerLabel    pgtype.Text
 	BackupLabel     pgtype.Text

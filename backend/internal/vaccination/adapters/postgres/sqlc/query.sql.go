@@ -377,7 +377,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       ''::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -410,10 +410,6 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id
- AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1 AND g.goat_id = $2::uuid
 `
 
@@ -553,7 +549,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       ''::text AS partition_label,
        COALESCE(g.sex, '')::text AS sex,
        COALESCE(g.breed, '')::text AS breed,
        COALESCE(asl.stage_code, g.management_stage, '')::text AS management_stage,
@@ -586,10 +582,6 @@ LEFT JOIN locations park
   ON park.tenant_id = g.tenant_id
  AND park.location_id = g.park_id
  AND park.location_type = 'park'
-LEFT JOIN goat_shed_partitions gsp
-  ON gsp.tenant_id = g.tenant_id
- AND gsp.goat_id = g.goat_id
- AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
 WHERE g.tenant_id = $1
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
   AND ($2::text = '' OR COALESCE(asl.stage_code, g.management_stage, '') = $2::text)

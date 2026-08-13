@@ -9,8 +9,8 @@ describe('status-matrix exact shed handling', () => {
         shedId: 'shed-godel-1-part-1',
         partitionLabel: 'Part 1',
         stage: 'Adult',
-        shedName: 'Godel 1 - Part 1',
-        operationalLocationDisplay: 'Godel 1 - Part 1',
+        shedName: 'Godel 1 Part 1',
+        operationalLocationDisplay: 'Godel 1 Part 1',
         parkName: 'Channapatna',
       },
       {
@@ -18,8 +18,8 @@ describe('status-matrix exact shed handling', () => {
         shedId: 'shed-godel-1-part-3',
         partitionLabel: 'Part 3',
         stage: 'Adult',
-        shedName: 'Godel 1 - Part 3',
-        operationalLocationDisplay: 'Godel 1 - Part 3',
+        shedName: 'Godel 1 Part 3',
+        operationalLocationDisplay: 'Godel 1 Part 3',
         parkName: 'Channapatna',
       },
     ];
@@ -33,12 +33,12 @@ describe('status-matrix exact shed handling', () => {
   test('row display should show operational location with partition', () => {
     const cohort = {
       stage: 'Adult',
-      operationalLocationDisplay: 'Godel 1 - Part 3',
+      operationalLocationDisplay: 'Godel 1 Part 3',
       shedName: 'Godel 1',
       parkName: 'Channapatna',
     };
 
     const displayLabel = `${cohort.stage} · ${cohort.operationalLocationDisplay || cohort.shedName}`;
-    assert.equal(displayLabel, 'Adult · Godel 1 - Part 3', 'Display includes partition');
+    assert.equal(displayLabel, 'Adult · Godel 1 Part 3', 'Display includes partition');
   });
 });

@@ -66,14 +66,14 @@ class VerifyQueueFilterChromeTest {
         val options = listOf(
             VerifyLocationFilterOption(value = null, label = "All sheds"),
             VerifyLocationFilterOption(value = "s1", label = "Gandhi 1"),
-            VerifyLocationFilterOption(value = "s2", label = "Godel 1 - Part 3"),
+            VerifyLocationFilterOption(value = "s2", label = "Godel 1 Part 3"),
             VerifyLocationFilterOption(value = "s3", label = "Castro 2"),
         )
 
         assertEquals(listOf("Gandhi 1"), filterLocationOptions(options, "gandhi").map { it.label })
-        assertEquals(listOf("Godel 1 - Part 3"), filterLocationOptions(options, "part 3").map { it.label })
+        assertEquals(listOf("Godel 1 Part 3"), filterLocationOptions(options, "part 3").map { it.label })
         // A partition label must remain findable by its parent shed name.
-        assertEquals(listOf("Godel 1 - Part 3"), filterLocationOptions(options, "Godel").map { it.label })
+        assertEquals(listOf("Godel 1 Part 3"), filterLocationOptions(options, "Godel").map { it.label })
     }
 
     @Test

@@ -30,7 +30,7 @@ and stale UI labels.
 
 Vaccination seed scope drift is the same class of bug. A CPT-only rehearsal
 source must not pull in CBE/Coimbatore because a broad fixture once covered both
-parks. Shed partition labels such as `Gandhi 1` or `Godel 1 - Part 3` are not
+parks. Shed partition labels such as `Gandhi 1` or `Godel 1 Part 3` are not
 new buildings; source audits, fixture guards, seeders, read APIs, and frontend
 tables must aggregate owner/count totals at physical-shed grain and carry the
 partition only as drive-assignment detail.
@@ -288,7 +288,7 @@ cache. A direct repo/port call from any one of those helpers is a recurrence of
 the N+1 fan-out bug, even when the seed fixture has only three operators.
 
 Model farm-visible shed names as the canonical physical sheds. `Gandhi 1`,
-`Gandhi 2`, and `Godel 1 - Part 3` are shed names, not display strings composed
+`Gandhi 2`, and `Godel 1 Part 3` are shed names, not display strings composed
 from a parent shed plus a partition label. Collapsing them into a parent row and
 re-appending `partition_label` multiplies work, breaks operator ownership, and
 makes UI grouping lie.

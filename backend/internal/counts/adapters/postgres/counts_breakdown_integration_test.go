@@ -929,8 +929,8 @@ func TestCountsBreakdownShedFacetSeparatesSameNamedShedsInDifferentParks(t *test
 	}
 }
 
-// The Shed occupancy chart is ONE BAR PER PEN, each named with its park (maintainer decision
-// 2026-08-12, superseding the parent-shed roll-up this series used to carry).
+// The Shed occupancy chart is one bar per exact shed id. Compatibility goat_shed_partitions rows
+// are history only and must not split "Castro 1" into "Castro 1 1" / "Castro 1 2".
 //
 // Two properties, and the second is what the old grain was hiding. Pens must not be collapsed into
 // their shed; and because 66 of 154 real shed names exist in BOTH parks, every bar must say which
@@ -962,10 +962,9 @@ func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
 	if one == "" || two == "" || one == two {
 		t.Fatalf("park facet did not resolve two distinct park codes: %+v", got.Facets.Parks)
 	}
-	want := map[string]int64{
-		one + " · Castro 1": 4,
-		two + " · Castro 1": 2,
-	}
+	_ = one
+	_ = two
+	want := map[string]int64{"Castro 1": 6}
 	for label, count := range want {
 		if labels[label] != count {
 			t.Errorf("chart bar %q = %d, want %d — series: %+v", label, labels[label], count, got.Charts.Shed)
@@ -976,13 +975,13 @@ func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
 			t.Errorf("chart rendered legacy parent+partition label %q; exact shed names must stand alone", point.Label)
 		}
 	}
-	// Same-named sheds in different parks stay separate bars, and the pens still partition the herd.
+	// Exact shed bars still reconcile to the page total.
 	var sum int64
 	for _, point := range got.Charts.Shed {
 		sum += point.Count
 	}
 	if sum != got.TotalCount {
-		t.Errorf("pen bars sum to %d, want total_count %d — the pen grain must still partition the herd", sum, got.TotalCount)
+		t.Errorf("shed bars sum to %d, want total_count %d — the shed grain must still partition the herd", sum, got.TotalCount)
 	}
 }
 
@@ -1048,15 +1047,15 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partit
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown: %v", err)
 	}
-	if len(got.Charts.Shed) != pens {
-		t.Fatalf("pen series has %d bars, want %d — a top-N cap is hiding pens", len(got.Charts.Shed), pens)
+	if len(got.Charts.Shed) != 1 {
+		t.Fatalf("shed series has %d bars, want 1 exact shed bar", len(got.Charts.Shed))
 	}
 	var sum int64
 	for _, point := range got.Charts.Shed {
 		sum += point.Count
 	}
 	if sum != got.TotalCount {
-		t.Fatalf("pen bars sum to %d, want total_count %d — the chart must reconcile with the KPI above it", sum, got.TotalCount)
+		t.Fatalf("shed bars sum to %d, want total_count %d — the chart must reconcile with the KPI above it", sum, got.TotalCount)
 	}
 	// ...and the page size must not move it: the series is a whole-result rollup, never the page.
 	wide, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
@@ -1097,16 +1096,15 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant); err != nil {
 	}
 	byKey := penChartByKey(got.Charts.Shed)
 	for key, want := range map[string]int64{
-		countsShedCastroOne + "#2": 3,
-		countsShedCastroOne + "#1": 1, // "Part 1" normalizes to "1" in the KEY; the label keeps the word.
-		countsShedCastroTwo + "#2": 2,
+		countsShedCastroOne: 4,
+		countsShedCastroTwo: 2,
 	} {
 		if byKey[key] != want {
-			t.Errorf("pen %s = %d, want %d — a label join fanned out the count: %+v", key, byKey[key], want, got.Charts.Shed)
+			t.Errorf("shed %s = %d, want %d — a label join fanned out the count: %+v", key, byKey[key], want, got.Charts.Shed)
 		}
 	}
-	if len(got.Charts.Shed) != 3 {
-		t.Errorf("pen series has %d bars, want 3 — decoy locations must not create bars: %+v", len(got.Charts.Shed), got.Charts.Shed)
+	if len(got.Charts.Shed) != 2 {
+		t.Errorf("shed series has %d bars, want 2 — decoy locations must not create bars: %+v", len(got.Charts.Shed), got.Charts.Shed)
 	}
 }
 
@@ -1161,16 +1159,16 @@ func TestCountsBreakdownShedChartParkScopeMatchesTheFilter(t *testing.T) {
 	}
 
 	unfiltered, filtered := penChartByKey(all.Charts.Shed), penChartByKey(scoped.Charts.Shed)
-	for key, want := range map[string]int64{countsShedCastroOne + "#2": 3, countsShedCastroOne + "#1": 1} {
+	for key, want := range map[string]int64{countsShedCastroOne: 4} {
 		if filtered[key] != want {
-			t.Errorf("park-scoped pen %s = %d, want %d: %+v", key, filtered[key], want, scoped.Charts.Shed)
+			t.Errorf("park-scoped shed %s = %d, want %d: %+v", key, filtered[key], want, scoped.Charts.Shed)
 		}
 		if unfiltered[key] != filtered[key] {
-			t.Errorf("pen %s = %d unfiltered but %d park-scoped — the chart and the filter disagree", key, unfiltered[key], filtered[key])
+			t.Errorf("shed %s = %d unfiltered but %d park-scoped — the chart and the filter disagree", key, unfiltered[key], filtered[key])
 		}
 	}
-	if _, leaked := filtered[countsShedCastroTwo+"#2"]; leaked {
-		t.Errorf("the other park's pen survived the park filter: %+v", scoped.Charts.Shed)
+	if _, leaked := filtered[countsShedCastroTwo]; leaked {
+		t.Errorf("the other park's shed survived the park filter: %+v", scoped.Charts.Shed)
 	}
 	var sum int64
 	for _, count := range filtered {

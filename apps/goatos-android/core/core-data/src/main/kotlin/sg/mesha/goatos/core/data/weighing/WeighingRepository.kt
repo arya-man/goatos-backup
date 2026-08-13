@@ -282,7 +282,7 @@ data class WeighingLeadershipShed(
     val shedName: String,
     /** The partition label (e.g., "Part 3"), or empty/null for undivided sheds. */
     val partitionLabel: String? = null,
-    /** Backend-composed display string (e.g., "Godel 1 - Part 3"). Prefer this over hand-rolling. */
+    /** Backend-composed display string (e.g., "Godel 1 Part 3"). Prefer this over hand-rolling. */
     val operationalLocationDisplay: String = "",
     /** The park this bucket's task belongs to, as the shed read itself answers it. */
     val parkName: String = "",
@@ -2728,6 +2728,7 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 (historyAllowed || shedStatus !in setOf("closed", "completed"))
         }
         .map { shed ->
+            val locationLabel = shed.operationalLocationDisplay.ifBlank { operationalWeighingLocationLabel(shed.displayName, null) }
             WeighingAssignment(
                 campaignId = campaignId,
                 tenantId = tenantId,
@@ -2736,8 +2737,8 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 workGroupId = shed.campaignShedId,
                 campaignShedId = shed.campaignShedId,
                 expectedLocationId = shed.locationId,
-                expectedLocationLabel = shed.displayName,
-                label = shed.displayName,
+                expectedLocationLabel = locationLabel,
+                label = locationLabel,
                 category = shed.weighingCategory,
                 operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
                 operatorDisplayName = shed.operatorDisplayName,

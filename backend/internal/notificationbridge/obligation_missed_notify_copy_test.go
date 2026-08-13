@@ -22,7 +22,7 @@ func TestObligationMissedNotifierCopyNamesShedAndDate(t *testing.T) {
 		DueAt:        dueAt,
 		ParkID:       "33333333-3333-4333-8333-333333333333",
 		ShedID:       "77777777-7777-4777-8777-777777777777",
-		ShedLabel:    "Godel 1 - Part 8",
+		ShedLabel:    "Godel 1 Part 8",
 		OperatorID:   "88888888-8888-4888-8888-888888888888",
 	}
 	resolver := fakeMissedResolver{ctx: missed}
@@ -42,7 +42,7 @@ func TestObligationMissedNotifierCopyNamesShedAndDate(t *testing.T) {
 		t.Fatalf("expected operator + leadership notifications, got %d", len(queue.captured))
 	}
 	for _, c := range queue.captured {
-		if !strings.Contains(c.in.Body, "Godel 1 - Part 8") {
+		if !strings.Contains(c.in.Body, "Godel 1 Part 8") {
 			t.Errorf("missed-work body must name the shed: %q", c.in.Body)
 		}
 		if !strings.Contains(c.in.Body, "2026-08-01") {

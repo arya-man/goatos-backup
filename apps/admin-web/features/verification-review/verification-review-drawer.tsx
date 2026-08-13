@@ -393,9 +393,10 @@ function VerificationReviewDrawerPanel({
   // The heading is the same sentence the verifier clicked in the queue -- shed, animal/tag,
   // vaccine, weight -- falling back to operator/shed only when the backend sent no subject. It is
   // never the item id: an id tells her nothing about the video she is about to judge.
-  const subjectHeading = item.subject_label?.trim()
-    ? item.subject_label
-    : [item.operator_name, item.shed_label].filter(Boolean).join(" · ") || text("drawer.eyebrow");
+  const subjectHeading = (item.operational_location_display || item.shed_label || "").trim() ||
+    [item.operator_name].filter(Boolean).join(" · ") ||
+    item.subject_label?.trim() ||
+    text("drawer.eyebrow");
 
   // Duty split (verifier-app-and-flow.md §Roles): the verifier records the verdict, the authority
   // acts on the source task. This screen now carries ONLY the verifier's half -- the authority

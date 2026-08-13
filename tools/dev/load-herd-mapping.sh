@@ -14,7 +14,7 @@
 #
 # AMBIGUITY RESOLUTION
 # The Counting DB assigns attributes per GROUP, not per animal, so some groups carry several
-# candidate sheds ("Godel 1 - Part 1 + Part 2") or breeds ("Anantapur Sheep / Beetal"). Those are
+# candidate sheds ("Godel 1 Part 1 + Part 2") or breeds ("Anantapur Sheep / Beetal"). Those are
 # NOT guessed: if the animal's current value is one of the candidates it is KEPT, which resolves
 # most of them from existing state. Only when the current value is outside the candidate list does
 # the first candidate win, and every such case is counted in the report as a forced pick so it is

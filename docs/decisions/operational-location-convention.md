@@ -1,4 +1,4 @@
-# Operational Location Convention: Park + Shed + Partition
+# Operational Location Convention: Park + Exact Shed
 
 **Status:** Accepted (2026-08-06)  
 **Guard:** `make operational-location-guard`  
@@ -12,11 +12,11 @@
 
 ## Problem Statement
 
-Goat OS divides physical barns into partitions to track animals at finer granularity than raw shed buildings. Early implementations diverged on how to name, store, display, and query these locations:
+Goat OS tracks animals at the exact physical shed where they live. Some sheds have a shared/base group name for humans, but the live/operator location is still the exact shed row, not a parent plus a partition. Early implementations diverged on how to name, store, display, and query these locations:
 
-- Some code normalized `Castro 1` and `Castro 2` to a single shed `Castro` with partitions, others treated them as separate physical sheds.
+- Some code wrongly normalized `Castro 1` and `Castro 2` to a single shed `Castro` with partitions, while the farm reality is separate physical sheds `Castro 1` and `Castro 2`.
 - Name-based grouping silently merged animals across parks (two `Castro` sheds exist — one in Mandela, one in Godel).
-- Three production data sources — the Mesha master registry, BigQuery, and legacy operator CSVs — each used a different shape (`Godel 1 - Part 3`, `GODEL 1 - PART 4`, `Godel 1 1`).
+- Historical data sources used multiple spellings (`Godel 1 Part 3`, `GODEL 1 - PART 4`, `Godel 1 1`). The live catalog must converge those to the single exact shed string chosen for Goat OS, e.g. `Godel 1 Part 3`.
 - The term "active shed" was used to mean both "a physical building" and "a building currently holding animals", blurring storage and product semantics.
 - Six query paths had already drifted from the canonical composition rule, producing bugs like `Godel 1 1` (naive space-numeric join) and duplicate `Godel 1` rows in UI selectors.
 
@@ -24,9 +24,9 @@ Goat OS divides physical barns into partitions to track animals at finer granula
 
 | Source | Format | Example | Scale |
 |--------|--------|---------|-------|
-| **Master Registry** (`Sheds DB.xlsx`) | Text rows in Mesha wiki | `Godel 1 - Part 1` … `Godel 1 - Part 10` | One row per physical partition |
-| **Live BigQuery** (`goatos-sheets`) | Tables `counting.counting_db_view`, `Shiftings.shiftings_fact` | `MANDELA 1 - PART 3` (639 animals), `GODEL 1 - PART 4` (450) | ~100:1 dashed form usage |
-| **Legacy Production Code** | Hardcoded constants in feed automation + dashboard UI | `slack-automation-scripts/feed_automation.js`: `'Mandela 2 - Part 3'`; `dashboard/.../SHED_CAPACITIES`: `"Gandhi 1 - Part 1"`, `"Castro 1"` | Both numeric and dashed names in prod |
+| **Master Registry / Aryaman list** | Text rows | `Castro 1`, `Gandhi 1`, `Godel 1 Part 1`, `Mandela 2 Part 1` | One row per physical shed |
+| **Legacy/seed data** | Parent/group plus label bridge | `shed_group=Godel 1`, `partition_label=Part 3` | Compatibility only; must resolve to exact shed before operator use |
+| **Legacy production code** | Hardcoded constants in feed automation + dashboard UI | older strings such as `Mandela 2 Part 3` | Historical evidence, not the live naming contract |
 
 ---
 
@@ -42,34 +42,35 @@ OperationalLocation = park + exact_shed
 
 ### Rule 1: Storage Normalization (Backend)
 
-Normalize partition labels at the database layer. The `locations` table stores one row per PHYSICAL LOCATION:
+The `locations` table stores one row per physical shed. The physical shed name is a single string.
 
-- **Subdivided sheds** (historically named with a number suffix like `Godel 1`, `Mandela 2`) → normalized to `shed_name` + `partition_label`
-  - `Castro 1`, `Castro 2`, `Castro 3` → ONE shed `Castro` with partitions `1`, `2`, `3`
-  - `Godel 1 - Part 3` → ONE shed `Godel 1` with partition `Part 3`
-  - `Mandela 2 - Part 1` → ONE shed `Mandela 2` with partition `Part 1`
+- `Castro 1`, `Castro 2`, `Castro 3` are three shed rows.
+- `Gandhi 1`, `Gandhi 2`, `Gandhi 3` are three shed rows.
+- `Godel 1 Part 3` is one shed row.
+- `Mandela 2 Part 1` is one shed row.
 
-- **Undivided sheds** (single-name or numeric-suffix sheds that are NOT subdivided) → stored with NULL / '' / 'whole' partition
-  - `Yashoda` → `Yashoda` + NULL partition
-  - `Ho Chi Minh 1` → `Ho Chi Minh 1` + NULL partition (the `1` is part of the shed name, NOT a partition number)
+When old rows still have group/partition columns, those columns are a bridge only:
 
-- **Key insight:** Short-numeric names like `Castro`, `Gandhi`, `Yashoda` ARE NOT partitions. Only `Godel`, `Mandela`, `Sumathi`, and the `Gandhi`-family (subdivided variants) take a partition.
+- `shed_group_id` = optional parent/group header.
+- `partition_label` = historical matching key.
+- `goats.shed_id` and task/bucket location ids = exact physical shed.
 
-**Normalization happens at SEED/IMPORT time,** not at query time. The `locations` table is the SSOT for partition existence.
+No live query should join `shed_name + partition_label` to invent a display name.
 
 ### Rule 2: Product Display (All Surfaces)
 
-User-facing surfaces ALWAYS show the partition when one exists:
+User-facing surfaces always show the exact shed string:
 
-- No partition (NULL / '' / 'whole') → Display the plain shed name: `Yashoda`, `Castro 1`, `Ho Chi Minh 1`
-- Has partition → Display `shed_name - partition_label`: `Godel 1 - Part 3`, `Mandela 2 - Part 1`
+- Plain shed: `Yashoda`, `Ho Chi Minh`
+- Numbered shed: `Castro 1`, `Castro 2`, `Gandhi 3`
+- Part-named shed: `Godel 1 Part 3`, `Mandela 2 Part 1`
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key for queries, never copy for users
 - `Godel 1 1` — result of naive space-numeric join (worked example of what breaks)
-- Shed name alone when a partition exists (e.g., `Godel 1` without the partition) — **always carry both halves**
+- Exact shed name plus compatibility label again, e.g. `Castro 2 2`, `Gandhi 1 1`, `Godel 1 Part 1 Part 1`
 
-**Both halves must always be read together.** Rendering the display requires BOTH `shed_id` (and its display name) AND `partition_label` in the response struct.
+Rendering uses the exact shed display from the backend. `partition_label` may be present for old matching logic but must not change visible text.
 
 ### Rule 3: Composition Location (Code)
 
@@ -79,7 +80,7 @@ Shared location-composition logic lives in ONE place per language — use it ins
 - **Admin-web:** `apps/admin-web/lib/operational-location.ts` — TypeScript helpers for display and filtering
 - **Android:** `core/core-ui/.../PartitionLabel.kt` — Kotlin composable for rendering the partition label and full location
 
-Hand-rolled copies drift. Example: six SQL `ORDER BY` / `GROUP BY` paths had drifted to `Castro - Part 2`, showing a partition for a shed that has none.
+Hand-rolled copies drift. Example: six SQL `ORDER BY` / `GROUP BY` paths had drifted to `Castro 2`, showing a partition for a shed that has none.
 
 ---
 
@@ -105,33 +106,34 @@ Two parks each have a `Castro` shed (different `shed_id`). Grouping by name coll
 
 ### Example 2: Naive Join Produces Invalid Names
 
-**Bug:** Combining shed name and partition with a space:
+**Bug:** Combining a group shed name and a compatibility partition label:
 
 ```sql
--- WRONG: `Godel 1` (shed) + `Part 3` (partition) = `Godel 1 Part 3` (renders as `Godel 1 1` when truncated)
+-- WRONG: `Godel 1` (group) + `Part 3` (compatibility label)
 SELECT shed_name || ' ' || partition_label AS location_display
 FROM locations
 WHERE shed_name = 'Godel 1' AND partition_label = 'Part 3'
--- Output: `Godel 1 Part 3` — loses the dashes and word spacing that distinguish label from shed
+-- Output happens to look like `Godel 1 Part 3`, but the identity is still wrong.
 
--- CORRECT: Use the canonical display function or explicit separator
-SELECT DisplayName(shed_name, partition_label) AS location_display
--- Output: `Godel 1 - Part 3` — matches master registry
+-- CORRECT: read the exact shed row directly.
+SELECT exact_shed.name AS location_display
+FROM locations exact_shed
+WHERE exact_shed.name = 'Godel 1 Part 3'
 ```
 
-**Impact:** The maintainer photographed a weighing screen showing `Godel 1 1` — the shed name `Godel 1` followed by a truncated partition number. The naive join had produced the label; text truncation did the rest.
+**Impact:** The maintainer photographed screens showing `Castro 2 2` and `Gandhi 1 1`: the exact shed name already contained the number, and old code appended the compatibility label again.
 
 ---
 
 ### Example 3: Missing Partition Columns in New Tables
 
-**Bug:** Three new tables shipped without `partition_label`, making them impossible to join to the correct physical location:
+**Bug:** Three new tables shipped without the exact operational shed id, making them impossible to join to the correct physical location:
 
-- `verification_items` — verifier proof videos (missing partition, cannot tell which of 10 `Godel 1` partitions the evidence applies to)
-- `weighing_campaign_sheds` — weighing task assignments (missing partition, assigns to `Godel 1` ambiguously)
-- `health_cases` — clinical incidents (missing partition, cannot find the right clinical record)
+- `verification_items` — verifier proof videos (must point at `Godel 1 Part 3`, not hidden group `Godel 1`)
+- `weighing_campaign_sheds` — weighing task assignments (must point at the exact shed row)
+- `health_cases` — clinical incidents (must carry the exact current shed row)
 
-**Fix:** Add `partition_label` column + a backend-composed `operational_location_display` to every location-bearing response struct.
+**Fix:** Store/read the exact shed id everywhere. Compatibility fields such as `partition_label` may exist only to migrate old rows or keep stale mobile cache separated during rollout.
 
 ---
 
@@ -140,8 +142,8 @@ SELECT DisplayName(shed_name, partition_label) AS location_display
 **Bug:** Six SQL paths each independently composed the display name, and they drifted:
 
 ```sql
--- Path 1 (canonical, from Go helper reference):
-'Godel 1 - Part 3'
+-- Path 1 (canonical exact shed row):
+'Godel 1 Part 3'
 
 -- Path 2 (legacy query, copy-pasted, never updated):
 'Godel 1-Part 3'   -- missing spaces
@@ -150,7 +152,7 @@ SELECT DisplayName(shed_name, partition_label) AS location_display
 'GODEL 1 - PART 3' -- uppercase (matches BigQuery, not registry)
 
 -- Path 4 (from a read model):
-'Godel 1 Part 3'   -- space instead of dash (the naive join)
+'Godel 1 Part 3'   -- visually right, but still wrong if it was hand-composed from group + label
 
 -- Paths 5–6: Similar drifts in projection queries
 ```
@@ -165,10 +167,11 @@ This is the maintainer's critical insight (2026-08-05):
 
 | Layer | Meaning | Example |
 |-------|---------|---------|
-| **Storage** (backend database) | Normalization for querying efficiency | `shed_name='Castro'` + `partition_label='2'` |
-| **Product** (user-facing surfaces) | ALWAYS show both when partition exists | `Castro - 2` (for numeric suffix) or `Godel 1 - Part 3` (for prefixed) |
+| **Storage** (backend database) | The animal/work row points at the exact physical shed row | `goats.shed_id = locations('Castro 2')` |
+| **Compatibility** (old imports/cache/history) | Optional bridge fields that must not drive live identity/display | `shed_group_id='Castro'`, `partition_label='2'` |
+| **Product** (user-facing surfaces) | Show the exact shed row name as-is | `Castro 2` or `Godel 1 Part 3` |
 
-Both halves must always be read together when working on location-bearing features.
+The exact shed id is the live identity. Compatibility partition labels must not be appended to it.
 
 ---
 
@@ -176,21 +179,21 @@ Both halves must always be read together when working on location-bearing featur
 
 ### Mandatory for All Locations
 
-1. **Normalize at seed/import.** Raw partition labels must be parsed and normalized into `(shed_id, shed_name, partition_label)` BEFORE writing to `locations`. Do not invent new rows for undivided sheds.
+1. **Normalize at seed/import.** Raw partition labels must be resolved into exact shed rows BEFORE writing live animal/work locations. Do not leave live rows pointing at a group shed plus partition label.
 
 2. **Carry both halves in responses.** Every location-bearing response struct must include:
-   - `shed_id` (UUID, the canonical key)
-   - `shed_name` (text, the display name of the physical shed)
-   - `partition_label` (text or NULL, the partition within that shed)
-   - `operational_location_display` (text, composed by the backend: `DisplayName(shed_name, partition_label)`)
+   - `shed_id` (UUID of the exact physical shed)
+   - `shed_name` (text, the exact physical shed name)
+   - `operational_location_display` (normally the same exact shed name)
+   - optional compatibility metadata such as `shed_group_id` or `partition_label` only when needed for legacy cache/history
 
 3. **Query by `shed_id` + park, not by name.** When grouping, filtering, or scoping to a location, use UUID + park, never shed name alone.
 
-4. **Never omit the partition in product display.** If `partition_label` is not NULL, the display must show it. If it IS NULL, render the shed name alone.
+4. **Never append compatibility partition labels in product display.** Render the exact shed name alone.
 
-5. **Use canonical composition.** Render location displays only via the shared helpers. Do not hand-roll the display string.
+5. **Use canonical exact-shed helpers.** Render location displays only via shared helpers that prefer exact shed names and strip stale compatibility labels. Do not hand-roll display strings.
 
-6. **Add `partition_label` to new location-bearing tables.** Any table that records location (vaccination completions, proof assignments, health cases, shifting source/destination, etc.) must have a `partition_label` column (nullable for undivided sheds).
+6. **New location-bearing tables must store exact shed ids.** Any table that records location (vaccination completions, proof assignments, health cases, shifting source/destination, etc.) must point at the exact operational shed row. Add compatibility columns only for migration boundaries, not live identity.
 
 ### Mandatory for Subagent Briefs
 
@@ -209,9 +212,9 @@ The partition convention spans ~5 handoffs (SQL → Go → wire DTO → OpenAPI 
 ### Cross-Layer Proof: DB Round-Trip Test
 
 Every location-displaying change MUST include an integration test that:
-1. Inserts a known partitioned shed into the test database (e.g., `Godel 1 - Part 3`)
+1. Inserts a known partitioned shed into the test database (e.g., `Godel 1 Part 3`)
 2. Calls the API/query/screen that READS that shed
-3. Asserts the RETURNED STRING exactly matches the database round-trip (e.g., `operational_location_display = 'Godel 1 - Part 3'`)
+3. Asserts the RETURNED STRING exactly matches the database round-trip (e.g., `operational_location_display = 'Godel 1 Part 3'`)
 
 Unit tests on Go formatters alone are insufficient (OL-9). Pure OpenAPI schema checks alone are insufficient (OL-10). The proof must span all five layers in one assertion.
 
@@ -284,11 +287,11 @@ These rules emerged from defects discovered on production code and live data TOD
 
 ### Rule 1: An Undivided Shed Whose Name Ends in a Number Is Never Split
 
-`Yashoda 2` is a SHED NAME, whole. It renders `Yashoda 2`, never `Yashoda - 2`. Same for `Ho Chi Minh 1`. The trailing number is part of the name, not a partition.
+`Yashoda 2` is a SHED NAME, whole. It renders `Yashoda 2`, never `Yashoda 2`. Same for `Ho Chi Minh 1`. The trailing number is part of the name, not a partition.
 
 **Contrast:** A genuinely partitioned shed renders as `Mandela 1 - Part 2` (shed `Mandela 1` + partition `Part 2`).
 
-**Defect:** A test fixture fed `operationalLocationLabel("Yashoda", "2")` and its expectation was "corrected" to `Yashoda - 2`. The formatter was right; the FIXTURE was wrong. **Rule: a fixture that asserts a shape the farm does not have is a defect even when the assertion passes.**
+**Defect:** A test fixture fed `operationalLocationLabel("Yashoda", "2")` and its expectation was "corrected" to `Yashoda 2`. The formatter was right; the FIXTURE was wrong. **Rule: a fixture that asserts a shape the farm does not have is a defect even when the assertion passes.**
 
 ### Rule 2: A Required Contract Field Must Be Populated on Every Construction Path, in the Same Change
 

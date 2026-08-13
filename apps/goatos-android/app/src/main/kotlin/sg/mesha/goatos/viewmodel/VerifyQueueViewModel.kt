@@ -619,8 +619,8 @@ class VerifyQueueViewModel @Inject constructor(
         // Prefer the backend-COMPOSED location. shedLabel is the bare shed, so a verifier could
         // Fall back to the exact shed label only; partitionLabel is legacy metadata and is never
         // appended client-side.
-		val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
-			?: operationalLocationLabel(representative.shedLabel, null))?.takeIf { it.isNotBlank() }
+        val shedLabel = (representative.operationalLocationDisplay?.takeIf { it.isNotBlank() }
+            ?: operationalLocationLabel(representative.shedLabel, null)).takeIf { it.isNotBlank() }
         val title = listOfNotNull(shedLabel, "$size goats · $pendingCount to review")
             .joinToString(" · ")
             .ifBlank { humanizeCategory(representative.category) }
@@ -782,26 +782,62 @@ internal fun humanizeCategory(category: String): String =
  * separate one-goat card, so the verifier could never see the shed as a whole.
  *
  * `taskId` + exact `shedId` are stable across redos (all survive a new
- * submission), so the redone animal lands back on the operational location it belongs to. Legacy
- * partition labels are not live identity and must not split one exact shed into multiple cards.
- * `submissionId` remains the fallback for items that carry no
+ * submission), so the redone animal lands back on the operational location it belongs to. During
+ * a rolling cutover, stale payloads may still carry the parent shed UUID plus a partition label;
+ * those get a hidden compatibility suffix so sibling physical sheds do not share proofs. Exact
+ * shed rows ignore stale partition metadata. `submissionId` remains the fallback for items that carry no
  * task/shed, and `itemId` the last resort — a group of exactly itself, which renders and is judged
  * exactly as a single item always was.
  */
 internal fun VerificationQueueItem.verificationGroupKey(): String {
     val taskID = source.taskId?.takeIf { it.isNotBlank() }
-    val shedID = shedId?.takeIf { it.isNotBlank() }
-    if (taskID != null && shedID != null) {
-        return "task:$taskID|shed:$shedID"
+    val locationID = verificationLocationIdentityKey()
+    if (taskID != null && locationID != null) {
+        return "task:$taskID|shed:$locationID"
     }
     val submissionID = source.submissionId?.takeIf { it.isNotBlank() }
-    if (submissionID != null && shedID != null) {
-        return "submission:$submissionID|shed:$shedID"
+    if (submissionID != null && locationID != null) {
+        return "submission:$submissionID|shed:$locationID"
     }
     return submissionID ?: itemId
 }
 
-internal fun VerificationQueueItem.verificationPartitionKey(): String = "whole"
+internal fun VerificationQueueItem.verificationPartitionKey(): String =
+    verificationCompatibilityPartitionToken() ?: "whole"
+
+private fun VerificationQueueItem.verificationLocationIdentityKey(): String? {
+    val id = shedId?.takeIf { it.isNotBlank() } ?: return null
+    val partition = verificationCompatibilityPartitionToken() ?: return id
+    val shedName = shedLabel?.trim().orEmpty()
+    val display = operationalLocationDisplay?.trim().orEmpty()
+    if (shedNameEncodesPartition(shedName, partition)) return id
+    val visible = display.ifBlank { shedName }
+    if (visible.isNotBlank() && shedNameEncodesPartition(visible, partition)) return "$id|legacy-display:${verificationLocationToken(visible)}"
+    return "$id|legacy-partition:$partition"
+}
+
+private fun VerificationQueueItem.verificationCompatibilityPartitionToken(): String? {
+    val trimmed = partitionLabel?.trim().orEmpty()
+    if (trimmed.isBlank() || trimmed.equals("whole", ignoreCase = true)) return null
+    return trimmed.lowercase()
+        .replace(Regex("^part\\s+"), "")
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+        .ifBlank { null }
+}
+
+private fun shedNameEncodesPartition(shedName: String, partitionToken: String): Boolean {
+    val normalized = verificationLocationToken(shedName)
+    if (normalized.isBlank()) return false
+    if (Regex("""\bpart\s+${Regex.escape(partitionToken)}\b""").containsMatchIn(normalized)) return true
+    if ("part" in normalized) return false
+    return normalized.endsWith(" $partitionToken")
+}
+
+private fun verificationLocationToken(raw: String): String =
+    raw.lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
 
 internal fun statusTone(status: String): VerifyTone = when (status) {
     VerificationStatus.APPROVED -> VerifyTone.APPROVED

@@ -174,10 +174,10 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			// verifier's subject line the moment a shed name failed to resolve -- exactly what
 			// the locked spec forbids ("Never render a UUID as a label"), and doubly so now that
 			// the label LEADS with the shed. A leading "-" means only the partition suffix
-			// survived (" - Part 3"), which is an id-shaped fragment for the same reason.
+			// survived (" Part 3"), which is an id-shaped fragment for the same reason.
 			// Callers treat a missing entry as "no shed to show" and drop the segment.
 			label := strings.TrimSpace(completion.ShedLabel)
-			if label != "" && !strings.HasPrefix(label, "-") {
+			if usableShedLabel(label) {
 				shedLabels[completion.ShedID] = label
 			}
 		}
@@ -280,10 +280,6 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			continue
 		}
 		animalLabel := vaccinationAnimalSubjectLabel(completion, shedLabels)
-		partitionLabel := completion.PartitionLabel
-		if partitionLabel == "" || partitionLabel == "whole" {
-			partitionLabel = "" // never display 'whole' sentinel
-		}
 		if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 			TenantID:     tenantID,
 			Vertical:     "preventive_care",
@@ -300,7 +296,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			MediaRefs:      animalMedia,
 			OperatorID:     operatorID,
 			ShedID:         stringPtr(completion.ShedID), // per-animal shed, not submission-wide
-			PartitionLabel: stringPtr(partitionLabel),
+			PartitionLabel: nil,
 			ParkID:         parkID,
 			// This animal's own capture time, not the submission-wide earliest: the queue sorts
 			// on it, and a shared timestamp would collapse the ordering of a shed's animals.
@@ -327,34 +323,6 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			}
 		}
 		if len(groupMedia) > 0 {
-			// Agree-or-go-bare: shed-grain proof is valid only if all animals in the submission
-			// are in the SAME partition. Multiple partitions → ambiguous at shed grain → NULL.
-			partitionLabel := ""
-			if len(byGoat) > 0 {
-				// Get the first completion's partition as a reference
-				firstPartition := ""
-				for _, completion := range byGoat {
-					if completion.PartitionLabel != "" && completion.PartitionLabel != "whole" {
-						firstPartition = completion.PartitionLabel
-					}
-					break
-				}
-				// Verify all completions have the same partition
-				allSame := true
-				for _, completion := range byGoat {
-					currPartition := ""
-					if completion.PartitionLabel != "" && completion.PartitionLabel != "whole" {
-						currPartition = completion.PartitionLabel
-					}
-					if currPartition != firstPartition {
-						allSame = false
-						break
-					}
-				}
-				if allSame && firstPartition != "" {
-					partitionLabel = firstPartition
-				}
-			}
 			subjectLabel := vaccinationSubjectLabel(len(byGoat), shedLabels, vaccinationVaccineSummary(byGoat))
 			if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 				TenantID:     tenantID,
@@ -372,7 +340,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 				MediaRefs:      groupMedia,
 				OperatorID:     operatorID,
 				ShedID:         shedID,
-				PartitionLabel: stringPtr(partitionLabel),
+				PartitionLabel: nil,
 				ParkID:         parkID,
 				CapturedAt:     earliest,
 				IdempotencyKey: "vaccination:submission:" + submissionID + ":group",
@@ -395,7 +363,7 @@ func vaccinationAnimalSubjectLabel(completion vaccinationdomain.SubmissionComple
 	parts := make([]string, 0, 3)
 	shed := strings.TrimSpace(shedLabels[completion.ShedID])
 	// A leading "-" means the shed name itself did not resolve and only the partition suffix
-	// survived (" - Part 3"), which is an id-shaped fragment, not a name -- drop it rather than
+	// survived (" Part 3"), which is an id-shaped fragment, not a name -- drop it rather than
 	// show the verifier a dangling separator.
 	if shed != "" && !strings.HasPrefix(shed, "-") {
 		parts = append(parts, shed)
@@ -438,7 +406,7 @@ func vaccinationVaccineSummary(completions map[string]vaccinationdomain.Submissi
 }
 
 // vaccinationSubjectLabel composes the shed-grain sentence: WHERE · WHAT · HOW MANY, e.g.
-// "Sumathi 1 - Part 3 · ET+TT · 12 goats". The shed carries its partition because that is the pen
+// "Sumathi 1 Part 3 · ET+TT · 12 goats". The shed carries its partition because that is the pen
 // the animals stand in; the vaccine is what the verifier is actually judging the clip against.
 // Any part that does not resolve is omitted rather than substituted with an id or a placeholder.
 func vaccinationSubjectLabel(goatCount int, shedLabels map[string]string, vaccineSummary string) string {
@@ -471,6 +439,18 @@ func vaccinationShedSummary(shedLabels map[string]string) string {
 	default:
 		return fmt.Sprintf("%d sheds", len(labels))
 	}
+}
+
+func usableShedLabel(label string) bool {
+	label = strings.TrimSpace(label)
+	if label == "" || strings.HasPrefix(label, "-") {
+		return false
+	}
+	lower := strings.ToLower(label)
+	if lower == "part" || strings.HasPrefix(lower, "part ") {
+		return false
+	}
+	return true
 }
 
 func uniqueStrings(values []string) []string {

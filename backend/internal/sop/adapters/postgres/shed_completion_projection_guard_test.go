@@ -20,11 +20,9 @@ func TestShedCompletionScheduledDateMultipleDimensionsPageBoundaryScopeHierarchy
 		"assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'",
 		"COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) > now()",
 	})
-	requireSQLShape(t, source, "assignment match keeps the full producer grain", []string{
+	requireSQLShape(t, source, "assignment match uses exact shed grain", []string{
 		"assignment.batch_id = oi.batch_id",
 		"assignment.shed_id = g.shed_id",
-		"regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')",
-		"regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')",
 		"cardinality(assignment.vaccine_rule_ids) = 0",
 		"assignment.vaccine_rule_ids @> ARRAY[oi.rule_id]",
 	})

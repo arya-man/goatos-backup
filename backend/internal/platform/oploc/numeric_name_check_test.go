@@ -22,7 +22,7 @@ func TestSplitShedPartitionNameDoesNotInventPartitionsFromTrailingNumbers(t *tes
 	}
 }
 
-func TestSplitShedPartitionNameStillParsesTheWordedConvention(t *testing.T) {
+func TestSplitShedPartitionNameStillParsesLegacyHyphenWordedConvention(t *testing.T) {
 	shed, partition := SplitShedPartitionName("Godel 1 - Part 3")
 	if shed != "Godel 1" || partition != "Part 3" {
 		t.Fatalf("got shed=%q partition=%q, want \"Godel 1\"/\"Part 3\"", shed, partition)

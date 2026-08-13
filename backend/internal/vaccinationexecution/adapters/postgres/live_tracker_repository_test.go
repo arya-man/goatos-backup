@@ -33,13 +33,13 @@ func TestLiveTrackerOneToManyCannotFanOutAdministrations(t *testing.T) {
 			t.Errorf("%s must GROUP BY goat before joining; an ungrouped join multiplies administrations by evidence rows", table)
 		}
 	}
-	// The drive assignment is 0:N per (shed, partition, day). Resolving it through a bare JOIN would
+	// The drive assignment is 0:N per (exact shed, day). Resolving it through a bare JOIN would
 	// duplicate every obligation in a shed that has two assignment rows. It is pre-aggregated to ONE
-	// row per (shed, normalized partition) — a per-obligation LATERAL re-scanned the day's whole
-	// assignment set, with two regexp_replace() calls per row, once for every obligation on the board.
+	// row per exact shed — a per-obligation LATERAL re-scanned the day's whole assignment set once
+	// for every obligation on the board.
 	if !strings.Contains(sql, "day_assignments AS (") ||
-		!strings.Contains(sql, "SELECT DISTINCT ON (a.shed_id,") {
-		t.Fatal("the drive assignment must be resolved ONCE per shed x partition, not per obligation")
+		!strings.Contains(sql, "SELECT DISTINCT ON (a.shed_id)") {
+		t.Fatal("the drive assignment must be resolved ONCE per exact shed, not per obligation")
 	}
 	if !strings.Contains(sql, "ORDER BY a.shed_id, ") || !strings.Contains(sql, ", a.assignment_id\n)") {
 		t.Error("the pre-aggregated assignment must keep the ORDER BY assignment_id tie-break the LATERAL had")
@@ -526,11 +526,11 @@ func TestLiveTrackerVaccineLabelsNeverComeFromTheEmptyCatalog(t *testing.T) {
 // the vaccination surface, so the same partition is not called two different things on two screens.
 func TestLiveTrackerShedLabelMatchesOperationalNaming(t *testing.T) {
 	cases := map[[2]string]string{
-		{"Gandhi", "3"}:         "Gandhi - 3",
-		{"Sumathi 2", "Part 4"}: "Sumathi 2 - Part 4",
-		{"Mandela 2", "whole"}:  "Mandela 2",
-		{"Old Yashoda", ""}:     "Old Yashoda",
-		{"Godel 1", "part 2"}:   "Godel 1 - part 2",
+		{"Gandhi 3", "3"}:              "Gandhi 3",
+		{"Sumathi 2 Part 4", "Part 4"}: "Sumathi 2 Part 4",
+		{"Mandela 2", "whole"}:         "Mandela 2",
+		{"Old Yashoda", ""}:            "Old Yashoda",
+		{"Godel 1 Part 2", "part 2"}:   "Godel 1 Part 2",
 	}
 	for input, want := range cases {
 		if got := domain.ShedDisplayLabel(input[0], input[1]); got != want {
@@ -551,7 +551,7 @@ func TestLiveTrackerFilterOptionSeparatorIsARealControlCharacter(t *testing.T) {
 	}
 	for _, expr := range []string{
 		"min(se.protocol_name) || chr(31) || min(se.dose_code)",
-		"COALESCE(sh.name, '') || chr(31) || se.partition_label",
+		"COALESCE(sh.name, '') || chr(31) || ''",
 	} {
 		if !strings.Contains(liveTrackerFilterOptionsSQL, expr) {
 			t.Errorf("composite label %q must join on chr(31)", expr)

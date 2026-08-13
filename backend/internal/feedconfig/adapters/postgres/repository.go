@@ -1356,7 +1356,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 // held "part_3". The write path's FOR UPDATE lookup could therefore never match an existing cell of
 // any pen whose label contains a separator: it fell through to the insert branch, which has no
 // ON CONFLICT, and died on feed_experiment_config_natural_key_uidx. Editing an authored kg on
-// "Godel 1 - Part 8" was a 500. Purely numeric pens ("2", "3") were unaffected, which is why it
+// "Godel 1 Part 8" was a 500. Purely numeric pens ("2", "3") were unaffected, which is why it
 // survived review -- both spellings agree there.
 //
 // Rendering the column's own expression against the same function removes the twin rather than
@@ -1523,7 +1523,7 @@ FOR UPDATE`, tenantID, shedID).Scan(&locked); err != nil {
 // reactivateExperimentPen brings a PEN's remaining retired cells back to active when one of its
 // cells is authored.
 //
-// Pen-scoped, not shed-scoped: authoring a quantity on Godel 1 - Part 8 says nothing about Part 3,
+// Pen-scoped, not shed-scoped: authoring a quantity on Godel 1 Part 8 says nothing about Part 3,
 // and un-retiring Part 3 as a side effect would put a pen back on the experiment workflow that
 // nobody asked to re-enrol. The whole-shed version of this quietly did exactly that.
 //

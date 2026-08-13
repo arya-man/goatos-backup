@@ -13,17 +13,17 @@ func TestSummariseMatchesLiveWriterCollapseRule(t *testing.T) {
 		plural string
 		want   string
 	}{
-		{"partition is preserved verbatim", []string{"Sumathi 1 - Part 3"}, "sheds", "Sumathi 1 - Part 3"},
-		{"duplicates collapse to one", []string{"Sumathi 1 - Part 3", "Sumathi 1 - Part 3"}, "sheds", "Sumathi 1 - Part 3"},
+		{"partition is preserved verbatim", []string{"Sumathi 1 Part 3"}, "sheds", "Sumathi 1 Part 3"},
+		{"duplicates collapse to one", []string{"Sumathi 1 Part 3", "Sumathi 1 Part 3"}, "sheds", "Sumathi 1 Part 3"},
 		// The mixed-vaccine case: LIMIT 1 would have produced just one of these.
 		{"two vaccines are both named, sorted", []string{"PPR", "ET+TT"}, "vaccines", "ET+TT + PPR"},
 		{"order does not change the label", []string{"ET+TT", "PPR"}, "vaccines", "ET+TT + PPR"},
 		{"past two collapses to a count", []string{"PPR", "ET+TT", "Blue Tongue", "Goat Pox"}, "vaccines", "4 vaccines"},
 		{"three sheds collapse to a count", []string{"Godel 1", "Godel 2", "Mandela 2"}, "sheds", "3 sheds"},
 		// An id-shaped fragment: the shed name did not resolve and only the suffix survived.
-		{"bare partition suffix is dropped", []string{" - Part 3"}, "sheds", ""},
+		{"bare partition suffix is dropped", []string{" Part 3"}, "sheds", ""},
 		{"blank input yields nothing", []string{"", "   "}, "sheds", ""},
-		{"real value survives alongside a dropped fragment", []string{" - Part 3", "Yashoda"}, "sheds", "Yashoda"},
+		{"real value survives alongside a dropped fragment", []string{" Part 3", "Yashoda"}, "sheds", "Yashoda"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := summarise(tc.in, tc.plural); got != tc.want {

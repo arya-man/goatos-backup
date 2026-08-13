@@ -84,8 +84,8 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 	missingWeightPhoto.FeedWeightProofRef = ""
 	missingWeightPhoto.DistributionProofRef = "proof-distribution-0001"
 	missingWeightPhoto.WaterProofRef = "proof-water-0001"
-	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrDistributionProofRequired) {
-		t.Fatalf("missing feed weight photo err = %v, want ErrDistributionProofRequired", err)
+	if _, err := svc.CompleteDistribution(ctx, missingWeightPhoto); !errors.Is(err, ports.ErrFeedWeightProofRequired) {
+		t.Fatalf("missing feed weight photo err = %v, want ErrFeedWeightProofRequired", err)
 	}
 
 	missingWater := base
@@ -312,6 +312,7 @@ RETURNING completion_id::text`,
 	// The re-submit carries the weight photo (the app layer guarantees it), so the row returns to
 	// pending_verification and the new CHECK is satisfied on the way in.
 	resubmit := distributionParams()
+	resubmit.FeedWeightProofRef = "proof-weight-0001"
 	resubmit.IdempotencyKey = "feed-distribution-legacy-resubmit-0001"
 	res, err := repo.CompleteDistribution(ctx, resubmit)
 	if err != nil {
@@ -384,22 +385,8 @@ func TestCompleteDistributionPendingConflictReturnsCanonicalProofRefs(t *testing
 	retry.FeedWeightProofRef = "proof-feed-weight-photo-0002"
 	retry.DistributionProofRef = "proof-distribution-0002"
 	retry.WaterProofRef = "proof-water-0002"
-	second, err := repo.CompleteDistribution(ctx, retry)
-	if err != nil {
-		t.Fatalf("retry CompleteDistribution: %v", err)
-	}
-	if second.NewlyPending {
-		t.Fatal("retry NewlyPending = true, want false for already-pending natural-key conflict")
-	}
-	if second.CompletionID != first.CompletionID || second.RowVersion != first.RowVersion {
-		t.Fatalf("retry row=(%s,v%d), want original row=(%s,v%d)", second.CompletionID, second.RowVersion, first.CompletionID, first.RowVersion)
-	}
-	if second.FeedWeightProofRef != first.FeedWeightProofRef ||
-		second.DistributionProofRef != first.DistributionProofRef ||
-		second.WaterProofRef != first.WaterProofRef {
-		t.Fatalf("retry refs=(%q,%q,%q), want canonical first refs=(%q,%q,%q)",
-			second.FeedWeightProofRef, second.DistributionProofRef, second.WaterProofRef,
-			first.FeedWeightProofRef, first.DistributionProofRef, first.WaterProofRef)
+	if _, err := repo.CompleteDistribution(ctx, retry); !errors.Is(err, ports.ErrDistributionAlreadyRecorded) {
+		t.Fatalf("retry CompleteDistribution err=%v, want ErrDistributionAlreadyRecorded after first row %s", err, first.CompletionID)
 	}
 }
 

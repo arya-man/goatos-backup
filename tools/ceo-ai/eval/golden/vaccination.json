@@ -116,7 +116,7 @@
     "id": "vacc-partition-naming",
     "class": "vaccination_partitioned_location",
     "question": "What is due for vaccination at the partitions in Gandhi 2 today?",
-    "notes": "Operational location naming: partition_label MUST be rendered in the location display, never omitted or hidden. If Gandhi 2 is subdivided (e.g., has partitions '1' and 'Part 3'), answer must show both as distinct locations (Gandhi 2 1, Gandhi 2 - Part 3, space-dash-space for prefixed labels); never collapse to 'Gandhi 2' alone or emit the literal word 'whole'. Bare shed names (no partition_label) show just the name (Yashoda, Castro 1). Backend composes the display; assistant renders verbatim.",
+    "notes": "Operational location naming: the shed name is already the physical location. Never append partition_label to the shed name. If old compatibility rows say parent Gandhi 2 plus partition labels, they must first resolve to exact shed rows such as Gandhi 2 Part 1 and Gandhi 2 Part 3; output those exact shed names verbatim. Never emit Gandhi 2 1, Gandhi 2 - Part 3, or the literal word 'whole'.",
     "expect": {
       "aggregate_first": true,
       "partition_naming": true,

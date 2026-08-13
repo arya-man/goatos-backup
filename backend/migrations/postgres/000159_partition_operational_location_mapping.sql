@@ -70,11 +70,7 @@ AS $$
       WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
         OR lower(BTRIM(p_partition_label)) = 'whole'
         THEN BTRIM(COALESCE(p_shed_name, ''))
-      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
-        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
-        THEN format('%s %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      ELSE format('%s %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
     END
   ), '');
 $$;

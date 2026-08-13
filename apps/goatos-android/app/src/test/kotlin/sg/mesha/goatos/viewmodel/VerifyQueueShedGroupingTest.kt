@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -139,10 +141,11 @@ class VerifyQueueShedGroupingTest {
     }
 
     @Test
-    fun `submission fallback ignores legacy partition labels`() {
+    fun `submission fallback preserves stale parent partition identity`() {
         fun item(partition: String) = VerificationQueueItem(
             itemId = "item-$partition",
             shedId = "shed-castro",
+            shedLabel = "Castro",
             partitionLabel = partition,
             source = VerificationSourceRef(
                 refType = "sop_submission",
@@ -150,7 +153,44 @@ class VerifyQueueShedGroupingTest {
             ),
         )
 
-        assertEquals(item("1").verificationGroupKey(), item("2").verificationGroupKey())
+        assertNotEquals(item("1").verificationGroupKey(), item("2").verificationGroupKey())
+    }
+
+    @Test
+    fun `submission fallback ignores stale partition metadata when shed id is exact`() {
+        fun item(partition: String) = VerificationQueueItem(
+            itemId = "item-$partition",
+            shedId = "shed-castro-2",
+            shedLabel = "Castro 2",
+            operationalLocationDisplay = "Castro 2",
+            partitionLabel = partition,
+            source = VerificationSourceRef(
+                refType = "sop_submission",
+                submissionId = "shared-submission",
+            ),
+        )
+
+        assertEquals(item("2").verificationGroupKey(), item("Part 2").verificationGroupKey())
+    }
+
+    @Test
+    fun `submission fallback uses exact display without leaking partition identity`() {
+        fun item(partition: String) = VerificationQueueItem(
+            itemId = "item-$partition",
+            shedId = "shed-castro",
+            shedLabel = "Castro",
+            operationalLocationDisplay = "Castro 2",
+            partitionLabel = partition,
+            source = VerificationSourceRef(
+                refType = "sop_submission",
+                submissionId = "shared-submission",
+            ),
+        )
+
+        val key = item("2").verificationGroupKey()
+        assertEquals(key, item("Part 2").verificationGroupKey())
+        assertTrue(key.contains("legacy-display:castro 2"))
+        assertFalse(key.contains("legacy-partition"))
     }
 }
 

@@ -577,7 +577,8 @@ stage_assigned AS (
 targets AS (
     SELECT g.goat_id, g.current_location_id AS from_location_id, g.park_id AS from_park_id,
            g.shed_id AS from_shed_id, gsp.partition_label AS from_partition_label,
-           g.farm_id, COALESCE(g.management_stage, '') AS from_stage
+           g.farm_id, COALESCE(g.management_stage, '') AS from_stage,
+           $2::uuid AS requested_group_shed_id
     FROM goats g
     LEFT JOIN goat_shed_partitions gsp
       ON gsp.tenant_id = g.tenant_id

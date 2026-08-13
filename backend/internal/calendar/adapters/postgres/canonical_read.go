@@ -907,14 +907,7 @@ obligation_drive_membership AS (
     loc.park_id,
     loc.park_code,
     loc.shed_id,
-    COALESCE(
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
-      END,
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(exact_assignment.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(exact_assignment.partition_label)
-      END
-    ) AS partition_label,
+    NULL::text AS partition_label,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
     -- The ORIGINAL scheduled business date, BEFORE the "keeps showing on the current date until
     -- CLOSED" rollover below rewrites membership_at to today. Grouping and display must use the
@@ -975,18 +968,6 @@ obligation_drive_membership AS (
    AND oi.target_type = 'goat'
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = g.tenant_id
-   AND gsp.goat_id = g.goat_id
-   AND gsp.shed_id = COALESCE(g.shed_group_id, g.shed_id)
-  -- Exact assignment membership is 1:0..1 per obligation. It preserves the operational
-  -- partition on historical rows whose canonical goat partition has not been backfilled yet.
-  LEFT JOIN vaccination_drive_assignment_members exact_member
-    ON exact_member.tenant_id = oi.tenant_id
-   AND exact_member.obligation_id = oi.obligation_id
-  LEFT JOIN vaccination_drive_assignments exact_assignment
-    ON exact_assignment.tenant_id = exact_member.tenant_id
-   AND exact_assignment.assignment_id = exact_member.assignment_id
   CROSS JOIN LATERAL (
     SELECT
       CASE
@@ -1157,10 +1138,10 @@ obligation_drive_vaccine_labels AS (
 obligation_drive_shed_complete AS (
   SELECT park_id, due_date, count(*)::int AS sheds_completed
   FROM (
-    SELECT park_id, due_date, shed_id, partition_label
+    SELECT park_id, due_date, shed_id
     FROM obligation_drive_membership
     WHERE shed_id IS NOT NULL
-    GROUP BY park_id, due_date, shed_id, partition_label
+    GROUP BY park_id, due_date, shed_id
     -- An operational location is DONE when the operator has finished every animal in it --
     -- completed OR submitted. Sibling partitions of one physical shed complete independently.
     -- for verification. Requiring status='completed' alone meant a shed whose every animal was
@@ -1209,23 +1190,22 @@ obligation_drive_shed_animals AS (
     per_shed.park_id,
     per_shed.due_date,
     count(*)::int AS shed_count,
-    array_agg(per_shed.shed_name ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text)::text[] AS shed_labels,
-    array_agg(COALESCE(per_shed.partition_label, '') ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text)::text[] AS shed_partition_labels,
+    array_agg(per_shed.shed_name ORDER BY per_shed.shed_name, per_shed.shed_id::text)::text[] AS shed_labels,
+    array_agg(''::text ORDER BY per_shed.shed_name, per_shed.shed_id::text)::text[] AS shed_partition_labels,
     jsonb_agg(
       jsonb_build_object(
         'shed_id', per_shed.shed_id::text,
         'shed_name', per_shed.shed_name,
-        'partition_label', per_shed.partition_label,
+        'partition_label', NULL,
         'total_animals', per_shed.total_animals
       )
-      ORDER BY per_shed.shed_name, per_shed.partition_label NULLS FIRST, per_shed.shed_id::text
+      ORDER BY per_shed.shed_name, per_shed.shed_id::text
     ) AS sheds
   FROM (
     SELECT
       m.park_id,
       m.due_date,
       m.shed_id,
-      m.partition_label,
       COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text) AS shed_name,
       count(DISTINCT m.animal_id) FILTER (WHERE m.animal_id IS NOT NULL)::int AS total_animals
     FROM obligation_drive_membership m
@@ -1233,7 +1213,7 @@ obligation_drive_shed_animals AS (
       ON l.tenant_id = $1::uuid
      AND l.location_id = m.shed_id
     WHERE m.shed_id IS NOT NULL
-    GROUP BY m.park_id, m.due_date, m.shed_id, m.partition_label, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
+    GROUP BY m.park_id, m.due_date, m.shed_id, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
   ) per_shed
   GROUP BY per_shed.park_id, per_shed.due_date
 ),
@@ -1380,7 +1360,7 @@ obligation_drive_summary AS (
         WHERE m.currently_rejected
           AND m.status <> 'completed'
       )::int AS rejected_count,
-      count(DISTINCT (m.shed_id, COALESCE(m.partition_label, 'whole'))) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
+      count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
     WHERE current_setting('goatos.include_drive_summary', true) = 'true'

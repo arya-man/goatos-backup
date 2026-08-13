@@ -6,7 +6,7 @@
 //   OperationalLocation = the real shed where the animal/work sits.
 //
 // Domain lock: exact physical shed is atomic. Names such as "Castro 2",
-// "Gandhi 1", and "Godel 1 - Part 3" are the shed names; partition_label is
+// "Gandhi 1", and "Godel 1 Part 3" are the shed names; partition_label is
 // legacy compatibility metadata and must not be required for live identity.
 // Exact residence lives in goats.current_location_id / goats.shed_id; group
 // rollups use goats.shed_group_id or historical goat_shed_partitions evidence.
@@ -39,7 +39,7 @@
 //                   CASE statements that compose display strings must use or
 //                   reference oploc.Display() / PartitionLabel.render() /
 //                   operational_location_display(). Hand-rolled CASE duplicates
-//                   risk display-logic divergence: "Castro - Part 2" vs "Castro 2".
+//                   risk display-logic divergence: "Castro 2" vs "Castro 2".
 //   shed-name-keying
 //                   GROUP BY / map-key / list-key expressions must use shed_id,
 //                   never shed NAME. Names repeat across parks (two Castro, two
@@ -299,7 +299,7 @@ const CHECKS = [
   {
     id: "backend-owned-oploc-label",
     // AGENTS.md golden rule: the backend owns visible labels; clients render them.
-    // oploc.Display() already composes "Yashoda" / "Castro 2" / "Godel 1 - Part 3"
+    // oploc.Display() already composes "Yashoda" / "Castro 2" / "Godel 1 Part 3"
     // and ships it, so a client that rebuilds the string from name + partition is
     // duplicating a business rule into a second (and third) language where it can
     // drift. Observed 2026-08-06: AddBirthScreen rendered a bare shed name for
@@ -629,7 +629,7 @@ const CHECKS = [
     // - `partition_label` (human form: "Part 3", "3")
     // - `normalized_label` (scrubbed matching key: "3")
     // A query selected `normalized_label` and it reached the screen, so an
-    // operator saw `Mandela 2 - 3` — ambiguous, since "Mandela 2" is the shed
+    // operator saw `Mandela 2 Part 3` — ambiguous, since "Mandela 2" is the shed
     // name and "3" is the partition normalized key. This guard flags flows where
     // `normalized_label` reaches a display/label/name field or a display composer.
     // ALLOWED uses: `normalized_label` in JOINs, WHERE, GROUP BY, or as a map key.
@@ -678,7 +678,7 @@ const CHECKS = [
     // Detect CASE statements composing display strings that duplicate partition-label
     // rendering logic instead of calling the shared primitive (oploc.Display() in Go,
     // PartitionLabel.render() in Kotlin, operational_location_display() in SQL).
-    // This catches hand-rolled CASE that renders "Castro - Part 2" while the primitive
+    // This catches hand-rolled CASE that renders "Castro 2" while the primitive
     // renders "Castro 2", causing display-label mismatches across surfaces.
     test: (line, file, lines, lineIndex) => {
       if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
@@ -1253,7 +1253,7 @@ function selfTest() {
 
     // NEW CHECK FIXTURES: sql-display-drift (Defect #2 from 2026-08-06 partition sweep)
     // Real defect: SIX copies of hand-rolled CASE over partition_label, one renders
-    // "Castro - Part 2" while oploc.Display() renders "Castro 2"
+    // "Castro 2" while oploc.Display() renders "Castro 2"
     [
       "backend/internal/obligation/queries.sql",
       `  CASE WHEN gsp.partition_label IS NOT NULL

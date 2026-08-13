@@ -24,7 +24,7 @@ test("operationalLocationLabel: numeric partition metadata does not change a she
 
 test("operationalLocationLabel: worded partition metadata does not change a shed name", () => {
   assert.equal(operationalLocationLabel({ shedName: "Godel 1", partitionLabel: "Part 3" }), "Godel 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 1 - Part 3", partitionLabel: "Part 3" }), "Godel 1 - Part 3");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 1 Part 3", partitionLabel: "Part 3" }), "Godel 1 Part 3");
   assert.equal(operationalLocationLabel({ shedName: "Mandela 2 Part 1", partitionLabel: "Part 1" }), "Mandela 2 Part 1");
 });
 
@@ -38,8 +38,8 @@ test("operationalLocationLabel: exact shed names never re-append stale compatibi
   assert.equal(operationalLocationLabel({ shedName: "Castro 2", partitionLabel: "2" }), "Castro 2");
   assert.equal(operationalLocationLabel({ shedName: "Castro 3", partitionLabel: "3" }), "Castro 3");
   assert.equal(operationalLocationLabel({ shedName: "Gandhi 1", partitionLabel: "1" }), "Gandhi 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 2 - Part 1", partitionLabel: "Part 1" }), "Godel 2 - Part 1");
-  assert.equal(operationalLocationLabel({ shedName: "Godel 2 - Part 1", partitionLabel: "1" }), "Godel 2 - Part 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 2 Part 1", partitionLabel: "Part 1" }), "Godel 2 Part 1");
+  assert.equal(operationalLocationLabel({ shedName: "Godel 2 Part 1", partitionLabel: "1" }), "Godel 2 Part 1");
 });
 
 test("operationalLocationLabel: sourceShedName is already partition-bearing, never re-suffixed", () => {
@@ -76,16 +76,16 @@ const goldenFixture = [
   {
     name: "exact partition shed, worded compatibility partition",
     shedId: "shed-godel-1",
-    shedName: "Godel 1 - Part 3",
+    shedName: "Godel 1 Part 3",
     partitionLabel: "Part 3",
-    want: "Godel 1 - Part 3",
+    want: "Godel 1 Part 3",
   },
   {
     name: "exact partition shed, two-digit worded compatibility partition",
     shedId: "shed-godel-1",
-    shedName: "Godel 1 - Part 10",
+    shedName: "Godel 1 Part 10",
     partitionLabel: "Part 10",
-    want: "Godel 1 - Part 10",
+    want: "Godel 1 Part 10",
   },
   {
     name: "exact numbered shed, bare numeric compatibility partition",

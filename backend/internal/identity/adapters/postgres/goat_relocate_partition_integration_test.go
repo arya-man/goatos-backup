@@ -68,9 +68,9 @@ RETURNING location_id::text`, rpTenant, name, rpPark, status).Scan(&id); err != 
 		// eligibility.
 		inactiveAliasShed: insertShed("Castro 1", "inactive"),
 	}
-	f.castroPart1Pen = seedPartitionOperationalLocation(t, ctx, pool, f.castroShed, "1", "Castro - Part 1")
-	f.castroPart2Pen = seedPartitionOperationalLocation(t, ctx, pool, f.castroShed, "2", "Castro - Part 2")
-	f.gandhiPart3Pen = seedPartitionOperationalLocation(t, ctx, pool, f.gandhiShed, "3", "Gandhi - Part 3")
+	f.castroPart1Pen = seedPartitionOperationalLocation(t, ctx, pool, f.castroShed, "1", "Castro 1")
+	f.castroPart2Pen = seedPartitionOperationalLocation(t, ctx, pool, f.castroShed, "2", "Castro 2")
+	f.gandhiPart3Pen = seedPartitionOperationalLocation(t, ctx, pool, f.gandhiShed, "3", "Gandhi 3")
 	return f
 }
 
@@ -110,6 +110,26 @@ RETURNING goat_id::text`, rpTenant, rpParty, shedID, rpPark).Scan(&goatID); err 
 
 func seedRelocateGoatPartition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, shedID, partitionLabel, sourceShedName string) {
 	t.Helper()
+	var exactShedID string
+	if err := pool.QueryRow(ctx, `
+SELECT operational_location_id::text
+FROM shed_partitions
+WHERE tenant_id = $1::uuid
+  AND shed_id = $2::uuid
+  AND partition_label = $3
+  AND status = 'active'`,
+		rpTenant, shedID, partitionLabel).Scan(&exactShedID); err != nil {
+		t.Fatalf("resolve partition exact shed %s: %v", partitionLabel, err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET shed_id = $3::uuid,
+    current_location_id = $3::uuid,
+    shed_group_id = $4::uuid
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		rpTenant, goatID, exactShedID, shedID); err != nil {
+		t.Fatalf("move seeded goat to exact partition shed: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
@@ -188,7 +208,7 @@ func TestRelocateGoatsToShedInTxSameShedPartitionMove(t *testing.T) {
 
 	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
 		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
-		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroPart1Pen),
 		ToParkID: rpPark, ToShedID: f.castroShed,
 		DestinationPartitionLabel: strp("2"), DestinationShedName: "Castro",
 		OccurredAt: time.Now(), OutboxIdempotencyPrefix: "test-same-shed-partition-move",
@@ -226,7 +246,7 @@ func TestRelocateGoatsToShedInTxCrossShedPartitionMove(t *testing.T) {
 
 	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
 		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
-		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroPart1Pen),
 		ToParkID: rpPark, ToShedID: f.gandhiShed,
 		DestinationPartitionLabel: strp("3"), DestinationShedName: "Gandhi",
 		DestinationTag: "k2",
@@ -337,21 +357,18 @@ func TestRelocateGoatsToShedInTxPartitionedToNonPartitioned(t *testing.T) {
 
 	relocate(t, ctx, repo, ports.RelocateGoatsCommand{
 		TenantID: rpTenant, ActorID: rpActor, GoatIDs: []string{goatID},
-		FromParkID: strp(rpPark), FromShedID: strp(f.castroShed),
+		FromParkID: strp(rpPark), FromShedID: strp(f.castroPart2Pen),
 		ToParkID: rpPark, ToShedID: f.yashodaShed,
 		DestinationShedName: "Yashoda aa000004",
 		OccurredAt:          time.Now(), OutboxIdempotencyPrefix: "test-partitioned-to-non-partitioned",
 	})
 
 	shedID, partition, ok := readGoatShedAndPartition(t, ctx, pool, goatID)
-	if !ok {
-		t.Fatalf("expected the goat's goat_shed_partitions row to be updated, not deleted")
-	}
 	if shedID != f.yashodaShed {
 		t.Fatalf("goats.shed_id = %s, want the destination shed %s", shedID, f.yashodaShed)
 	}
-	if partition != "whole" {
-		t.Fatalf("goat_shed_partitions.partition_label = %q, want the 'whole' sentinel -- Yashoda has no real partition, the old \"2\" must not survive the move", partition)
+	if ok && partition != "whole" {
+		t.Fatalf("goat_shed_partitions.partition_label = %q, want no compatibility row or the 'whole' sentinel -- Yashoda has no partition, the old \"2\" must not survive the move", partition)
 	}
 	if current := readGoatCurrentLocation(t, ctx, pool, goatID); current != f.yashodaShed {
 		t.Fatalf("current_location_id = %s, want non-partitioned shed %s", current, f.yashodaShed)

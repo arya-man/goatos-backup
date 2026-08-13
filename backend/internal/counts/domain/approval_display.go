@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Backend-composed display copy for one approval-queue row.
@@ -126,10 +124,8 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 }
 
 func operationalApprovalLocation(shedName, partitionLabel string) string {
-	return oploc.OperationalLocation{
-		ShedName:       strings.TrimSpace(shedName),
-		PartitionLabel: strings.TrimSpace(partitionLabel),
-	}.Display()
+	_ = partitionLabel
+	return strings.TrimSpace(shedName)
 }
 
 func pluralAnimals(n int) string {

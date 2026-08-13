@@ -64,7 +64,7 @@ type MilkPreparationRow struct {
 	PartitionLabel string `json:"partition_label,omitempty"`
 	// OperationalLocationDisplay is the user-facing ground location: the bare shed name when
 	// PartitionLabel is empty ("Yashoda"), otherwise the shed joined to its partition following
-	// that shed's own convention ("Castro 2", "Godel 1 - Part 3"). See oploc.OperationalLocation.
+	// that shed's own convention ("Castro 2", "Godel 1 Part 3"). See oploc.OperationalLocation.
 	OperationalLocationDisplay string                   `json:"operational_location_display,omitempty"`
 	ManagementStage            string                   `json:"management_stage"`
 	HeadCount                  int                      `json:"head_count"`

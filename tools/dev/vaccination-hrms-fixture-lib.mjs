@@ -26,7 +26,7 @@
 // goat_shed_partitions (canonical per-animal partition assignment seeded at animal placement).
 // NO CHANGE to fixture bytes/hashes/counts: partition resolution is a seed DATA contract
 // (every animal in a partitioned shed must have a goat_shed_partitions row at seed time), not
-// a source-file schema change. Source shed labels like "Godel 1 - Part 3" are parsed by the
+// a source-file schema change. Source shed labels like "Godel 1 Part 3" are parsed by the
 // seeder into physical shed + partition at animal write time; goat_shed_partitions rows are
 // seeded from that parsed label, and later migrations backfill partition_label on location-bearing
 // output tables from that seeded data. The fixture's source validation adds a partition-resolution
@@ -164,7 +164,7 @@ export const HEALTH_CASE_LOG_NORMALIZATION = Object.freeze({
 });
 export const CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING = true;
 export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
-  "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
+  "raw shed labels like Gandhi 1 and Godel 1 Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
 export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;

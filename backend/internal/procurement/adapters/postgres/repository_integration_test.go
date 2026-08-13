@@ -22,6 +22,7 @@ const (
 	testPark           = "00000000-0000-4000-8000-000000003001"
 	testShed           = "71000000-0000-4000-8000-000000000001"
 	testPartitionShed  = "71000000-0000-4000-8000-000000000002"
+	testPartitionExact = "71000000-0000-4000-8000-000000000012"
 	testOtherGoat      = "71000000-0000-4000-8000-0000000000ff"
 )
 
@@ -965,9 +966,19 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			t.Fatalf("partition dispatch: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')
-ON CONFLICT DO NOTHING`, testTenant, testPartitionShed); err != nil {
+WITH exact AS (
+  INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+  VALUES ($1::uuid, $2::uuid, 'shed', 'PROC_PARTITION_TEST_SHED_PART_1', 'Procurement Partition Test Shed Part 1', $4::uuid, 'active')
+  ON CONFLICT (location_id) DO UPDATE SET
+    name = EXCLUDED.name,
+    parent_location_id = EXCLUDED.parent_location_id,
+    status = 'active'
+  RETURNING location_id
+)
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+SELECT $2::uuid, $3::uuid, 'Part 1', '1', 'active', 'manual', exact.location_id
+FROM exact
+ON CONFLICT DO NOTHING`, testPartitionExact, testTenant, testPartitionShed, testPark); err != nil {
 			t.Fatalf("seed shed partition: %v", err)
 		}
 		if _, err := repo.RecordArrivalReview(ctx, ports.ArrivalReview{
@@ -1008,8 +1019,8 @@ FROM goat_shed_partitions
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, testTenant, partitionGoat.GoatID).Scan(&partitionLabel, &sourceShedName); err != nil {
 			t.Fatalf("read goat_shed_partitions: %v", err)
 		}
-		if partitionLabel != "Part 1" || sourceShedName != "Procurement Partition Test Shed - Part 1" {
-			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Partition Test Shed - Part 1", partitionLabel, sourceShedName)
+		if partitionLabel != "Part 1" || sourceShedName != "Procurement Partition Test Shed Part 1" {
+			t.Fatalf("goat_shed_partitions = %q/%q, want Part 1/Procurement Partition Test Shed Part 1", partitionLabel, sourceShedName)
 		}
 		var handoffShedID, identityPayloadShedID, outboxPayloadShedID, outboxScopeShedID, auditScopeID string
 		if err := pool.QueryRow(ctx, `
@@ -1286,9 +1297,10 @@ func seedProcurementCommon(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	t.Helper()
 	_, err := pool.Exec(ctx, `
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1, $2, 'shed', 'PROC_TEST_SHED', 'Procurement Test Shed', $4, 'active'),
-       ($3, $2, 'shed', 'PROC_PARTITION_TEST_SHED', 'Procurement Partition Test Shed', $4, 'active')
-ON CONFLICT (tenant_id, location_code) DO NOTHING`, testShed, testTenant, testPartitionShed, testPark)
+VALUES ($1, $2, 'shed', 'PROC_TEST_SHED', 'Procurement Test Shed', $5, 'active'),
+       ($3, $2, 'shed', 'PROC_PARTITION_TEST_SHED', 'Procurement Partition Test Shed', $5, 'active'),
+       ($4, $2, 'shed', 'PROC_PARTITION_TEST_SHED_PART_1', 'Procurement Partition Test Shed Part 1', $5, 'active')
+ON CONFLICT (tenant_id, location_code) DO NOTHING`, testShed, testTenant, testPartitionShed, testPartitionExact, testPark)
 	if err != nil {
 		t.Fatalf("seed shed: %v", err)
 	}

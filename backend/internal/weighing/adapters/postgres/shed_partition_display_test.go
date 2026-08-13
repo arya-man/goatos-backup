@@ -50,16 +50,16 @@ func TestApplyShedPartitionDisplayNeverRendersWholeSentinel(t *testing.T) {
 }
 
 func TestApplyShedPartitionDisplayKeepsExactShedName(t *testing.T) {
-	shed := domain.CampaignShed{LocationID: "loc-2", DisplayName: "Godel 1 - Part 3"}
+	shed := domain.CampaignShed{LocationID: "loc-2", DisplayName: "Godel 1 Part 3"}
 	applyShedPartitionDisplay(&shed)
-	if shed.ParentShedName != "Godel 1 - Part 3" {
-		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 - Part 3")
+	if shed.ParentShedName != "Godel 1 Part 3" {
+		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 Part 3")
 	}
 	if shed.PartitionLabel != "" {
-		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 - Part 3 is the shed", shed.PartitionLabel)
+		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 Part 3 is the shed", shed.PartitionLabel)
 	}
-	if shed.OperationalLocationDisplay != "Godel 1 - Part 3" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
+	if shed.OperationalLocationDisplay != "Godel 1 Part 3" {
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 Part 3")
 	}
 }
 
@@ -70,7 +70,7 @@ func TestApplyShedPartitionDisplayWithStoredLabelKeepsExactShedName(t *testing.T
 	}{
 		{name: "Castro 2", storedLabel: "2"},
 		{name: "Gandhi 1", storedLabel: "1"},
-		{name: "Godel 2 - Part 1", storedLabel: "Part 1"},
+		{name: "Godel 2 Part 1", storedLabel: "Part 1"},
 		{name: "Mandela 2 Part 1", storedLabel: "Part 1"},
 	}
 	for _, c := range cases {
@@ -89,16 +89,16 @@ func TestApplyShedPartitionDisplayWithStoredLabelKeepsExactShedName(t *testing.T
 }
 
 func TestApplyPlannerShedPartitionDisplay(t *testing.T) {
-	shed := domain.PlannerShed{LocationID: "loc-3", Name: "Godel 1 - Part 3"}
+	shed := domain.PlannerShed{LocationID: "loc-3", Name: "Godel 1 Part 3"}
 	applyPlannerShedPartitionDisplay(&shed)
-	if shed.ParentShedName != "Godel 1 - Part 3" {
-		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 - Part 3")
+	if shed.ParentShedName != "Godel 1 Part 3" {
+		t.Fatalf("ParentShedName = %q, want %q", shed.ParentShedName, "Godel 1 Part 3")
 	}
 	if shed.PartitionLabel != "" {
-		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 - Part 3 is the shed", shed.PartitionLabel)
+		t.Fatalf("PartitionLabel = %q, want blank because Godel 1 Part 3 is the shed", shed.PartitionLabel)
 	}
-	if shed.OperationalLocationDisplay != "Godel 1 - Part 3" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
+	if shed.OperationalLocationDisplay != "Godel 1 Part 3" {
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 Part 3")
 	}
 }
 
@@ -170,12 +170,12 @@ func TestPlannerParkBucketsPartitionStatusMatrixNeverRendersWholeSentinel(t *tes
 
 func TestPlannerOperationalDisplayIgnoresCompatibilityPartitionLabel(t *testing.T) {
 	shed := domain.PlannerShed{
-		LocationID:      "godel-2-part-1",
-		ParentShedName: "Godel 2 - Part 1",
+		LocationID:     "godel-2-part-1",
+		ParentShedName: "Godel 2 Part 1",
 		PartitionLabel: "Part 1",
 	}
 	applyPlannerShedOperationalDisplay(&shed)
-	if shed.Name != "Godel 2 - Part 1" || shed.OperationalLocationDisplay != "Godel 2 - Part 1" {
+	if shed.Name != "Godel 2 Part 1" || shed.OperationalLocationDisplay != "Godel 2 Part 1" {
 		t.Fatalf("display = (%q, %q), want exact shed name", shed.Name, shed.OperationalLocationDisplay)
 	}
 	if shed.PartitionLabel != "" {

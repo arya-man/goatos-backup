@@ -36,7 +36,7 @@ type ShedWeightsRow struct {
 	// ShedDisplayName is resolved from locations.name, never from the bucket's own
 	// display_name: that column is free text typed at planning time and has held
 	// "M1P5", "C1" and "Mandela 2 Part 6" for sheds whose canonical names are
-	// "Mandela 1 - Part 5", "Castro 1" and "Mandela 2 - Part 6".
+	// "Mandela 1 Part 5", "Castro 1" and "Mandela 2 Part 6".
 	ShedDisplayName            string `json:"shed_display_name"`
 	PartitionLabel             string `json:"partition_label,omitempty"`
 	OperationalLocationDisplay string `json:"operational_location_display"`

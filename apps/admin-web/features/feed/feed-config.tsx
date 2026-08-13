@@ -132,6 +132,7 @@ function EffectiveWindow({
  * keyed by the actual shed id: "Castro 1", "Mandela 2 Part 1", etc.
  */
 type ExperimentShedGroup = {
+  locationKey: string;
   shedId: string;
   parkId: string;
   /** Backend-supplied park name. Shown as its own column because the list may span both parks. */
@@ -154,6 +155,17 @@ type ExperimentShedGroup = {
   rows: FeedConfigExperiment[];
 };
 
+function experimentLocationKey(input: {
+  shed_id: string;
+  operational_location_display?: string | null;
+  partition_label?: string | null;
+}): string {
+  const display = (input.operational_location_display ?? "").trim();
+  const legacyPartition = (input.partition_label ?? "").trim();
+  if (!display && !legacyPartition) return input.shed_id;
+  return [input.shed_id, display, legacyPartition].join("\u001f");
+}
+
 type FeedConfigPenOption = {
   park_id: string;
   shed_id: string;
@@ -166,7 +178,9 @@ type FeedConfigPenOption = {
  * Regroups one bounded page of flat experiment cells into exact-shed groups, preserving the
  * backend's (shed, feed item) order.
  *
- * Keyed on shed_id, never on a NAME. Shed names repeat across parks, but IDs do not.
+ * Keyed by exact operational identity. Clean exact-shed rows collapse to the shed id; stale
+ * compatibility rows keep their hidden display/partition discriminator so they cannot overwrite
+ * each other during a rolling deployment. The visible label remains the exact shed display.
  *
  * This is NOT a read-time rollup presented as business truth: it re-shapes rows already fetched for
  * display and computes no total. Every number rendered is the backend's own authored value.
@@ -174,14 +188,15 @@ type FeedConfigPenOption = {
 function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShedGroup[] {
   const byPen = new Map<string, ExperimentShedGroup>();
   for (const row of rows) {
-    const key = row.shed_id;
+    const key = experimentLocationKey(row);
     const existing = byPen.get(key);
     if (!existing) {
       byPen.set(key, {
+        locationKey: key,
         shedId: row.shed_id,
         parkId: row.park_id,
         parkName: row.park_name,
-        partitionLabel: "",
+        partitionLabel: row.partition_label ?? "",
         locationDisplay: row.operational_location_display,
         category: row.experiment_category,
         headCount: row.head_count ?? null,
@@ -431,7 +446,7 @@ export async function FeedConfigPage({
     .map((pen) => ({
       parkId: pen.park_id,
       shedId: pen.shed_id,
-      partitionLabel: "",
+      partitionLabel: pen.partition_label ?? "",
       // Exact shed name from backend. Clients never rejoin a shed name and a partition themselves.
       display: pen.operational_location_display,
     }));
@@ -991,7 +1006,7 @@ export async function FeedConfigPage({
                     // Fragment.key, not a key on the first <tr>: a shed contributes SEVERAL sibling
                     // rows, so the fragment is the list item React reconciles and the key belongs on
                     // it. Keying only the inner rows leaves the fragment itself unkeyed.
-	                    <Fragment key={shed.shedId}>
+	                    <Fragment key={shed.locationKey}>
                       {/* One header row per shed carrying its arm, head count and the workflow
                           switch, then one row per authored feed item beneath it. */}
                       <tr>
@@ -1054,7 +1069,7 @@ export async function FeedConfigPage({
                               parkId={shed.parkId}
                               shedId={shed.shedId}
                               shedName={shedName}
-                              partitionLabel=""
+                              partitionLabel={shed.partitionLabel}
                               targetStatus={shed.active ? "retired" : "active"}
                             />
                             {/* Adding a feed item is a PEN-level act, so it sits on the pen's own
@@ -1065,7 +1080,7 @@ export async function FeedConfigPage({
                               action={saveExperimentCell}
                               parkId={shed.parkId}
                               shedId={shed.shedId}
-                              partitionLabel=""
+                              partitionLabel={shed.partitionLabel}
                               experimentCategory={shed.category}
                               headCount={shed.headCount}
                               availableItems={catalogItems.filter(
@@ -1114,7 +1129,7 @@ export async function FeedConfigPage({
                                 action={saveExperimentCell}
                                 parkId={row.park_id}
                                 shedId={row.shed_id}
-                                partitionLabel=""
+                                partitionLabel={row.partition_label ?? ""}
                                 feedItem={row.feed_item}
                                 experimentCategory={row.experiment_category}
                                 absoluteKg={row.absolute_kg}

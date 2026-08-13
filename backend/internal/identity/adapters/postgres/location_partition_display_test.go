@@ -55,13 +55,13 @@ func TestApplyLocationPartitionKeepsExactShedNameWhenLegacyPartitionExists(t *te
 
 func TestApplyLocationPartitionDoesNotAppendPartPrefixConvention(t *testing.T) {
 	loc := domain.LocationPath{
-		OperationalLocationDisplay: "Godel 1 - Part 3",
+		OperationalLocationDisplay: "Godel 1 Part 3",
 		ShedID:                     strPtr("shed-godel-1-part-3"),
-		ShedName:                   strPtr("Godel 1 - Part 3"),
+		ShedName:                   strPtr("Godel 1 Part 3"),
 	}
-	applyLocationPartition(&loc, nullStr("Part 3"), nullStr("Godel 1 - Part 3"))
-	if loc.OperationalLocationDisplay != "Godel 1 - Part 3" {
-		t.Fatalf("Display = %q, want %q", loc.OperationalLocationDisplay, "Godel 1 - Part 3")
+	applyLocationPartition(&loc, nullStr("Part 3"), nullStr("Godel 1 Part 3"))
+	if loc.OperationalLocationDisplay != "Godel 1 Part 3" {
+		t.Fatalf("Display = %q, want %q", loc.OperationalLocationDisplay, "Godel 1 Part 3")
 	}
 }
 

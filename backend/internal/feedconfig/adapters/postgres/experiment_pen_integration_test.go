@@ -40,7 +40,7 @@ const (
 func seedPennedShed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	// A name the migration baseline does not already use. The baseline ships the real farm's
-	// locations, INCLUDING the legacy alias rows named 'Godel 1 - Part 3' -- separate shed rows that
+	// locations, INCLUDING the legacy alias rows named 'Godel 1 Part 3' -- separate shed rows that
 	// duplicate a (shed + pen) location. Naming the fixture shed 'Godel 1' put two rows on the same
 	// operational-location display and made this test assert against whichever won the map, which is
 	// a fixture defect, not a product one. See the note on the undivided-shed assertion below for
@@ -738,7 +738,7 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	}
 
 	// The authored pen, spelled the way the farm spells it and joined the canonical way.
-	penA, ok := byDisplay["Kepler 7 - Part 3"]
+	penA, ok := byDisplay["Kepler 7 Part 3"]
 	if !ok {
 		t.Fatalf("pen A missing; got displays %v", keysOf(byDisplay))
 	}
@@ -752,7 +752,7 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 
 	// Its EMPTY sibling is still a real place and must be offerable. A catalog derived from
 	// per-animal data would hide it.
-	penB, ok := byDisplay["Kepler 7 - Part 4"]
+	penB, ok := byDisplay["Kepler 7 Part 4"]
 	if !ok {
 		t.Fatalf("empty sibling pen missing; got displays %v", keysOf(byDisplay))
 	}
@@ -776,7 +776,7 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 
 	// KNOWN ENVIRONMENT HAZARD, deliberately not asserted here because it is not this query's to
 	// fix: the baseline also carries legacy alias rows that are THEMSELVES sheds named
-	// 'Godel 1 - Part 3'. In STG all 120 of them are status='inactive', so the active-only filter
+	// 'Godel 1 Part 3'. In STG all 120 of them are status='inactive', so the active-only filter
 	// above excludes them and the catalog is clean. Nothing in migrations performs that
 	// deactivation, so on a freshly migrated database they are active and would be offered here as
 	// bare sheds alongside the real pens. That same fresh database also gets an EMPTY

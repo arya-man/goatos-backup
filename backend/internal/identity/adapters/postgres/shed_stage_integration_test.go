@@ -31,8 +31,10 @@ const (
 // (Yashoda). The two-pen shape is the point: it is what proves the write is pen-scoped rather than
 // building-scoped.
 type ssFixture struct {
-	castroShed  string
-	yashodaShed string
+	castroGroupShed string
+	castroOneShed   string
+	castroPart2Shed string
+	yashodaShed     string
 }
 
 func seedShedStageFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) ssFixture {
@@ -47,16 +49,22 @@ RETURNING location_id::text`, ssTenant, name, ssPark).Scan(&id); err != nil {
 		}
 		return id
 	}
-	f := ssFixture{castroShed: insertShed("Castro"), yashodaShed: insertShed("Yashoda")}
+	f := ssFixture{
+		castroGroupShed: insertShed("Castro"),
+		castroOneShed:   insertShed("Castro 1"),
+		castroPart2Shed: insertShed("Castro Part 2"),
+		yashodaShed:     insertShed("Yashoda"),
+	}
 
-	// The partition CATALOG. partition_label is the DISPLAY label; normalized_label is the
-	// matching key. Seeding both apart is deliberate -- a query that returns the key would render
-	// "Castro - 1" as "Castro - 1" by luck here, so pen 2 uses the 'Part N' convention where the
-	// two genuinely differ and a wrong column is visible.
-	for _, pen := range []struct{ label, normalized string }{{"1", "1"}, {"Part 2", "2"}} {
+	// Compatibility catalog: callers may still send a parent shed plus old partition key, but the
+	// operational location is the exact physical shed row. Nothing should render by concatenating
+	// Castro + partition_label.
+	for _, pen := range []struct {
+		label, normalized, exactShedID string
+	}{{"1", "1", f.castroOneShed}, {"Part 2", "2", f.castroPart2Shed}} {
 		if _, err := pool.Exec(ctx, `
-INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
-VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')`, ssTenant, f.castroShed, pen.label, pen.normalized); err != nil {
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, operational_location_id)
+VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual', $5::uuid)`, ssTenant, f.castroGroupShed, pen.label, pen.normalized, pen.exactShedID); err != nil {
 			t.Fatalf("seed shed_partitions %s: %v", pen.label, err)
 		}
 	}
@@ -88,17 +96,35 @@ VALUES ($1::uuid, 'icu', 'ICU', NULL, 'active')`, ssTenant); err != nil {
 // seedStageGoat places one live animal in a pen with a starting cohort tag and band.
 func seedStageGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, partitionLabel, stage, band string) string {
 	t.Helper()
+	groupShedID := ""
+	exactShedID := shedID
+	sourceShedName := "seed"
+	if partitionLabel != "" {
+		if err := pool.QueryRow(ctx, `
+SELECT sp.shed_id::text, sp.operational_location_id::text, exact.name
+FROM shed_partitions sp
+JOIN locations exact
+  ON exact.tenant_id = sp.tenant_id
+ AND exact.location_id = sp.operational_location_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.shed_id = $2::uuid
+  AND (sp.partition_label = $3 OR sp.normalized_label = regexp_replace(lower(btrim($3)), '^part[[:space:]]+', ''))
+  AND sp.status = 'active'
+LIMIT 1`, ssTenant, shedID, partitionLabel).Scan(&groupShedID, &exactShedID, &sourceShedName); err != nil {
+			t.Fatalf("resolve exact shed for partition %s: %v", partitionLabel, err)
+		}
+	}
 	var goatID string
 	if err := pool.QueryRow(ctx, `
-INSERT INTO goats (tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex, age_band, management_stage)
-VALUES ($1::uuid, 'alive', 'goat', $2::uuid, $3::uuid, $4::uuid, $3::uuid, 'Boer', 'female', $5, $6)
-RETURNING goat_id::text`, ssTenant, ssParty, shedID, ssPark, band, stage).Scan(&goatID); err != nil {
+INSERT INTO goats (tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, shed_group_id, breed, sex, age_band, management_stage)
+VALUES ($1::uuid, 'alive', 'goat', $2::uuid, $3::uuid, $4::uuid, $3::uuid, NULLIF($5, '')::uuid, 'Boer', 'female', $6, $7)
+RETURNING goat_id::text`, ssTenant, ssParty, exactShedID, ssPark, groupShedID, band, stage).Scan(&goatID); err != nil {
 		t.Fatalf("seed goat: %v", err)
 	}
 	if partitionLabel != "" {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')`, ssTenant, goatID, shedID, partitionLabel); err != nil {
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`, ssTenant, goatID, groupShedID, partitionLabel, sourceShedName); err != nil {
 			t.Fatalf("seed goat_shed_partitions: %v", err)
 		}
 	}
@@ -139,8 +165,8 @@ func reclassifyCmd(shedID, partition, stage, key string) ports.ReclassifyShedSta
 // TestReclassifyShedStageScopeHierarchyKeepsSiblingPensAndShedsUntouched is the SCOPE adversarial
 // case: the write must reach exactly one pen.
 //
-// Castro - 1, Castro - 2 and Yashoda all hold K2 kids. Reclassifying Castro - 1 to Mother must move
-// ONLY Castro - 1. A predicate that dropped the partition would take the whole building; one that
+// Castro 1, Castro Part 2 and Yashoda all hold K2 kids. Reclassifying Castro 1 to Mother must move
+// ONLY Castro 1. A predicate that dropped the partition would take the whole building; one that
 // dropped the shed would take the park. Both failures are invisible without a sibling in place,
 // which is why all three exist here.
 func TestReclassifyShedStageScopeHierarchyKeepsSiblingPensAndShedsUntouched(t *testing.T) {
@@ -152,11 +178,11 @@ func TestReclassifyShedStageScopeHierarchyKeepsSiblingPensAndShedsUntouched(t *t
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	pen1 := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	pen2 := seedStageGoat(t, ctx, pool, f.castroShed, "Part 2", "K2", "kid")
+	pen1 := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	pen2 := seedStageGoat(t, ctx, pool, f.castroGroupShed, "Part 2", "K2", "kid")
 	other := seedStageGoat(t, ctx, pool, f.yashodaShed, "", "K2", "kid")
 
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-scope"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-scope"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
@@ -168,7 +194,7 @@ func TestReclassifyShedStageScopeHierarchyKeepsSiblingPensAndShedsUntouched(t *t
 	if stage, band := readStageAndBand(t, ctx, pool, pen1); stage != "Mother" || band != "adult" {
 		t.Fatalf("selected pen goat = (%s, %s), want (Mother, adult)", stage, band)
 	}
-	for name, goatID := range map[string]string{"sibling pen Castro - 2": pen2, "other shed Yashoda": other} {
+	for name, goatID := range map[string]string{"sibling pen Castro Part 2": pen2, "other shed Yashoda": other} {
 		if stage, band := readStageAndBand(t, ctx, pool, goatID); stage != "K2" || band != "kid" {
 			t.Fatalf("%s was changed to (%s, %s) -- it is outside the selected pen and must be untouched", name, stage, band)
 		}
@@ -191,12 +217,12 @@ func TestReclassifyShedStageOneToManyKeepsCardinalityAtOneRowPerGoat(t *testing.
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2-Male", "kid")
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "Mother", "adult")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "F2-Male", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "Mother", "adult")
 
-	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-card"))
+	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-card"))
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}
@@ -235,11 +261,11 @@ func TestReclassifyShedStageStatusBucketsExcludeNonLiveAnimals(t *testing.T) {
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	live := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	live := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 	// 'sold', not 'exited': goats_exited_lifecycle_check restricts a row carrying exited_at to
 	// dead/sold/culled/transferred/lost/merged/inactive. 'exited' is not a lifecycle_status value.
-	exited := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	merged := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	exited := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	merged := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 
 	if _, err := pool.Exec(ctx, `
 UPDATE goats SET lifecycle_status='sold', exited_at=now() WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`,
@@ -252,7 +278,7 @@ UPDATE goats SET merged_into_goat_id=$3::uuid WHERE tenant_id=$1::uuid AND goat_
 		t.Fatalf("mark merged: %v", err)
 	}
 
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-status"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-status"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
@@ -285,10 +311,10 @@ func TestReclassifyShedStagePaginationIsAbsentSoTheWholePenIsWritten(t *testing.
 
 	const penSize = 25
 	for range penSize {
-		seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+		seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 	}
 
-	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-page"))
+	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-page"))
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}
@@ -297,7 +323,7 @@ func TestReclassifyShedStagePaginationIsAbsentSoTheWholePenIsWritten(t *testing.
 			preview.TotalLive, preview.Changing, penSize, penSize)
 	}
 
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-page-2"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-page-2"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
@@ -308,7 +334,7 @@ func TestReclassifyShedStagePaginationIsAbsentSoTheWholePenIsWritten(t *testing.
 	var stragglers int
 	if err := pool.QueryRow(ctx, `
 SELECT count(*) FROM goats WHERE tenant_id=$1::uuid AND shed_id=$2::uuid AND management_stage <> 'Mother'`,
-		ssTenant, f.castroShed).Scan(&stragglers); err != nil {
+		ssTenant, f.castroGroupShed).Scan(&stragglers); err != nil {
 		t.Fatalf("count stragglers: %v", err)
 	}
 	if stragglers != 0 {
@@ -331,11 +357,11 @@ func TestReclassifyShedStageMultipleDimensionsCarryAgeBandAndEmitOneEventPerChan
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	kidA := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	kidB := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2-Male", "kid")
-	alreadyAdult := seedStageGoat(t, ctx, pool, f.castroShed, "1", "Mother", "adult")
+	kidA := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	kidB := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "F2-Male", "kid")
+	alreadyAdult := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "Mother", "adult")
 
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-band"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-band"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
@@ -374,9 +400,9 @@ WHERE tenant_id=$1::uuid AND event_type='goat.stage_changed' AND aggregate_id=$2
 	}
 
 	// The response's location display is the DB round trip, not a formatter unit test: '1' is the
-	// display label seeded in the catalog, so the pen reads "Castro - 1".
-	if result.OperationalLocationDisplay != "Castro - 1" {
-		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro - 1")
+	// display label seeded in the catalog, so the pen reads "Castro 1".
+	if result.OperationalLocationDisplay != "Castro 1" {
+		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro 1")
 	}
 }
 
@@ -392,9 +418,9 @@ func TestReclassifyShedStageRepairsSameStageStaleAgeBand(t *testing.T) {
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	stale := seedStageGoat(t, ctx, pool, f.castroShed, "1", "Mother", "kid")
+	stale := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "Mother", "kid")
 
-	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-stale-preview"))
+	preview, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-stale-preview"))
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}
@@ -402,7 +428,7 @@ func TestReclassifyShedStageRepairsSameStageStaleAgeBand(t *testing.T) {
 		t.Fatalf("preview changing=%d unchanged=%d, want 1/0 for a same-stage stale age_band", preview.Changing, preview.Unchanged)
 	}
 
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-stale-band"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-stale-band"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
@@ -425,10 +451,8 @@ WHERE tenant_id=$1::uuid AND event_type='goat.stage_changed' AND aggregate_id=$2
 	}
 }
 
-// TestReclassifyShedStageRendersDisplayLabelNotNormalizedKey pins operational-location defect
-// class 1: partition_label ('Part 2') is the human label and normalized_label ('2') is a matching
-// key. Selecting the key renders "Castro - 2" where the farm says "Castro - Part 2". That defect
-// shipped, was fixed, and was then reintroduced by another module hours later.
+// TestReclassifyShedStageRendersExactShedName pins the exact-shed contract: legacy partition keys
+// may be accepted as input, but output must be the physical shed name itself.
 func TestReclassifyShedStageRendersDisplayLabelNotNormalizedKey(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -437,19 +461,19 @@ func TestReclassifyShedStageRendersDisplayLabelNotNormalizedKey(t *testing.T) {
 
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
-	seedStageGoat(t, ctx, pool, f.castroShed, "Part 2", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "Part 2", "K2", "kid")
 
 	// Requested by the NORMALIZED key on purpose: the caller may send either form, and the answer
 	// must still be the display label.
-	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "2", "Mother", "key-label"))
+	result, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "2", "Mother", "key-label"))
 	if err != nil {
 		t.Fatalf("reclassify: %v", err)
 	}
-	if result.PartitionLabel != "Part 2" {
-		t.Fatalf("partition_label=%q, want %q -- normalized_label is a matching key and must never be rendered", result.PartitionLabel, "Part 2")
+	if result.PartitionLabel != "" {
+		t.Fatalf("partition_label=%q, want blank compatibility label -- exact shed name is the display identity", result.PartitionLabel)
 	}
-	if result.OperationalLocationDisplay != "Castro - Part 2" {
-		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro - Part 2")
+	if result.OperationalLocationDisplay != "Castro Part 2" {
+		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro Part 2")
 	}
 }
 
@@ -466,9 +490,9 @@ func TestReclassifyShedStageRejectsClinicalTargetAndWritesNothing(t *testing.T) 
 
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
-	goatID := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	goatID := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 
-	_, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "icu", "key-clinical"))
+	_, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "icu", "key-clinical"))
 	if !errors.Is(err, ports.ErrClinicalDestinationTag) {
 		t.Fatalf("err = %v, want ErrClinicalDestinationTag", err)
 	}
@@ -499,9 +523,9 @@ func TestReclassifyShedStageExactReplayDoesNotWriteTwice(t *testing.T) {
 
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
-	goatID := seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	goatID := seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 
-	cmd := reclassifyCmd(f.castroShed, "1", "Mother", "key-replay")
+	cmd := reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-replay")
 	first, err := repo.ReclassifyShedStage(ctx, cmd)
 	if err != nil {
 		t.Fatalf("first call: %v", err)
@@ -545,15 +569,15 @@ func TestReclassifyShedStageSameKeyDifferentPenIsRejected(t *testing.T) {
 
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
-	pen2Goat := seedStageGoat(t, ctx, pool, f.castroShed, "Part 2", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
+	pen2Goat := seedStageGoat(t, ctx, pool, f.castroGroupShed, "Part 2", "K2", "kid")
 
-	if _, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-shared")); err != nil {
+	if _, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-shared")); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 
 	// Same stored key, different pen => different request hash.
-	conflicting := reclassifyCmd(f.castroShed, "Part 2", "Mother", "key-shared")
+	conflicting := reclassifyCmd(f.castroGroupShed, "Part 2", "Mother", "key-shared")
 	conflicting.RequestHash = "hash:different-pen"
 	if _, err := repo.ReclassifyShedStage(ctx, conflicting); !errors.Is(err, ports.ErrIdempotencyConflict) {
 		t.Fatalf("err = %v, want ErrIdempotencyConflict", err)
@@ -603,7 +627,7 @@ func TestReclassifyShedStageEmptyPenIsReportedNotSilentlySucceeded(t *testing.T)
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
-	if _, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "key-empty")); !errors.Is(err, ports.ErrReclassifyEmptyScope) {
+	if _, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "1", "Mother", "key-empty")); !errors.Is(err, ports.ErrReclassifyEmptyScope) {
 		t.Fatalf("err = %v, want ErrReclassifyEmptyScope", err)
 	}
 }
@@ -619,9 +643,9 @@ func TestReclassifyShedStageUnknownPartitionFailsClosed(t *testing.T) {
 
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
-	seedStageGoat(t, ctx, pool, f.castroShed, "1", "K2", "kid")
+	seedStageGoat(t, ctx, pool, f.castroGroupShed, "1", "K2", "kid")
 
-	_, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "9", "Mother", "key-unknown"))
+	_, err := repo.ReclassifyShedStage(ctx, reclassifyCmd(f.castroGroupShed, "9", "Mother", "key-unknown"))
 	if !errors.Is(err, ports.ErrInvalidReference) {
 		t.Fatalf("err = %v, want ErrInvalidReference for a partition absent from the catalog", err)
 	}

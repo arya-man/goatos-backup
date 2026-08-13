@@ -31,7 +31,7 @@ feed_rows AS (
 //
 // GRAIN (STG-verified 2026-08-11): feed sheets are authored at the PHYSICAL shed
 // (18 sheds on STG), while weighing buckets are often synthetic per-partition
-// locations ("Godel 1 - Part 3" as its own locations row, parent = park) — only
+// locations ("Godel 1 Part 3" as its own locations row, parent = park) — only
 // 3 of 52 weighing locations join feed_direction_issue_rows.shed_id directly,
 // and the locations parent chain does not connect them. The reliable bridge is
 // the HERD REGISTER: goats.shed_id is the physical shed feed generation itself

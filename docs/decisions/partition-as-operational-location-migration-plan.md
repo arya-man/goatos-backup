@@ -7,7 +7,7 @@ Date: 2026-08-10
 ## Decision Direction
 
 Physical partition/pen is the operational location. If goats live in
-`Godel 1 - Part 1`, the goat's canonical residence must be that exact pen, not
+`Godel 1 Part 1`, the goat's canonical residence must be that exact pen, not
 the abstract parent `Godel 1`.
 
 Target invariant:
@@ -52,7 +52,7 @@ prove every live goat, then update the open work that depends on that mapping.
 1. Create one canonical active `location_type='pen'` row under each physical
    parent shed. Reuse a row only when tenant, type, and parent already match.
    Preserve legacy park-level alias rows as migration evidence; do not activate
-   them as canonical pens. Example: `Godel 1 - Part 1`, `Godel 1 - Part 2`,
+   them as canonical pens. Example: `Godel 1 Part 1`, `Godel 1 Part 2`,
    `Mandela 2 - Part 6`.
 2. Add and backfill durable `shed_partitions.operational_location_id`, keyed by
    `(tenant_id, shed_id, normalized_label)`. Enforce a tenant-scoped FK to one

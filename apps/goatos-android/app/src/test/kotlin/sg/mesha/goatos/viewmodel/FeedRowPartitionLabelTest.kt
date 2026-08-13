@@ -115,8 +115,8 @@ class FeedRowGrainKeyTest {
     @Test
     fun `exact part-named shed ids do not split on stale partition metadata`() {
         assertEquals(
-            direction("1", shedLabel = "Godel 1 - Part 1").grainKey,
-            direction("Part 1", shedLabel = "Godel 1 - Part 1").grainKey,
+            direction("1", shedLabel = "Godel 1 Part 1").grainKey,
+            direction("Part 1", shedLabel = "Godel 1 Part 1").grainKey,
         )
         assertEquals(
             packing("Part 3", shedLabel = "Mandela 2 Part 3").grainKey,
@@ -137,14 +137,22 @@ class FeedRowGrainKeyTest {
     }
 
     @Test
-    fun `legacy parent shed rows with backend exact display survive as separate rows`() {
+    fun `legacy parent shed rows can key by backend exact display without exposing partition`() {
+        val one = direction("1", display = "Castro 1").grainKey
+        val two = direction("2", display = "Castro 2").grainKey
+
+        org.junit.Assert.assertNotEquals(one, two)
+        org.junit.Assert.assertTrue(one.contains("|legacy-display|castro 1"))
+        org.junit.Assert.assertTrue(two.contains("|legacy-display|castro 2"))
+        org.junit.Assert.assertFalse(one.contains("legacy-partition"))
+        org.junit.Assert.assertFalse(two.contains("legacy-partition"))
+    }
+
+    @Test
+    fun `backend exact display does not split on stale partition spelling`() {
         assertEquals(
-            direction("1", display = "Castro 1").grainKey,
-            direction("Part 1", display = "Castro 1").grainKey,
-        )
-        org.junit.Assert.assertNotEquals(
-            direction("1", display = "Castro 1").grainKey,
             direction("2", display = "Castro 2").grainKey,
+            direction("Part 2", display = "Castro 2").grainKey,
         )
     }
 

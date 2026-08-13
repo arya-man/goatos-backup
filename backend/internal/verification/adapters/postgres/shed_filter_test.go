@@ -2,11 +2,9 @@ package postgres
 
 import "testing"
 
-// The filter OPTIONS this repository emits are oploc.Key() values
-// ("<uuid>#<normalized partition>"). The queue query casts the shed filter to
-// ::uuid. Feeding the composite key straight into that cast made Postgres reject
-// the whole request with `invalid input syntax for type uuid`, which the client
-// surfaced as stale cached rows and no error at all.
+// The filter OPTIONS this repository historically emitted were oploc.Key() values
+// ("<uuid>#<normalized partition>"). Live verification is exact-shed grain now:
+// stale suffixes are stripped so they cannot hide exact-shed rows.
 func TestSplitShedFilter(t *testing.T) {
 	const shed = "6f7e1d2c-0000-4000-8000-000000000001"
 	tests := []struct {
@@ -26,22 +24,20 @@ func TestSplitShedFilter(t *testing.T) {
 			raw:  shed, wantShed: shed, wantPartition: "",
 		},
 		{
-			name: "worded partition normalizes to its bare form",
-			raw:  shed + "#Part 3", wantShed: shed, wantPartition: "3",
+			name: "worded partition is ignored",
+			raw:  shed + "#Part 3", wantShed: shed, wantPartition: "",
 		},
 		{
-			name: "numeric partition passes through",
-			raw:  shed + "#2", wantShed: shed, wantPartition: "2",
+			name: "numeric partition is ignored",
+			raw:  shed + "#2", wantShed: shed, wantPartition: "",
 		},
 		{
-			// oploc.Key() emits the "whole" sentinel for an unpartitioned shed; it must
-			// survive the round trip or the option would match nothing.
-			name: "whole sentinel round-trips",
-			raw:  shed + "#whole", wantShed: shed, wantPartition: "whole",
+			name: "whole sentinel is ignored",
+			raw:  shed + "#whole", wantShed: shed, wantPartition: "",
 		},
 		{
-			name: "case and padding are normalized, matching oploc.NormalizePartition",
-			raw:  shed + "#  PART  3 ", wantShed: shed, wantPartition: "3",
+			name: "case and padding are ignored with the suffix",
+			raw:  shed + "#  PART  3 ", wantShed: shed, wantPartition: "",
 		},
 	}
 	for _, tt := range tests {

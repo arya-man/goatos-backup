@@ -343,7 +343,7 @@ func run(args []string) error {
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 300*time.Second, "seed timeout")
 	// DEFAULT FALSE, and it must stay that way. The 34 experiment sheds are named for PARTITIONS
-	// ("Castro 1", "Godel 1 - Part 3"), and resolveExperimentSheds needs an active shed row of that
+	// ("Castro 1", "Godel 1 Part 3"), and resolveExperimentSheds needs an active shed row of that
 	// exact name. In an environment that stores partitions the canonical way -- physical shed
 	// "Castro" plus partition "1", with the partition-named locations row held inactive -- none of
 	// them resolve and the seed correctly fails closed.
@@ -638,7 +638,7 @@ func catalogItemLabels(grid map[string]farmGrid, experiments []experimentShed) [
 // collected and reported together, so an operator fixing a naming drift sees the whole list rather
 // than one name per re-run.
 //
-// Matching is on the NORMALIZED name (feed_config_norm's Go twin), so 'Godel 1 - Part 3' and
+// Matching is on the NORMALIZED name (feed_config_norm's Go twin), so 'Godel 1 Part 3' and
 // 'Godel 1 -Part 3' are the same shed, and a duplicate normalized name within one park is itself a
 // failure: with two candidates there is no non-arbitrary answer, and guessing would author an
 // experiment against the wrong animals.
@@ -701,7 +701,7 @@ WHERE tenant_id = $1::uuid
 	out := map[string]string{}
 	var missing, conflicting []string
 	for _, row := range experiments {
-		// The authored name is the exact operational shed ("Castro 1", "Godel 1 - Part 3"). Do not
+		// The authored name is the exact operational shed ("Castro 1", "Godel 1 Part 3"). Do not
 		// split it into a parent shed plus partition label; that was the old collapsed model and it
 		// is exactly how feed-direction drifted away from vaccination/counts.
 		key := row.Farm + "\x1f" + configNormKey(row.Shed)

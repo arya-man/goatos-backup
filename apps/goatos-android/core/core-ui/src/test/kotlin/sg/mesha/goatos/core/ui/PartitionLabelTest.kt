@@ -166,16 +166,16 @@ private val goldenFixture = listOf(
     GoldenFixtureRow(
         name = "exact partition shed, worded compatibility partition",
         shedId = "shed-godel-1",
-        shedName = "Godel 1 - Part 3",
+        shedName = "Godel 1 Part 3",
         partitionLabel = "Part 3",
-        want = "Godel 1 - Part 3",
+        want = "Godel 1 Part 3",
     ),
     GoldenFixtureRow(
         name = "exact partition shed, two-digit worded compatibility partition",
         shedId = "shed-godel-1",
-        shedName = "Godel 1 - Part 10",
+        shedName = "Godel 1 Part 10",
         partitionLabel = "Part 10",
-        want = "Godel 1 - Part 10",
+        want = "Godel 1 Part 10",
     ),
     GoldenFixtureRow(
         name = "exact numbered shed, bare numeric compatibility partition",

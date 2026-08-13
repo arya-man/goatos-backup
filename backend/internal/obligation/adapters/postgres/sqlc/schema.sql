@@ -1735,20 +1735,16 @@ $$;
 
 CREATE FUNCTION public.shed_partition_exact_shed_candidate(p_shed_name text, p_partition_label text) RETURNS text
     LANGUAGE sql
-    AS $_$
+    AS $$
   SELECT NULLIF(BTRIM(
     CASE
       WHEN NULLIF(BTRIM(COALESCE(p_partition_label, '')), '') IS NULL
         OR lower(BTRIM(p_partition_label)) = 'whole'
         THEN BTRIM(COALESCE(p_shed_name, ''))
-      WHEN BTRIM(p_partition_label) ~* '^part[[:space:]]+'
-        THEN format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      WHEN BTRIM(p_partition_label) ~ '^[0-9]+$'
-        THEN format('%s %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
-      ELSE format('%s - %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
+      ELSE format('%s %s', BTRIM(COALESCE(p_shed_name, '')), BTRIM(p_partition_label))
     END
   ), '');
-$_$;
+$$;
 
 
 --
@@ -2684,22 +2680,6 @@ CREATE TABLE public.breeds (
 
 
 --
--- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.goat_shed_partitions (
-    tenant_id uuid NOT NULL,
-    goat_id uuid NOT NULL,
-    shed_id uuid NOT NULL,
-    partition_label text DEFAULT 'whole'::text NOT NULL,
-    source_shed_name text NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
-    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
-);
-
-
---
 -- Name: goats; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2767,12 +2747,11 @@ CREATE VIEW ceo_ai.animal_current_scope AS
     g.sex,
     COALESCE(b.canonical_name, g.breed) AS breed,
     (((now() AT TIME ZONE 'Asia/Kolkata'::text))::date - COALESCE(g.dob, g.approx_dob)) AS age_days,
-    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label
-   FROM ((((public.goats g
+    NULL::text AS partition_label
+   FROM (((public.goats g
      LEFT JOIN public.locations pk ON ((pk.location_id = g.park_id)))
      LEFT JOIN public.locations sh ON ((sh.location_id = g.shed_id)))
-     LEFT JOIN public.breeds b ON ((b.breed_id = g.breed_id)))
-     LEFT JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))));
+     LEFT JOIN public.breeds b ON ((b.breed_id = g.breed_id)));
 
 
 --
@@ -2836,6 +2815,22 @@ CREATE VIEW ceo_ai.audit_activity_summary AS
     max(created_at) AS last_activity_at
    FROM public.audit_log al
   GROUP BY tenant_id, (((created_at AT TIME ZONE 'Asia/Kolkata'::text))::date), COALESCE(resource_type, scope_type, 'general'::text), COALESCE(actor_type, 'system'::text), action, (metadata ->> 'result'::text);
+
+
+--
+-- Name: goat_shed_partitions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.goat_shed_partitions (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    shed_id uuid NOT NULL,
+    partition_label text DEFAULT 'whole'::text NOT NULL,
+    source_shed_name text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT goat_shed_partitions_partition_nonblank CHECK ((btrim(partition_label) <> ''::text)),
+    CONSTRAINT goat_shed_partitions_source_nonblank CHECK ((btrim(source_shed_name) <> ''::text))
+);
 
 
 --
@@ -3876,21 +3871,6 @@ CREATE VIEW ceo_ai.shed_capacity_current AS
            FROM public.goats
           WHERE ((goats.shed_id IS NOT NULL) AND (goats.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))
           GROUP BY goats.tenant_id, goats.shed_id
-        ), part_occ AS (
-         SELECT g.tenant_id,
-            g.shed_id,
-            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
-            count(*) AS animals
-           FROM (public.goats g
-             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = g.tenant_id) AND (gsp.goat_id = g.goat_id))))
-          WHERE ((g.shed_id IS NOT NULL) AND (g.lifecycle_status <> ALL (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
-          GROUP BY g.tenant_id, g.shed_id, NULLIF(gsp.partition_label, 'whole'::text)
-        ), partitions AS (
-         SELECT DISTINCT goat_shed_partitions.tenant_id,
-            goat_shed_partitions.shed_id,
-            NULLIF(goat_shed_partitions.partition_label, 'whole'::text) AS partition_label
-           FROM public.goat_shed_partitions
-          WHERE (NULLIF(goat_shed_partitions.partition_label, 'whole'::text) IS NOT NULL)
         ), owner_seat AS (
          SELECT wp.tenant_id,
             wp.scope_id AS shed_id,
@@ -3905,54 +3885,26 @@ CREATE VIEW ceo_ai.shed_capacity_current AS
            FROM (public.workforce_positions wp
              JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
           WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
-        ), shed_grains AS (
-         SELECT s_1.tenant_id,
-            s_1.location_id AS shed_id,
-            NULL::text AS partition_label
-           FROM public.locations s_1
-          WHERE (s_1.location_type = 'shed'::text)
-        UNION ALL
-         SELECT p.tenant_id,
-            p.shed_id,
-            p.partition_label
-           FROM partitions p
         )
  SELECT s.tenant_id,
     pk.name AS park_label,
     s.name AS shed_label,
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
-            ELSE COALESCE(po.animals, (0)::bigint)
-        END AS animals,
+    COALESCE(occ.animals, (0)::bigint) AS animals,
     sp.capacity,
-    (sp.capacity -
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
-            ELSE COALESCE(po.animals, (0)::bigint)
-        END) AS variance,
+    (sp.capacity - COALESCE(occ.animals, (0)::bigint)) AS variance,
         CASE
             WHEN (sp.capacity IS NULL) THEN 'unknown_capacity'::text
-            WHEN (
-            CASE
-                WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
-                ELSE COALESCE(po.animals, (0)::bigint)
-            END > sp.capacity) THEN 'over_capacity'::text
-            WHEN (
-            CASE
-                WHEN (sg.partition_label IS NULL) THEN COALESCE(occ.animals, (0)::bigint)
-                ELSE COALESCE(po.animals, (0)::bigint)
-            END = sp.capacity) THEN 'at_capacity'::text
+            WHEN (COALESCE(occ.animals, (0)::bigint) > sp.capacity) THEN 'over_capacity'::text
+            WHEN (COALESCE(occ.animals, (0)::bigint) = sp.capacity) THEN 'at_capacity'::text
             ELSE 'under_capacity'::text
         END AS status,
     o.owner_label,
     bk.backup_label,
-    sg.partition_label
-   FROM (((((((shed_grains sg
-     JOIN public.locations s ON (((s.location_id = sg.shed_id) AND (s.tenant_id = sg.tenant_id))))
+    NULL::text AS partition_label
+   FROM (((((public.locations s
      LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
      LEFT JOIN public.shed_profiles sp ON ((sp.location_id = s.location_id)))
-     LEFT JOIN occ ON (((occ.tenant_id = sg.tenant_id) AND (occ.shed_id = sg.shed_id))))
-     LEFT JOIN part_occ po ON (((po.tenant_id = sg.tenant_id) AND (po.shed_id = sg.shed_id) AND (po.partition_label = sg.partition_label))))
+     LEFT JOIN occ ON (((occ.tenant_id = s.tenant_id) AND (occ.shed_id = s.location_id))))
      LEFT JOIN owner_seat o ON (((o.tenant_id = s.tenant_id) AND (o.shed_id = s.location_id))))
      LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
   WHERE (s.location_type = 'shed'::text);
@@ -4191,42 +4143,11 @@ CREATE VIEW ceo_ai.vaccination_dose_pickup AS
             oi.batch_id,
             oi.scope_id AS shed_id,
             oi.rule_id,
-            NULL::text AS partition_label,
             count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS animals_due,
             count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS animals_overdue
            FROM public.obligation_instances oi
           WHERE ((oi.scope_type = 'shed'::text) AND (oi.batch_id IS NOT NULL))
           GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id
-        ), obl_part AS (
-         SELECT oi.tenant_id,
-            oi.batch_id,
-            oi.scope_id AS shed_id,
-            oi.rule_id,
-            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
-            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS animals_due,
-            count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS animals_overdue
-           FROM (public.obligation_instances oi
-             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = oi.tenant_id) AND (gsp.goat_id = oi.target_id))))
-          WHERE ((oi.scope_type = 'shed'::text) AND (oi.batch_id IS NOT NULL) AND (oi.target_type = 'goat'::text) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
-          GROUP BY oi.tenant_id, oi.batch_id, oi.scope_id, oi.rule_id, NULLIF(gsp.partition_label, 'whole'::text)
-        ), obl_grains AS (
-         SELECT obl.tenant_id,
-            obl.batch_id,
-            obl.shed_id,
-            obl.rule_id,
-            obl.partition_label,
-            obl.animals_due,
-            obl.animals_overdue
-           FROM obl
-        UNION ALL
-         SELECT obl_part.tenant_id,
-            obl_part.batch_id,
-            obl_part.shed_id,
-            obl_part.rule_id,
-            obl_part.partition_label,
-            obl_part.animals_due,
-            obl_part.animals_overdue
-           FROM obl_part
         )
  SELECT ob.tenant_id,
     bt.planned_date AS business_date,
@@ -4243,8 +4164,8 @@ CREATE VIEW ceo_ai.vaccination_dose_pickup AS
             WHEN (ob.animals_due > 0) THEN 'pick_and_administer'::text
             ELSE 'no_action'::text
         END AS next_action,
-    ob.partition_label
-   FROM ((((((obl_grains ob
+    NULL::text AS partition_label
+   FROM ((((((obl ob
      JOIN public.obligation_batches bt ON (((bt.tenant_id = ob.tenant_id) AND (bt.batch_id = ob.batch_id))))
      LEFT JOIN public.locations sh ON ((sh.location_id = ob.shed_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = sh.parent_location_id)))
@@ -4340,17 +4261,15 @@ CREATE VIEW ceo_ai.vaccination_operator_status AS
             a.operator_id,
             a.park_id,
             a.shed_id,
-            NULLIF(a.partition_label, 'whole'::text) AS partition_label,
             a.planned_date,
             COALESCE(sum(a.animal_count), (0)::bigint) AS assigned_animals,
             COALESCE(sum(a.animal_count) FILTER (WHERE (b.status = ANY (ARRAY['planned'::text, 'in_progress'::text]))), (0)::bigint) AS due,
             COALESCE(sum(a.animal_count) FILTER (WHERE (b.status = 'completed'::text)), (0)::bigint) AS done,
-            COALESCE(sum(a.animal_count) FILTER (WHERE ((b.status = ANY (ARRAY['planned'::text, 'in_progress'::text])) AND (a.planned_date < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))), (0)::bigint) AS overdue,
-            bool_or((a.capacity_status = ANY (ARRAY['over_cap_required'::text, 'capacity_action'::text]))) AS any_over_cap
+            COALESCE(sum(a.animal_count) FILTER (WHERE ((b.status = ANY (ARRAY['planned'::text, 'in_progress'::text])) AND (a.planned_date < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))), (0)::bigint) AS overdue
            FROM (public.vaccination_drive_assignments a
              LEFT JOIN public.obligation_batches b ON (((b.tenant_id = a.tenant_id) AND (b.batch_id = a.batch_id))))
           WHERE (a.operator_id IS NOT NULL)
-          GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, NULLIF(a.partition_label, 'whole'::text), a.planned_date
+          GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id, a.planned_date
         ), cap AS (
          SELECT vaccination_capacity_config.tenant_id,
             vaccination_capacity_config.max_per_day
@@ -4379,7 +4298,7 @@ CREATE VIEW ceo_ai.vaccination_operator_status AS
             WHEN ((s.done > 0) AND (s.due = 0)) THEN 'completed'::text
             ELSE 'no_action'::text
         END AS next_action,
-    s.partition_label
+    NULL::text AS partition_label
    FROM ((((assigned s
      LEFT JOIN public.workforce_members wm ON ((wm.workforce_member_id = s.operator_id)))
      LEFT JOIN public.locations pk ON ((pk.location_id = s.park_id)))
@@ -4480,33 +4399,12 @@ CREATE VIEW ceo_ai.vaccination_shed_status AS
            FROM public.obligation_instances
           WHERE (obligation_instances.scope_type = 'shed'::text)
           GROUP BY obligation_instances.tenant_id, obligation_instances.scope_id
-        ), obl_part AS (
-         SELECT oi.tenant_id,
-            oi.scope_id AS shed_id,
-            NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
-            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS due,
-            count(*) FILTER (WHERE (oi.status = ANY (ARRAY['completed'::text, 'accepted'::text]))) AS done,
-            count(*) FILTER (WHERE ((oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text, 'missed'::text])) AND (oi.window_end < ((now() AT TIME ZONE 'Asia/Kolkata'::text))::date))) AS overdue,
-            min(oi.due_at) FILTER (WHERE (oi.status = ANY (ARRAY['scheduled'::text, 'due'::text, 'in_progress'::text]))) AS next_due,
-            count(DISTINCT oi.batch_id) FILTER (WHERE (oi.batch_id IS NOT NULL)) AS planned_sessions
-           FROM (public.obligation_instances oi
-             JOIN public.goat_shed_partitions gsp ON (((gsp.tenant_id = oi.tenant_id) AND (gsp.goat_id = oi.target_id))))
-          WHERE ((oi.scope_type = 'shed'::text) AND (oi.target_type = 'goat'::text) AND (NULLIF(gsp.partition_label, 'whole'::text) IS NOT NULL))
-          GROUP BY oi.tenant_id, oi.scope_id, NULLIF(gsp.partition_label, 'whole'::text)
         ), anim AS (
          SELECT vaccination_eligibility_rollups.tenant_id,
             vaccination_eligibility_rollups.shed_id,
             (sum(vaccination_eligibility_rollups.animal_count) FILTER (WHERE vaccination_eligibility_rollups.usable_for_vaccination))::bigint AS animals
            FROM public.vaccination_eligibility_rollups
           GROUP BY vaccination_eligibility_rollups.tenant_id, vaccination_eligibility_rollups.shed_id
-        ), anim_part AS (
-         SELECT vaccination_eligibility_rollups.tenant_id,
-            vaccination_eligibility_rollups.shed_id,
-            NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text) AS partition_label,
-            (sum(vaccination_eligibility_rollups.animal_count) FILTER (WHERE vaccination_eligibility_rollups.usable_for_vaccination))::bigint AS animals
-           FROM public.vaccination_eligibility_rollups
-          WHERE (NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text) IS NOT NULL)
-          GROUP BY vaccination_eligibility_rollups.tenant_id, vaccination_eligibility_rollups.shed_id, NULLIF(vaccination_eligibility_rollups.partition_label, 'whole'::text)
         ), owner_seat AS (
          SELECT wp.tenant_id,
             wp.scope_id AS shed_id,
@@ -4521,78 +4419,30 @@ CREATE VIEW ceo_ai.vaccination_shed_status AS
            FROM (public.workforce_positions wp
              JOIN public.workforce_members wm ON ((wm.workforce_member_id = wp.workforce_member_id)))
           WHERE ((wp.scope_type = 'shed'::text) AND (wp.is_backup_slot = true) AND (wp.status = 'active'::text) AND (now() >= wp.valid_from) AND (now() < COALESCE(wp.valid_to, 'infinity'::timestamp with time zone)))
-        ), partitions AS (
-         SELECT DISTINCT goat_shed_partitions.tenant_id,
-            goat_shed_partitions.shed_id,
-            NULLIF(goat_shed_partitions.partition_label, 'whole'::text) AS partition_label
-           FROM public.goat_shed_partitions
-          WHERE (NULLIF(goat_shed_partitions.partition_label, 'whole'::text) IS NOT NULL)
-        ), shed_grains AS (
-         SELECT s_1.tenant_id,
-            s_1.location_id AS shed_id,
-            NULL::text AS partition_label
-           FROM public.locations s_1
-          WHERE (s_1.location_type = 'shed'::text)
-        UNION ALL
-         SELECT p.tenant_id,
-            p.shed_id,
-            p.partition_label
-           FROM partitions p
         )
- SELECT sg.tenant_id,
+ SELECT s.tenant_id,
     pk.name AS park_label,
     s.name AS shed_label,
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(anim.animals, (0)::bigint)
-            ELSE COALESCE(ap.animals, (0)::bigint)
-        END AS animals,
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.due, (0)::bigint)
-            ELSE COALESCE(op.due, (0)::bigint)
-        END AS due,
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.done, (0)::bigint)
-            ELSE COALESCE(op.done, (0)::bigint)
-        END AS done,
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.planned_sessions, (0)::bigint)
-            ELSE COALESCE(op.planned_sessions, (0)::bigint)
-        END AS planned_sessions,
-    ((
-        CASE
-            WHEN (sg.partition_label IS NULL) THEN obl.next_due
-            ELSE op.next_due
-        END AT TIME ZONE 'Asia/Kolkata'::text))::date AS next_due_date,
+    COALESCE(anim.animals, (0)::bigint) AS animals,
+    COALESCE(obl.due, (0)::bigint) AS due,
+    COALESCE(obl.done, (0)::bigint) AS done,
+    COALESCE(obl.planned_sessions, (0)::bigint) AS planned_sessions,
+    ((obl.next_due AT TIME ZONE 'Asia/Kolkata'::text))::date AS next_due_date,
     om.manager_label,
     bk.backup_label,
         CASE
-            WHEN (
-            CASE
-                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.overdue, (0)::bigint)
-                ELSE COALESCE(op.overdue, (0)::bigint)
-            END > 0) THEN 'overdue'::text
-            WHEN (
-            CASE
-                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.due, (0)::bigint)
-                ELSE COALESCE(op.due, (0)::bigint)
-            END > 0) THEN 'due'::text
-            WHEN (
-            CASE
-                WHEN (sg.partition_label IS NULL) THEN COALESCE(obl.done, (0)::bigint)
-                ELSE COALESCE(op.done, (0)::bigint)
-            END > 0) THEN 'complete'::text
+            WHEN (COALESCE(obl.overdue, (0)::bigint) > 0) THEN 'overdue'::text
+            WHEN (COALESCE(obl.due, (0)::bigint) > 0) THEN 'due'::text
+            WHEN (COALESCE(obl.done, (0)::bigint) > 0) THEN 'complete'::text
             ELSE 'no_work_due'::text
         END AS status,
-    sg.partition_label
-   FROM ((((((((shed_grains sg
-     JOIN public.locations s ON (((s.location_id = sg.shed_id) AND (s.tenant_id = sg.tenant_id))))
+    NULL::text AS partition_label
+   FROM (((((public.locations s
      LEFT JOIN public.locations pk ON ((pk.location_id = s.parent_location_id)))
-     LEFT JOIN obl ON (((obl.tenant_id = sg.tenant_id) AND (obl.shed_id = sg.shed_id))))
-     LEFT JOIN obl_part op ON (((op.tenant_id = sg.tenant_id) AND (op.shed_id = sg.shed_id) AND (op.partition_label = sg.partition_label))))
-     LEFT JOIN anim ON (((anim.tenant_id = sg.tenant_id) AND (anim.shed_id = sg.shed_id))))
-     LEFT JOIN anim_part ap ON (((ap.tenant_id = sg.tenant_id) AND (ap.shed_id = sg.shed_id) AND (ap.partition_label = sg.partition_label))))
-     LEFT JOIN owner_seat om ON (((om.tenant_id = sg.tenant_id) AND (om.shed_id = sg.shed_id))))
-     LEFT JOIN backup_seat bk ON (((bk.tenant_id = sg.tenant_id) AND (bk.shed_id = sg.shed_id))))
+     LEFT JOIN obl ON (((obl.tenant_id = s.tenant_id) AND (obl.shed_id = s.location_id))))
+     LEFT JOIN anim ON (((anim.tenant_id = s.tenant_id) AND (anim.shed_id = s.location_id))))
+     LEFT JOIN owner_seat om ON (((om.tenant_id = s.tenant_id) AND (om.shed_id = s.location_id))))
+     LEFT JOIN backup_seat bk ON (((bk.tenant_id = s.tenant_id) AND (bk.shed_id = s.location_id))))
   WHERE (s.location_type = 'shed'::text);
 
 

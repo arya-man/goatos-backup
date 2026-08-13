@@ -156,28 +156,27 @@ func TestMilkPreparationPartitionRowsSumExactlyToParentShedTotal(t *testing.T) {
 		t.Fatalf("GetMilkPreparation: %v", err)
 	}
 
-	// Row grain: shed B produces TWO rows (one per partition), each carrying its own
-	// operational_location_display -- this is the whole point of the grain change.
-	shedBRows := make([]domain.MilkPreparationRow, 0, 2)
+	// Row grain: shed B is the physical shed id. Compatibility partition rows are history only and
+	// must not split the visible milk-prep row.
+	shedBRows := make([]domain.MilkPreparationRow, 0, 1)
 	for _, row := range got.Items {
 		if row.ShedID == countsShedB {
 			shedBRows = append(shedBRows, row)
 		}
 	}
-	if len(shedBRows) != 2 {
-		t.Fatalf("shed B rows=%+v, want 2 partition rows", shedBRows)
+	if len(shedBRows) != 1 {
+		t.Fatalf("shed B rows=%+v, want 1 exact shed row", shedBRows)
 	}
 	var shedBHeadSum int
 	labels := map[string]bool{}
 	for _, row := range shedBRows {
 		shedBHeadSum += row.HeadCount
 		labels[row.OperationalLocationDisplay] = true
-		if row.PartitionLabel == "" {
-			t.Fatalf("shed B row=%+v, want a real partition label", row)
+		if row.PartitionLabel != "" {
+			t.Fatalf("shed B row=%+v, want blank compatibility partition label", row)
 		}
 	}
-	// SUM-TO-PARENT PROOF: the two partition rows' head counts sum to exactly the 5 heads the
-	// pre-partition (shed-only) grain would have reported for the same goats.
+	// Exact shed proof: stale compatibility labels do not change the five-head shed total.
 	if shedBHeadSum != 5 {
 		t.Fatalf("shed B partition rows sum to %d heads, want 5 (sum-to-parent violated)", shedBHeadSum)
 	}
@@ -230,10 +229,8 @@ func TestMilkPreparationNonPartitionedShedRendersBareLabelAsOneRow(t *testing.T)
 	}
 }
 
-// TestMilkPreparationPaginationIsStableAcrossPartitionedPageBoundary proves the partition
-// dimension is part of the pagination ordering key: with several partitions on one shed, walking
-// the page with a small limit must visit every row exactly once with no duplicate and no gap
-// across the page boundary.
+// TestMilkPreparationPaginationIsStableAcrossPartitionedPageBoundary proves compatibility
+// partition labels do not create extra page rows: one exact shed is one row.
 func TestMilkPreparationPaginationIsStableAcrossPartitionedPageBoundary(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
@@ -275,8 +272,8 @@ func TestMilkPreparationPaginationIsStableAcrossPartitionedPageBoundary(t *testi
 			t.Fatalf("pagination did not terminate: offset=%d rows=%d", offset, len(all))
 		}
 	}
-	if len(all) != len(partitions) {
-		t.Fatalf("walked %d rows across pages, want exactly %d (one per partition, no dup/gap)", len(all), len(partitions))
+	if len(all) != 1 {
+		t.Fatalf("walked %d rows across pages, want exactly 1 exact shed row", len(all))
 	}
 	var headSum int
 	for _, row := range all {
@@ -379,9 +376,9 @@ func TestMilkPreparationPartitionEveryStatusBuckets(t *testing.T) {
 	}
 }
 
-// TestMilkPreparationPartitionExecutionDateIndependence: partition is a LOCATION dimension. The
-// as-of business date selects WHICH day's verification state is read; it must not change how
-// animals group by pen, and a different as-of must not silently drop or merge partition rows.
+// TestMilkPreparationPartitionExecutionDateIndependence: exact shed is the LOCATION dimension. The
+// as-of business date selects WHICH day's verification state is read; it must not change exact shed
+// grouping.
 func TestMilkPreparationPartitionExecutionDateIndependence(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
@@ -398,8 +395,8 @@ func TestMilkPreparationPartitionExecutionDateIndependence(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetMilkPreparation(%s): %v", asOf.Format("2006-01-02"), err)
 		}
-		if len(got.Items) != 2 || got.Summary.HeadCount != 2 {
-			t.Fatalf("as_of=%s items=%d summary=%d, want 2 partition rows totalling 2 regardless of date",
+		if len(got.Items) != 1 || got.Summary.HeadCount != 2 || got.Items[0].HeadCount != 2 {
+			t.Fatalf("as_of=%s items=%d summary=%d, want 1 exact shed row totalling 2 regardless of date",
 				asOf.Format("2006-01-02"), len(got.Items), got.Summary.HeadCount)
 		}
 	}

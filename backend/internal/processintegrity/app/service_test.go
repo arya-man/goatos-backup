@@ -123,7 +123,7 @@ func TestOperationalLocationDisplayPropagatesAcrossProcessIntegritySurfaces(t *t
 	due := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
 	row := processRow("partition-row", domain.WorkStateBlocked, domain.SeverityBroken, due)
 	row.PartitionLabel = strPtr("Part 3")
-	row.OperationalLocationDisplay = "K1 - Part 3"
+	row.OperationalLocationDisplay = "K1 Part 3"
 	repo := &fakeRepo{
 		result: domain.ListResult{
 			Rows:              []domain.Row{row},
@@ -160,7 +160,7 @@ func TestOperationalLocationDisplayPropagatesAcrossProcessIntegritySurfaces(t *t
 	if got := controlTower.Alerts[0].OperationalLocationDisplay; got != row.OperationalLocationDisplay {
 		t.Fatalf("control tower display=%q", got)
 	}
-	if got := controlTower.Alerts[0].ScopeLabel; got != "CBE / K1 - Part 3" {
+	if got := controlTower.Alerts[0].ScopeLabel; got != "CBE / K1 Part 3" {
 		t.Fatalf("control tower scope=%q", got)
 	}
 	if got := workflow.Row.OperationalLocationDisplay; got != row.OperationalLocationDisplay {
@@ -338,7 +338,7 @@ func TestControlTowerAlertDetailUsesHumanScopeAndGap(t *testing.T) {
 	if strings.Contains(alert.Detail, "verification_pending") {
 		t.Fatalf("detail leaked machine gap: %q", alert.Detail)
 	}
-	want := "Channapatna / Godel 2 - Part 4: proof submitted; awaiting verifier review"
+	want := "Channapatna / Godel 2 Part 4: proof submitted; awaiting verifier review"
 	if alert.Detail != want {
 		t.Fatalf("detail = %q, want %q", alert.Detail, want)
 	}

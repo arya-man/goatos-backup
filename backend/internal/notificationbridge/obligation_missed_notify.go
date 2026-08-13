@@ -74,7 +74,7 @@ type ObligationMissedNotifier struct {
 	logger          *slog.Logger
 	// locations is optional park name enrichment (see location_names.go). ShedLabel already comes
 	// through human-readable from calendarports.MissedObligationContext; this adds the park it sits
-	// in, since a shed name alone ("Godel 1 - Part 8") does not say which park to go to.
+	// in, since a shed name alone ("Godel 1 Part 8") does not say which park to go to.
 	locations *LocationNameResolver
 }
 
@@ -132,7 +132,7 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 	eventKey := "obligation.missed:" + obligationID
 	businessDate := biztime.BusinessDate(missed.DueAt)
 
-	// Name the park the shed sits in: a shed name alone ("Godel 1 - Part 8") does not tell an
+	// Name the park the shed sits in: a shed name alone ("Godel 1 Part 8") does not tell an
 	// operator working across several parks which one to go to. ONE lookup per missed-work event
 	// (not per recipient), so this stays a bounded, per-business-event read, never a fanout.
 	parkName := ""
