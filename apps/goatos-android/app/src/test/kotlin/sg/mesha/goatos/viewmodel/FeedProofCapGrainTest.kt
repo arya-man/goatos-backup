@@ -55,6 +55,63 @@ class FeedProofCapGrainTest {
         )
     }
 
+    // The rework path: the 14:00 feed correction reopens a pen whose proof was already delivered,
+    // and the operator owes a NEW clip for the changed head count. The reopen returns to the SAME
+    // group key, so the delivered row is still in Room -- and while the cap counted it, the only way
+    // back into the slot was to destroy the evidence of what was packed before the correction.
+    @Test
+    fun `a delivered proof does not close the slot when a pen is reopened`() {
+        val repository = FakeProofCaptureRepository()
+        val policy = feedShedProofPolicy("in_app_camera")
+        val task = "feed-pack:2026-08-13:shed-1:1:2:normal"
+        val field = "feed_packing_video"
+
+        val first = kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = task,
+                fieldKey = field,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "/proof/packed-before-correction.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+        val delivered = (first as sg.mesha.goatos.core.common.AppResult.Ok).value
+        // The verifier has it: this row is now history on the server.
+        repository.markSynced(delivered.id, serverProofId = "server-proof-1")
+
+        val afterReopen = kotlinx.coroutines.runBlocking {
+            repository.capture(
+                taskId = task,
+                fieldKey = field,
+                subject = sg.mesha.goatos.core.data.capture.ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "/proof/packed-after-correction.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 3L,
+                capturedEndMs = 4L,
+                capturedByPrincipalId = null,
+                proofPolicy = policy,
+            )
+        }
+
+        assertTrue(
+            "a reopened pen must be re-shootable without destroying the delivered proof: " +
+                (afterReopen as? sg.mesha.goatos.core.common.AppResult.Err)?.message,
+            afterReopen is sg.mesha.goatos.core.common.AppResult.Ok,
+        )
+    }
+
     @Test
     fun `capture refuses a second proof in the same slot and points at re-capture`() {
         val repository = FakeProofCaptureRepository()

@@ -239,10 +239,14 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         // Mirror the production per-SLOT cap. Without this the fake pools every slot under the
         // subject cap, which is exactly the behaviour the real repository stopped doing.
         proofPolicy.maximumCountPerField?.let { perFieldCap ->
+            // Mirrors activeCountForField: a DELIVERED row (serverProofId set) is history, not an
+            // in-flight duplicate, so it does not hold the slot. Keeping it counted here would make
+            // this fake disagree with the DAO and hide the reopened-pen case.
             val activeForField = rows.count {
                 it.partitionKey == partitionKey &&
                     it.fieldKey == fieldKey &&
-                    it.syncStatus != CaptureSyncStatus.FAILED
+                    it.syncStatus != CaptureSyncStatus.FAILED &&
+                    it.serverProofId == null
             }
             if (activeForField >= perFieldCap) {
                 return AppResult.Err("This proof is already recorded. Use re-capture to replace it.")
