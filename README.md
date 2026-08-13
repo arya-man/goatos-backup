@@ -132,7 +132,10 @@ keystores or passwords into commits, docs, Slack, tickets, or screenshots.
 
 Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
 for the exact Secret Manager restore, signed build, Firebase App Distribution,
-and post-install SSO/bootstrap verification steps.
+Google Play Internal Testing upload, `mesha.sg/app.apk` Storage mirror, and
+post-install SSO/bootstrap verification steps. The direct operator APK link is
+served from `gs://goatos-stg-public-downloads/operator/latest/app.apk`; updating
+it must not rebuild or redeploy the Mesha marketing website.
 
 Production release signing must use a separate production package/key/Secret
 Manager set. Do not reuse the stg upload key for prod.

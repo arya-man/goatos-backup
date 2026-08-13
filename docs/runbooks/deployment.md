@@ -146,6 +146,14 @@ Deploy owns all Cloud Run mutations. Never push a local branch, `HEAD`, `main`,
 or refspec directly to remote `stg`; local/agent hooks block it, and the deploy
 workflow rejects any SHA without the matching merged same-repo PR.
 
+If the staging deploy includes publishing an Android employee build, follow
+`docs/mobile/stg-signed-release.md` as an additional release gate. Firebase App
+Distribution alone is not complete: publish Google Play Internal Testing from
+the same source/version identity and mirror the exact Firebase APK bytes to
+`gs://goatos-stg-public-downloads/operator/latest/app.apk`, which backs
+`https://mesha.sg/app.apk`. Do not rebuild or redeploy the Mesha marketing
+website to update the APK.
+
 ## Dev Layer 1 foundation plan
 
 P7-preapply adds Terraform for Layer 1 foundation only and stops before apply.
