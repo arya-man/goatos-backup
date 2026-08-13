@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
@@ -245,6 +246,7 @@ class DefaultFeedRepository(
         database.feedPackingItemDao()
             .observeRowForPenSession(shedId, partitionLabel, workflow, sessionNo.toString())
             .map { entity -> entity?.let { json.decodeFromString<FeedPackingRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 
     override fun observeDirectionSessionStatus(
@@ -256,6 +258,7 @@ class DefaultFeedRepository(
         database.feedDirectionItemDao()
             .observeRowForShedSession(shedId, partitionLabel, workflow, sessionNo.toString())
             .map { entity -> entity?.let { json.decodeFromString<FeedDirectionRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 }
 

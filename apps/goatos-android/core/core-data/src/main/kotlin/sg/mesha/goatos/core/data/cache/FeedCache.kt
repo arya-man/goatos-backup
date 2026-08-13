@@ -70,7 +70,10 @@ interface FeedDirectionMetaCacheDao : JsonBlobCacheDao<FeedDirectionMetaCacheEnt
 @Entity(
     tableName = "feed_direction_items",
     primaryKeys = ["queryKey", "grainKey"],
-    indices = [Index(value = ["queryKey", "sortIndex"])],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
 )
 data class FeedDirectionItemEntity(
     val queryKey: String,
@@ -102,12 +105,12 @@ interface FeedDirectionItemDao {
      * session (see [sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.lifecycleStatus]'s kdoc),
      * so any one matching row is authoritative — there is no need to reconstruct the exact
      * `queryKey` the list screen happened to be filtered by when it cached the row. `grainKey` is
-     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`; the two unknown
-     * middle segments (ration group / experiment arm / shed tag) are wildcarded.
+     * `shedId|partitionLabel|workflow|rationGroup|experimentArm|shedTag|sessionNo`; uses prefix
+     * LIKE within a suffix constraint so the grainKey index is usable for the prefix scan.
      */
     @Query(
         "SELECT * FROM feed_direction_items WHERE grainKey LIKE " +
-            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|%|' || :sessionNo " +
+            ":shedId || '|' || :partitionLabel || '|' || :workflow || '|%' AND grainKey LIKE '%|' || :sessionNo " +
             "ORDER BY updatedAt DESC LIMIT 1",
     )
     fun observeRowForShedSession(
@@ -195,7 +198,10 @@ interface FeedPackingMetaCacheDao : JsonBlobCacheDao<FeedPackingMetaCacheEntity>
 @Entity(
     tableName = "feed_packing_items",
     primaryKeys = ["queryKey", "grainKey"],
-    indices = [Index(value = ["queryKey", "sortIndex"])],
+    indices = [
+        Index(value = ["queryKey", "sortIndex"]),
+        Index(value = ["grainKey"]),
+    ],
 )
 data class FeedPackingItemEntity(
     val queryKey: String,

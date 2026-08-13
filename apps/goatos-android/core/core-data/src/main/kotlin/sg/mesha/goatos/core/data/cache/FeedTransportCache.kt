@@ -17,7 +17,10 @@ data class FeedTransportRemoteKeyEntity(@PrimaryKey val businessDate:String,val 
 @Entity(
     tableName = "feed_transport_scoped_items",
     primaryKeys = ["scopeKey", "taskId"],
-    indices = [Index(value = ["scopeKey", "sortIndex"])],
+    indices = [
+        Index(value = ["scopeKey", "sortIndex"]),
+        Index(value = ["taskId"]),
+    ],
 )
 data class FeedTransportScopedItemEntity(
     val scopeKey: String,

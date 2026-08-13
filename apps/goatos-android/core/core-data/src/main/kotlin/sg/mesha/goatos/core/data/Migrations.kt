@@ -1147,3 +1147,12 @@ val MIGRATION_41_42: Migration = object : Migration(41, 42) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
     }
 }
+
+val MIGRATION_42_43: Migration = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add indexes on unindexed grain/task keys for live-status observers
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_direction_items_grainKey` ON `feed_direction_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_packing_items_grainKey` ON `feed_packing_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_taskId` ON `feed_transport_scoped_items` (`taskId`)")
+    }
+}

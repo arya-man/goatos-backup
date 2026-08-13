@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.data.cache.FeedTransportScopedItemEntity
@@ -76,6 +77,7 @@ class FeedTransportRepository(
     override fun observeTaskStatus(taskId: String): Flow<String?> =
         db.feedTransportScopedItemDao().observeByTaskId(taskId)
             .map { entity -> entity?.let { json.decodeFromString<FeedTransportTaskDto>(it.dtoJson).status } }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 
     suspend fun refresh(query: FeedTransportQuery): Result<Unit> = runCatching {
