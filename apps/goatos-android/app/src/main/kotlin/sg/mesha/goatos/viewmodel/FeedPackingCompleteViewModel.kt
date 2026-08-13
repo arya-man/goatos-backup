@@ -378,7 +378,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                         val writeResult = item.toWriteResult(QUEUED_MESSAGE, SYNCED_MESSAGE)
                         it.copy(
                             result = FeedPackingCompleteResultUi(writeResult.status.toPackingStatus(), writeResult.message.orEmpty()),
-                            canComplete = !writeResult.isCommitted && it.videoCaptured,
+                            canComplete = !writeResult.isCommitted && packingProofReadyForSubmit(it),
                         )
                     }
                 }
@@ -388,9 +388,12 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private fun recomputeCanComplete() {
         _state.update {
             val committed = it.result?.let { r -> r.status == FeedPackingCompleteStatus.SYNCED || r.status == FeedPackingCompleteStatus.QUEUED } ?: false
-            it.copy(canComplete = it.videoCaptured && !committed)
+            it.copy(canComplete = packingProofReadyForSubmit(it) && !committed)
         }
     }
+
+    private fun packingProofReadyForSubmit(state: FeedPackingCompleteUiState): Boolean =
+        state.videoCaptured && state.videoStatus.isQueuedForSubmit()
 
     private fun syncNow() {
         viewModelScope.launch {

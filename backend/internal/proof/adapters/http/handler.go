@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/proof/app"
@@ -175,13 +176,17 @@ func (h *Handler) ListUploadedProofs(w http.ResponseWriter, r *http.Request) {
 			limit = parsed
 		}
 	}
+	tenant := tenantID(r)
+	allParks, parkIDs := proofListParkAuthority(r.Context(), tenant)
 	proofs, err := h.service.ListUploadedProofs(r.Context(), domain.ListUploadedProofsQuery{
-		TenantID:      tenantID(r),
-		ScopeType:     q.Get("scope_type"),
-		ScopeID:       q.Get("scope_id"),
-		ClientTaskKey: q.Get("client_task_key"),
-		FieldKey:      q.Get("field_key"),
-		Limit:         limit,
+		TenantID:           tenant,
+		ScopeType:          q.Get("scope_type"),
+		ScopeID:            q.Get("scope_id"),
+		ClientTaskKey:      q.Get("client_task_key"),
+		FieldKey:           q.Get("field_key"),
+		Limit:              limit,
+		AllAuthorizedParks: allParks,
+		AuthorizedParkIDs:  parkIDs,
 	})
 	if err != nil {
 		h.respondErr(w, r, err)
@@ -190,12 +195,37 @@ func (h *Handler) ListUploadedProofs(w http.ResponseWriter, r *http.Request) {
 	out := make([]proofResponse, 0, len(proofs))
 	for _, proof := range proofs {
 		response := toProofResponse(proof)
-		if url, err := h.service.DownloadURL(r.Context(), tenantID(r), proof.ProofID); err == nil {
+		if url, err := h.service.DownloadURL(r.Context(), tenant, proof.ProofID); err == nil {
 			response.DownloadURL = url
 		}
 		out = append(out, response)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, listUploadedProofsResponse{Proofs: out})
+}
+
+func proofListParkAuthority(ctx context.Context, tenantID string) (bool, []string) {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	capabilities := []string{
+		permissions.TaskExecute,
+		permissions.WeighingExecute,
+		permissions.HealthExecute,
+		permissions.FeedDirectionComplete,
+	}
+	seen := map[string]struct{}{}
+	var ids []string
+	for _, capability := range capabilities {
+		if httpmiddleware.HasTenantWideCapability(grants, tenantID, capability) {
+			return true, nil
+		}
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			ids = append(ids, parkID)
+		}
+	}
+	return false, ids
 }
 
 func (h *Handler) UploadLocalSigned(w http.ResponseWriter, r *http.Request) {
@@ -313,6 +343,9 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ports.ErrNotFound):
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
 			errorEnvelope{Code: "not_found", Message: "proof was not found", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrForbidden):
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
+			errorEnvelope{Code: "permission_denied", Message: "permission denied", TraceID: traceID(r)}, nil)
 	// The proof row exists but its bytes are gone/unreadable: a KNOWN terminal condition, not a
 	// server fault. 410 Gone + retryable=false tells the client to stop retrying and render
 	// "evidence unavailable" (a 500 caused a ~5x retry storm per proof on 2026-08-02).

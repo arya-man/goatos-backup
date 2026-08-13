@@ -71,6 +71,9 @@ func (s *Service) ListUploadedProofs(ctx context.Context, query domain.ListUploa
 	if query.Limit <= 0 || query.Limit > 20 {
 		query.Limit = 20
 	}
+	if !query.AllAuthorizedParks && len(query.AuthorizedParkIDs) == 0 {
+		return nil, ports.ErrForbidden
+	}
 	return s.repo.ListUploadedProofs(ctx, query)
 }
 

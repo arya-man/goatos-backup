@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
 	"github.com/vgoats/goatos/backend/internal/proof/ports"
@@ -120,6 +121,7 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 }
 
 func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
+	const parkA = "86000000-0000-4000-8000-000000000701"
 	svc := &fakeHTTPProofService{
 		proofs: []domain.Artifact{{
 			ProofID:     httpTestProof,
@@ -136,7 +138,13 @@ func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
 	Register(mux, NewHandler(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/app/proofs/uploads?scope_type=shed&scope_id=30000000-0000-4000-8000-000000000001&client_task_key=feed-dist:shed:whole:1:morning:2026-08-13&field_key=feed_distribution_video", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	ctx := httpmiddleware.WithTenantID(req.Context(), httpTestTenant)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role:      permissions.RoleOperator,
+		ScopeType: "park",
+		ScopeID:   parkA,
+	}})
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -145,6 +153,12 @@ func TestListUploadedProofsPassesFeedSlotQuery(t *testing.T) {
 	}
 	if svc.listQuery.ClientTaskKey == "" || svc.listQuery.FieldKey != "feed_distribution_video" {
 		t.Fatalf("list query = %#v", svc.listQuery)
+	}
+	if svc.listQuery.AllAuthorizedParks {
+		t.Fatalf("park-scoped operator was treated as tenant-wide: %#v", svc.listQuery)
+	}
+	if len(svc.listQuery.AuthorizedParkIDs) != 1 || svc.listQuery.AuthorizedParkIDs[0] != parkA {
+		t.Fatalf("authorized parks = %v, want [%s]", svc.listQuery.AuthorizedParkIDs, parkA)
 	}
 	var got listUploadedProofsResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {

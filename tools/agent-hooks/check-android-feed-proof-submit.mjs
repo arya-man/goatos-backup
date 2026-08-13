@@ -48,6 +48,15 @@ function packingFindings(text, rel = files.packingVm) {
   if (!/observeSyncStatus\s*\(\s*\)/.test(text) || !/inFlightCount\s*>\s*0/.test(text)) {
     findings.push(finding(rel, text, "observeSyncStatus", "packing refresh state must observe outbox in-flight status"));
   }
+  if (!/packingProofReadyForSubmit\s*\([^)]*\)[\s\S]{0,180}videoCaptured\s*&&\s*[^;\n]*videoStatus\.isQueuedForSubmit\s*\(\s*\)/.test(text)) {
+    findings.push(finding(rel, text, "packingProofReadyForSubmit", "packing canComplete must require a captured proof whose upload status is queued, uploading, or synced"));
+  }
+  if (/canComplete\s*=\s*!writeResult\.isCommitted\s*&&\s*it\.videoCaptured/.test(text)) {
+    findings.push(finding(rel, text, "canComplete = !writeResult.isCommitted && it.videoCaptured", "packing completion observer must not re-enable submit after a failed proof"));
+  }
+  if (/canComplete\s*=\s*it\.videoCaptured\s*&&\s*!committed/.test(text)) {
+    findings.push(finding(rel, text, "canComplete = it.videoCaptured && !committed", "packing recompute must not treat a failed proof as complete"));
+  }
   return findings;
 }
 
@@ -84,8 +93,8 @@ function selfTest() {
   const goodDistribution = distributionFindings("idempotencyKey = \"feed-distribution-complete:$groupKey:$feedWeightPhotoItem:$videoItem:$waterVideoItem\"\nsyncRepository.observeItem(itemId)").length === 0;
   const goodShortDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String, videoItem: String, waterVideoItem: String): String { val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length === 0;
   const badShortDistribution = distributionFindings("private fun feedDistributionCompleteKey(groupKey: String, feedWeightPhotoItem: String, videoItem: String): String { val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem).joinToString(\"|\"); return \"feed-distribution-complete:\" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString() }\nsyncRepository.observeItem(itemId)").length >= 1;
-  const badPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey\"\nfun syncNow() {}").length >= 2;
-  const goodPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey:$videoItem\"\nfun observeSyncStatus(){ syncRepository.observeStatus().map { it.inFlightCount > 0 } }").length === 0;
+  const badPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey\"\nfun syncNow() {}\nfun recompute(){ copy(canComplete = it.videoCaptured && !committed) }").length >= 3;
+  const goodPacking = packingFindings("val completeIdempotencyKey = \"feed-packing-complete:$groupKey:$videoItem\"\nfun observeSyncStatus(){ syncRepository.observeStatus().map { it.inFlightCount > 0 } }\nprivate fun packingProofReadyForSubmit(state: FeedPackingCompleteUiState): Boolean = state.videoCaptured && state.videoStatus.isQueuedForSubmit()\nfun recompute(){ copy(canComplete = packingProofReadyForSubmit(it) && !committed) }").length === 0;
   const badTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId\"\nsync.observeStatus().map{status->status.items.firstOrNull{it.id==itemId}}").length >= 3;
   const goodTransport = transportFindings("val submitIdempotencyKey=\"feed-transport-submit:$taskId:$proof\"\nfun observeOutboxItem(itemId:String){sync.observeItem(itemId)}\nfun observeSyncStatus(){sync.observeStatus().map{it.inFlightCount>0}}").length === 0;
   const badHandler = handlerFindings("type completePackingRequest struct { ShedID string `json:\"shed_id\"` }\nCompletePackingInput{ShedID: body.ShedID}").length >= 2;
