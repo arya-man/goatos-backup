@@ -614,6 +614,7 @@ interface ProofCaptureRepository {
             partitionLabel = partitionLabel,
             awaitUploadEnqueue = awaitUploadEnqueue,
             uploadGroupKey = uploadGroupKey,
+            allowReplacementOverCap = true,
         )
         if (result is AppResult.Ok) {
             val newId = result.value.id
